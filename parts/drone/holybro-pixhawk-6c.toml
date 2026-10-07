@@ -58,14 +58,14 @@ name = "gps1"
 kind = "signal"
 type = "jst-gh.10"
 gender = "male"
-note = "GPS1 header (10 pins listed on the Holybro ports page, 2026-10-07; JST-GH family assumed, estimated); mates the M8N GPS cable (female housing, 26 cm, holybro-m8n-gps)."
+note = "GPS1 header (10 pins listed on the Holybro ports page, 2026-10-07; JST-GH family: literature by DS-009 compliance, S8/S9, see the round-3 note below); mates the M8N GPS cable (female housing, 26 cm, holybro-m8n-gps)."
 
 [[ports]]
 name = "telem1"
 kind = "signal"
 type = "jst-gh.6"
 gender = "male"
-note = "TELEM1 header (6 pins listed on the Holybro ports page, 2026-10-07; JST-GH family assumed, estimated); the SiK radio connects here. The radio cable is not a filed part, so holybro-sik-telemetry-radio-v3 declares its port neutral."
+note = "TELEM1 header (6 pins listed on the Holybro ports page, 2026-10-07; JST-GH family: literature by DS-009 compliance, S8/S9, see the round-3 note below); the SiK radio connects here. The radio cable is not a filed part, so holybro-sik-telemetry-radio-v3 declares its port neutral."
 
 [[ports]]
 name = "pwm1"
@@ -94,6 +94,264 @@ kind = "signal"
 type = "pwm"
 gender = "neutral"
 note = "FMU PWM Out channel 4 (motor 4); see pwm1."
+
+# ---- Round 3 interface completeness (Holybro ports page S7, Pixhawk Connector Standard S8, PX4 6C page S9). Pin 1 is the
+# "right side" of the controller (S7 hint). The connector family is JST GH: DS-009 (S8) defines the Pixhawk ports in that series and
+# PX4 (S9) says the 6C complies with it; the Holybro ports page names only JST-ZH (DSM) and JST-SH (debug), so GH for the rest is
+# `literature` by compliance, not a Holybro statement. Per-header 5 V pins are modelled as separate power `source` ports (a source
+# is never "floating"); the 5 V rail comes from the board input (POWER1/2 or USB), its regulator is not published.
+# POWER2 (S7 'Power1 & 2': same 6-pin pinout as POWER1; S9 '2 Power input ports (Analog)') is NOT a port here: an unwired sink
+# power port raises DRC FLOATING_PORT on every design that uses only POWER1, and the port schema has no `optional` flag. Add it as
+# a sink port when the schema gets one (see the P2c report).
+
+[[ports]]
+name = "telem1_vcc"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S9", fidelity = "datasheet" }
+note = "TELEM1 pin 1 VCC +5V (S7); 'TELEM1 Max output current limiter: 1.5A' (S9), its own limiter."
+
+[[ports]]
+name = "telem2_vcc"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S9", fidelity = "datasheet" }
+note = "TELEM2 pin 1 VCC +5V (S7); 'All other port combined output current limiter: 1.5A' (S9): the 1.5 A is shared with every port except TELEM1, so it is a combined limit, not per port."
+
+[[ports]]
+name = "telem3_vcc"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S9", fidelity = "datasheet" }
+note = "TELEM3 pin 1 VCC +5V (S7); shares the combined 1.5 A limiter of all non-TELEM1 ports (S9)."
+
+[[ports]]
+name = "gps1_vcc"
+kind = "power"
+type = "jst-gh.10"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S9", fidelity = "datasheet" }
+note = "GPS1 pin 1 VCC +5V (S7); shares the combined 1.5 A limiter of all non-TELEM1 ports (S9)."
+
+[[ports]]
+name = "gps2_vcc"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S9", fidelity = "datasheet" }
+note = "GPS2 pin 1 VCC +5V (S7); shares the combined 1.5 A limiter of all non-TELEM1 ports (S9)."
+
+[[ports]]
+name = "can1_vcc"
+kind = "power"
+type = "jst-gh.4"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S9", fidelity = "datasheet" }
+note = "CAN1 pin 1 VCC +5V (S7); shares the combined 1.5 A limiter of all non-TELEM1 ports (S9)."
+
+[[ports]]
+name = "can2_vcc"
+kind = "power"
+type = "jst-gh.4"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S9", fidelity = "datasheet" }
+note = "CAN2 pin 1 VCC +5V (S7, one table 'CAN1 & CAN2 Port'); shares the combined 1.5 A limiter of all non-TELEM1 ports (S9)."
+
+[[ports]]
+name = "i2c_vcc"
+kind = "power"
+type = "jst-gh.4"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S9", fidelity = "datasheet" }
+note = "I2C pin 1 VCC +5V (S7); shares the combined 1.5 A limiter of all non-TELEM1 ports (S9)."
+
+[[ports]]
+name = "rc_5v"
+kind = "power"
+type = "jst-gh.5"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S7", fidelity = "datasheet" }
+fidelity = "estimated"
+rationale = "Pin 1 VDD_5V_PPM_SBUS +5V of the PPM/SBUS RC port (S7). No pin current limit is published and neither Holybro nor DS-009 names the 5-pin RC connector family; JST GH 5-pin is assumed from the Pixhawk series (no fetched source says so). v_max is the printed rail voltage."
+note = "5 V pin of the RC input header; a CRSF / SBUS receiver is supplied here."
+
+[[ports]]
+name = "telem2"
+kind = "signal"
+type = "jst-gh.6"
+gender = "male"
+note = "TELEM2 (UART5): pin 1 VCC, 2 TX out, 3 RX in, 4 CTS in, 5 RTS out, 6 GND, 3.3 V logic (S7); full flow control (S9). Same pinout as the DS-009 Telemetry Port (S8). An ELRS receiver wires TX/RX here (CRSF)."
+
+[[ports]]
+name = "telem3"
+kind = "signal"
+type = "jst-gh.6"
+gender = "male"
+note = "TELEM3 (USART2): pin 2 TX out, 3 RX in, 6 GND; pins 4-5 NOT CONNECTED, or I2C4 SCL/SDA on boards with serial number XXXX 001 XXXXXX where a non-I2C device must not be plugged in (S7). No flow control (S9)."
+
+[[ports]]
+name = "gps2"
+kind = "signal"
+type = "jst-gh.6"
+gender = "male"
+note = "GPS2 basic GPS port: 2 UART8_TX out, 3 UART8_RX in, 4 I2C2_SCL, 5 I2C2_SDA, 6 GND, 3.3 V logic (S7, S9 'GPS2 - Basic GPS port')."
+
+[[ports]]
+name = "can1"
+kind = "signal"
+type = "jst-gh.4"
+gender = "male"
+note = "CAN1: pin 2 CAN1_H, 3 CAN1_L, 1 VCC +5V, 4 GND (S7); 'CAN Bus has individual silent controls or ESC RX-MUX control' (S9). DS-009 asks for twisted wires (S8)."
+
+[[ports]]
+name = "can2"
+kind = "signal"
+type = "jst-gh.4"
+gender = "male"
+note = "CAN2: same 4-pin pinout as CAN1 (S7 prints one table 'CAN1 & CAN2 Port', signal names CAN1_H / CAN1_L)."
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "jst-gh.4"
+gender = "male"
+note = "I2C: pin 2 I2C2_SCL, 3 I2C2_SDA, 3.3 V logic (S7), 1.5 k pull-ups on the autopilot per DS-009 (S8). Serial numbers up to XXXX XXX 20221100 wire pins 2-3 to I2C4 instead (S7)."
+
+[[ports]]
+name = "usb"
+kind = "signal"
+type = "usb"
+gender = "male"
+note = "USB: pin 1 VBUS +5V, 2 DM, 3 DP, 4 GND (S7), 4-pin JST-GH per the standard family; 'USB Power Input: 4.75~5.25V' (S9). Typed as the protocol (usb) because the host side is a cable to a computer, not a filed part."
+
+[[ports]]
+name = "rc_ppm_sbus"
+kind = "signal"
+type = "jst-gh.5"
+gender = "male"
+fidelity = "estimated"
+rationale = "Pin map from S7 (2 PPM&SBUS_IN +3.3V, 3 RSSI_IN +3.3V, 5 GND, 4 not connected); the 5-pin connector family is not named by Holybro or DS-009, JST GH assumed."
+note = "PPM/SBUS RC input; 'Dedicated R/C input for Spektrum / DSM and S.BUS, CPPM, analog / PWM RSSI' (S9). CRSF receivers use a TELEM UART instead."
+
+[[ports]]
+name = "dsm_rc"
+kind = "signal"
+type = "jst-zh.3"
+gender = "male"
+note = "DSM RC port, 'JST-ZH 1.5mm' (S7 heading): pin 1 VDD_3V3_SPEKTRUM +3.3V, 2 GND, 3 DSM/SPEKTRUM IN +3.3V."
+
+[[ports]]
+name = "sbus_out"
+kind = "signal"
+type = "jst-gh.3"
+gender = "male"
+fidelity = "estimated"
+rationale = "S7 gives the pin map (2 SBUS_OUT +3.3V, 3 GND, 1 not connected) but no connector family; JST GH assumed."
+note = "Dedicated S.BUS output (S9)."
+
+[[ports]]
+name = "pwm5"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "FMU PWM OUT (AUX OUT) channel 5, pin 6 FMU_CH5 +3.3V (S7). The 10-pin header (1 VDD_Servo, 2-9 FMU_CH1..8, 10 GND) is folded into the ports with its breakout, as for pwm1."
+
+[[ports]]
+name = "pwm6"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "FMU PWM OUT (AUX OUT) channel 6, pin 7 FMU_CH6 (S7); see pwm5."
+
+[[ports]]
+name = "pwm7"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "FMU PWM OUT (AUX OUT) channel 7, pin 8 FMU_CH7 (S7); see pwm5."
+
+[[ports]]
+name = "pwm8"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "FMU PWM OUT (AUX OUT) channel 8, pin 9 FMU_CH8 (S7); see pwm5."
+
+[[ports]]
+name = "main1"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "I/O PWM OUT (MAIN OUT) channel 1, pin 2 IO_CH1 +3.3V (S7: 'I/O PWM OUT = MAIN OUT'); driven by the STM32F103 IO processor (S9: '16- PWM servo outputs (8 from IO, 8 from FMU)'). 10-pin header folded into the ports with its breakout."
+
+[[ports]]
+name = "main2"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "I/O PWM OUT (MAIN OUT) channel 2, pin 3 IO_CH2 (S7); see main1."
+
+[[ports]]
+name = "main3"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "I/O PWM OUT (MAIN OUT) channel 3, pin 4 IO_CH3 (S7); see main1."
+
+[[ports]]
+name = "main4"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "I/O PWM OUT (MAIN OUT) channel 4, pin 5 IO_CH4 (S7); see main1."
+
+[[ports]]
+name = "main5"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "I/O PWM OUT (MAIN OUT) channel 5, pin 6 IO_CH5 (S7); see main1."
+
+[[ports]]
+name = "main6"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "I/O PWM OUT (MAIN OUT) channel 6, pin 7 IO_CH6 (S7); see main1."
+
+[[ports]]
+name = "main7"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "I/O PWM OUT (MAIN OUT) channel 7, pin 8 IO_CH7 (S7); see main1."
+
+[[ports]]
+name = "main8"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "I/O PWM OUT (MAIN OUT) channel 8, pin 9 IO_CH8 (S7); see main1."
 
 [params.vibration_isolation_present]
 value = 1
@@ -182,3 +440,24 @@ url = "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets
 title = "BMI088 data sheet Rev 1.9 (Bosch Sensortec), Tables 2 and 3"
 accessed = "2026-10-07"
 quote = "Total Supply Current in Normal mode IDD VDD = VDDIO =3.0V, 25C, gFS4g 150 uA (accelerometer) ... Supply Current in Normal Mode IDD VDD = VDDIO = 3.0V, 25C, ODR =1kHz 5 mA (gyroscope)"
+
+[[sources]]
+id = "S7"
+url = "https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports.md"
+title = "Pixhawk 6C Ports (Holybro docs), pinout tables"
+accessed = "2026-10-07"
+quote = "I/O PWM OUT = MAIN OUT * FMU PWM OUT = AUX OUT ... Telem 2 Port | 1(red) VCC +5V | 2(black) UART5_TX(out) +3.3V | 3(black) UART5_RX(in) +3.3V | 4(black) UART5_CTS(in) +3.3V | 5(black) UART5_RTS(out) +3.3V | 6(black) GND ... CAN1 & CAN2 Port | 1(red) VCC +5V | 2(black) CAN1_H +3.3V | 3(black) CAN1_L +3.3V | 4(black) GND ... DSM RC Port (JST-ZH 1.5mm) ... PPM/SBUS RC port | 1 VDD_5V_PPM_SBUS +5V | 2(yellow) PPM&SBUS_IN +3.3V | 3 RSSI_IN +3.3V | 4(red) (NOT CONNECTED) | 5(black) GND ... I/O PWM OUT (MAIN OUT) | 1 (Red) VDD_Servo | 2 (Black) IO_CH1 +3.3V ... 9 (Black) IO_CH8 +3.3V | 10(Black) GND"
+
+[[sources]]
+id = "S8"
+url = "https://github.com/pixhawk/Pixhawk-Standards/blob/master/DS-009%20Pixhawk%20Connector%20Standard.pdf"
+title = "DS-009 Pixhawk Connector Standard (Pixhawk SIG), Connector Series and Telemetry / CAN / I2C port pinouts (fetched as the raw PDF)"
+accessed = "2026-10-07"
+quote = "The Pixhawk connector standard is intended for in-vehicle, cross-PCB use. It uses the JST GH series which offers a latch lock mechanism at small size and a very competitive cost"
+
+[[sources]]
+id = "S9"
+url = "https://raw.githubusercontent.com/PX4/PX4-user_guide/main/en/flight_controller/pixhawk6c.md"
+title = "PX4 User Guide - Holybro Pixhawk 6C (source markdown), electrical data and interfaces"
+accessed = "2026-10-07"
+quote = "It complies with the Pixhawk [Connector Standard] ... Max input voltage: 6V - USB Power Input: 4.75~5.25V - Servo Rail Input: 0~36V ... TELEM1 Max output current limiter: 1.5A - All other port combined output current limiter: 1.5A ... 16- PWM servo outputs (8 from IO, 8 from FMU) ... 2 GPS ports - GPS1 - Full GPS port (GPS plus safety switch) - GPS2 - Basic GPS port"

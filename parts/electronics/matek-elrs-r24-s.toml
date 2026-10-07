@@ -18,22 +18,35 @@ telemetry_power_dbm = { value = 20, unit = "dBm", src = "S1", fidelity = "datash
 [[ports]]
 name = "power_in"
 kind = "power"
-type = "solder-pad"
+type = "jst-gh.6"
 gender = "neutral"
 v_max = { value = 9, unit = "V", src = "S1", fidelity = "datasheet" }
 role = "sink"
-note = "Input voltage 4~9V DC @ 5V pad"
+note = "Input voltage 4~9V DC @ 5V pad; Matek wiring: 'Receiver 5V - FC 5V, Receiver G - FC GND' (S1). The board has bare pads and no cable is listed in the packing, so the user's pigtail is the autowire wire: its FC end takes a JST-GH housing, its receiver end is soldered (hence gender neutral, no connector is pinned on this end). Typed jst-gh.6 so autowire can pair it with a Pixhawk-standard TELEM / GPS2 5 V pin; the type names the FC-side connector, not the pad. Previously solder-pad (nothing in the library could source it)."
 
 [[ports]]
 name = "crsf"
 kind = "signal"
-type = "uart"
+type = "jst-gh.6"
 gender = "neutral"
-note = "Receiver protocol CRSF on UART"
+note = "Receiver protocol CRSF on UART: 'Receiver RX - FC UART_TX for Telemetry, Receiver TX - FC UART_RX for Control' (S1); wire to a TELEM UART of the FC. Same pigtail convention as power_in: type is the FC-side JST-GH connector, the receiver end is soldered pads."
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Matek publishes no mounting holes or method for the 21 x 15 mm board (S1 lists only PCB size and weight); a 1.2 g receiver is held by foam tape, a zip tie or heat-shrink in practice, so a flat seat on any face is assumed. Underside seat, ref +x along the 21 mm side."
 
 [[sources]]
 id = "S1"
 url = "https://www.mateksys.com/?portfolio=elrs-r24"
 title = "ExpressLRS/ELRS 2.4GHz Receiver (Matek Systems product page), ELRS-R24-S"
 accessed = "2026-10-07"
-quote = "ELRS-R24-S (discontinued) ELRS-R24-S Specifications ... Telemetry power: 20dbm ... Receiver protocol: CRSF Input voltage: 4~9V DC @ 5V pad Power dissipation: 40~45mA(before binding), 60~65mA(binding), 90~95mA(wifi mode) PCB size: 21mm x 15mm Weight: 1.2g"
+quote = "ELRS-R24-S (discontinued) ELRS-R24-S Specifications ... Telemetry power: 20dbm ... Receiver protocol: CRSF Input voltage: 4~9V DC @ 5V pad Power dissipation: 40~45mA(before binding), 60~65mA(binding), 90~95mA(wifi mode) PCB size: 21mm x 15mm Weight: 1.2g Packing: 1x ELRS-R24-S ... Wiring with FC Receiver RX — FC UART_TX for Telemetry Receiver TX — FC UART_RX for Control Receiver 5V — FC 5V or 4v5 Receiver G — FC GND"
