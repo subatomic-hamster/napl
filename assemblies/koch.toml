@@ -45,8 +45,10 @@
 # XL330 400 / 0 / 0; LeRobot writes 1500 / 0 / 600 only on the elbow_flex servo, NOT applied here); device i = I_reg / 512, inert at the default 0.
 # KNOWN BEHAVIOUR of these defaults (measured in tests/python/test_design_koch.py): (1) the XL430 D = 4000 with d_scale 14160 turns a +-1 count flip
 # of the integer encoder error at 1 kHz into a duty kick of 0.28, so shoulder_lift limit-cycles (duty -0.22 / +0.35, +-1 count, 500 Hz); the MEAN
-# torque still equals the gravity torque to 1 %. Whether the real firmware does this is unknown (the D time base is an inference, dynamixel.md section 10.1
-# item 7): d_scale is the knob. (2) With P = 400 the elbow (XL330) holds the zero pose with a 5.6 deg sag (stiffness 1.2 N*m/rad; 1500 as LeRobot writes would cut it to ~1.5 deg).
+# torque still equals the gravity torque to 1 %. Cause: the D term differences the quantised count error every 1 ms with no filter (one count / ms is
+# ~1.5 rad/s, a quarter of no-load speed); a hold sweep puts the onset between D = 500 (quiet) and 1000. The unit conversions match the e-Manual
+# (KPD = KPD(TBL) / 16); the real firmware's derivative filter / time base is unpublished (dynamixel.md section 10.1 item 7), so it is not modelled;
+# a real-servo hold measurement would set it. (2) With P = 400 the elbow (XL330) holds the zero pose with a 5.6 deg sag (stiffness 1.2 N*m/rad; 1500 as LeRobot writes would cut it to ~1.5 deg).
 # Protections from the part: temperature limit (XL430 72 degC, XL330 70 degC), voltage limits (register defaults: XL430 6.0 .. 14.0 V, XL330
 # 3.5 .. 7.0 V), unload_mask = the Shutdown register default (XL430 52 = 0x34, XL330 53 = 0x35). The Dynamixel Shutdown bits 0 / 2 / 5 (input
 # voltage / overheating / overload) coincide with the sim's alarm bits 1 / 4 / 32; the bits 16 (electrical shock) and 8 (encoder) of the registers are not
