@@ -1,0 +1,93 @@
+# napl program examples/showcase/arm_loads_drone.scenario.toml     (needs PX4 SITL + napl-px4-bridge + mavsdk; see python/napl/px4.py)
+# N7 flagship: ONE physics world (the napl-px4-bridge's, in lockstep with real PX4, wall = sim time) holding the parts-built SO-101
+# arm on a shelf and the parts-built X500 V2. Program 1 drives the arm over its real protocol (a Feetech STS pty served from that same
+# World over the bridge's ctl socket): it picks a 63 g stainless cube off the shelf and puts it on the drone's top plate while PX4 idles
+# disarmed in the same lockstep. Program 2 drives the loaded drone over MAVLink (MAVSDK): takeoff, hover, a 4 m hop and back, land.
+name = "arm-loads-drone"
+
+[model]
+script = "showcase_scene.py"            # build(outdir) -> MJCF: assemblies/so101.toml + assemblies/x500v2.toml + shelf + payload, devices merged
+
+[interfaces.px4]
+bridge = "../../px4/bridge_x500v2_asm.toml"   # device names (esc1.., imu, gnss, ...) are the drone's; the arm's are prefixed arm_
+
+[interfaces.feetech]
+servos = { 1 = "/devices/arm_servo1", 2 = "/devices/arm_servo2", 3 = "/devices/arm_servo3", 4 = "/devices/arm_servo4", 5 = "/devices/arm_servo5", 6 = "/devices/arm_servo6" }
+baud = 1000000
+
+[[setup]]                              # hold the zero pose from the first ticks (a powered-off arm would fold under gravity)
+paths = ["/devices/arm_servo1", "/devices/arm_servo2", "/devices/arm_servo3", "/devices/arm_servo4", "/devices/arm_servo5", "/devices/arm_servo6"]
+attr = "torque_enable"
+values = [1]
+
+[[programs]]
+name = "arm"
+cmd = ["python", "{dir}/arm_program.py"]
+wall_s = 90                            # ~23 s of trajectory at sim rate 1.0
+
+[[programs]]
+name = "fly"
+cmd = ["python", "{dir}/fly.py"]
+wall_s = 420                           # ~60 s PX4 readiness, ~100 s flight
+
+[limits]
+wall_s = 420
+cpu_s = 900
+
+# ---- monitors (sim time; `phase` = relative to that program's start / end) --------------------------------------------------------
+# payload position in the DRONE's frame (the body /world/bottom, FLU): the placed spot is the middle of the top plate's free strip,
+# plate top face + half the cube above the bottom-plate centre.
+[[monitors]]
+name = "payload_on_plate_before_takeoff"      # the last sample of the arm program: within 2 cm of the strip's middle
+phase = "arm"
+op = "final"
+path = "/world/payload"
+attr = "pos"
+frame = "/world/bottom"
+indices = [0, 1, 2]
+ref = [0.0, -0.04693, 0.0411]
+hi = 0.02
+
+[[monitors]]
+name = "payload_stays_within_5cm_of_plate"    # in the drone frame, the whole flight program (takeoff, hover, hop, landing)
+phase = "fly"
+op = "always"
+path = "/world/payload"
+attr = "pos"
+frame = "/world/bottom"
+indices = [0, 1, 2]
+ref = [0.0, -0.04693, 0.0411]
+hi = 0.05
+
+[[monitors]]
+name = "reached_3m_with_payload"
+phase = "fly"
+column = "alt"
+op = "eventually"
+lo = 3.0
+
+[[monitors]]
+name = "max_altitude"                  # takeoff 4 m: truth peaks ~0.3 m above
+column = "alt"
+op = "always"
+hi = 6.5
+
+[[monitors]]
+name = "landed_within_1_5m_of_home"    # lands 0.8 m north of home on purpose (the arm's shelf is south): + GNSS-only position error
+column = "dist_home"
+op = "final"
+hi = 1.5
+
+[[monitors]]
+name = "landed_on_ground"
+column = "alt"
+op = "final"
+lo = -0.2
+hi = 0.2
+
+[[monitors]]
+name = "no_servo_alarm"
+paths = ["/devices/arm_servo1", "/devices/arm_servo2", "/devices/arm_servo3", "/devices/arm_servo4", "/devices/arm_servo5", "/devices/arm_servo6"]
+attr = "alarm"
+op = "always"
+hi = 0

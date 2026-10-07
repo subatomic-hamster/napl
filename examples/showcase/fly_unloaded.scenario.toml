@@ -1,0 +1,40 @@
+# Control for arm_loads_drone.scenario.toml: the same scene (arm parked holding its pose, shelf) WITHOUT the payload, the same flight
+# program. Compared with the loaded run's hover current (tests/python/test_showcase.py): the payload's weight costs current.
+name = "fly-unloaded"
+
+[model]
+script = "scene_unloaded.py"
+
+[interfaces.px4]
+bridge = "../../px4/bridge_x500v2_asm.toml"
+
+[interfaces.feetech]
+servos = { 1 = "/devices/arm_servo1", 2 = "/devices/arm_servo2", 3 = "/devices/arm_servo3", 4 = "/devices/arm_servo4", 5 = "/devices/arm_servo5", 6 = "/devices/arm_servo6" }
+baud = 1000000
+
+[[setup]]
+paths = ["/devices/arm_servo1", "/devices/arm_servo2", "/devices/arm_servo3", "/devices/arm_servo4", "/devices/arm_servo5", "/devices/arm_servo6"]
+attr = "torque_enable"
+values = [1]
+
+[[programs]]
+name = "fly"
+cmd = ["python", "{dir}/fly.py"]
+wall_s = 420
+
+[limits]
+wall_s = 420
+cpu_s = 900
+
+[[monitors]]
+name = "reached_3m"
+column = "alt"
+op = "eventually"
+lo = 3.0
+
+[[monitors]]
+name = "landed_on_ground"
+column = "alt"
+op = "final"
+lo = -0.2
+hi = 0.2

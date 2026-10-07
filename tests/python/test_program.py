@@ -2,7 +2,7 @@
 
 Arm: examples/so101/pick.scenario.toml (the SO-101 pick through the Feetech pty, ~40 s real time each run). Broken programs fail
 with evidence; a wall timeout kills the whole process group (children included, checked in /proc); rlimits are enforced; the replay
-log reproduces the final state hash. PX4 mission (marker px4): examples/x500/mission.scenario.toml.
+log reproduces the final state hash. Koch (Dynamixel pty, dynamixel_sdk): examples/koch/pick.scenario.toml. PX4 mission (marker px4): examples/x500/mission.scenario.toml.
 Needs the built kernel + build/napl-replay (hfbox: tools/remote.sh run --nolock '.venv/bin/python -m pytest tests/python/test_program.py -v -s').
 """
 
@@ -92,6 +92,47 @@ def test_pick_scenario_passes_and_replays(tmp_path):
         and tick == res["sim"]["tick"]
         and res["replay"]["match"]
     )
+
+
+def test_koch_pick_scenario_passes_and_replays(tmp_path):
+    """The Koch v1.1 pick through the Dynamixel pty with the unmodified dynamixel_sdk (the `arm` extra)."""
+    pytest.importorskip("dynamixel_sdk")
+    res, d = program.run(EX / "koch" / "pick.scenario.toml", tmp_path)
+    print(f"\n[koch] {res['program']} sim {res['sim']['sim_s']:.1f} s")
+    for m in res["monitors"]:
+        print(
+            f"[koch]   {m['name']}: pass={m['pass']} min {m['min']:.4g} max {m['max']:.4g} final {m['final']:.4g}"
+        )
+    assert res["pass"], (res["fail_reasons"], (d / "program.log").read_text())
+    assert res["kind"] == "dynamixel" and "done:" in (d / "program.log").read_text()
+    assert not res["sim"]["port_errors"] and not res["sim"]["diverged"]
+    assert res["replay"]["match"], res["replay"]
+
+
+@pytest.mark.parametrize(
+    "ifs, msg",
+    [
+        (
+            "[interfaces.dynamixel]\nservos = {1 = '/devices/s1'}\n[interfaces.px4]\nbridge = 'b.toml'",
+            "exactly one",
+        ),
+        (
+            "[interfaces.dynamixel]\nservos = {1 = '/devices/s1'}\n[interfaces.feetech]\nservos = {1 = '/devices/s1'}",
+            "exactly one",
+        ),
+        ("[interfaces.dynamixel]\nservos = {1 = '/devices/s1'}", None),
+        ("[interfaces.canbus]\nservos = {}", "needs one of"),
+    ],
+    ids=["dynamixel+px4", "dynamixel+feetech", "dynamixel", "unknown"],
+)
+def test_scenario_interface_kinds_are_validated(tmp_path, ifs, msg):
+    f = tmp_path / "v.scenario.toml"
+    f.write_text(f'{ifs}\n[program]\ncmd = ["python", "x.py"]\n')
+    if msg is None:
+        assert "dynamixel" in program.load_scenario(f)["interfaces"]
+    else:
+        with pytest.raises(program.ScenarioError, match=msg):
+            program.load_scenario(f)
 
 
 def test_wrong_servo_id_fails_with_evidence(tmp_path):

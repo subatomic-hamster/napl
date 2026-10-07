@@ -15,8 +15,15 @@ Scenario (TOML; relative paths are relative to the scenario file):
     [interfaces.feetech]         # a Feetech STS pty on a Host sim running at `limits.rate`; env NAPL_SERIAL=<pty path>
     servos = { 1 = "/devices/servo1", 2 = "/devices/servo2" }
     baud = 1000000
-    [interfaces.px4]             # PX4 SITL + napl-px4-bridge (own World); env NAPL_MAVLINK=udp://:14540. No other interface.
+    [interfaces.dynamixel]       # instead of feetech: a Dynamixel Protocol 2.0 pty, same Host sim / env; models = { id = "xl430-w250-t" |
+    servos = { 1 = "/devices/servo1" }         #   "xl330-m288-t" | "xl330-m077-t" } per bus id (default xl430-w250-t), baud as above
+    [interfaces.px4]             # PX4 SITL + napl-px4-bridge (own World); env NAPL_MAVLINK=udp://:14540. Exactly one interface per scenario.
     bridge = "../../px4/bridge_x500.toml"
+    # px4 + feetech TOGETHER (the one allowed combination): one World, the bridge's, stepped in lockstep with PX4; the Feetech pty is
+    # served from that World over the bridge's --ctl socket (napl.ctl). The programs run in order, each with NAPL_SERIAL and
+    # NAPL_MAVLINK set: [[programs]] name = "arm"  cmd = [...]   then   name = "fly"  cmd = [...]   (optional wall_s / cpu_s each).
+    # Monitors there: `column` (trace) or path + attr [+ frame = a body prim: the value in that body's frame] sampled at 10 Hz;
+    # `phase = "<program name>"` makes from / to relative to that program's start (to defaults to its end), sim seconds.
     [[setup]]                    # optional SetAttr commands before the run (logged, replayed)
     path = "/devices/servo1"; attr = "torque_enable"; values = [0]
     [program]
@@ -77,11 +84,24 @@ def load_scenario(path) -> dict:
     sc.setdefault("name", path.stem.removesuffix(".scenario"))
     sc["limits"] = {**LIMITS, **sc.get("limits", {})}
     ifs = sc.get("interfaces", {})
-    if not (set(ifs) <= {"feetech", "px4"} and ifs):
-        raise ScenarioError("[interfaces] needs feetech and/or px4")
-    if "px4" in ifs and "feetech" in ifs:
+    if not (set(ifs) <= {"feetech", "dynamixel", "px4"} and ifs):
+        raise ScenarioError("[interfaces] needs one of feetech / dynamixel / px4")
+    if set(ifs) == {
+        "feetech",
+        "px4",
+    }:  # one World in the bridge, the pty served over its ctl socket (_combo)
+        if not sc.get("programs") or any(
+            not p.get("cmd") or not p.get("name") for p in sc["programs"]
+        ):
+            raise ScenarioError(
+                "px4 + feetech needs [[programs]], each with name and cmd"
+            )
+        return sc
+    if (
+        len(ifs) > 1
+    ):  # px4 has its own World in the bridge; the two serial buses would share one NAPL_SERIAL
         raise ScenarioError(
-            "px4 (own World in the bridge) and feetech (Host sim) cannot be combined"
+            f"[interfaces] takes exactly one interface, got {sorted(ifs)}"
         )
     if not sc.get("program", {}).get("cmd"):
         raise ScenarioError("[program] cmd is required")
@@ -130,7 +150,7 @@ def _expand(monitors, kind):
     for m in monitors:
         if "name" not in m:
             raise ScenarioError(f"monitor without a name: {m}")
-        if kind == "px4":
+        if kind == "px4" or (kind == "combo" and "column" in m):
             if "column" not in m:
                 raise ScenarioError(f"px4 monitor '{m['name']}' needs `column`")
             out.append(m)
@@ -240,16 +260,18 @@ def _build_model(sc, out: Path):
 def run(scenario, runs_dir="runs") -> tuple:
     """-> (result dict, run dir). Raises ScenarioError for a bad scenario / missing prerequisites."""
     sc = load_scenario(scenario)
-    lim, kind = sc["limits"], ("px4" if "px4" in sc["interfaces"] else "feetech")
+    ifs = sc["interfaces"]
+    lim, kind = sc["limits"], ("combo" if len(ifs) > 1 else next(iter(ifs)))
     run_dir = Path(runs_dir) / f"{sc['name']}-{time.strftime('%Y%m%d-%H%M%S')}"
     run_dir.mkdir(parents=True)
     cwd = run_dir / "cwd"
     cwd.mkdir()
     sub = lambda s: s.replace("{dir}", str(sc["dir"]))
-    argv = [
+    argvs = lambda cmd: [
         sys.executable if a == "python" and i == 0 else sub(a)
-        for i, a in enumerate(sc["program"]["cmd"])
+        for i, a in enumerate(cmd)
     ]
+    argv = argvs(sc["program"]["cmd"]) if kind != "combo" else None
     env = {**os.environ, "NAPL_SCENARIO_DIR": str(sc["dir"])}
     mons = _expand(sc.get("monitors", []), kind)
     res = dict(
@@ -261,7 +283,11 @@ def run(scenario, runs_dir="runs") -> tuple:
     )
     (run_dir / "program.log").touch()
     log = run_dir / "program.log"
-    (_px4 if kind == "px4" else _sim)(sc, mons, run_dir, cwd, argv, env, log, res)
+    if kind == "combo":
+        res["argv"] = argv = [argvs(p["cmd"]) for p in sc["programs"]]
+    {"px4": _px4, "combo": _combo}.get(kind, _sim)(
+        sc, mons, run_dir, cwd, argv, env, log, res
+    )
     p = res["program"]
     why = []
     if p["returncode"]:
@@ -281,20 +307,27 @@ def run(scenario, runs_dir="runs") -> tuple:
 
 def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
     from . import Sim
+    from .dynamixel import DynamixelPort
     from .feetech import FeetechPort
 
-    fc, lim = sc["interfaces"]["feetech"], sc["limits"]
+    fc, lim = sc["interfaces"][res["kind"]], sc["limits"]
+    dxl = res["kind"] == "dynamixel"
+    Port = DynamixelPort if dxl else FeetechPort
+    extra = (
+        dict(models={int(i): m for i, m in fc.get("models", {}).items()}) if dxl else {}
+    )
     model = _build_model(sc, run_dir / "model")
     sim = Sim.load(model, host=True)
     try:
         for s in sc.get("setup", []):
             for p in s.get("paths") or [s["path"]]:
                 sim.set(p, s["attr"], s["values"])
-        port = FeetechPort(
+        port = Port(
             sim,
             {int(i): p for i, p in fc["servos"].items()},
             baud=fc.get("baud", 1_000_000),
             realtime=True,
+            **extra,
         )
     except (ValueError, KeyError) as e:
         raise ScenarioError(str(e)) from None
@@ -313,7 +346,7 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
             [time.monotonic() - wall0, sim.tick - tick0, (sim.tick - tick0) * dt],
         )
         for m in mons:
-            v = _val(m, sim.query(m["path"], m["attr"])[0])
+            v = _val(m, sim.query(m["path"], m["attr"], m.get("frame", ""))[0])
             series[m["name"]].append((t, v))
             row.append(v)
         rows.append(row)
@@ -389,5 +422,151 @@ def _px4(sc, mons, run_dir, cwd, argv, env, log, res):
     if bad:
         raise ScenarioError(f"monitors {bad}: no such trace column (have {sorted(tr)})")
     rp = replay_hash(st.log)
+    res["replay"] = {"available": False} if rp is None else dict(
+        available=True, tick=rp[0], state_hash=rp[1], match=bool(final) and rp == (final["tick"], final["state_hash"]))  # fmt: skip
+
+
+def _combo(sc, mons, run_dir, cwd, argvs, env, log, res):
+    """px4 + feetech. ONE World: the bridge's, stepped in lockstep with PX4 (wall = sim time). The arm's Feetech pty is served by
+    FeetechPort in this process over the bridge's --ctl socket (RemoteSim), so its SetAttr writes run in that same World and land in
+    the bridge's replay log next to the ESC throttles. The programs run in order (the arm one first, PX4 idling disarmed in the same
+    lockstep, then the flight), each with NAPL_SERIAL + NAPL_MAVLINK; a failing program stops the rest."""
+    from .ctl import RemoteSim
+    from .feetech import FeetechPort
+    from .px4 import Stack
+
+    lim, dt = sc["limits"], sc.get("dt", 0.001)
+    model = _build_model(sc, run_dir / "model")
+    st = Stack(
+        sc["dir"] / sc["interfaces"]["px4"]["bridge"], run_dir, model=model, ctl=True
+    )
+    env["NAPL_MAVLINK"] = st.mavlink
+    try:
+        st.start()
+    except RuntimeError as e:
+        raise ScenarioError(f"PX4 stack: {e}") from None
+    fc = sc["interfaces"]["feetech"]
+    sig = [
+        m for m in mons if "column" not in m
+    ]  # world signals, sampled over ctl at 10 Hz
+    series, rows, stop, stages = {m["name"]: [] for m in sig}, [], threading.Event(), []
+    rs = port = th = None
+
+    def sample():
+        row = []
+        for m in sig:
+            tick, v = rs.get(m["path"], m["attr"], m.get("frame", ""))
+            series[m["name"]].append((tick * dt, _val(m, v)))
+            row.append(series[m["name"]][-1][1])
+        rows.append([tick * dt, *row] if sig else [])
+
+    def sampler():
+        while not stop.wait(0.1):
+            try:
+                sample()
+            except (OSError, ValueError):  # the bridge went away
+                return
+
+    try:
+        rs = RemoteSim(st.ctl)
+        for s in sc.get(
+            "setup", []
+        ):  # SetAttr before the programs (logged, replayed): e.g. torque on, the arm holds its pose
+            for p in s.get("paths") or [s["path"]]:
+                rs.set(p, s["attr"], s["values"])
+        port = FeetechPort(
+            rs,
+            {int(i): p for i, p in fc["servos"].items()},
+            baud=fc.get("baud", 1_000_000),
+            realtime=True,
+        )
+        env["NAPL_SERIAL"] = port.device_path
+        if sig:
+            th = threading.Thread(target=sampler, daemon=True)
+            th.start()
+        for p, a in zip(sc["programs"], argvs):
+            t0 = rs.tick * dt
+            r = run_child(
+                a,
+                env,
+                cwd,
+                run_dir / f"program.{p['name']}.log",
+                {**lim, **{k: p[k] for k in ("wall_s", "cpu_s") if k in p}},
+            )
+            stages.append(dict(name=p["name"], start_t=t0, end_t=rs.tick * dt, **r))
+            if r["returncode"] or r["timeout"]:
+                break
+        if sig:
+            sample()
+    except (ValueError, KeyError) as e:
+        raise ScenarioError(str(e)) from None
+    finally:
+        stop.set()
+        if th:
+            th.join()
+        if port:
+            port.close()
+        if rs:
+            rs.close()
+        final = st.stop()
+    log.write_text(
+        "".join(
+            f"== {s['name']} ==\n" + (run_dir / f"program.{s['name']}.log").read_text()
+            for s in stages
+        )
+    )
+    res["programs"] = stages
+    res["program"] = next(
+        (s for s in stages if s["returncode"] or s["timeout"]), stages[-1]
+    )
+    res["sim"] = dict(
+        final or {},
+        bridge_log="bridge.log",
+        px4_log="px4.log",
+        port_errors=list(port.errors),
+    )
+    if sig:
+        with open(run_dir / "signals.csv", "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["t", *[m["name"] for m in sig]])
+            w.writerows(rows)
+    with open(st.trace) as f:
+        trows = list(csv.DictReader(f))
+    tr = {k: np.array([float(r[k]) for r in trows]) for k in trows[0]}
+    tr["alt"] = tr["z"] - tr["z"][0]
+    tr["dist_home"] = np.hypot(tr["x"] - tr["x"][0], tr["y"] - tr["y"][0])
+    bad = [m["name"] for m in mons if "column" in m and m["column"] not in tr]
+    if bad:
+        raise ScenarioError(f"monitors {bad}: no such trace column (have {sorted(tr)})")
+    out = []
+    for m in mons:
+        if (
+            "phase" in m
+        ):  # from / to relative to that program's start, `to` defaulting to its end
+            ph = next((s for s in stages if s["name"] == m["phase"]), None)
+            if ph is None:
+                out.append(
+                    {
+                        "name": m["name"],
+                        "pass": False,
+                        "error": f"program '{m['phase']}' did not run",
+                    }
+                )
+                continue
+            m = {
+                **m,
+                "from": ph["start_t"] + m.get("from", 0),
+                "to": ph["start_t"] + m["to"] if "to" in m else ph["end_t"],
+            }
+        out.append(
+            judge(
+                m,
+                list(zip(tr["t"], tr[m["column"]]))
+                if "column" in m
+                else series[m["name"]],
+            )
+        )
+    res["monitors"] = out
+    rp = replay_hash(st.log, Path(model).parent)
     res["replay"] = {"available": False} if rp is None else dict(
         available=True, tick=rp[0], state_hash=rp[1], match=bool(final) and rp == (final["tick"], final["state_hash"]))  # fmt: skip

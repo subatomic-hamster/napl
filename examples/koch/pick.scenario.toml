@@ -1,0 +1,58 @@
+# napl program examples/koch/pick.scenario.toml
+# The Koch v1.1 follower (assembly + table + PLA cube, see scene.py) on a Dynamixel Protocol 2.0 pty; pick.py (unmodified dynamixel_sdk)
+# moves the cube 10 cm.
+name = "koch-pick"
+
+[model]
+script = "scene.py"                    # build(outdir) -> MJCF: assemblies/koch.toml + table, jaw pads, cube
+
+[interfaces.dynamixel]
+servos = { 1 = "/devices/servo1", 2 = "/devices/servo2", 3 = "/devices/servo3", 4 = "/devices/servo4", 5 = "/devices/servo5", 6 = "/devices/servo6" }
+models = { 1 = "xl430-w250-t", 2 = "xl430-w250-t", 3 = "xl330-m288-t", 4 = "xl330-m288-t", 5 = "xl330-m288-t", 6 = "xl330-m288-t" }
+baud = 1000000
+
+[[setup]]                              # hold the zero pose from tick 0 (a powered-off arm would fold under gravity)
+paths = ["/devices/servo1", "/devices/servo2", "/devices/servo3", "/devices/servo4", "/devices/servo5", "/devices/servo6"]
+attr = "torque_enable"
+values = [1]
+
+[program]
+cmd = ["python", "{dir}/pick.py"]
+
+[limits]
+wall_s = 90                            # the run is ~30 s real time (sim rate 1.0)
+sim_s = 60
+cpu_s = 120
+
+[[monitors]]
+name = "cube_within_1cm_of_target"
+path = "/world/cube"
+attr = "pos"
+indices = [0, 1]
+ref = [-0.12, 0.05]                    # TARGET_XY
+op = "final"
+hi = 0.01
+
+[[monitors]]
+name = "cube_on_table"                 # rests on the table at the end (centre z = 10 mm, +-2 mm)
+path = "/world/cube"
+attr = "pos"
+index = 2
+op = "final"
+lo = 0.008
+hi = 0.012
+
+[[monitors]]
+name = "cube_was_lifted"
+path = "/world/cube"
+attr = "pos"
+index = 2
+op = "eventually"
+lo = 0.04                              # centre >= 3 cm above its start (z 0.010): it was carried, not pushed
+
+[[monitors]]
+name = "no_servo_alarm"
+paths = ["/devices/servo1", "/devices/servo2", "/devices/servo3", "/devices/servo4", "/devices/servo5", "/devices/servo6"]
+attr = "alarm"
+op = "always"
+hi = 0
