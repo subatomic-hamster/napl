@@ -1,0 +1,20 @@
+id = "so101-screw-m2x6"
+name = "M2x6 mm self-tapping screw (SO-101 servo mounting screws)"
+category = "fastener"
+vendor = "generic (supplied with Feetech STS3215 servo kit; datasheet 8-PA2.0 self-tapping)"
+part_number = "M2x6 (PA2.0 self-tapping)"
+url = "https://huggingface.co/docs/lerobot/so101"
+
+[params]
+thread_diameter = { value = 0.002, unit = "m", src = "S1", fidelity = "datasheet" }
+length = { value = 0.006, unit = "m", src = "S1", fidelity = "datasheet" }
+count_follower_arm = { value = 24, unit = "1", fidelity = "derived", derivation ="Sum of M2x6 counts in the LeRobot follower assembly steps (S1): joint 1 motor 4 + motor holder 2; joint 2 motor 4; joint 3 motor 4; joint 4 motor 4; joint 5 motor 2 ('2 M2x6mm front screws'); gripper motor 2 on each side = 4. 6+4+4+4+2+4 = 24." }
+mass = { value = 0.00028, unit = "kg", fidelity = "estimated", rationale ="No published mass. Pan head M2x6 steel: shank 2 mm x 6 mm = 19 mm^3 plus head ~4 mm dia x 1.6 mm (~17 mm^3) = ~36 mm^3 * 7.85 g/cm^3 = 0.28 g." }
+material_density = { value = 7850, unit = "kg/m^3", fidelity = "estimated", rationale ="Screw material not stated; carbon steel density used." }
+
+[[sources]]
+id = "S1"
+url = "https://huggingface.co/docs/lerobot/so101"
+title = "LeRobot SO-101 assembly guide (Joint 1) and Feetech STS3215 datasheet drawing page 6/8 (8-PA2.0 self-tapping screws)"
+accessed = "2026-10-06"
+quote = "Fasten the motor with 4 M2x6mm screws (smallest screws). Two from the top and two from the bottom. || Slide over the first motor holder and fasten it using two M2x6mm screws (one on each side)."

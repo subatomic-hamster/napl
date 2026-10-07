@@ -1,0 +1,24 @@
+id = "holybro-sik-telemetry-radio-v3"
+name = "Holybro SiK Telemetry Radio V3 (100 mW / 500 mW air or ground unit, 433/915 MHz)"
+category = "radio.telemetry"
+vendor = "Holybro"
+part_number = "SiK Telemetry Radio V3"
+url = "https://docs.holybro.com/radio/sik-telemetry-radio-v3.md"
+
+# X500 V2 kit includes one 'SiK Telemetry Radio V3 433/915MHz' (power variant not stated) on the air side
+# plus one for the ground station. Mass only is needed for the mass budget; one unit flies.
+[params]
+mass_with_antenna = { value = 0.0235, unit = "kg", src = "S1", fidelity = "datasheet" }
+supply_voltage    = { value = 5, unit = "V", src = "S1", fidelity = "datasheet" }
+receive_current   = { value = 0.025, unit = "A", src = "S1", fidelity = "datasheet" }
+transmit_current_20dbm = { value = 0.1, unit = "A", src = "S1", fidelity = "datasheet" }
+length            = { value = 0.053, unit = "m", src = "S1", fidelity = "datasheet" }
+width             = { value = 0.028, unit = "m", src = "S1", fidelity = "datasheet" }
+height            = { value = 0.0107, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/radio/sik-telemetry-radio-v3.md"
+title = "SiK Telemetry Radio V3 (Holybro docs), Specification"
+accessed = "2026-10-06"
+quote = "Dimension 28 x 53 x 10.7mm (without antenna) ... Weight 23.5g w/ antenna ... Input Voltage (DC) 5V ... Transmit current: 100 mA at 20 dBm * Receive current: 25 mA (@5V)"

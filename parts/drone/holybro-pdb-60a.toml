@@ -1,0 +1,30 @@
+id = "holybro-pdb-60a"
+name = "Holybro Power Distribution Board (PDB) 60A, XT30 pre-soldered (X500 V2 kit)"
+category = "pcb.pdb"
+vendor = "Holybro"
+part_number = "18069A"
+url = "https://holybro.com/products/power-distribution-board-pdb"
+
+# Kit PDB: XT60 in from the PM02 module/battery side, XT30 plugs out to the four ESCs and peripherals.
+# Copper resistance and dimensions are not published numerically (a dimensions drawing exists only as an image).
+
+[params]
+current_rated  = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+current_max    = { value = 120.0, unit = "A", src = "S1", fidelity = "datasheet" }    # < 60 s
+mount_pattern  = { value = 0.045, unit = "m", src = "S1", fidelity = "datasheet" }    # 45x45 mm mounting holes
+mass           = { value = 0.015, unit = "kg", fidelity = "estimated", rationale = "No bare-board mass published (Holybro shipping weights are packaged: 40-50 g). Assumed ~15 g for a ~50 mm 2-layer heavy-copper PCB with XT60 and 4-5 XT30 plugs soldered; unverified." }
+r_path         = { value = 0.0005, unit = "ohm", fidelity = "estimated", rationale = "Board copper path resistance unpublished. A 60 A continuous board needs well under 1 mOhm from XT60 pad to each XT30 pad; 0.5 mOhm assumed (loss at 60 A would be 1.8 W). Plug contact resistance modelled separately via amass-xt60." }
+
+[[sources]]
+id = "S1"
+url = "https://holybro.com/products/power-distribution-board-pdb"
+title = "Holybro - Power Distribution Board (PDB) 60A"
+accessed = "2026-10-06"
+quote = "Pre-soldered XT60 for Power Module & Battery Rated Current: 60A Max Current: 120A (<60 sec) 45x45mm Mounting Holes"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
+title = "Holybro docs - PX4 Development Kit - X500v2"
+accessed = "2026-10-06"
+quote = "Power Distribution Board (XT60 plug for battery & XT30 plug for ESCs & peripherals)"

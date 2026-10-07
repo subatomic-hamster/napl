@@ -1,0 +1,64 @@
+id = "tattu-4s-5200mah-35c"
+name = "Tattu 14.8V 4S 5200mAh 35C LiPo battery pack, XT60"
+category = "battery.lipo"
+vendor = "Tattu (Grepow)"
+part_number = "TAA52004S35X6"
+url = "https://rcdrone.top/products/src-taa52004s35x6-tattu-g-tech-5200mah-4s-35c-14-8v-lipo-battery-pack-with-xt60-plug"
+
+# Chosen because (a) Holybro recommends "4S 3000-5000mAh 20C+ with XT60" for the X500 V2 and (b) the PX4 X500 v2 + Pixhawk 6C
+# guide states the power module "is supplied by a battery (4S 16.8V 5200 mAh)", i.e. a 5.2 Ah 4S pack is the documented build.
+# Pack internal resistance is NOT published by Tattu for this model.
+
+[params]
+capacity        = { value = 18720.0, unit = "C", src = "S1", fidelity = "datasheet" }        # 5200 mAh = 5.2 Ah x 3600 s/h
+capacity_ah     = { value = 5.2, unit = "Ah", src = "S1", fidelity = "datasheet" }
+cells_series    = { value = 4, unit = "1", src = "S1", fidelity = "datasheet" }               # 4S1P
+cells_parallel  = { value = 1, unit = "1", src = "S1", fidelity = "datasheet" }
+v_nominal       = { value = 14.8, unit = "V", src = "S1", fidelity = "datasheet" }
+v_full          = { value = 16.8, unit = "V", src = "S2", fidelity = "literature" }          # PX4 guide: "4S 16.8V"
+c_rating_cont   = { value = 35, unit = "C", src = "S1", fidelity = "datasheet" }
+c_rating_burst  = { value = 70, unit = "C", src = "S1", fidelity = "datasheet" }
+i_max_continuous = { value = 182.0, unit = "A", fidelity = "derived", derivation = "35 C x 5.2 Ah = 182 A (rating label only; X500 V2 peak draw is ~65 A for four motors at 16.4 A each)." }
+mass            = { value = 0.4365, unit = "kg", src = "S1", fidelity = "datasheet" }         # 436.5 g (+-20 g)
+mass_tol        = { value = 0.020, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.133, unit = "m", src = "S1", fidelity = "datasheet" }           # +-5 mm
+width           = { value = 0.045, unit = "m", src = "S1", fidelity = "datasheet" }           # +-2 mm
+height          = { value = 0.0335, unit = "m", src = "S1", fidelity = "datasheet" }          # +-2 mm
+main_connector  = { value = "XT60", unit = "text", src = "S1", fidelity = "datasheet" }
+discharge_wire_awg = { value = 10, unit = "AWG", src = "S1", fidelity = "datasheet" }         # "Wire Gauge 10#"
+discharge_wire_length = { value = 0.120, unit = "m", src = "S1", fidelity = "datasheet" }
+r_internal_pack = { value = 0.020, unit = "ohm", fidelity = "estimated", rationale = "Tattu publishes no internal resistance for this 35C pack. Typical 4S 5 Ah 25-35C packs are ~4-6 mOhm per cell (pack ~16-24 mOhm) at full charge; 20 mOhm assumed (+-40%). Rises as SoC falls and when cold. Same order as R_min = 4.5 mOhm fitted by Bauersfeld & Scaramuzza (arXiv 2109.04741, Table I, cell-capacity-normalized)." }
+thevenin_r1     = { value = 0.008, unit = "ohm", fidelity = "estimated", rationale = "Polarization resistance of the one-RC Thevenin pack model; no Tattu data. Order-of-magnitude assumption ~40% of the DC resistance; with tau_RC = 3.3 s (Bauersfeld, below) C1 = tau/R1 ~ 410 F." }
+thevenin_tau    = { value = 3.3, unit = "s", src = "S3", fidelity = "literature" }
+
+[geometry]
+shape = "box"
+size = [0.0665, 0.0225, 0.01675]     # half-extents length/width/height
+
+[[sources]]
+id = "S1"
+url = "https://rcdrone.top/products/src-taa52004s35x6-tattu-g-tech-5200mah-4s-35c-14-8v-lipo-battery-pack-with-xt60-plug"
+title = "Tattu G-Tech 5200mAh 4S 35C 14.8V LiPo pack with XT60 (authorized distributor listing of Tattu spec)"
+accessed = "2026-10-06"
+quote = "Capacity|5200mAh|Voltage|14.8V (4S)|Configuration|4S1P|Discharge Rate|35C|Max Burst Discharge Rate|70C|Main Connector Type|XT60|Discharge Wire Length|120mm|Wire Gauge|10#|Dimensions (L x W x H)|133 x 45 x 33.5mm (Length ±5mm, Width ±2mm, Height ±2mm)|Net Weight|436.5g (±20g)"
+
+[[sources]]
+id = "S2"
+url = "https://raw.githubusercontent.com/PX4/PX4-user_guide/main/en/frames_multicopter/holybro_x500v2_pixhawk6c.md"
+title = "PX4 User Guide - Holybro X500 v2 + Pixhawk 6C assembly (source markdown)"
+accessed = "2026-10-06"
+quote = "This power module is supplied by a battery (4S 16.8V 5200 mAh)"
+
+[[sources]]
+id = "S3"
+url = "https://arxiv.org/pdf/2109.04741"
+title = "Bauersfeld & Scaramuzza, Range, Endurance, and Optimal Speed Estimates for Multicopters, IEEE RA-L 2022 (arXiv 2109.04741), Table I battery coefficients"
+accessed = "2026-10-06"
+quote = "Rmin 4.5 mΩ b0 0.0015778 b1 -7.7608e-5 b2 0.0069498 τRC 3.3 s k 0.00104846"
+
+[[sources]]
+id = "S4"
+url = "https://holybro.com/products/x500-v2-kits"
+title = "Holybro X500 V2 Kits product page"
+accessed = "2026-10-06"
+quote = "Battery Recommendation: 4S 3000-5000mAh 20C+ with XT60 Lipo Battery (Not Included)"

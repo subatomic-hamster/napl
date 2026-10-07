@@ -1,0 +1,53 @@
+id = "holybro-x500v2-arm-tube"
+name = "Holybro X500 V2 carbon fibre arm tube (#510177)"
+category = "frame.tube"
+vendor = "Holybro"
+part_number = "510177"
+url = "https://cdn.shopifycdn.net/s/files/1/0604/5905/7341/files/X500_V2_Assembly_Guide_en.pdf?v=1720853913"
+
+# Dimensions measured on Holybro's published x500v2-frame.step with OpenCascade (BRepGProp volume, cylinder faces).
+# Holybro text says '16mm carbon fiber tubes'; the CAD tube is OD 15.4 mm / ID 14.0 mm. Both are recorded.
+[params]
+nominal_outer_diameter = { value = 0.016, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[params.cad_outer_diameter]
+value = 0.0154
+unit = "m"
+fidelity = "derived"
+derivation = "Cylinder face radius 7.7 mm of the arm-tube solid (volume 5209 mm3) in x500v2-frame.step, read with OpenCascade BRepAdaptor_Surface."
+
+[params.cad_inner_diameter]
+value = 0.014
+unit = "m"
+fidelity = "derived"
+derivation = "Inner cylinder face radius 7.0 mm of the same solid in x500v2-frame.step."
+
+[params.cad_length]
+value = 0.1611
+unit = "m"
+fidelity = "derived"
+derivation = "Volume 5209 mm3 = pi*(7.7^2 - 7.0^2)*L gives L = 161.1 mm; cross-check lateral area 7798 mm2 / (2*pi*7.7) = 161.2 mm. Tube axis is at 45 degrees in the X frame with centre of mass 148.2 mm from the frame centre."
+
+[params.cad_volume]
+value = 5.209e-6
+unit = "m3"
+fidelity = "derived"
+derivation = "Solid volume from x500v2-frame.step (OpenCascade BRepGProp::VolumeProperties); includes the small cross hole."
+
+[params.mass]
+value = 8.07e-3
+unit = "kg"
+fidelity = "derived"
+derivation = "cad_volume 5.209e-6 m3 * carbon-fibre-epoxy-ud estimated density 1550 kg/m3 = 8.07 g per tube. Not weighed; density is itself estimated (see parts/common/carbon-fibre-epoxy-ud.toml)."
+
+[geometry]
+shape = "cylinder"
+size = [0.0077, 0.08055]
+material = "carbon-fibre-epoxy-ud"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
+title = "PX4 Development Kit - X500v2 (Holybro docs)"
+accessed = "2026-10-06"
+quote = "Arm - High-strength & ultra-lightweight 16mm carbon fiber tubes with newly designed fiber-reinforced nylon connectors"

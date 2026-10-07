@@ -1,0 +1,39 @@
+id = "so101-waveshare-mounting-plate"
+name = "SO-101 Waveshare driver-board mounting plate (3D printed, follower base)"
+category = "frame.printed"
+vendor = "TheRobotStudio (open design, Apache-2.0)"
+part_number = "WaveShare_Mounting_Plate_SO101.stl (sim mesh waveshare_mounting_plate_so101_v2.stl)"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/STL/SO101/Individual/WaveShare_Mounting_Plate_SO101.stl"
+
+[params]
+volume_solid = { value = 9.09e-6, unit = "m^3", fidelity = "derived", derivation ="Signed-volume integral over the 1254 triangles of meshes/so101/waveshare_mounting_plate_so101_v2.stl (binary STL, metres) = 9.09 cm^3. Solid." }
+infill_fraction = { value = 0.15, unit = "1", src = "S1", fidelity = "datasheet" }
+layer_height    = { value = 0.0002, unit = "m", src = "S1", fidelity = "datasheet" }
+nozzle_diameter = { value = 0.0004, unit = "m", src = "S1", fidelity = "datasheet" }
+wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale ="Repo README gives only material, nozzle/layer height and 15% infill, no perimeter count; 2 perimeters is a common slicer default (not verified against a specific slicer profile). Thin plate: likely near-solid in practice." }
+
+[geometry]
+shape = "mesh"
+mesh = "meshes/so101/waveshare_mounting_plate_so101_v2.stl"
+material = "pla"
+urdf_link = "base_link"
+origin_xyz = [-0.0309827, -0.000199441, 0.0474]
+origin_rpy = [1.5708, 0.0, 1.5708]
+bbox_min = [-0.0255, -0.021, 0.0]
+bbox_max = [0.0255, 0.021, 0.0076]
+
+[[sources]]
+id = "S1"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/README.md"
+title = "SO-ARM100 README, Printing the Parts, Step 1 (commit a758567)"
+accessed = "2026-10-06"
+quote = "Material: PLA+ || Nozzle Diameter and Precision: 0.4mm nozzle diameter at 0.2mm layer height or 0.6mm nozzle at 0.4mm layer height. || Infill Density: 15%"
+license = "Apache-2.0"
+
+[[sources]]
+id = "S2"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/Simulation/SO101/so101_new_calib.urdf"
+title = "SO-ARM100 Simulation/SO101/so101_new_calib.urdf (commit a758567), part placement in link base_link"
+accessed = "2026-10-06"
+quote = "<!-- Part waveshare_mounting_plate_so101_v2 --> <visual> <origin xyz=\"-0.0309827 -0.000199441 0.0474\" rpy=\"1.5708 -1.35493e-14 1.5708\"/>"
+license = "Apache-2.0"

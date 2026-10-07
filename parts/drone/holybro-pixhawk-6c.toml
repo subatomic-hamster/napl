@@ -1,0 +1,40 @@
+id = "holybro-pixhawk-6c"
+name = "Holybro Pixhawk 6C flight controller (aluminium case)"
+category = "pcb.fc"
+vendor = "Holybro"
+part_number = "Pixhawk 6C"
+url = "https://docs.holybro.com/autopilot/pixhawk-6c/technical-specification.md"
+
+# On-board sensors per Holybro: ICM-42688-P + BMI088 (BMI055 on earlier units, per PX4 docs) IMUs,
+# IST8310 magnetometer, MS5611 barometer. See parts tdk-icm-42688-p, bosch-bmi088, isentek-ist8310,
+# te-ms5611-01ba03. The IMUs sit on a rubber-isolated board with heater resistors.
+[params]
+mass_aluminium_case = { value = 0.0593, unit = "kg", src = "S1", fidelity = "datasheet" }
+mass_plastic_case   = { value = 0.0346, unit = "kg", src = "S1", fidelity = "datasheet" }
+length              = { value = 0.0848, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.044, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.0124, unit = "m", src = "S1", fidelity = "datasheet" }
+fmu_clock           = { value = 480e6, unit = "Hz", src = "S1", fidelity = "datasheet" }
+max_input_voltage   = { value = 6, unit = "V", src = "S1", fidelity = "datasheet" }
+operating_temp_min  = { value = 248.15, unit = "K", src = "S1", fidelity = "datasheet" }
+imu_count           = { value = 2, unit = "1", src = "S1", fidelity = "datasheet" }
+
+[params.vibration_isolation_present]
+value = 1
+unit = "1"
+src = "S2"
+fidelity = "datasheet"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/autopilot/pixhawk-6c/technical-specification.md"
+title = "Pixhawk 6C Technical Specification (Holybro docs)"
+accessed = "2026-10-06"
+quote = "Accel/Gyro: ICM-42688-P  Accel/Gyro: BMI088 (BMI055 discontinued due to the end of production of the sensor) Mag: IST8310  Barometer: MS5611 ... Dimensions: 84.8 * 44 * 12.4 mm Weight (Aluminum Case): 59.3g Weight (Plastic Case): 34.6g"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/autopilot/pixhawk-6c/overview.md"
+title = "Pixhawk 6C Overview (Holybro docs)"
+accessed = "2026-10-06"
+quote = "Newly designed integrated vibration isolation system to filter out high frequency vibration and reduce noise to ensure accurate readings"

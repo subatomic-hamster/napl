@@ -1,0 +1,72 @@
+id = "holybro-x500v2-landing-gear"
+name = "Holybro X500 V2 carbon fibre landing gear leg (#31063, vertical pole + cross bar)"
+category = "frame.landing_gear"
+vendor = "Holybro"
+part_number = "31063"
+url = "https://cdn.shopifycdn.net/s/files/1/0604/5905/7341/files/X500_V2_Assembly_Guide_en.pdf?v=1720853913"
+
+# Two legs per vehicle. Dimensions measured on x500v2-frame.step with OpenCascade.
+[params]
+overall_height = { value = 0.215, unit = "m", src = "S1", fidelity = "datasheet" }
+nominal_pole_diameter = { value = 0.016, unit = "m", src = "S1", fidelity = "datasheet" }
+nominal_crossbar_diameter = { value = 0.010, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[params.pole_cad_outer_diameter]
+value = 0.016
+unit = "m"
+fidelity = "derived"
+derivation = "Outer cylinder face radius 8.0 mm of the vertical-pole solid (volume 9315 mm3, bbox 16.00 x 193.58 x 75.10 mm) in x500v2-frame.step."
+
+[params.pole_cad_inner_diameter]
+value = 0.014
+unit = "m"
+fidelity = "derived"
+derivation = "Inner cylinder face radius 7.0 mm of the same solid."
+
+[params.pole_cad_length]
+value = 0.1977
+unit = "m"
+fidelity = "derived"
+derivation = "Volume 9315 mm3 = pi*(8^2-7^2)*L gives L = 197.7 mm; cross-check lateral area 9937 mm2 / (2*pi*8) = 197.7 mm. Pole axis direction (0, -0.95, -0.30): leans outward ~17.5 deg from vertical."
+
+[params.crossbar_cad_outer_diameter]
+value = 0.0094
+unit = "m"
+fidelity = "derived"
+derivation = "Outer cylinder face radius 4.7 mm of the cross-bar solid (volume 4783 mm3, bbox 250.00 x 9.40 x 9.40 mm) in x500v2-frame.step. Holybro text says 10 mm; CAD is 9.4 mm."
+
+[params.crossbar_cad_inner_diameter]
+value = 0.008
+unit = "m"
+fidelity = "derived"
+derivation = "Inner cylinder face radius 4.0 mm of the same solid."
+
+[params.crossbar_cad_length]
+value = 0.25
+unit = "m"
+fidelity = "derived"
+derivation = "Volume 4783 mm3 = pi*(4.7^2-4.0^2)*L gives L = 250.0 mm, equal to the bbox 250.00 mm."
+
+[params.pole_mass]
+value = 0.01444
+unit = "kg"
+fidelity = "derived"
+derivation = "pole volume 9.315e-6 m3 * carbon-fibre-epoxy-ud estimated density 1550 kg/m3 = 14.4 g per pole; two poles per vehicle. Not weighed."
+
+[params.crossbar_mass]
+value = 0.00741
+unit = "kg"
+fidelity = "derived"
+derivation = "cross-bar volume 4.783e-6 m3 * carbon-fibre-epoxy-ud estimated density 1550 kg/m3 = 7.4 g per bar; two bars per vehicle. The rubber foam grips and nylon tee connectors are not included here."
+
+[geometry]
+shape = "cylinder"
+size = [0.008, 0.09885]
+material = "carbon-fibre-epoxy-ud"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
+title = "PX4 Development Kit - X500v2 (Holybro docs)"
+accessed = "2026-10-06"
+quote = "Landing gear - 16mm & 10mm diameter carbon fiber tubes with strengthened & improved plastic tee connectors. ... Landing gear height: 215mm"

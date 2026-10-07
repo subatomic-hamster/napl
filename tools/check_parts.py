@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Validate parts/**/*.toml against parts/README.md. Exit 1 on any problem.
+
+Usage: python3 tools/check_parts.py [parts_dir]
+"""
+
+import collections
+import pathlib
+import sys
+import tomllib
+
+FIDELITY = {"datasheet", "literature", "measured", "derived", "estimated"}
+SOURCED = {"datasheet", "literature", "measured"}
+
+
+def check(path: pathlib.Path, problems: list[str], tally: collections.Counter) -> None:
+    def bad(msg: str) -> None:
+        problems.append(f"{path}: {msg}")
+
+    try:
+        doc = tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as e:
+        return bad(f"TOML parse error: {e}")
+    for key in ("id", "name", "category", "vendor"):
+        if not doc.get(key):
+            bad(f"missing '{key}'")
+    if doc.get("id") != path.stem:
+        bad(f"id '{doc.get('id')}' != file name '{path.stem}'")
+    sources = {}
+    for s in doc.get("sources", []):
+        for key in ("id", "url", "title", "accessed", "quote"):
+            if not s.get(key):
+                bad(f"source {s.get('id', '?')} missing '{key}'")
+        sources[s.get("id")] = s
+
+    def check_entry(name: str, e: dict, need_unit: bool) -> None:
+        fid = e.get("fidelity")
+        tally[fid] += 1
+        if fid not in FIDELITY:
+            return bad(f"{name}: fidelity '{fid}' not in {sorted(FIDELITY)}")
+        if need_unit and ("value" not in e or "unit" not in e):
+            bad(f"{name}: needs 'value' and 'unit'")
+        if fid in SOURCED and e.get("src") not in sources:
+            bad(f"{name}: src '{e.get('src')}' not in [[sources]]")
+        if fid == "derived" and not e.get("derivation"):
+            bad(f"{name}: derived without 'derivation'")
+        if fid == "estimated" and not e.get("rationale"):
+            bad(f"{name}: estimated without 'rationale'")
+        if "src" in e and e["src"] not in sources:
+            bad(f"{name}: src '{e['src']}' not in [[sources]]")
+
+    params = doc.get("params", {})
+    if not params:
+        bad("no [params]")
+    for name, e in params.items():
+        if not isinstance(e, dict):
+            bad(f"param {name}: must be a table")
+            continue
+        check_entry(f"param {name}", e, need_unit=True)
+    for name, t in doc.get("tables", {}).items():
+        check_entry(f"table {name}", t, need_unit=False)
+        cols = t.get("columns", [])
+        for i, row in enumerate(t.get("rows", [])):
+            if len(row) != len(cols):
+                bad(f"table {name} row {i}: {len(row)} values for {len(cols)} columns")
+    mesh = doc.get("geometry", {}).get("mesh")
+    if mesh and not (path.parents[2] / mesh).exists():
+        bad(f"mesh '{mesh}' not found")
+
+
+def main() -> int:
+    root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "parts")
+    files = sorted(root.glob("*/*.toml"))
+    problems: list[str] = []
+    tally: collections.Counter = collections.Counter()
+    for f in files:
+        check(f, problems, tally)
+    for p in problems:
+        print(p)
+    print(
+        f"{len(files)} parts, {sum(tally.values())} values "
+        f"({', '.join(f'{k}={v}' for k, v in sorted(tally.items(), key=str))}), "
+        f"{len(problems)} problem(s)"
+    )
+    return 1 if problems or not files else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

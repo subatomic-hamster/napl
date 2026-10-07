@@ -1,0 +1,52 @@
+id = "holybro-x500v2-esc-blheli-s-20a"
+name = "Holybro X500 V2 BLHeli_S 20A ESC"
+category = "esc"
+vendor = "Holybro"
+part_number = "520081"
+url = "https://holybro.com/products/spare-parts-x500-v2-kit"
+
+# 4 per kit, pre-installed on the arms with XT30 power plugs. Firmware family BLHeli_S (Holybro). The kit ESC is NOT
+# the BLHeli_32/AM32 Tekko line. Signal: the X500 V2 + Pixhawk 6C PX4 build guide wires them to FMU PWM outputs.
+
+[params]
+current_continuous = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
+current_peak       = { value = 30.0, unit = "A", src = "S1", fidelity = "datasheet" }     # 10 s
+mass               = { value = 0.021, unit = "kg", src = "S1", fidelity = "datasheet" }   # "Weight (Incl. Cable) 21g"
+v_cells_min        = { value = 3, unit = "cells", src = "S1", fidelity = "datasheet" }    # "Rated Voltage(Lipo) 3-4s"
+v_cells_max        = { value = 4, unit = "cells", src = "S1", fidelity = "datasheet" }
+firmware           = { value = "BLHeli_S", unit = "text", src = "S2", fidelity = "datasheet" }
+signal_freq_min    = { value = 50, unit = "Hz", src = "S1", fidelity = "datasheet" }      # "Throttle Signal Frequency 50Hz-600Hz"
+signal_freq_max    = { value = 600, unit = "Hz", src = "S1", fidelity = "datasheet" }
+size_length        = { value = 0.026, unit = "m", src = "S1", fidelity = "datasheet" }
+size_width         = { value = 0.014, unit = "m", src = "S1", fidelity = "datasheet" }
+size_height        = { value = 0.005, unit = "m", src = "S1", fidelity = "datasheet" }
+bec                = { value = "none", unit = "text", src = "S1", fidelity = "datasheet" } # BEC "/"
+input_plug         = { value = "XT30", unit = "text", src = "S2", fidelity = "datasheet" }
+fc_output          = { value = "FMU PWM Out", unit = "text", src = "S3", fidelity = "datasheet" }
+r_on_total         = { value = 0.012, unit = "ohm", fidelity = "estimated", rationale = "ESC FET resistance is unpublished. Assumed 12 mOhm total series (two conducting half-bridge FETs ~4 mOhm each plus ~4 mOhm traces/solder) as typical for a 20 A, 26x14 mm BLHeli_S ESC; loss at 16 A is then ~3 W (~1% of 260 W). Treat as +-50%." }
+pwm_carrier_freq   = { value = 24000.0, unit = "Hz", fidelity = "estimated", rationale = "Motor-drive PWM carrier of BLHeli_S assumed at the usual 24 kHz default; not stated on Holybro pages. Only affects ripple, not the averaged-duty model." }
+
+[geometry]
+shape = "box"
+size = [0.013, 0.007, 0.0025]   # half-extents: 26x14x5 mm / 2
+
+[[sources]]
+id = "S1"
+url = "https://cdn.shopify.com/s/files/1/0604/5905/7341/files/X500MotorSpec.png?v=1678791632"
+title = "Holybro X500 V2 motor/ESC/prop specification image (BLHeli S 20A block)"
+accessed = "2026-10-06"
+quote = "BLHeli S 20A-Specifications: Size(L x W x H) 26x14x5mm; Rated Voltage(Lipo) 3-4s; Con.Current 20A; BEC /; Peak Current(10s) 30A; Weight (Incl. Cable) 21g; Banana Plug 2.0mm; Throttle Signal Frequency 50Hz-600Hz"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
+title = "Holybro docs - PX4 Development Kit - X500v2"
+accessed = "2026-10-06"
+quote = "ESCs - BLHeli S ESC 20A (4 pcs) with XT30 Plugs - Compatible with 4S Battery"
+
+[[sources]]
+id = "S3"
+url = "https://raw.githubusercontent.com/PX4/PX4-user_guide/main/en/frames_multicopter/holybro_x500v2_pixhawk6c.md"
+title = "PX4 User Guide - Holybro X500 v2 + Pixhawk 6C assembly (source markdown)"
+accessed = "2026-10-06"
+quote = "The airframe is preconfigured with the motors on the **FMU PWM Out**."

@@ -1,0 +1,48 @@
+id = "holybro-x500v2-arm-connectors"
+name = "Holybro X500 V2 fibre-reinforced nylon arm connectors and motor base (#510178 / #510181), per arm"
+category = "frame.connector"
+vendor = "Holybro"
+part_number = "510178 / 510181"
+url = "https://cdn.shopifycdn.net/s/files/1/0604/5905/7341/files/X500_V2_Assembly_Guide_en.pdf?v=1720853913"
+
+# Per arm: 1 arm-end (motor side) clamp, 2 body-side clamp halves, 1 motor base plate. The assignment of the
+# STEP solids to these roles is inferred from their positions (radial distance from frame centre), not labelled.
+[params]
+motor_mount_pattern = { value = 0.016, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[params.arm_end_clamp_cad_volume]
+value = 1.1984e-5
+unit = "m3"
+fidelity = "derived"
+derivation = "Solid of bbox 72.05 x 22.00 x 72.05 mm centred 224.7 mm from frame centre (4 off) in x500v2-frame.step, OpenCascade BRepGProp. Role (outer arm clamp that holds the motor base) inferred from position."
+
+[params.body_clamp_half_cad_volume]
+value = 4.835e-6
+unit = "m3"
+fidelity = "derived"
+derivation = "Solid of bbox 34.07 x 17.90 x 34.07 mm centred 77.8 mm from frame centre at two heights per arm (8 off) in x500v2-frame.step. Role (body-side clamp halves between the plates) inferred from position."
+
+[params.motor_base_cad_volume]
+value = 2.171e-6
+unit = "m3"
+fidelity = "derived"
+derivation = "Solid of bbox 53.57 x 2.00 x 53.57 mm centred 248.8 mm from frame centre (4 off) in x500v2-frame.step. Role (#510181 Motor Base plate) inferred from position and the guide's part-list drawing."
+
+[params.density]
+value = 1300
+unit = "kg/m3"
+fidelity = "estimated"
+rationale = "Holybro says 'fiber reinforced nylon' without filler grade. PA66 unfilled is 1140 kg/m3 (nylon-pa66); glass-fibre-filled PA66 grades are 1.3-1.4 g/cc, so 1300 is used as a mid estimate."
+
+[params.mass_per_arm]
+value = 0.03097
+unit = "kg"
+fidelity = "derived"
+derivation = "(1.1984e-5 + 2*4.835e-6 + 2.171e-6) = 2.3825e-5 m3 per arm, times estimated density 1300 kg/m3 = 0.03097 kg (31.0 g); four arms = 124 g."
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
+title = "PX4 Development Kit - X500v2 (Holybro docs)"
+accessed = "2026-10-06"
+quote = "Motor mount pattern: 16x16mm"

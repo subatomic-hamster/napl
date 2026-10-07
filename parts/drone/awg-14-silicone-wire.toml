@@ -1,0 +1,30 @@
+id = "awg-14-silicone-wire"
+name = "14 AWG silicone-insulated stranded copper wire"
+category = "wire"
+vendor = "generic"
+part_number = "14 AWG"
+url = "https://en.wikipedia.org/wiki/American_wire_gauge"
+
+# Not confirmed as present in the X500 V2 kit (ESC XT30 lead gauge is unpublished); provided as a table entry for wiring graphs.
+
+[params]
+awg                = { value = 14, unit = "AWG", src = "S1", fidelity = "literature" }
+resistance_per_m   = { value = 0.008286, unit = "ohm/m", src = "S1", fidelity = "literature" }   # 8.286 mOhm/m at 20 C
+conductor_area     = { value = 2.08e-6, unit = "m^2", src = "S1", fidelity = "literature" }
+conductor_diameter = { value = 0.001628, unit = "m", src = "S1", fidelity = "literature" }
+mass_per_m_copper  = { value = 0.01858, unit = "kg/m", fidelity = "derived", derivation = "Conductor area x copper density: 2.08e-6 m^2 x 8935 kg/m^3 (S2) = 0.01858 kg/m." }
+mass_per_m         = { value = 0.0260, unit = "kg/m", fidelity = "estimated", rationale = "Copper 18.6 g/m (derived) x 1.4 for silicone insulation (factor from the 12 AWG case, see awg-12-silicone-wire). Not weighed; +-20%." }
+
+[[sources]]
+id = "S1"
+url = "https://en.wikipedia.org/wiki/American_wire_gauge"
+title = "American wire gauge (Wikipedia) - table, solid copper at 68 F"
+accessed = "2026-10-06"
+quote = "14 || 0.0641 || 1.628 || 15.6 || 6.14 || 4.11 || 2.08 || 8.286 || 2.525 (columns: in, mm, per in, per cm, kcmil, mm2, mOhm/m, mOhm/ft)"
+
+[[sources]]
+id = "S2"
+url = "https://en.wikipedia.org/wiki/Copper"
+title = "Copper (Wikipedia) - density"
+accessed = "2026-10-06"
+quote = "Density (at 20° C) 8.935 g/cm3"

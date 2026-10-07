@@ -1,0 +1,86 @@
+id = "holybro-2216-kv920"
+name = "Holybro 2216 KV920 brushless motor (AIR2216II-KV920, X500 V2 kit)"
+category = "motor.bldc"
+vendor = "Holybro"
+part_number = "520085 (CW) / 520086 (CCW)"
+url = "https://holybro.com/products/spare-parts-x500-v2-kit"
+
+# Kit uses 4 of these (2 CW, 2 CCW), pre-installed with XT30 plugs. The Holybro spec sheet is the image
+# X500MotorSpec.png (S2); numbers below transcribed from that image (text read off the image).
+
+[params]
+mass          = { value = 0.064, unit = "kg", src = "S2", fidelity = "datasheet" }          # 64+-2 g incl. cable
+mass_tol      = { value = 0.002, unit = "kg", src = "S2", fidelity = "datasheet" }
+kv            = { value = 920, unit = "rpm/V", src = "S2", fidelity = "datasheet" }
+r_winding     = { value = 0.115, unit = "ohm", src = "S2", fidelity = "datasheet" }         # 115+-10 mOhm "Internal Resistance"
+r_winding_tol = { value = 0.010, unit = "ohm", src = "S2", fidelity = "datasheet" }
+i0            = { value = 0.8, unit = "A", src = "S2", fidelity = "datasheet" }             # "Idle Current(10V)" -> I0 at 10 V
+i0_voltage    = { value = 10.0, unit = "V", src = "S2", fidelity = "datasheet" }
+i_peak        = { value = 17.0, unit = "A", src = "S2", fidelity = "datasheet" }            # 180 s
+p_max         = { value = 272.0, unit = "W", src = "S2", fidelity = "datasheet" }           # 180 s
+v_rated       = { value = 16.0, unit = "V", src = "S2", fidelity = "datasheet" }            # 4S
+cable_length  = { value = 0.150, unit = "m", src = "S2", fidelity = "datasheet" }           # 150+-3 mm in drawing
+diameter      = { value = 0.0277, unit = "m", src = "S2", fidelity = "datasheet" }          # body diameter, drawing
+length_body   = { value = 0.0425, unit = "m", src = "S2", fidelity = "datasheet" }          # 42.5+-0.2 mm overall, drawing
+shaft_diameter = { value = 0.003, unit = "m", src = "S2", fidelity = "datasheet" }          # drawing "O3"
+prop_thread   = { value = "M6", unit = "thread", src = "S2", fidelity = "datasheet" }       # drawing "M6" on shaft end
+mount_pattern_a = { value = 0.016, unit = "m", src = "S2", fidelity = "datasheet" }         # drawing "16"
+mount_pattern_b = { value = 0.019, unit = "m", src = "S2", fidelity = "datasheet" }         # drawing "19"
+mount_screw   = { value = "M3", unit = "thread", src = "S2", fidelity = "datasheet" }       # drawing "4-M3"
+mount_screw_count = { value = 4, unit = "1", src = "S2", fidelity = "datasheet" }
+stator_diameter = { value = 0.022, unit = "m", fidelity = "estimated", rationale = "Holybro publishes no stator dimensions; '2216' is the standard 22 mm stator diameter x 16 mm stator height naming convention. Not verified against a teardown." }
+stator_height = { value = 0.016, unit = "m", fidelity = "estimated", rationale = "From the '2216' naming convention (see stator_diameter); not published." }
+kt            = { value = 0.010380, unit = "N*m/A", fidelity = "derived", derivation = "Kt = 60 / (2*pi*Kv) = 60 / (2*pi*920) = 0.010380 N*m/A (SI torque constant equals 1/Kv with Kv in rad/s per V)." }
+j_rotor_bell  = { value = 4.2e-6, unit = "kg*m^2", fidelity = "estimated", rationale = "No rotor data published. Assumed rotor bell + magnets mass 27 g (~42% of the 64 g motor, typical for 22xx outrunners) acting as a thin shell at r = 12.5 mm (inside the 27.7 mm outer diameter): J = m*r^2 = 0.027*0.0125^2 = 4.2e-6 kg*m^2. Uncertainty roughly +-50%; small vs the prop (about 6% of total rotor inertia)." }
+
+[tables.thrust_test]
+# VALIDATION TARGET (N4). Vendor bench test, 1 motor, AIR2216II-KV920 with T1045II prop (10x4.5), constant 16 V.
+# Vendor columns converted: thrust g -> N (x 0.00980665), power W and torque N*m as printed (torque rounded to 0.01 by vendor).
+# Vendor note: "Motor temperature is motor surface temperature @100% throttle running 10mins." (80 C)
+# "(Date above based on benchtest are for reference only, comparion with that of other motor types is not recommended.)"
+columns = ["throttle_pct", "voltage_V", "current_A", "thrust_N", "torque_Nm", "rpm", "power_W", "efficiency_g_per_W", "thrust_g"]
+rows = [
+  [30, 16.0, 1.44, 2.0594, 0.03, 4042, 23, 9.12, 210],
+  [35, 16.0, 1.87, 2.5399, 0.04, 4469, 30, 8.67, 259],
+  [40, 16.0, 2.29, 3.0303, 0.05, 4855, 37, 8.45, 309],
+  [45, 16.0, 2.86, 3.6579, 0.05, 5301, 46, 8.15, 373],
+  [50, 16.0, 3.60, 4.3836, 0.06, 5780, 58, 7.76, 447],
+  [55, 16.0, 4.53, 5.2564, 0.08, 6298, 72, 7.39, 536],
+  [60, 16.0, 5.61, 6.1586, 0.09, 6800, 90, 7.01, 628],
+  [65, 16.0, 6.78, 7.1490, 0.10, 7281, 108, 6.73, 729],
+  [70, 16.0, 7.92, 7.9826, 0.11, 7679, 126, 6.44, 814],
+  [75, 16.0, 9.20, 8.8848, 0.12, 8096, 147, 6.18, 906],
+  [80, 16.0, 10.59, 9.7380, 0.14, 8468, 169, 5.88, 993],
+  [85, 16.0, 12.11, 10.6598, 0.15, 8867, 193, 5.65, 1087],
+  [90, 16.0, 13.81, 11.6797, 0.16, 9257, 219, 5.43, 1191],
+  [95, 16.0, 15.68, 12.6408, 0.18, 9675, 249, 5.18, 1289],
+  [100, 16.0, 16.37, 13.0625, 0.18, 9857, 260, 5.13, 1332],
+]
+prop = "holybro-1045-prop"
+src = "S2"
+fidelity = "datasheet"
+
+[geometry]
+shape = "cylinder"
+size = [0.01385, 0.02125]       # radius 27.7/2 mm, half of 42.5 mm overall length (body + shaft stub)
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
+title = "Holybro docs - PX4 Development Kit - X500v2"
+accessed = "2026-10-06"
+quote = "Holybro 2216 KV920 Motor (4 pcs) with XT30 Plug"
+
+[[sources]]
+id = "S2"
+url = "https://cdn.shopify.com/s/files/1/0604/5905/7341/files/X500MotorSpec.png?v=1678791632"
+title = "Holybro X500 V2 motor specification image (linked as 'Motor Specification' from the X500 V2 ARF kit page https://holybro.com/products/x500-v2-kits)"
+accessed = "2026-10-06"
+quote = "AIR2216II-Specifications: KV 920; Rated Voltage(Lipo) 4S(4.2V/PC) / 16V; Idle Current(10V) 0.8A; Internal Resistance 115±10mΩ; Peak Current(180s) 17A; Weight (Incl. Cable) 64±2g; Max. Power(180s) 272W. Drawing: 42.5, 31, 9.5, 6.5, M6, Ø3, Ø27.7, 150±3, 4-M3, 16, 19. AIR2216II-Test Report: AIR2216II-KV920, T1045II, 100% 16 1332 0.18 16.37 9857 260 5.13"
+
+[[sources]]
+id = "S3"
+url = "https://www.ligpower.com/product/air-gear-450II-combo-set.html"
+title = "LIGPOWER AIR Gear 450II combo set (same AIR2216II-KV920 / T1045 table, cross-check of S2 text)"
+accessed = "2026-10-06"
+quote = "AIR2216II-KV920|T1045|30%|16|210|0.03|1.44|4042|23|9.12|80℃|35%|16|259|0.04|1.87|4469|30|8.67"

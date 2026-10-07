@@ -1,0 +1,39 @@
+id = "so101-rotation-pitch"
+name = "SO-101 rotation/pitch shoulder bracket (3D printed, shoulder_link)"
+category = "frame.printed"
+vendor = "TheRobotStudio (open design, Apache-2.0)"
+part_number = "Rotation_Pitch_SO101.stl (sim mesh rotation_pitch_so101_v1.stl)"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/STL/SO101/Individual/Rotation_Pitch_SO101.stl"
+
+[params]
+volume_solid = { value = 6.88e-5, unit = "m^3", fidelity = "derived", derivation ="Signed-volume integral over the 17672 triangles of meshes/so101/rotation_pitch_so101_v1.stl (binary STL, metres) = 68.80 cm^3. Solid." }
+infill_fraction = { value = 0.15, unit = "1", src = "S1", fidelity = "datasheet" }
+layer_height    = { value = 0.0002, unit = "m", src = "S1", fidelity = "datasheet" }
+nozzle_diameter = { value = 0.0004, unit = "m", src = "S1", fidelity = "datasheet" }
+wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale ="Repo README gives only material, nozzle/layer height and 15% infill, no perimeter count; 2 perimeters is a common slicer default (not verified against a specific slicer profile)." }
+
+[geometry]
+shape = "mesh"
+mesh = "meshes/so101/rotation_pitch_so101_v1.stl"
+material = "pla"
+urdf_link = "shoulder_link"
+origin_xyz = [0.0122008, 2.22413e-05, 0.0464]
+origin_rpy = [-1.5708, 0.0, 0.0]
+bbox_min = [-0.0598, 0.0002, -0.023]
+bbox_max = [0.0, 0.0844, 0.023]
+
+[[sources]]
+id = "S1"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/README.md"
+title = "SO-ARM100 README, Printing the Parts, Step 1 (commit a758567)"
+accessed = "2026-10-06"
+quote = "Material: PLA+ || Nozzle Diameter and Precision: 0.4mm nozzle diameter at 0.2mm layer height or 0.6mm nozzle at 0.4mm layer height. || Infill Density: 15%"
+license = "Apache-2.0"
+
+[[sources]]
+id = "S2"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/Simulation/SO101/so101_new_calib.urdf"
+title = "SO-ARM100 Simulation/SO101/so101_new_calib.urdf (commit a758567), part placement in link shoulder_link"
+accessed = "2026-10-06"
+quote = "<!-- Part rotation_pitch_so101_v1 --> <visual> <origin xyz=\"0.0122008 2.22413e-05 0.0464\" rpy=\"-1.5708 2.35221e-33 0\"/>"
+license = "Apache-2.0"

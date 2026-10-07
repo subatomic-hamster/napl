@@ -1,0 +1,25 @@
+id = "iso7045-m3x14"
+name = "Pan head screw ISO 7045 M3x14, steel"
+category = "fastener"
+vendor = "generic (ISO 7045 / DIN 7985)"
+part_number = "ISO 7045 M3x14"
+url = "https://fasten.it/norms/norm/din_en_iso_7045"
+
+[params]
+mass            = { value = 9.84e-4, unit = "kg", src = "S1", fidelity = "datasheet" }
+thread_diameter = { value = 3e-3, unit = "m", src = "S1", fidelity = "datasheet" }
+length          = { value = 14e-3, unit = "m", src = "S1", fidelity = "datasheet" }
+steel_density   = { value = 7850, unit = "kg/m3", src = "S1", fidelity = "datasheet" }
+
+[params.head_type_identification]
+value = 1
+unit = "1"
+fidelity = "estimated"
+rationale = "Holybro assembly guide lists only 'Screw M3*14 4pcs' (battery mounting board to plates); the vendor STEP names it M3-14-PAN, so pan head is assumed (ISO 7045 mass table used). Value 1 is a flag meaning 'assumed pan head'."
+
+[[sources]]
+id = "S1"
+url = "https://fasten.it/norms/norm/din_en_iso_7045"
+title = "DIN EN ISO 7045 pan head screws (fasten.it), approximate mass table"
+accessed = "2026-10-07"
+quote = "≈ weigth in kg x1000 pcs, (ρ=7,85 kg/dm 3 ) - commercial items d thread size M 1.6 M 2 M 2.5 M 3 M 3.5 M 4 ... 14 0.226 0.381 0.666 0.984 1.43 2  (row l=14; M3 = 0.984 kg per 1000 pcs)"

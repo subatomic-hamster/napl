@@ -1,0 +1,39 @@
+id = "so101-gripper-fixed-jaw"
+name = "SO-101 follower gripper body / fixed jaw (wrist roll follower, 3D printed, gripper_link)"
+category = "frame.printed"
+vendor = "TheRobotStudio (open design, Apache-2.0)"
+part_number = "Wrist_Roll_Follower_SO101.stl (sim mesh wrist_roll_follower_so101_v1.stl)"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/STL/SO101/Individual/Wrist_Roll_Follower_SO101.stl"
+
+[params]
+volume_solid = { value = 5.664e-5, unit = "m^3", fidelity = "derived", derivation ="Signed-volume integral over the 28796 triangles of meshes/so101/wrist_roll_follower_so101_v1.stl (binary STL, metres) = 56.64 cm^3. Solid." }
+infill_fraction = { value = 0.15, unit = "1", src = "S1", fidelity = "datasheet" }
+layer_height    = { value = 0.0002, unit = "m", src = "S1", fidelity = "datasheet" }
+nozzle_diameter = { value = 0.0004, unit = "m", src = "S1", fidelity = "datasheet" }
+wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale ="Repo README gives only material, nozzle/layer height and 15% infill, no perimeter count; 2 perimeters is a common slicer default (not verified against a specific slicer profile)." }
+
+[geometry]
+shape = "mesh"
+mesh = "meshes/so101/wrist_roll_follower_so101_v1.stl"
+material = "pla"
+urdf_link = "gripper_link"
+origin_xyz = [0.0, -0.000218214, 0.000949706]
+origin_rpy = [-3.14159, 0.0, 0.0]
+bbox_min = [-0.0352, -0.0242, -0.0001]
+bbox_max = [0.03, 0.0278, 0.1054]
+
+[[sources]]
+id = "S1"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/README.md"
+title = "SO-ARM100 README, Printing the Parts, Step 1 (commit a758567)"
+accessed = "2026-10-06"
+quote = "Material: PLA+ || Nozzle Diameter and Precision: 0.4mm nozzle diameter at 0.2mm layer height or 0.6mm nozzle at 0.4mm layer height. || Infill Density: 15%"
+license = "Apache-2.0"
+
+[[sources]]
+id = "S2"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/Simulation/SO101/so101_new_calib.urdf"
+title = "SO-ARM100 Simulation/SO101/so101_new_calib.urdf (commit a758567), part placement in link gripper_link"
+accessed = "2026-10-06"
+quote = "<!-- Part wrist_roll_follower_so101_v1 --> <visual> <origin xyz=\"8.32667e-17 -0.000218214 0.000949706\" rpy=\"-3.14159 -5.55112e-17 0\"/>"
+license = "Apache-2.0"

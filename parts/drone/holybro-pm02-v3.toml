@@ -1,0 +1,46 @@
+id = "holybro-pm02-v3"
+name = "Holybro PM02 V3 Power Module (12S, analog)"
+category = "pcb.pm"
+vendor = "Holybro"
+part_number = "15010"
+url = "https://shop.holybro.com/power-modulepm02-v3_p1185.html"
+
+# Ships in the PX4 Development Kit X500 v2. Analog voltage/current outputs on a 6-pin JST-GH cable to the Pixhawk 6C
+# POWER1 port. Pre-soldered XT60 on both ends with 12 AWG wire. Shunt resistance and sense-amp gain are NOT published;
+# only the end-to-end scaling (V per ADC volt, A per ADC volt) is.
+
+[params]
+voltage_divider    = { value = 18.182, unit = "V/V", src = "S1", fidelity = "datasheet" }    # battery V = ADC V * 18.182
+amps_per_volt      = { value = 36.364, unit = "A/V", src = "S1", fidelity = "datasheet" }    # current = ADC V * 36.364
+amps_per_volt_doc  = { value = 36.364, unit = "A/V", src = "S2", fidelity = "datasheet" }
+voltage_divider_doc = { value = 18.182, unit = "V/V", src = "S2", fidelity = "datasheet" }
+current_sense_sensitivity = { value = 0.027500, unit = "V/A", fidelity = "derived", derivation = "Inverse of the published Amperes per Volt: 1 / 36.364 A/V = 0.0275 V/A (= shunt resistance x amplifier gain; the split is unpublished)." }
+v_in_cells_min     = { value = 2, unit = "cells", src = "S1", fidelity = "datasheet" }      # "Input Voltage: 2S-12S"
+v_in_cells_max     = { value = 12, unit = "cells", src = "S1", fidelity = "datasheet" }
+current_continuous = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }       # PCB cont. rating
+current_burst      = { value = 100.0, unit = "A", src = "S1", fidelity = "datasheet" }      # < 60 s
+current_sense_max  = { value = 120.0, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_voltage        = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+bec_current_max    = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+mass               = { value = 0.020, unit = "kg", src = "S1", fidelity = "datasheet" }     # listed "Weight: 20g"
+preinstalled_wire  = { value = "12 AWG", unit = "text", src = "S2", fidelity = "datasheet" }
+preinstalled_connector = { value = "XT60", unit = "text", src = "S2", fidelity = "datasheet" }
+wire_rating_continuous = { value = 30.0, unit = "A", src = "S2", fidelity = "datasheet" }   # XT60 + 12 AWG
+wire_rating_burst  = { value = 60.0, unit = "A", src = "S2", fidelity = "datasheet" }       # < 1 minute
+input_capacitor    = { value = 220e-6, unit = "F", src = "S1", fidelity = "datasheet" }     # 220uF 63V electrolytic
+r_series           = { value = 0.0015, unit = "ohm", fidelity = "estimated", rationale = "Board path resistance (sense shunt + copper) is unpublished. A shunt of order 1 mOhm is consistent with 0.0275 V/A at an amplifier gain near 27.5, plus ~0.5 mOhm of trace; the XT60 connectors and 12 AWG wires are modelled separately (amass-xt60, awg-12-silicone-wire). Treat as +-50%." }
+adc_voltage_range  = { value = 3.3, unit = "V", fidelity = "estimated", rationale = "Analog output full scale assumed to match a 3.3 V ADC reference (12S 50.4 V / 18.182 = 2.77 V and 120 A / 36.364 = 3.30 V both fit within 3.3 V); not stated by Holybro in the sources fetched." }
+
+[[sources]]
+id = "S1"
+url = "https://shop.holybro.com/power-modulepm02-v3_p1185.html"
+title = "Holybro shop - PM02 V3 Power Module (12S)"
+accessed = "2026-10-06"
+quote = "Input Voltage: 2S-12S; PCB Cont. Current Rating: 60A; PCB Burst Current Rating: 100A (<60 Sec); Max Current Sensing: 120A; Output: DC 5.2V & 3A Max; Voltage Divider: 18.182; Amperes per Volt: 36.364; Weight: 20g"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/power-module-and-pdb/power-module/analog-power-module-setup.md"
+title = "Holybro docs - Analog Power Module Setup; and https://docs.holybro.com/power-module-and-pdb/power-module/connector-and-wire-rating.md"
+accessed = "2026-10-06"
+quote = "All Holybro Analog Power Modules except *PM08* use the following: Voltage Divider: 18.182; Amperes per Volt: 36.364. // The XT60 plug and 12AWG wire that are pre-soldered on Holybro Power module are rated for 30A continuous current and 60A instantaneous current (<1 minute)."

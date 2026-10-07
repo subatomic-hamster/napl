@@ -1,0 +1,40 @@
+id = "holybro-x500v2-bottom-plate"
+name = "Holybro X500 V2 carbon fibre bottom plate (#510180)"
+category = "frame.plate"
+vendor = "Holybro"
+part_number = "510180"
+url = "https://cdn.shopifycdn.net/s/files/1/0604/5905/7341/files/X500_V2_Assembly_Guide_en.pdf?v=1720853913"
+
+[params]
+size_xy   = { value = 0.144, unit = "m", src = "S1", fidelity = "datasheet" }
+thickness = { value = 0.002, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[params.cad_bbox_xy]
+value = 0.14372
+unit = "m"
+fidelity = "derived"
+derivation = "Bounding box 143.72 x 2.00 x 143.72 mm of the bottom-plate solid (centre of mass at height y = +1.0 mm, volume 34549 mm3) in Holybro's x500v2-frame.step, via OpenCascade BRepBndLib."
+
+[params.cad_volume]
+value = 3.4549e-5
+unit = "m3"
+fidelity = "derived"
+derivation = "OpenCascade BRepGProp::VolumeProperties on the bottom-plate solid of x500v2-frame.step (includes all holes and cut-outs)."
+
+[params.mass]
+value = 0.05355
+unit = "kg"
+fidelity = "derived"
+derivation = "cad_volume 3.4549e-5 m3 * carbon-fibre-twill-plate estimated density 1550 kg/m3 = 53.6 g. Not weighed."
+
+[geometry]
+shape = "box"
+size = [0.07186, 0.001, 0.07186]
+material = "carbon-fibre-twill-plate"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
+title = "PX4 Development Kit - X500v2 (Holybro docs), Frame Kit Details"
+accessed = "2026-10-06"
+quote = "Body - Full Carbon Fiber Top & Bottom plate (144 x 144mm, 2mm thick)"

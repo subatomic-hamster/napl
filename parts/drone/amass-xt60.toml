@@ -1,0 +1,27 @@
+id = "amass-xt60"
+name = "Amass XT60 connector pair (XT60-M / XT60-F)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "XT60-F / XT60-M"
+url = "https://mrsdprojects.ri.cmu.edu/2025teamb/wp-content/uploads/sites/84/2025/05/xt60.pdf"
+
+# Used on the Tattu 4S pack, the PM02 V3 input/output and the PDB battery input. Datasheet "CR" is listed separately for
+# XT60-F and XT60-M (0.55 mOhm each); whether a mated pair is 0.55 or 1.1 mOhm is not stated, so both are recorded.
+# The PDF is hosted on a CMU course site (copy of the Amass V1.2 datasheet).
+
+[params]
+contact_resistance = { value = 0.00055, unit = "ohm", src = "S1", fidelity = "datasheet" }   # per datasheet "CR 0.55 mOhm"
+contact_resistance_mated_pair = { value = 0.0011, unit = "ohm", fidelity = "derived", derivation = "Two datasheet halves (XT60-F 0.55 mOhm + XT60-M 0.55 mOhm, each listed with the same CR) in series: 2 x 0.00055 = 0.0011 ohm. Upper-bound reading; if Amass's CR already covers a mated pair, use 0.00055." }
+current_rated      = { value = 30.0, unit = "A", src = "S1", fidelity = "datasheet" }        # "RC" rated current
+current_burst      = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }        # "MC" instantaneous current
+voltage_rated      = { value = 500.0, unit = "V", src = "S1", fidelity = "datasheet" }       # DC 500 V
+recommended_wire   = { value = "12 AWG", unit = "text", src = "S1", fidelity = "datasheet" }
+temp_max           = { value = 120.0, unit = "degC", src = "S1", fidelity = "datasheet" }
+mass               = { value = 0.0045, unit = "kg", fidelity = "estimated", rationale = "Mass is not on the Amass datasheet. 4.5 g per mated pair is an unverified order-of-magnitude assumption (small brass/PA connector pair); matters only at the gram level and should be replaced by a weighed value." }
+
+[[sources]]
+id = "S1"
+url = "https://mrsdprojects.ri.cmu.edu/2025teamb/wp-content/uploads/sites/84/2025/05/xt60.pdf"
+title = "AMASS XT60-F / XT60-M datasheet V1.2 (Changzhou Amass Electronics)"
+accessed = "2026-10-06"
+quote = "产品型号 XT60-F 接触电阻 Item No. CR 0.55mΩ 额定电压 DC 500V 额定电流 30A RC 瞬时电流 60A MC 推荐使用次数 1000 TIMES 推荐线规 12AWG 工作温度 -20℃ to 120℃"

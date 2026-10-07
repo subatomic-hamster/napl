@@ -1,0 +1,41 @@
+id = "waveshare-bus-servo-adapter-a"
+name = "Waveshare Bus Servo Adapter (A) serial bus servo driver board (SO-101 motor control board)"
+category = "pcb.servo_driver"
+vendor = "Waveshare"
+part_number = "Bus Servo Adapter (A)"
+url = "https://www.waveshare.com/bus-servo-adapter-a.htm"
+
+# The SO-ARM100 BOM lists "Motor Control Board" with Amazon link B0CTMM4LWK ("Waveshare ... Integrates ... Control Circuit ...");
+# LeRobot docs: "If you are using a Waveshare controller board, make sure that the two jumpers are set on the `B` channel (USB)."
+
+[params]
+mass            = { value = 0.016, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.042, unit = "m",  src = "S2", fidelity = "datasheet" }
+width           = { value = 0.033, unit = "m",  src = "S2", fidelity = "datasheet" }
+input_voltage_min = { value = 9.0,  unit = "V", src = "S2", fidelity = "datasheet" }
+input_voltage_max = { value = 12.6, unit = "V", src = "S2", fidelity = "datasheet" }
+mounting_hole_diameter = { value = 0.0025, unit = "m", src = "S2", fidelity = "datasheet" }
+max_servos      = { value = 253, unit = "1", src = "S2", fidelity = "datasheet" }
+host_interface  = { value = "USB Type-C (jumper B) or UART (jumper A), bridged to the 1 Mbps half-duplex servo bus", unit = "-", src = "S2", fidelity = "datasheet" }
+power_connector = { value = "5.5 x 2.1 mm DC jack or screw terminal", unit = "-", src = "S2", fidelity = "datasheet" }
+max_continuous_current = { value = 5.0, unit = "A", fidelity = "estimated", rationale ="Waveshare publishes no current rating. Six follower servos stall at 2.0-2.5 A each (datasheet); the SO-101 BOM notes a 12V '5A+' supply for the 12V variant (README) and ships a 5V 4A supply for the 7.4V variant, so the board is operated up to ~4 A in the BOM. 5 A is only a placeholder bound for a simulator current limit, not a vendor figure." }
+bus_forward_drop = { value = 0.0, unit = "V", fidelity = "estimated", rationale ="Servo power passes from the DC jack/terminal to the servo ports; no published series resistance or diode drop. Taken as 0 V; set a value if bench data appears." }
+
+[geometry]
+shape = "box"
+size = [0.021, 0.0165, 0.006]
+# size = half extents (m): length/2, width/2, height/2. Height 12 mm is estimated (USB-C + DC jack tall parts), board thickness not published.
+
+[[sources]]
+id = "S1"
+url = "https://www.waveshare.com/bus-servo-adapter-a.htm"
+title = "Waveshare Bus Servo Adapter (A) product page, structured data (weight)"
+accessed = "2026-10-06"
+quote = "\"weight\": { \"@type\": \"QuantitativeValue\", \"value\": \"16\", \"unitCode\": \"g\" }"
+
+[[sources]]
+id = "S2"
+url = "https://www.waveshare.com/bus-servo-adapter-a.htm"
+title = "Waveshare Bus Servo Adapter (A) product page, Specifications"
+accessed = "2026-10-06"
+quote = "Power Supply: DC 9~12.6V (ST series servo) || Power supply connector: 5.5 × 2.1mm DC || communication interface: UART || Dimensions: 42.00 × 33.00mm || Mounting hole size: 2.50mm || Allows controlling up to 253 ST/SC series serial bus servos at the same time (sufficient power supply required)"

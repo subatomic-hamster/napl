@@ -1,0 +1,20 @@
+id = "so101-screw-m3x6"
+name = "M3x6 mm screw (SO-101 horn and structural screws)"
+category = "fastener"
+vendor = "generic (supplied with Feetech STS3215 servo kit; 'M3X6' output shaft screw)"
+part_number = "M3x6"
+url = "https://huggingface.co/docs/lerobot/so101"
+
+[params]
+thread_diameter = { value = 0.003, unit = "m", src = "S1", fidelity = "datasheet" }
+length = { value = 0.006, unit = "m", src = "S1", fidelity = "datasheet" }
+count_follower_arm = { value = 50, unit = "1", fidelity = "derived", derivation ="Sum of the M3x6 counts in the LeRobot follower assembly steps (S1): servo horn screws 6 (joints 1,2,3,4 + wrist 5 + gripper, 'Secure the top horn with a M3x6mm screw' x6); shoulder 4+4; upper arm 4+4; forearm 4+4; wrist to motor 4 '4 M3x6mm screws on both sides' read as 4 per side = 8; gripper to motor-5 horn 4; gripper claw '4 M3x6mm screws on both sides' read as 4 per side = 8. 6+8+8+8+8+4+8 = 50. The two 'both sides' lines are ambiguous; if they mean 4 total each the count is 42." }
+mass = { value = 0.00064, unit = "kg", fidelity = "estimated", rationale ="No published mass. Pan/cheese head M3x6 steel: shank 3 mm x 6 mm = 42 mm^3 plus head ~5.5 mm dia x 2 mm (~40 mm^3) = ~82 mm^3 * 7.85 g/cm^3 = 0.64 g." }
+material_density = { value = 7850, unit = "kg/m^3", fidelity = "estimated", rationale ="Screw material not stated by the repo or docs; carbon steel density used (stainless 8000 kg/m^3 would change mass by 2%)." }
+
+[[sources]]
+id = "S1"
+url = "https://huggingface.co/docs/lerobot/so101"
+title = "LeRobot SO-101 assembly guide (Step-by-Step Assembly Instructions, Joint 1 to Gripper)"
+accessed = "2026-10-06"
+quote = "Install both motor horns. Secure the top horn with a M3x6mm screw. No screws are required for the bottom horn. || Tighten the shoulder part with 4 M3x6mm screws on top and 4 M3x6mm screws on the bottom || Attach the upper arm with 4 M3x6mm screws on each side."

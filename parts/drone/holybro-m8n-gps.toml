@@ -1,0 +1,51 @@
+id = "holybro-m8n-gps"
+name = "Holybro M8N GPS module (X500 V2 kit GPS: u-blox NEO-M8N + IST8310 compass)"
+category = "pcb.gps"
+vendor = "Holybro"
+part_number = "M8N GPS"
+url = "https://docs.holybro.com/gps-and-rtk-system/m8n-m9n-m10-gps/standard-m10-m9n-m8n-gps/overview.md"
+
+# Holybro's spec table lists only the M10 and M9N columns; the M8N shares the family case, patch antenna
+# and IST8310 compass. Mass and size below are therefore taken from the family table as estimates for the M8N.
+# Receiver chip numbers: parts ublox-neo-m8n; compass: isentek-ist8310.
+[params]
+antenna_size_xy      = { value = 0.025, unit = "m", src = "S1", fidelity = "datasheet" }
+antenna_thickness    = { value = 0.004, unit = "m", src = "S1", fidelity = "datasheet" }
+supply_voltage_min   = { value = 4.7, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max   = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_max   = { value = 0.2, unit = "A", src = "S1", fidelity = "datasheet" }
+default_baud         = { value = 115200, unit = "baud", src = "S1", fidelity = "datasheet" }
+cable_length         = { value = 0.26, unit = "m", src = "S1", fidelity = "datasheet" }
+kit_listed_in_x500v2 = { value = 1, unit = "1", src = "S2", fidelity = "datasheet" }
+
+[params.mass]
+value = 0.032
+unit = "kg"
+fidelity = "estimated"
+rationale = "Holybro's M10/M9N/M8N family table gives 'Weight (V1) 32g' and 'Weight (V2) 36.8g' for the M10 and M9N columns and does not list an M8N column. Same case and patch antenna, so the V1 32 g is used; the X500 V2 kit ships an M8N of unspecified hardware revision (V1 assumed because the kit docs predate the V2 IP67 case)."
+
+[params.diameter]
+value = 0.050
+unit = "m"
+fidelity = "estimated"
+rationale = "Family table lists 'Dimension (V1) phi50 x14.4 mm' (V2 phi51 x18.5 mm) for the M10/M9N columns; assumed identical for the M8N V1 case."
+
+[params.height]
+value = 0.0144
+unit = "m"
+fidelity = "estimated"
+rationale = "Family table 'Dimension (V1) phi50 x14.4 mm'; assumed identical for the M8N V1 case. Excludes the GPS mount pole."
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/gps-and-rtk-system/m8n-m9n-m10-gps/standard-m10-m9n-m8n-gps/overview.md"
+title = "Standard M10/M9N/M8N GPS Overview (Holybro docs), specification table"
+accessed = "2026-10-06"
+quote = "Input Voltage 4.7-5.2V ... Antenna 25 x 25 x 4 mm ceramic patch antenna ... Power consumption Less than 200mA @ 5V ... Dimension (V1) φ50 x14.4 mm ... Weight (V1) 32g ... Cable Length 26cm (42cm cable purchase separately) ... Default Baud Rate 115200"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
+title = "PX4 Development Kit - X500v2 (Holybro docs), kit contents"
+accessed = "2026-10-06"
+quote = "M8N GPS Module"

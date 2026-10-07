@@ -1,0 +1,39 @@
+id = "so101-moving-jaw"
+name = "SO-101 follower moving jaw (3D printed, moving_jaw_so101_v1_link)"
+category = "frame.printed"
+vendor = "TheRobotStudio (open design, Apache-2.0)"
+part_number = "Moving_Jaw_SO101.stl (sim mesh moving_jaw_so101_v1.stl)"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/STL/SO101/Individual/Moving_Jaw_SO101.stl"
+
+[params]
+volume_solid = { value = 2.07e-5, unit = "m^3", fidelity = "derived", derivation ="Signed-volume integral over the 28270 triangles of meshes/so101/moving_jaw_so101_v1.stl (binary STL, metres) = 20.70 cm^3. Solid." }
+infill_fraction = { value = 0.15, unit = "1", src = "S1", fidelity = "datasheet" }
+layer_height    = { value = 0.0002, unit = "m", src = "S1", fidelity = "datasheet" }
+nozzle_diameter = { value = 0.0004, unit = "m", src = "S1", fidelity = "datasheet" }
+wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale ="Repo README gives only material, nozzle/layer height and 15% infill, no perimeter count; 2 perimeters is a common slicer default (not verified against a specific slicer profile)." }
+
+[geometry]
+shape = "mesh"
+mesh = "meshes/so101/moving_jaw_so101_v1.stl"
+material = "pla"
+urdf_link = "moving_jaw_so101_v1_link"
+origin_xyz = [0.0, 0.0, 0.0189]
+origin_rpy = [0.0, 0.0, 0.0]
+bbox_min = [-0.0123, -0.082, -0.024]
+bbox_max = [0.01, 0.01, 0.024]
+
+[[sources]]
+id = "S1"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/README.md"
+title = "SO-ARM100 README, Printing the Parts, Step 1 (commit a758567)"
+accessed = "2026-10-06"
+quote = "Material: PLA+ || Nozzle Diameter and Precision: 0.4mm nozzle diameter at 0.2mm layer height or 0.6mm nozzle at 0.4mm layer height. || Infill Density: 15%"
+license = "Apache-2.0"
+
+[[sources]]
+id = "S2"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/Simulation/SO101/so101_new_calib.urdf"
+title = "SO-ARM100 Simulation/SO101/so101_new_calib.urdf (commit a758567), part placement in link moving_jaw_so101_v1_link"
+accessed = "2026-10-06"
+quote = "<!-- Part moving_jaw_so101_v1 --> <visual> <origin xyz=\"-5.55112e-17 -5.55112e-17 0.0189\" rpy=\"9.53145e-17 6.93889e-18 1.24077e-24\"/>"
+license = "Apache-2.0"
