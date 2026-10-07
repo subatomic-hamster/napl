@@ -268,7 +268,9 @@ def _tally(path):
     ents = [e for e in d.get("params", {}).values() if isinstance(e, dict)]
     ents += list(d.get("tables", {}).values())
     for p in d.get("ports", []):
-        ents += [e for e in p.values() if isinstance(e, dict)]
+        ents += [
+            e for k, e in p.items() if isinstance(e, dict) and k != "lead"
+        ]  # lead: a flag, not a value
     return d, collections.Counter(e.get("fidelity") for e in ents), ents
 
 
