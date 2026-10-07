@@ -18,6 +18,25 @@ mass_per_m_copper  = { value = 0.02957, unit = "kg/m", fidelity = "derived", der
 mass_per_m         = { value = 0.0414, unit = "kg/m", fidelity = "estimated", rationale = "Copper 29.6 g/m (derived) plus silicone insulation: OD 4.5 mm (S3) with ~2.6 mm strand bundle gives ~10.6 mm^2 of insulation x ~1.2 g/cm^3 (typical silicone rubber, not sourced here) = ~12.7 g/m, total ~42 g/m. Not weighed; +-15%." }
 ampacity_chassis_60c = { value = 20.0, unit = "A", src = "S1", fidelity = "literature" }          # 60 C rating column for 12 AWG in the table
 
+# Two end ports of family wire-lead (the family the other wire files in parts/connectors use; solder cups and pads join them).
+# Per-instance mass = mass_per_m * length, resistance = resistance_per_m * length; the part has no fixed length or geometry.
+[[ports]]
+name = "end_a"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "literature" }
+role = "passthrough"
+note = "60 C ampacity column of the AWG table (chassis wiring); the PM02 pre-soldered XT60 + 12 AWG lead is rated 30 A continuous by Holybro (S2) with a higher temperature rating."
+
+[[ports]]
+name = "end_b"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "literature" }
+role = "passthrough"
+
 [[sources]]
 id = "S1"
 url = "https://en.wikipedia.org/wiki/American_wire_gauge"

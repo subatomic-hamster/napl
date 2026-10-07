@@ -48,9 +48,66 @@ rows = [
 fidelity = "derived"
 derivation = "From the vendor thrust-stand table (src S2 of holybro-2216-kv920): C_T = T/(rho*n^2*D^4), C_Q = Q/(rho*n^2*D^5), n = rpm/60, rho = 1.225 kg/m^3 assumed, D = 0.254 m, T = thrust_g*0.00980665."
 
+[tables.ct_cq_j]
+# C_T(J), C_Q(J) for the rotor device. J = V/(n*D). Shape from UIUC APC SF 10x4.7 advancing run at ~4014 rpm
+# (parts/drone/uiuc-apc-sf-10x4.7.toml [tables.advancing_4014rpm]), scaled so J = 0 equals this prop's own static values.
+# Rows: j, ct, cq. J = 0 row is ct_static / cq_static of this file; the other rows are scaled UIUC rows (J 0.142 .. 0.719,
+# C_T crosses zero at J ~ 0.647). Computed on hfbox (.venv python, numpy interp) 2026-10-07.
+columns = ["j", "ct", "cq"]
+rows = [
+  [0.0, 0.09500, 0.005300],
+  [0.142, 0.08161, 0.005133],
+  [0.177, 0.07750, 0.005076],
+  [0.216, 0.07266, 0.004962],
+  [0.255, 0.06806, 0.004860],
+  [0.289, 0.06322, 0.004712],
+  [0.325, 0.05903, 0.004632],
+  [0.361, 0.05353, 0.004462],
+  [0.399, 0.04778, 0.004268],
+  [0.438, 0.04121, 0.004006],
+  [0.468, 0.03621, 0.003813],
+  [0.510, 0.02816, 0.003506],
+  [0.534, 0.02364, 0.003323],
+  [0.577, 0.01461, 0.002936],
+  [0.612, 0.00681, 0.002595],
+  [0.647, -0.00090, 0.002265],
+  [0.685, -0.01002, 0.001844],
+  [0.719, -0.01790, 0.001480],
+]
+fidelity = "derived"
+derivation = "ct(J) = ct_static * CT_APC(J) / CT_APC,static(4014 rpm); cq(J) = cq_static * CP_APC(J) / CP_APC,static(4014 rpm) (C_Q = C_P/(2*pi), so the C_P ratio equals the C_Q ratio). ct_static = 0.095 and cq_static = 0.0053 are this prop's own static values derived from the Holybro thrust table (C_T = T/(rho*n^2*D^4), C_Q = Q/(rho*n^2*D^5), rho 1.225, D 0.254 m; see [tables.ct_cq_static_derived], means of its 15 rows). UIUC static values at 4014 rpm by linear interpolation of [tables.static_ct_cp]: CT = 0.11572, CP = 0.04657. UIUC rows are those of apcsf_10x4.7_kt0836_4014 (J 0.142-0.719); the 6020 rpm run (J 0.408-0.774) is not used so that one Reynolds number anchors the J = 0 scaling. Not validated at J > 0 for the Holybro prop (APC SF 10x4.7 is a different blade; pitch/D 0.47 vs 0.45)."
+
+[params.geom_width]
+value = 0.030
+unit = "m"
+fidelity = "estimated"
+rationale = "Full width (y) of the thin-box geometry. The Holybro spec image reads 'Plastic Propeller 10\" *4.5 (260mmx30mm)'; the '30mm' is unexplained there (hub or maximum chord). Cross-check: the APC SF 10x4.7 blade_geometry table in parts/drone/uiuc-apc-sf-10x4.7.toml has maximum c/R = 0.226, i.e. chord 0.226 * 0.127 = 28.7 mm, which agrees with 30 mm. Resolve with a measured prop."
+
+[params.geom_thickness]
+value = 0.004
+unit = "m"
+fidelity = "estimated"
+rationale = "Full thickness (z) of the thin-box geometry, kept from the earlier disc envelope (half-thickness 2 mm); stands for the hub boss, blade thickness is ~1-3 mm. Not published. Box inertia about z is m*(L^2+w^2)/12 = 0.0125*(0.254^2+0.030^2)/12 = 6.81e-5 kg*m^2, 1.4% above j_prop (6.72e-5, rod upper bound), so the geometry stays consistent with j_prop."
+
 [geometry]
-shape = "cylinder"
-size = [0.127, 0.002]       # disc envelope: radius 0.127 m, half-thickness 2 mm (approximate, thin blade); not a mesh
+shape = "box"
+size = [0.127, 0.015, 0.002]       # half-extents: diameter 0.254 m along x, geom_width 0.030 m along y, geom_thickness 0.004 m along z
+material = "nylon-pa66"   # closest filed material; the prop is nylon + glass fibre (src S1), no glass-filled material file exists
+# Part frame: origin at the hub centre, z = shaft axis (towards the prop-side of the motor), z-up when installed.
+# Estimated blade-plane geometry: see params geom_width / geom_thickness.
+
+[[ports]]
+name = "hub"
+kind = "mech"
+type = "bore.3"
+gender = "female"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Hub bore sits on the 3 mm motor shaft (holybro-2216-kv920 'O3' drawing dimension); Holybro does not publish the hub bore or the prop adapter (the drawing's M6 is the shaft-end thread). Origin at hub centre, axis down the shaft (-z), ref along the blade (+x). Symmetry 1: the 2-blade prop has a blade direction but spins freely about z, so the builder uses a hinge, not k."
 
 [[sources]]
 id = "S1"

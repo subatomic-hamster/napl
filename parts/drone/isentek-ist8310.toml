@@ -1,4 +1,5 @@
 id = "isentek-ist8310"
+ports_note = "Data-only magnetometer chip that lives inside the Pixhawk 6C and the Holybro M8N GPS module (holybro-pixhawk-6c, holybro-m8n-gps); it is never mounted or wired on its own, so it has no ports."
 name = "iSentek IST8310 3-axis magnetometer (Pixhawk 6C and Holybro GPS compass)"
 category = "sensor.mag"
 vendor = "iSentek"

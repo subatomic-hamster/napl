@@ -18,6 +18,23 @@ mass          = { value = 0.12, unit = "kg", fidelity = "estimated", rationale =
 r_out         = { value = 0.03, unit = "ohm", fidelity = "estimated", rationale ="No published output impedance or load regulation. A 1-3 % regulation at 4 A on 5 V (0.05-0.15 V) corresponds to 0.012-0.04 ohm; 0.03 ohm taken. Excludes the output cable." }
 current_limit = { value = 4.5, unit = "A", fidelity = "estimated", rationale ="No published over-current threshold. Small adapters typically trip/hiccup at 110-150 % of rating; 4.5 A (112 %) is a conservative placeholder for a simulator limit." }
 
+[geometry]
+shape = "box"
+size = [0.0375, 0.0225, 0.015]
+size_fidelity = "estimated"
+size_rationale = "Half extents (m) of an assumed 75 x 45 x 30 mm wall-mount adapter body; the product page text retrieved gives no dimensions. Typical 20 W adapters are of this order; used only for drawing, never for kinematics. No mesh."
+
+# Electrical only: no mechanical ports (the adapter plugs into a wall socket; not part of the arm assembly).
+[[ports]]
+name = "power_out"
+kind = "power"
+type = "dc-barrel.5.5x2.1"
+gender = "male"
+role = "source"
+v_max = { value = 5.0, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 4.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "5 V nominal output on the 5.5 x 2.1 mm barrel tip (the supply also ships a 5.5 x 2.5 mm tip, S1); v_max is the nominal output voltage (param v_out_nominal), i_max the rated current (param i_out_rated)."
+
 [[sources]]
 id = "S1"
 url = "https://www.amazon.com/Facmogu-Switching-Transformer-Compatible-5-5x2-1mm/dp/B087LY41PV/"

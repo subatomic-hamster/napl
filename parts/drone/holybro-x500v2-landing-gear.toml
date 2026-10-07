@@ -59,10 +59,61 @@ unit = "kg"
 fidelity = "derived"
 derivation = "cross-bar volume 4.783e-6 m3 * carbon-fibre-epoxy-ud estimated density 1550 kg/m3 = 7.4 g per bar; two bars per vehicle. The rubber foam grips and nylon tee connectors are not included here."
 
+[params.mass]
+value = 0.02185
+unit = "kg"
+fidelity = "derived"
+derivation = "pole_mass 0.01444 + crossbar_mass 0.00741 = 0.02185 kg per leg (one pole + one cross bar); the builder instantiates the part twice (2 legs, per the file header and airframe doc: 2 poles + 2 cross bars). Tee connectors, foam grips and mounting hardware are not included."
+
+[params.mass_tol]
+value = 0.0022
+unit = "kg"
+fidelity = "estimated"
+rationale = "Both masses are CAD volume times an estimated UD carbon density (1550 kg/m3, itself estimated), so +-10% of 21.85 g is carried; the tubes have not been weighed and the CAD ODs (16.0 / 9.4 mm) differ from the nominal 16 / 10 mm for the bar."
+
+[params.lean_angle]
+value = 0.3054
+unit = "rad"
+fidelity = "derived"
+derivation = "Pole axis direction (0, -0.95, -0.30) in the Y-up STEP (pole_cad_length derivation): lean from vertical = atan(0.30/0.95) = 17.5 deg = 0.3054 rad, outward. Pole top end to bar axis: vertical 0.1977*cos(17.5 deg) = 0.18855 m, horizontal 0.1977*sin(17.5 deg) = 0.05945 m."
+
+# Part frame (one leg): origin = the centre of the pole's TOP end on the pole axis, z up when installed, +y = the direction the
+# pole leans (outward from the vehicle), x along the cross bar. Pole axis direction (0, sin17.5deg, -cos17.5deg) = (0, 0.30071,
+# -0.95372); pole centre = 0.09885 * that = (0, 0.029726, -0.094275). Cross bar (horizontal, along x, 250 mm) is centred on the
+# pole's bottom end (0, 0.059452, -0.188551) (a T: STEP says only 'strengthened & improved plastic tee connectors'; where
+# along the bar the pole joins is not recorded, so the pole is assumed to meet the bar at its centre: estimated).
+# Lowest point of the leg: bar axis z - bar radius = -0.188551 - 0.0047 = -0.193251 m below the pole top.
 [geometry]
-shape = "cylinder"
-size = [0.008, 0.09885]
 material = "carbon-fibre-epoxy-ud"
+
+[[geometry.shapes]]
+shape = "cylinder"
+size = [0.008, 0.09885]                       # radius 8.0 mm, half of the 197.7 mm pole length (pole_cad_length)
+pos = [0.0, 0.029726, -0.094275]
+zaxis = [0.0, 0.30071, -0.95372]
+mass_param = "pole_mass"
+note = "vertical pole, leans outward 17.5 deg"
+
+[[geometry.shapes]]
+shape = "cylinder"
+size = [0.0047, 0.125]                        # radius 4.7 mm, half of the 250.0 mm cross-bar length
+pos = [0.0, 0.059452, -0.188551]
+zaxis = [1.0, 0.0, 0.0]
+mass_param = "crossbar_mass"
+note = "foot cross bar (skid), horizontal, along x, centred on the pole bottom end (estimated T joint)"
+
+[[ports]]
+name = "plate"
+kind = "mech"
+type = "mount.x500v2-landing-gear"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Pole top end, facing up to the underside of the bottom plate (mates 'leg_front'/'leg_rear' of holybro-x500v2-bottom-plate). The attachment hardware (tee connectors, clamps, M3 screws) is not recorded or modelled, so the interface family 'mount.x500v2-landing-gear' is a placeholder with no hole pattern. The ~193 mm top-to-foot height (0.18855 vertical pole + 0.0047 bar radius) is 22 mm below the published 215 mm 'landing gear height' (frame kit S1), i.e. that figure is measured from a datum 22 mm above the pole top that the notes do not identify. Resolve with the STEP pole-top height."
 
 [[sources]]
 id = "S1"

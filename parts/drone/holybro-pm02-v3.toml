@@ -31,6 +31,73 @@ input_capacitor    = { value = 220e-6, unit = "F", src = "S1", fidelity = "datas
 r_series           = { value = 0.0015, unit = "ohm", fidelity = "estimated", rationale = "Board path resistance (sense shunt + copper) is unpublished. A shunt of order 1 mOhm is consistent with 0.0275 V/A at an amplifier gain near 27.5, plus ~0.5 mOhm of trace; the XT60 connectors and 12 AWG wires are modelled separately (amass-xt60, awg-12-silicone-wire). Treat as +-50%." }
 adc_voltage_range  = { value = 3.3, unit = "V", fidelity = "estimated", rationale = "Analog output full scale assumed to match a 3.3 V ADC reference (12S 50.4 V / 18.182 = 2.77 V and 120 A / 36.364 = 3.30 V both fit within 3.3 V); not stated by Holybro in the sources fetched." }
 
+[params.geom_length]
+value = 0.045
+unit = "m"
+fidelity = "estimated"
+rationale = "Board dimensions are not published (no dimensions found in text, see docs/research/x500v2-kit.md gaps). Envelope for placement/collision only: 45 x 30 mm board with a 16 mm tall 220 uF 63 V electrolytic (typical can 10 mm dia x 16-20 mm) and XT60 solder joints; sized so the 20 g module is a plausible compact PCB. Resolve by measuring a unit."
+
+[params.geom_width]
+value = 0.030
+unit = "m"
+fidelity = "estimated"
+rationale = "See geom_length."
+
+[params.geom_height]
+value = 0.016
+unit = "m"
+fidelity = "estimated"
+rationale = "See geom_length (set by the 63 V 220 uF capacitor can height)."
+
+[geometry]
+# Part frame: origin at the centre of the underside, z up, x forward. Envelope is estimated, see geom_length.
+shape = "box"
+size = [0.0225, 0.015, 0.008]     # half-extents of geom_length x geom_width x geom_height
+pos = [0.0, 0.0, 0.008]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Underside seat (mates 'pm02' of holybro-x500v2-bottom-plate). No mounting hole pattern or mounting method is published for the PM02 V3; flat tape/strap mount assumed."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "xt60"
+gender = "female"
+role = "passthrough"
+v_max = { value = 50.4, unit = "V", src = "S1", fidelity = "derived", derivation = "12S x 4.2 V = 50.4 V from 'Input Voltage: 2S-12S' (S1)." }
+i_max = { value = 30.0, unit = "A", src = "S2", fidelity = "datasheet" }
+note = "Pre-soldered XT60 + 12 AWG lead to the battery (kit doc, quoted S2: 'rated for 30A continuous current and 60A instantaneous current (<1 minute)'); the board itself is 60 A continuous (current_continuous). Gender female so the battery's male XT60 plugs in; Holybro does not state the gender."
+
+[[ports]]
+name = "power_out"
+kind = "power"
+type = "xt60"
+gender = "male"
+role = "passthrough"
+v_max = { value = 50.4, unit = "V", src = "S1", fidelity = "derived", derivation = "12S x 4.2 V = 50.4 V from 'Input Voltage: 2S-12S' (S1)." }
+i_max = { value = 30.0, unit = "A", src = "S2", fidelity = "datasheet" }
+note = "Pre-soldered XT60 + 12 AWG lead to the PDB (XT60 on both ends, kit page); mates the PDB power_in (female). Same S2 connector/wire rating as power_in."
+
+[[ports]]
+name = "fc_power"
+kind = "power"
+type = "jst-gh.6"
+gender = "female"
+role = "source"
+v_max = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "6-pin JST-GH cable to the Pixhawk 6C POWER1: 5.2 V BEC (S1 'Output: DC 5.2V & 3A Max') plus the analog voltage/current sense lines (voltage_divider, amps_per_volt). Cable-side crimp housing female; the connector family is the Pixhawk standard, not stated on the Holybro PM02 page."
+
 [[sources]]
 id = "S1"
 url = "https://shop.holybro.com/power-modulepm02-v3_p1185.html"

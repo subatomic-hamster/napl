@@ -1,4 +1,5 @@
 id = "uiuc-apc-sf-10x4.7"
+ports_note = "Data-only wind-tunnel reference (UIUC APC Slow Flyer 10x4.7); it is not the kit propeller and is never mounted. Its J-shape is scaled into holybro-1045-prop [tables.ct_cq_j]; no ports."
 name = "APC Slow Flyer 10x4.7 propeller - UIUC wind-tunnel C_T/C_P data (reference for X500 V2 1045 prop J-shape)"
 category = "prop.reference"
 vendor = "APC (propeller); data: UIUC Propeller Data Site (Selig et al.)"

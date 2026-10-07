@@ -14,6 +14,20 @@ head_diameter   = { value = 5.5e-3, unit = "m", src = "S2", fidelity = "datashee
 head_height     = { value = 3e-3, unit = "m", src = "S2", fidelity = "datasheet" }
 steel_density   = { value = 7850, unit = "kg/m3", src = "S1", fidelity = "datasheet" }
 
+[[ports]]
+name = "thread"
+kind = "mech"
+type = "thread.m3"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+length = 0.006
+fidelity = "datasheet"
+src = "S1"
+note = "Shank thread; pos at the head underside, axis points out of the shank tip (library screw convention); length = params.length (S1 row l=6); pitch in params.thread_pitch (S2)."
+
 [[sources]]
 id = "S1"
 url = "https://fasten.it/norms/norm/din_en_iso_4762"

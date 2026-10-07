@@ -16,6 +16,45 @@ length            = { value = 0.053, unit = "m", src = "S1", fidelity = "datashe
 width             = { value = 0.028, unit = "m", src = "S1", fidelity = "datasheet" }
 height            = { value = 0.0107, unit = "m", src = "S1", fidelity = "datasheet" }
 
+[params.mass]
+value = 0.0235
+unit = "kg"
+src = "S1"
+fidelity = "datasheet"       # same as mass_with_antenna ("Weight 23.5g w/ antenna"); the builder reads 'mass'
+
+[geometry]
+# Part frame: origin at the centre of the underside, x along the 53 mm length, z up. Antenna not included.
+shape = "box"
+size = [0.0265, 0.014, 0.00535]      # half-extents of 53 x 28 x 10.7 mm (S1, without antenna)
+pos = [0.0, 0.0, 0.00535]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Underside seat (mates 'sik' of holybro-x500v2-top-plate). No mounting method is published for the air-side radio; flat tape/velcro mount assumed."
+
+[[ports]]
+name = "telem"
+kind = "signal"
+type = "jst-gh.6"
+gender = "neutral"
+note = "6-pin JST-GH, 3.3 V TTL UART (S2); the 5 V supply (S1) arrives through this connector from the Pixhawk TELEM1 (assumed: the page lists a 5 V input and no separate power plug for the 100/500 mW units). Neutral because the radio has a board header and the JST-GH to JST-GH telemetry cable to the Pixhawk TELEM1 is not a filed part; the cable is folded into this port."
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/radio/sik-telemetry-radio-v3.md"
+title = "SiK Telemetry Radio V3 (Holybro docs), Connectors & Power"
+accessed = "2026-10-07"
+quote = "6-pin JST-GH connector, 3.3V-TTL"
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/radio/sik-telemetry-radio-v3.md"

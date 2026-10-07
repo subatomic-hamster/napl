@@ -1,0 +1,435 @@
+# SO-101 follower arm (TheRobotStudio SO-ARM100 repo, commit a758567): 11 printed parts, 6 x Feetech STS3215 C001, Waveshare bus
+# servo adapter on the base plate, 5 V 4 A bench supply (offboard). Parts: parts/arm/. Research: docs/research/so101.md.
+#
+# WORLD FRAME. `root_frame = "urdf_link"` puts the world at the URDF base_link frame (the base mesh sits at its geometry
+# origin_xyz / origin_rpy), so z is up, the joint frames are the URDF joint frames at q = 0 (tests/python/test_design_so101.py
+# checks them against meshes/so101/so101_new_calib.urdf) and gravity acts along the arm's real "down". base = "fixed": welded.
+#
+# KINEMATIC TREE (all mates at rotation k = 0, no `reverse`; ports were derived from the URDF by tools/so101_ports.py):
+#   base -> base_motor_holder, plate -> board (fixed);  base.servo_seat -> servo1 -(shoulder_pan)-> rotation_pitch
+#   rotation_pitch -> motor_holder_shoulder (fixed), servo2 -(shoulder_lift)-> upper_arm -> servo3 -(elbow_flex)-> lower_arm
+#   lower_arm -> motor_holder_wrist (fixed), servo4 -(wrist_flex)-> wrist_roll_pitch -> servo5 -(wrist_roll)-> fixed_jaw
+#   fixed_jaw -> servo6 -(gripper)-> moving_jaw.   Mate names = the URDF joint names = the MJCF joint names.
+# Joint ranges are the `<joint>_range` params of the child printed part (URDF limits, "datasheet" = the official file).
+# The MJCF joint damping / frictionloss / armature of the official model (feetech part params joint_damping_mjcf,
+# joint_armature_mjcf, ...) are deliberately NOT applied: the servo device owns dof_damping (back-EMF b = k Kt Ke N^2 / R)
+# and sets dof_armature = rotor_inertia N^2 on the driven joints.
+#
+# FASTENERS (builder model: steel cylinder per screw, placed at the hole positions of the parent port):
+#  * Horn: one so101-screw-m3x6 per horn mate (LeRobot: "Secure the top horn with a M3x6mm screw", 6 in total). Modelled as
+#    threading into the (tapped) output shaft; the builder's 1.5 d engagement rule + the 3 mm printed horn_seat placeholder
+#    give L_min = 7.5 mm > 6 mm, hence 6 x FASTENER_SHORT. That is a property of the placeholder thickness / the rule of
+#    thumb (both estimated), not of the real screw; thicknesses are not tuned to silence it.
+#  * Servo mounting: so101-screw-m2x6, count per LeRobot (part so101-screw-m2x6 count_follower_arm derivation): joints 1-4 and
+#    the gripper motor 4 each, wrist roll 2 ("2 M2x6mm front screws") = 22. The remaining 2 of the 24 (joint-1 motor holder)
+#    have no servo<->holder mate and are not placed. The 4 hole positions are an ESTIMATED placeholder on the printed
+#    servo_seat ports (footprint corners inset 3 mm). L_min = 3 mm seat + 3 mm (1.5 d, servo case tapped) = 6 mm: fits.
+#  * Structural M3 screws (44 of the 50, shoulder / upper arm / forearm / wrist / gripper claw) and the base <-> motor holder /
+#    plate mates carry no fastener: those ports have no thread tag or hole pattern (a screw count there would be invented),
+#    so their ~28 g of steel is not in the model (and the CAD-derived URDF masses probably do not carry it either).
+#  * Board <-> plate: "auto" on the M2.5 tag of the board pattern (unconfirmed, from a brief). See the mate.
+#
+# WIRING (an assumption, real kits route the cables differently): the PSU's own cord (1.5 m, ESTIMATED) goes to the adapter
+# DC jack; the adapter passes the DC input to its servo port (internal wire device, estimated 20 mohm); then ONE 15 cm servo
+# cable per hop, adapter -> servo1 -> servo2 -> ... -> servo6 (daisy chain through the servos' two passthrough ports). The
+# cable length is the part's default (15 cm as shipped) although the geometric hops are longer; conductors = 2 (supply and
+# return; the signal conductor carries no power). Mass: the cable part has a `conductors` param, so its mass_per_m is for the
+# whole 3-conductor cable and is NOT multiplied by this entry's `conductors`; that field only sets the electrical loop (2 x per-conductor
+# resistance, from the part's awg). Each cable also counts two end connectors at the part's mass_per_connector.
+#
+# TARGET SCOPE ("URDF total"): the URDF link masses are CAD-derived (Onshape) from the printed parts and the servos of each
+# link; the research found no board mesh among the 13 STLs and no statement on screws / cables. Builder groups follow the
+# instance (fasteners: the child instance, wires: the `from` instance), so group "arm" = the 11 printed parts + 6 servos +
+# the fasteners on their mates + the 5 servo-to-servo cables. IN scope by construction: those fasteners (~10 g) and cables
+# (~8 g). OUT of scope: the Waveshare adapter (group "electronics", with its mounting screws and the adapter -> servo1
+# cable) and the PSU (offboard). The report states the in-scope screw / cable mass explicitly.
+
+[assembly]
+name = "so101"
+description = "SO-101 follower arm (SO-ARM100 a758567): 6 x STS3215 C001 on a 5 V bench supply through the Waveshare bus servo adapter; arm at q = 0 in the URDF base_link frame"
+base = "fixed"
+root_frame = "urdf_link"
+timestep = 0.001
+
+# ---- printed parts (a printed-part mass comes from the mesh volume, PLA density, 15 % infill, 2 walls) --------------------------
+[[instances]]
+id = "base"
+part = "so101-base"
+root = true
+group = "arm"
+
+[[instances]]
+id = "base_motor_holder"
+part = "so101-base-motor-holder"
+group = "arm"
+
+[[instances]]
+id = "plate"
+part = "so101-waveshare-mounting-plate"
+group = "arm"
+
+[[instances]]
+id = "rotation_pitch"
+part = "so101-rotation-pitch"
+group = "arm"
+
+[[instances]]
+id = "motor_holder_shoulder"
+part = "so101-motor-holder-shoulder"
+group = "arm"
+
+[[instances]]
+id = "upper_arm"
+part = "so101-upper-arm"
+group = "arm"
+
+[[instances]]
+id = "lower_arm"
+part = "so101-lower-arm"
+group = "arm"
+
+[[instances]]
+id = "motor_holder_wrist"
+part = "so101-motor-holder-wrist"
+group = "arm"
+
+[[instances]]
+id = "wrist_roll_pitch"
+part = "so101-wrist-roll-pitch"
+group = "arm"
+
+[[instances]]
+id = "fixed_jaw"
+part = "so101-gripper-fixed-jaw"
+group = "arm"
+
+[[instances]]
+id = "moving_jaw"
+part = "so101-moving-jaw"
+group = "arm"
+
+# ---- servos (joint k = servo k) --------------------------------------------------------------------------------------------------
+[[instances]]
+id = "servo1"
+part = "feetech-sts3215-c001"
+group = "arm"
+
+[[instances]]
+id = "servo2"
+part = "feetech-sts3215-c001"
+group = "arm"
+
+[[instances]]
+id = "servo3"
+part = "feetech-sts3215-c001"
+group = "arm"
+
+[[instances]]
+id = "servo4"
+part = "feetech-sts3215-c001"
+group = "arm"
+
+[[instances]]
+id = "servo5"
+part = "feetech-sts3215-c001"
+group = "arm"
+
+[[instances]]
+id = "servo6"
+part = "feetech-sts3215-c001"
+group = "arm"
+
+# ---- electronics -------------------------------------------------------------------------------------------------------------------
+[[instances]]
+id = "adapter"
+part = "waveshare-bus-servo-adapter-a"
+group = "electronics"
+
+[[instances]]
+id = "psu"
+part = "facmogu-5v-4a-psu"
+group = "bench"
+offboard = true
+
+# Reference holder for the cable part's params (a wire is a [[wires]] entry, not a body); offboard: no body, no mass.
+[[instances]]
+id = "cable"
+part = "sts3215-servo-cable-3pin"
+group = "bench"
+offboard = true
+
+# ---- base: motor holder, plate, board ------------------------------------------------------------------------------------------------
+[[mates]]
+name = "base--base_motor_holder"
+a = "base.motor_holder_seat"
+b = "base_motor_holder.base_seat"
+
+[[mates]]
+name = "base--plate"
+a = "base.plate_seat"
+b = "plate.base_seat"
+
+# Board on the plate: the M2.5 thread tag is unconfirmed; "auto" needs a nut for M2.5 from the library.
+[[mates]]
+name = "plate--board"
+a = "plate.board_seat"
+b = "adapter.mount"
+fasteners = "auto"
+
+# ---- joint 1 shoulder_pan --------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "base--servo1"
+a = "base.servo_seat"
+b = "servo1.base"
+fasteners = { part = "so101-screw-m2x6", count = 4 }
+
+[[mates]]
+name = "shoulder_pan"
+a = "servo1.output"
+b = "rotation_pitch.horn_seat"
+joint = { type = "hinge", range = "rotation_pitch.shoulder_pan_range" }
+fasteners = { part = "so101-screw-m3x6", count = 1 }
+
+[[mates]]
+name = "rotation_pitch--motor_holder_shoulder"
+a = "rotation_pitch.holder_seat"
+b = "motor_holder_shoulder.rotation_pitch_seat"
+
+# ---- joint 2 shoulder_lift -------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "rotation_pitch--servo2"
+a = "rotation_pitch.servo_seat"
+b = "servo2.base"
+fasteners = { part = "so101-screw-m2x6", count = 4 }
+
+[[mates]]
+name = "shoulder_lift"
+a = "servo2.output"
+b = "upper_arm.horn_seat"
+joint = { type = "hinge", range = "upper_arm.shoulder_lift_range" }
+fasteners = { part = "so101-screw-m3x6", count = 1 }
+
+# ---- joint 3 elbow_flex ----------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "upper_arm--servo3"
+a = "upper_arm.servo_seat"
+b = "servo3.base"
+fasteners = { part = "so101-screw-m2x6", count = 4 }
+
+[[mates]]
+name = "elbow_flex"
+a = "servo3.output"
+b = "lower_arm.horn_seat"
+joint = { type = "hinge", range = "lower_arm.elbow_flex_range" }
+fasteners = { part = "so101-screw-m3x6", count = 1 }
+
+# ---- joint 4 wrist_flex ----------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "lower_arm--servo4"
+a = "lower_arm.servo_seat"
+b = "servo4.base"
+fasteners = { part = "so101-screw-m2x6", count = 4 }
+
+[[mates]]
+name = "lower_arm--motor_holder_wrist"
+a = "lower_arm.holder_seat"
+b = "motor_holder_wrist.lower_arm_seat"
+
+[[mates]]
+name = "wrist_flex"
+a = "servo4.output"
+b = "wrist_roll_pitch.horn_seat"
+joint = { type = "hinge", range = "wrist_roll_pitch.wrist_flex_range" }
+fasteners = { part = "so101-screw-m3x6", count = 1 }
+
+# ---- joint 5 wrist_roll (2 front M2 screws per LeRobot) ----------------------------------------------------------------------------------
+[[mates]]
+name = "wrist_roll_pitch--servo5"
+a = "wrist_roll_pitch.servo_seat"
+b = "servo5.base"
+fasteners = { part = "so101-screw-m2x6", count = 2 }
+
+[[mates]]
+name = "wrist_roll"
+a = "servo5.output"
+b = "fixed_jaw.horn_seat"
+joint = { type = "hinge", range = "fixed_jaw.wrist_roll_range" }
+fasteners = { part = "so101-screw-m3x6", count = 1 }
+
+# ---- joint 6 gripper -------------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "fixed_jaw--servo6"
+a = "fixed_jaw.servo_seat"
+b = "servo6.base"
+fasteners = { part = "so101-screw-m2x6", count = 4 }
+
+[[mates]]
+name = "gripper"
+a = "servo6.output"
+b = "moving_jaw.horn_seat"
+joint = { type = "hinge", range = "moving_jaw.gripper_range" }
+fasteners = { part = "so101-screw-m3x6", count = 1 }
+
+# ---- power wiring ----------------------------------------------------------------------------------------------------------------------
+# PSU cord: the supply's own fixed cord (no library part for it): a generic wire part, length ESTIMATED, mass counted inside the PSU
+# (offboard) so `included_in`. Its ends imply connectors that the builder resolves to library parts; they are not counted.
+[[wires]]
+name = "psu_cord"
+from = "psu.power_out"
+to = "adapter.power_in"
+part = "awg-22-silicone-wire"
+length = { value = 1.5, unit = "m", fidelity = "estimated", rationale = "Not published: the retrieved Amazon title (docs/research/so101.md) says nothing about the cord. 1.2-1.8 m is typical for a wall-mount 5 V barrel adapter; 1.5 m taken. Gauge 22 AWG from the library (a typical 4 A cord is 20-22 AWG; not published)." }
+conductors = 2
+included_in = "psu"
+
+[[wires]]
+name = "cable_adapter_servo1"
+from = "adapter.servo_bus"
+to = "servo1.port_a"
+part = "sts3215-servo-cable-3pin"
+length = "cable.length_default"
+conductors = 2
+
+[[wires]]
+name = "cable_servo1_servo2"
+from = "servo1.port_b"
+to = "servo2.port_a"
+part = "sts3215-servo-cable-3pin"
+length = "cable.length_default"
+conductors = 2
+
+[[wires]]
+name = "cable_servo2_servo3"
+from = "servo2.port_b"
+to = "servo3.port_a"
+part = "sts3215-servo-cable-3pin"
+length = "cable.length_default"
+conductors = 2
+
+[[wires]]
+name = "cable_servo3_servo4"
+from = "servo3.port_b"
+to = "servo4.port_a"
+part = "sts3215-servo-cable-3pin"
+length = "cable.length_default"
+conductors = 2
+
+[[wires]]
+name = "cable_servo4_servo5"
+from = "servo4.port_b"
+to = "servo5.port_a"
+part = "sts3215-servo-cable-3pin"
+length = "cable.length_default"
+conductors = 2
+
+[[wires]]
+name = "cable_servo5_servo6"
+from = "servo5.port_b"
+to = "servo6.port_a"
+part = "sts3215-servo-cable-3pin"
+length = "cable.length_default"
+conductors = 2
+
+# ---- device maps -----------------------------------------------------------------------------------------------------------------------
+[device_maps.psu]
+voltage = "v_out_nominal"
+r_series = "r_out"
+i_limit = "current_limit"
+
+# motor.i0 <- the 7.4 V no-load current: the part's kv (ke) and r_effective are anchored on that same no-load point, and it
+# is the point whose current drives the friction torque Kt i0 (the 6 V point is 0.13 A, the part's 5 V scaling 0.101 A; the arm
+# runs at 5 V so this slightly overstates friction, by at most 0.15/0.101 = 1.5x, an upper bound).
+# firmware_hz <- the derived part param firmware_hz (= 1 / position_update_period, 1000 Hz).
+[device_maps.sts3215]
+"motor.kv" = "kv_equivalent"
+"motor.r20" = "r_effective"
+"motor.i0" = "no_load_current_7v4"
+"motor.rotor_inertia" = "rotor_inertia_motor"
+gear_ratio = "gear_ratio"
+efficiency = "gear_efficiency"
+encoder_cpr = "encoder_resolution"
+firmware_hz = "firmware_hz"
+p = "reg_p_lerobot_so101"
+i = "reg_i_lerobot_so101"
+d = "reg_d_lerobot_so101"
+deadband = "dead_zone_cw_default"
+max_torque = "reg_max_torque_limit_default"
+
+# ---- devices ---------------------------------------------------------------------------------------------------------------------------
+[[devices]]
+type = "psu"
+name = "psu"
+instance = "psu"
+port = "power_out"
+map = "psu"
+
+# The adapter's DC jack and its servo port are different nodes (the part declares them as sink / source, not passthrough):
+# an internal resistive edge joins them.
+[[devices]]
+type = "wire"
+name = "adapter_board"
+instance = "adapter"
+a = "power_in"
+b = "servo_bus"
+set = { resistance = { value = 0.02, unit = "ohm", fidelity = "estimated", rationale = "The part publishes no series resistance (bus_forward_drop is an estimated 0 V). 20 mohm = the DC jack contact pair plus a short trace, taken equal to two mated 5264 contacts (10 mohm each, connector_resistance of sts3215-servo-cable-3pin, itself estimated); a zero-resistance edge would be singular." } }
+
+[[devices]]
+type = "servo"
+name = "servo1"
+instance = "servo1"
+port = "port_a"
+joint = "shoulder_pan"
+map = "sts3215"
+set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Calibration knob (register units -> duty): the true Feetech register scaling is not public (docs/models.md, servo.cpp). Only evidence: the N2 servo tests (tests/data/devices/servo_*.xml) use 8192 with p = 32; the N6a arm3 bench uses 2048 with p = 32, tuned for a gravity-free step. 8192 taken as asked; with p = 16 (LeRobot) the stiffness is half the N2 one, so gravity sag is large (reported by the holding-pose test)." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "No published winding thermal capacity for the STS3215. 10 J/K is the test value of tests/data/feetech/arm3.xml for this servo (also unsourced); only the temperature readout depends on it (no protection is configured here)." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "No published winding-to-ambient thermal resistance. 15 K/W is the test value of tests/data/feetech/arm3.xml for this servo (unsourced); only the temperature readout depends on it." } }
+
+[[devices]]
+type = "servo"
+name = "servo2"
+instance = "servo2"
+port = "port_a"
+joint = "shoulder_lift"
+map = "sts3215"
+set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+
+[[devices]]
+type = "servo"
+name = "servo3"
+instance = "servo3"
+port = "port_a"
+joint = "elbow_flex"
+map = "sts3215"
+set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+
+[[devices]]
+type = "servo"
+name = "servo4"
+instance = "servo4"
+port = "port_a"
+joint = "wrist_flex"
+map = "sts3215"
+set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+
+[[devices]]
+type = "servo"
+name = "servo5"
+instance = "servo5"
+port = "port_a"
+joint = "wrist_roll"
+map = "sts3215"
+set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+
+# Gripper: LeRobot writes Max_Torque_Limit = 500 (50 %) on the gripper servo only.
+[[devices]]
+type = "servo"
+name = "servo6"
+instance = "servo6"
+port = "port_a"
+joint = "gripper"
+map = "sts3215"
+set = { max_torque = "servo6.lerobot_gripper_max_torque_limit", pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+
+# ---- target ----------------------------------------------------------------------------------------------------------------------------
+[[targets]]
+name = "URDF total mass"
+groups = ["arm"]
+value = { value = 0.632006, unit = "kg", fidelity = "derived", derivation = "Sum of the 7 link <mass> values of meshes/so101/so101_new_calib.urdf (SO-ARM100 a758567, CAD-derived): base_link 0.147 + shoulder_link 0.100006 + upper_arm_link 0.103 + lower_arm_link 0.104 + wrist_link 0.079 + gripper_link 0.087 + moving_jaw 0.012 = 0.632006 kg (0.632 kg rounded). Each link includes its printed parts and servo(s); screws / board / cables are not stated." }

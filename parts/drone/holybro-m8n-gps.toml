@@ -36,6 +36,39 @@ unit = "m"
 fidelity = "estimated"
 rationale = "Family table 'Dimension (V1) phi50 x14.4 mm'; assumed identical for the M8N V1 case. Excludes the GPS mount pole."
 
+[params.mass_tol]
+value = 0.005
+unit = "kg"
+fidelity = "estimated"
+rationale = "mass (32 g) is taken from the V1 column of the M10/M9N table; the V2 case is 36.8 g (same family table, cited in the mass rationale), so +-5 g covers both revisions and rounding."
+
+[geometry]
+# Part frame: origin at the centre of the underside (mounting face), z up (antenna side up). Puck envelope: diameter and height
+# are the (estimated) params above, from the family table 'phi50 x14.4 mm'; the mast is not included.
+shape = "cylinder"
+size = [0.025, 0.0072]       # [radius 0.050/2, half-height 0.0144/2]
+pos = [0.0, 0.0, 0.0072]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Underside seat (mates 'gps_mast' of holybro-x500v2-top-plate). The GPS mount is a 4 x M3x10 + locknut bracket (airframe doc extras) whose hole pattern is not recorded, so a flat seat is used; ref +x = cable-side forward is not published either. The mast between the plate and this seat is not a filed part."
+
+[[ports]]
+name = "gps_out"
+kind = "signal"
+type = "jst-gh.10"
+gender = "female"
+note = "Pre-attached 26 cm cable (S1 'Cable Length 26cm') ending in a 10-pin connector for the Pixhawk GPS1 header (10 pins listed on the Holybro Pixhawk 6C ports page, 2026-10-07); JST-GH family and the 10-pin count of the M8N cable are assumed (estimated): the M8N column is missing from the family table. Female cable-side housing mates the Pixhawk gps1 (male). Supply 4.7-5.2 V, < 200 mA (params)."
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/gps-and-rtk-system/m8n-m9n-m10-gps/standard-m10-m9n-m8n-gps/overview.md"

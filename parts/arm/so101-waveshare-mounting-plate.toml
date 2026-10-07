@@ -22,6 +22,35 @@ origin_rpy = [1.5708, 0.0, 1.5708]
 bbox_min = [-0.0255, -0.021, 0.0]
 bbox_max = [0.0255, 0.021, 0.0076]
 
+# Ports derived by tools/so101_ports.py (closure check: python tools/so101_ports.py --check). Port frame: z = axis (outward), x = ref, y = z x x; part frame = mesh frame.
+[[ports]]
+name = "base_seat"
+kind = "mech"
+type = "bolt-pattern.so101-base-waveshare-plate"
+gender = "neutral"
+pos = [-2.2439e-08, 2.2439e-08, 0.00810895759]
+axis = [-3.673205e-06, 3.673205e-06, 0.999999999987]
+ref = [0.999999999993, 1.3e-11, 3.673205e-06]
+symmetry = 1
+thickness = 0.004
+fidelity = "derived"
+derivation = "tools/so101_ports.py from meshes/so101/so101_new_calib.urdf (SO-ARM100 a758567): mate frame M at the centre of the bbox overlap of the two parts (mid-plane of the gap where the bboxes only touch), axis along the thinnest overlap dimension from so101-base towards so101-waveshare-mounting-plate; port = inv(T_part) @ M (a) or inv(T_part) @ M @ Rx(pi) (b)"
+thickness_rationale = "No published or measurable value; 4 mm placeholder = two 2 mm printed walls clamped by M3 screws. Estimated."
+
+[[ports]]
+name = "board_seat"
+kind = "mech"
+type = "bolt-pattern.37x28.m2.5"
+gender = "neutral"
+pos = [0.0, 9.8969e-08, 0.004]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+thickness = 0.0016
+fidelity = "estimated"
+rationale = "Hole pattern centre (x, y) derived from the four hole rings in the plate mesh (spacing 37.000 x 28.000 mm, centre (0.0000, 0.0001) mm in the plate frame, matching the 37.00 x 28.00 mm board pattern; the mesh features there are 5 mm diameter circles, so M2.5 is the briefing's thread tag, not read from the mesh); the choice of the +z plate face (z = 0.004) as the board face is an assumption, a central block rises to z = 0.0076 on that face and the URDF does not model the board."
+thickness_rationale = "Board PCB thickness not published; 1.6 mm is the common standard PCB thickness; estimated."
+
 [[sources]]
 id = "S1"
 url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/README.md"

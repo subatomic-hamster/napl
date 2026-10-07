@@ -1,4 +1,5 @@
 id = "lipo-cell-ocv"
+ports_note = "Data-only open-circuit-voltage curve for a LiPo cell (referenced by the battery model, tattu-4s-5200mah-35c); not a physical part, so it has no ports."
 name = "Generic LiPo/Li-ion cell open-circuit voltage vs state of charge (4.2 V max)"
 category = "battery.cell_curve"
 vendor = "Modelica Association (Modelica Standard Library 4.0.0 example data)"

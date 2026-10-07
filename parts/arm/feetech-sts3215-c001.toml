@@ -22,6 +22,7 @@ baud_default    = { value = 1000000, unit = "bit/s", src = "S1", fidelity = "dat
 baud_min        = { value = 38400,   unit = "bit/s", src = "S1", fidelity = "datasheet" }
 protocol        = { value = "Feetech half-duplex asynchronous serial, 8N1, 1 Mbps TTL single-wire, ID 0-253", unit = "-", src = "S1", fidelity = "datasheet" }
 position_update_period = { value = 0.001, unit = "s", src = "S1", fidelity = "datasheet" }
+firmware_hz     = { value = 1000, unit = "Hz", fidelity = "derived", derivation = "1 / position_update_period = 1 / 0.001 s = 1000 Hz (datasheet 11 'Maximum position update rate | 1 ms'; the real firmware loop rate is not published, this is the update-rate bound)." }
 
 # --- electrical / performance, 7.4 V point (datasheet; kg.cm converted with g = 9.80665) ---
 v_nominal       = { value = 7.4,     unit = "V",   src = "S1", fidelity = "datasheet" }
@@ -50,6 +51,7 @@ r_driver_extra = { value = 0.48, unit = "ohm", fidelity = "derived", derivation 
 omega_noload_motor_7v4 = { value = 1881.68, unit = "rad/s", fidelity = "derived", derivation ="Motor-side speed = N * omega_out = 345 * 5.4542 rad/s (0.192 s per 60 deg) = 1881.7 rad/s = 17969 RPM." }
 ke = { value = 0.003695, unit = "V*s/rad", fidelity = "derived", derivation ="Back-EMF constant from the no-load point: Ke = (V - I0*R_eff)/(N*omega_out) = (7.4 - 0.15*2.98)/(345*5.4542) = 3.695e-3 V*s/rad. The 6 V point gives (6 - 0.13*2.98)/(345*4.400) = 3.697e-3, i.e. the two voltages agree to 0.06%." }
 kt_motor = { value = 0.003695, unit = "N*m/A", fidelity = "derived", derivation ="SI identity Kt = Ke (V*s/rad = N*m/A) for an ideal DC motor; motor-side torque constant." }
+kv_equivalent = { value = 2584.38, unit = "rpm/V", fidelity = "derived", derivation ="Kv = 60/(2*pi*ke) = 60/(2*pi*0.003695 V*s/rad) = 2584.38 rpm/V, motor side (before the 345:1 gear); tracks the ke estimate above (tools/so101_ports.py prints the same number)." }
 gear_efficiency = { value = 0.658, unit = "1", fidelity = "derived", derivation ="eta = tau_stall_out / (N * Kt * (I_stall - I0)). 7.4 V: 1.9123/(345*0.003695*(2.5-0.15)) = 0.638; 6 V: 1.6181/(345*0.003695*(2.0-0.13)) = 0.678; mean = 0.658 (stall efficiency of the 345:1 train). Cross-check: datasheet Kt 8 kg.cm/A = 0.7845 N*m/A at the output implies eta = 0.7845/(345*0.003695) = 0.615." }
 friction_torque_motor_noload = { value = 0.000554, unit = "N*m", fidelity = "derived", derivation ="Total no-load loss reflected to the motor shaft = Kt * I0 = 0.003695 * 0.15 A = 5.54e-4 N*m (rotor + gear friction at 17969 RPM motor speed)." }
 stall_torque_5v = { value = 1.323, unit = "N*m", fidelity = "derived", derivation ="Model prediction at the 5 V supply the SO-101 BOM actually uses: I_stall = 5/2.98 = 1.678 A; I0 scaled with V = 0.15*5/7.4 = 0.101 A; tau = eta*N*Kt*(I_stall - I0) = 0.658*345*0.003695*(1.678-0.101) = 1.32 N*m (13.5 kg.cm). The same model reproduces the datasheet 6 V stall torque to -1.9% and the 7.4 V value to +2.4%; no published 5 V torque exists (README only says 'likely slightly less')." }
@@ -96,6 +98,75 @@ shape = "mesh"
 mesh = "meshes/so101/sts3215_03a_v1.stl"
 mesh_no_horn = "meshes/so101/sts3215_03a_no_horn_v1.stl"
 # mesh units: metres. bbox x[-0.0227,0.0227] y[-0.0124,0.0124] z[-0.0194,0.0202]; solid mesh volume 3.622e-5 m^3 (no_horn 3.566e-5)
+# Mesh frame: output shaft line at x = 0.0125, y = 0 (parallel to z). The 20 mm horn disc (vertices only in the horn mesh) is on the -z side, outer face z = -0.0177;
+# the other end of the (dual-axis) shaft is a short spline stub at z = +0.0202. The 6 servos of the arm all use this one mesh frame; the wrist_roll servo is drawn with mesh_no_horn.
+
+# Ports. output/base derived or chosen by tools/so101_ports.py (closure check: python tools/so101_ports.py --check). Port frame: z = axis (outward), x = ref, y = z x x; part frame = mesh frame.
+# output: same frame for all 6 joints of the arm (spread: origin 1.1e-7 m, axis 6.7e-6 rad, both URDF rounding); the child horn seats absorb the per-joint rotation about z. Mate k = 0, no reverse needed.
+[[ports]]
+name = "output"
+kind = "mech"
+type = "servo-horn.25t"
+gender = "male"
+pos = [0.012500022257, 6.4538e-08, -0.0177]
+axis = [6.11468e-07, 6.41993e-07, -1.0]
+ref = [1.0, 0.0, 6.11468e-07]
+symmetry = 25
+thickness = 0.0021
+thread = "m3"
+tapped = true
+thread_note = "Fastener tags added by the SO-101 assembly stage (not read from the mesh): the horn is fixed by the single M3x6 'top horn' screw of the LeRobot assembly (S1 of so101-screw-m3x6), modelled as threading into the output shaft (tapped, depth = the builder's 1.5 d rule), which is an assumption."
+fidelity = "derived"
+derivation = "tools/so101_ports.py from meshes/so101/so101_new_calib.urdf (SO-ARM100 a758567): P_out = frame at the mean over the 6 joints of inv(T_servo_i) @ J_i (servo mesh frame), moved along the axis to the outer face of the horn disc (z = -0.0177 in the servo mesh; horn disc = vertices only in sts3215_03a_v1.stl and not in sts3215_03a_no_horn_v1.stl); axis = outward horn normal = joint z axis here (the horn lies on the -z side of the servo mesh)"
+thickness_rationale = "Horn disc thickness read from the servo mesh (horn-only vertices span 2.1 mm in z). No published value; estimated as the clamped stack."
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.feetech-sts3215-base"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0159]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+thickness = 0.0015
+thread = "m2"
+tapped = true
+thread_note = "Tags added by the SO-101 assembly stage: the datasheet lists '8-PA2.0 self-tapping' mounting screws (S1 as summarised in docs/research/so101.md), so the servo case is the tapped side of the M2 mounting joint (screw length vs the printed seat thickness is then checked by the builder)."
+fidelity = "estimated"
+rationale = "Frame convention, not a measured hole pattern: centre of the outer case plane opposite the horn (z = +0.0159 in the servo mesh; the horn disc is on the -z side), axis out of that face (+z), ref along the long (x) side. The matching seats on the printed parts are derived so that this port reproduces the URDF placement."
+thickness_rationale = "No published ear/lid thickness. The servo mesh shows a 1.5 mm slab between z = 0.0144 and 0.0159 spanning the case outline; estimated."
+
+[[ports]]
+name = "port_a"
+kind = "power"
+type = "5264-3p"
+gender = "female"
+role = "passthrough"
+v_max = { value = 7.4, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 4.0, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 0.65, unit = "A", src = "S1", fidelity = "datasheet" }   # rated current at 7.4 V (servo's own draw)
+i_peak = { value = 2.5, unit = "A", src = "S1", fidelity = "datasheet" }  # stall current at 7.4 V
+note = "Two interfaces per servo, usable in series (daisy chain), per S9; the two connectors carry the same GND / Vcc / signal pins (pin order 1 GND, 2 Vcc, 3 signal per the datasheet). Per-connector current rating is not published; the limits above are the servo's own draw, the daisy-chained downstream current is up to the DRC."
+
+[[ports]]
+name = "port_b"
+kind = "power"
+type = "5264-3p"
+gender = "female"
+role = "passthrough"
+v_max = { value = 7.4, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 4.0, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 0.65, unit = "A", src = "S1", fidelity = "datasheet" }
+i_peak = { value = 2.5, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Second daisy-chain interface, same net as port_a (S9)."
+
+[[ports]]
+name = "bus"
+kind = "signal"
+type = "feetech-ttl"
+gender = "female"
+note = "Single-wire half-duplex TTL on the signal pin (pin 3) of port_a / port_b; 1 Mbps default (baud_default param), ID 0-253."
 
 [[sources]]
 id = "S1"
@@ -145,3 +216,10 @@ url = "https://openelab.io/products/feetech-sts3215-c044-servo-7"
 title = "Feetech STS3215-C044 product page (same STS3215 family, 1/191 variant), gear and case material"
 accessed = "2026-10-06"
 quote = "Copper gears, ball bearings and a 25T output spline sit inside a P"
+
+[[sources]]
+id = "S9"
+url = "https://www.waveshare.com/wiki/ST3215_Servo"
+title = "Waveshare ST3215 Servo wiki (ST3215 = same servo family), connectors"
+accessed = "2026-10-07"
+quote = "There are two interfaces on each servo, which can be used in series. || Question: What is the precise connector type of ST3215 Servo? Answer: It is 5264/2.54 3P connector."

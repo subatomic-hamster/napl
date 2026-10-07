@@ -28,10 +28,43 @@ unit = "kg"
 fidelity = "derived"
 derivation = "cad volume 7.012e-6 m3 * carbon-fibre-epoxy-ud estimated density 1550 kg/m3 = 10.9 g per rod. Material of the rod is not stated by Holybro (carbon tube assumed; it could be aluminium)."
 
+[params.mass_tol]
+value = 0.008
+unit = "kg"
+fidelity = "estimated"
+rationale = "Mass is CAD volume times an estimated UD carbon density (1550 kg/m3); Holybro does not state the rod material and an aluminium rod (2700 kg/m3 -> 18.9 g) is possible, i.e. up to +8 g, hence 8 g rather than +-10%."
+
 [geometry]
+# Part frame: origin at the rod centre, z along the rod axis, cylinder [radius, half-length] along local z (CAD length 248 mm).
 shape = "cylinder"
 size = [0.005, 0.124]
 material = "carbon-fibre-epoxy-ud"
+
+[[ports]]
+name = "hanger"
+kind = "mech"
+type = "tube.10"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Seat held under the bottom plate by the hangers (hangers x8 and rubber ring gaskets are in the guide but not modelled; where along the rod they grip is not recorded), so one centred port stands for them (mates 'rail_l'/'rail_r' of the bottom plate). Clamp family named by the nominal 10 mm rod (tube.10); CAD OD is 10.0 mm. Axisymmetric: 360 = discrete stand-in for continuous."
+
+[[ports]]
+name = "slide"
+kind = "mech"
+type = "tube.10"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Where the battery board's slide-bar clips (clips x2, screwed with M2.5x6 sunk screws, airframe doc) grip the rod; the clips are free to slide along the rod, so the centre is a nominal choice (battery length 133 mm vs rod 248 mm). Same family as 'hanger'; used as a closure mate when the battery is already placed by the other rod."
 
 [[sources]]
 id = "S1"

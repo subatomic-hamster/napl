@@ -19,6 +19,26 @@ unit = "kg"
 fidelity = "derived"
 derivation = "ISO 4762 M3 table (S1) ends at l=30 (1.86 kg/1000 pcs) and l=25 is 1.61, so the shank adds (1.86-1.61)/5 = 0.05 g per mm; M3x38 = 1.86 + 8 * 0.05 = 2.26 g. Cross-check: pi/4*(3.0 mm)^2*7.85 g/cm3 = 0.055 g/mm, consistent."
 
+[params.mass_tol]
+value = 2.5e-4
+unit = "kg"
+fidelity = "estimated"
+rationale = "mass (2.26 g) is a linear extrapolation beyond the end of the ISO 4762 M3 table (l = 30), cross-checked against pi/4*d^2*rho = 0.055 g/mm; +-0.25 g (about 11%) covers the extrapolation and the head/shank split."
+
+[[ports]]
+name = "thread"
+kind = "mech"
+type = "thread.m3"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+length = 0.038
+fidelity = "datasheet"
+src = "S3"
+note = "Shank thread; pos at the head underside, axis points out of the shank tip (library screw convention); length 38 mm = params.length (S3, PX4 guide 'Socket Cap Screw M3*38'). Through the 2+28+2 mm plate stack of the X500 V2 body plus the 4.8 mm flange locknut (m3-flange-locknut); pitch in params.thread_pitch (S2)."
+
 [[sources]]
 id = "S1"
 url = "https://fasten.it/norms/norm/din_en_iso_4762"

@@ -15,6 +15,40 @@ unit = "kg"
 fidelity = "estimated"
 rationale = "Holybro gives only 'Nylon Standoff M3*5 4pcs' (assembly guide). Assumed round body OD 5.5 mm / ID 3.2 mm / length 5 mm in PA66 (1140 kg/m3, S2): pi/4*(5.5^2-3.2^2)*5 = 98 mm3 -> 0.11 g for a full tube; 0.07 g used to allow for a hex/chamfered body. Negligible against the 610 g kit weight."
 
+[params.mass_tol]
+value = 4.0e-5
+unit = "kg"
+fidelity = "estimated"
+rationale = "mass (0.07 g) is estimated between a hex/chamfered and a full-tube body (0.11 g full tube, see mass rationale); +-0.04 g covers it. Negligible for the vehicle."
+
+# Modelled as a through-tapped M3 spacer (female thread at both ends): Holybro lists only 'Nylon Standoff M3*5' and does not say whether
+# one end carries a stud, so the male-female variant is not assumed. Frame: origin at the bottom face centre, z up.
+[[ports]]
+name = "thread_bottom"
+kind = "mech"
+type = "thread.m3"
+gender = "female"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+length = 0.005
+fidelity = "estimated"
+rationale = "Bore at the bottom end; length = the full 5 mm body length (S1 'Nylon Standoff M3*5', a through-tapped bore is assumed, the tapped depth is not published). Axis -z = outward normal of the bottom face."
+
+[[ports]]
+name = "thread_top"
+kind = "mech"
+type = "thread.m3"
+gender = "female"
+pos = [0.0, 0.0, 0.005]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+length = 0.005
+fidelity = "estimated"
+rationale = "Bore at the top end (z = 0.005 = standoff length, S1), same assumption as thread_bottom."
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopifycdn.net/s/files/1/0604/5905/7341/files/X500_V2_Assembly_Guide_en.pdf?v=1720853913"

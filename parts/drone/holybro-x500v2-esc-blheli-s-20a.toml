@@ -27,8 +27,49 @@ r_on_total         = { value = 0.012, unit = "ohm", fidelity = "estimated", rati
 pwm_carrier_freq   = { value = 24000.0, unit = "Hz", fidelity = "estimated", rationale = "Motor-drive PWM carrier of BLHeli_S assumed at the usual 24 kHz default; not stated on Holybro pages. Only affects ripple, not the averaged-duty model." }
 
 [geometry]
+# Part frame: origin at the centre of the underside (mounting face), x along the 26 mm length, z up (board normal).
 shape = "box"
 size = [0.013, 0.007, 0.0025]   # half-extents: 26x14x5 mm / 2
+pos = [0.0, 0.0, 0.0025]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Underside seat (mates 'esc' of holybro-x500v2-arm-tube). Holybro publishes no mounting method for the ESC on the arm (zip tie / heat shrink); modelled as a flat seat with the 26 mm length along the tube. Resolve with the assembly photos."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "xt30"
+gender = "male"
+role = "sink"
+v_max = { value = 16.8, unit = "V", src = "S1", fidelity = "derived", derivation = "4 cells x 4.2 V from 'Rated Voltage(Lipo) 3-4s' (S1)." }
+i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "XT30 plug on the ESC input cable (S2: 'with XT30 Plugs'); the cable is part of the 21 g (S1 'Weight (Incl. Cable)'). Gender male by the PDB-out (female) to ESC (male) convention of this kit model; Holybro does not state the plug gender. i_max is the continuous rating (peak 30 A for 10 s)."
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Three motor leads (bullet/solder, 'Banana Plug 2.0mm' in the spec) to the motor 'phase' port; continuous current rating, peak 30 A for 10 s."
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "Throttle signal 50-600 Hz (S1) from the flight controller FMU PWM Out (S3)."
 
 [[sources]]
 id = "S1"

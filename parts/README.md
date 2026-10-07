@@ -86,7 +86,8 @@ gender = "female"
 level = { value = 5.0, unit = "V", src = "S1", fidelity = "datasheet" }
 ```
 
-Mate compatibility: same `type`, and genders male+female or either neutral. Two mated mech
+Mate compatibility: same `type` (or the paired families `shaft.<d>` / `bore.<d>` and `tube.<od>` / `tube-clamp.<od>` of
+the same size), and genders male+female or either neutral. Two mated mech
 ports coincide in position, have opposite axes, and their `ref`s align up to the `symmetry`
 rotations. Interface families in use (extend as needed, keep names stable):
 
@@ -94,8 +95,11 @@ rotations. Interface families in use (extend as needed, keep names stable):
 |---|---|
 | `bolt-pattern.<a>x<b>.<thread>` | rectangular hole pattern, centre-to-centre mm (e.g. 16x16.m3, 30.5x30.5.m3) |
 | `bolt-circle.<d>.<n>.<thread>` | n holes on a d-mm circle |
-| `shaft.<d>` / `bore.<d>` | round shaft and matching bore, mm |
-| `tube.<od>` / `tube-clamp.<od>` | tube and the clamp that holds it |
+| `shaft.<d>` / `bore.<d>` | round shaft (male) and matching bore (female), mm; these two types mate each other |
+| `tube.<od>` / `tube-clamp.<od>` | tube and the clamp that holds it, mm; these two types mate each other (the X500 files use `tube.<od>` male/female on both sides) |
+| `flat-mount` | board or body lying on a face, no hole pattern (tape / strap / foam seat), neutral |
+| `bolt-pattern.x500v2-arm-clamp.m3` | X500 V2 arm-connector clamp footprint: 4 M3 through-bolts (hole positions not recorded), thread from the `thread` key; used between plates and arm connectors |
+| `mount.x500v2-landing-gear` | X500 V2 landing-gear pole-top seat under the bottom plate (placeholder: no hole pattern, hardware not modelled) |
 | `servo-horn.<spline>` | servo output spline (e.g. 25t) |
 | `thread.<m>` | single threaded hole or stud (fastener seat) |
 | `xt30`, `xt60`, `xt90`, `jst-gh.<n>`, `jst-ph.<n>`, `servo-3pin`, `solder-pad` | connectors |

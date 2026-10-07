@@ -15,6 +15,8 @@ width           = { value = 0.033, unit = "m",  src = "S2", fidelity = "datashee
 input_voltage_min = { value = 9.0,  unit = "V", src = "S2", fidelity = "datasheet" }
 input_voltage_max = { value = 12.6, unit = "V", src = "S2", fidelity = "datasheet" }
 mounting_hole_diameter = { value = 0.0025, unit = "m", src = "S2", fidelity = "datasheet" }
+mounting_hole_spacing_x = { value = 0.037, unit = "m", src = "S3", fidelity = "datasheet" }
+mounting_hole_spacing_y = { value = 0.028, unit = "m", src = "S3", fidelity = "datasheet" }
 max_servos      = { value = 253, unit = "1", src = "S2", fidelity = "datasheet" }
 host_interface  = { value = "USB Type-C (jumper B) or UART (jumper A), bridged to the 1 Mbps half-duplex servo bus", unit = "-", src = "S2", fidelity = "datasheet" }
 power_connector = { value = "5.5 x 2.1 mm DC jack or screw terminal", unit = "-", src = "S2", fidelity = "datasheet" }
@@ -25,6 +27,49 @@ bus_forward_drop = { value = 0.0, unit = "V", fidelity = "estimated", rationale 
 shape = "box"
 size = [0.021, 0.0165, 0.006]
 # size = half extents (m): length/2, width/2, height/2. Height 12 mm is estimated (USB-C + DC jack tall parts), board thickness not published.
+
+[[ports]]
+name = "mount"
+kind = "mech"
+type = "bolt-pattern.37x28.m2.5"
+gender = "neutral"
+pos = [0.0, 0.0, -0.006]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+thickness = 0.0016
+fidelity = "estimated"
+rationale = "Hole spacing 37.00 x 28.00 mm from S3 (the pattern itself is datasheet); the frame is a convention: board geometry is a box centred on the part frame; the mount pattern is taken on the underside (box bottom, assuming the tall connectors are on top), axis -z, ref along the 42 mm side."
+thickness_rationale = "PCB thickness not published; 1.6 mm standard; estimated."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "dc-barrel.5.5x2.1"
+gender = "female"
+role = "sink"
+v_max = { value = 12.6, unit = "V", src = "S2", fidelity = "datasheet" }
+v_min = { value = 9.0, unit = "V", src = "S2", fidelity = "datasheet" }
+i_max = { value = 5.0, unit = "A", fidelity = "estimated", rationale = "Waveshare publishes no current rating; placeholder bound, see param max_continuous_current." }
+note = "5.5 x 2.1 mm DC jack (S2). Note the SO-101 BOM feeds it 5 V, below the published 9 V minimum (see the voltage-limit mismatch recorded in docs/research/so101.md)."
+
+[[ports]]
+name = "servo_bus"
+kind = "power"
+type = "5264-3p"
+gender = "female"
+role = "source"
+v_max = { value = 12.6, unit = "V", src = "S2", fidelity = "datasheet" }
+fidelity = "estimated"
+rationale = "The product page lists the compatible ST/SC servos but not the servo-port connector model or the number of ports, so this port is an assumption: 5264-3P because the STS3215 servo connector is 5264/2.54 3P (see feetech-sts3215-c001 S9) and the servo cable mates to it. The builder should treat all servo ports as one daisy-chain net carrying the DC input to the servos."
+note = "Servo-side supply output: the DC input passes to the servo ports (no series drop published, see param bus_forward_drop)."
+
+[[ports]]
+name = "bus"
+kind = "signal"
+type = "feetech-ttl"
+gender = "female"
+note = "UART / USB-C (jumper B) to the half-duplex servo bus bridge (S2); host side not modelled."
 
 [[sources]]
 id = "S1"
@@ -39,3 +84,10 @@ url = "https://www.waveshare.com/bus-servo-adapter-a.htm"
 title = "Waveshare Bus Servo Adapter (A) product page, Specifications"
 accessed = "2026-10-06"
 quote = "Power Supply: DC 9~12.6V (ST series servo) || Power supply connector: 5.5 × 2.1mm DC || communication interface: UART || Dimensions: 42.00 × 33.00mm || Mounting hole size: 2.50mm || Allows controlling up to 253 ST/SC series serial bus servos at the same time (sufficient power supply required)"
+
+[[sources]]
+id = "S3"
+url = "https://www.waveshare.com/bus-servo-adapter-a.htm"
+title = "Waveshare Bus Servo Adapter (A) product page, Specifications (mounting hole spacing)"
+accessed = "2026-10-07"
+quote = "Dimensions 42.00 × 33.00mm Mounting hole size 2.50mm Mounting hole spacing 37.00 × 28.00mm"

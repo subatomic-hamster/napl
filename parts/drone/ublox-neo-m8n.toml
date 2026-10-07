@@ -1,4 +1,5 @@
 id = "ublox-neo-m8n"
+ports_note = "Data-only GNSS receiver chip that lives inside the Holybro M8N GPS module (holybro-m8n-gps); it is never mounted or wired on its own, so it has no ports. Accuracy/rate numbers feed the GPS model."
 name = "u-blox NEO-M8N GNSS receiver (kit GPS module chip; M9N and M10 variants are drop-in)"
 category = "sensor.gnss"
 vendor = "u-blox"

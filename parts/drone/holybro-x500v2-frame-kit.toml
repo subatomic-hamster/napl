@@ -1,4 +1,5 @@
 id = "holybro-x500v2-frame-kit"
+ports_note = "Aggregate record of published kit numbers (wheelbase, weight, flight-time targets); it is not instantiated, the vehicle is assembled from its parts (bottom/top plate, arm connectors, arm tubes, landing gear, rail rods), so it has no ports."
 name = "Holybro X500 V2 frame kit (SKU 30120)"
 category = "frame"
 vendor = "Holybro"

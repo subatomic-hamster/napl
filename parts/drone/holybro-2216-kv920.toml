@@ -63,6 +63,66 @@ fidelity = "datasheet"
 [geometry]
 shape = "cylinder"
 size = [0.01385, 0.02125]       # radius 27.7/2 mm, half of 42.5 mm overall length (body + shaft stub)
+pos = [0.0, 0.0, 0.02125]       # part frame: origin at the centre of the mounting face, +z along the shaft towards the prop; the cylinder spans z = 0 .. 0.0425
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.16x16.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+thickness = 0.0
+tapped = true
+thread = "m3"
+thread_depth = 0.004
+holes = 4
+fidelity = "derived"
+src = "S2"
+derivation = "Pattern 16 mm and 4 tapped M3 holes from the spec drawing ('4-M3, 16, 19', S2). pos/axis/ref follow the library convention (origin at the mounting-face centre, axis = outward normal of the mounting face = -z, ref = +x along one pattern axis). thread_depth = 0.004 m = M3x6 screw (parts/common/iso4762-m3x6) length 6 mm minus the 2 mm motor base plate it passes through (holybro-x500v2-arm-connectors, motor base 2.00 mm); the real tapped depth is not published, so this is the usable engagement for that screw. thickness 0: the motor clamps no material at this port."
+
+[[ports]]
+name = "base_19"
+kind = "mech"
+type = "bolt-pattern.19x19.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+thickness = 0.0
+tapped = true
+thread = "m3"
+thread_depth = 0.004
+holes = 4
+fidelity = "derived"
+src = "S2"
+derivation = "Alternative 19 mm pattern of the same 4 M3 holes (drawing '19', S2); same frame and thread_depth derivation as port 'base'. The X500 V2 motor base uses the 16x16 pattern (shop page S1 of the frame kit lists both), so only 'base' is mated in the X500 assembly."
+
+[[ports]]
+name = "shaft"
+kind = "mech"
+type = "shaft.3"
+gender = "male"
+pos = [0.0, 0.0, 0.0425]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Shaft diameter 3 mm is the drawing's 'O3' (S2). Shaft-tip height 42.5 mm above the mounting face assumes the drawing's 42.5 mm overall length is measured from the mounting face to the shaft tip; the transcription of the drawing labels (42.5, 31, 9.5, 6.5) does not say which dimension is which, so the true tip (and thus the prop height) may differ by about 10 mm. Same convention (port at the shaft tip) as the other motors in parts/propulsion. Resolve with the legible Holybro drawing or a caliper. Axis +z (towards the prop), 360 = axisymmetric."
+
+[[ports]]
+name = "phase"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "sink"
+v_max = { value = 16.8, unit = "V", src = "S2", fidelity = "derived", derivation = "4S x 4.2 V/cell = 16.8 V from the spec 'Rated Voltage(Lipo) 4S(4.2V/PC) / 16V'." }
+i_max = { value = 17.0, unit = "A", src = "S2", fidelity = "datasheet" }
+note = "i_max is the 180 s peak current (spec 'Peak Current(180s) 17A'); the cable (150 mm) is part of the motor, three bullet/solder leads to the ESC motor_out"
 
 [[sources]]
 id = "S1"

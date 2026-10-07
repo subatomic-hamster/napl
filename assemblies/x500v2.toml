@@ -1,0 +1,888 @@
+# Holybro X500 V2 quad (PX4 Development Kit X500 v2 build + Tattu 4S 5200 mAh 35C battery) assembled from parts/drone + parts/common.
+# Syntax: assemblies/README.md. Every number below is a part-param reference or a provenance table (the loader enforces it).
+#
+# Frame: +x = vehicle forward, +y = left, +z up (right-handed, bottom-plate centre at the origin). The bottom plate seats arm1..arm4 sit on
+# the 45 deg diagonals: arm1 (+x,+y) front-left, arm2 (-x,+y) rear-left, arm3 (-x,-y) rear-right, arm4 (+x,-y) front-right.
+# Motor/ESC/prop numbering follows PX4's quad-X motor order (FMU PWM Out channel K drives motor K):
+#   m1 = front-right (arm4), CCW     m2 = rear-left (arm2), CCW     m3 = front-left (arm1), CW     m4 = rear-right (arm3), CW
+# (CCW/CW seen from above). Instances: conK / tubeK / motK / propK / escK all belong to motor K.
+#
+# Groups (for mass budgets / the published-weight target): frame = plates, arm connectors, arm tubes, landing gear, rail rods and the
+# arm-clamp bolts; propulsion = motors, props, ESCs and the motor screws; power = battery, PM02, PDB (+ their screws, wires);
+# avionics = Pixhawk 6C, GPS, SiK radio.
+#
+# NOT modelled (no part / no mass / no geometry in the library): platform board (#31109), battery mounting board (#31108) + 2 battery
+# straps, 8 rail hangers + rubber ring gaskets, slide-bar clips, landing-gear tee connectors + foam grips, XT60 holder, the 4 nylon
+# standoffs M3x5 under the PDB (their 5 mm is folded into the bottom-plate 'pdb' port), GPS mast + its 4 x M3x10 + locknut, M2.5 screws
+# (iso4762-m2.5x6 x24, x10 x8, x12 x8, iso10642-m2.5x6 x12: the research doc does not tie them to a mate), M3x8 x8 (step 4), prop
+# retainers, zip ties / heat shrink, XT60/XT30 connector contact resistance, the receiver (not in the kit).
+
+[assembly]
+name = "x500v2"
+description = "Holybro X500 V2 quadrotor (Pixhawk 6C, M8N GPS, SiK radio, 4x 2216 KV920 + BLHeli_S 20A + 1045 props, PM02 V3 + PDB, Tattu 4S 5200 mAh) in the PX4 X500 v2 kit configuration"
+base = "free"
+timestep = 0.001
+seed = 3
+
+# ---- instances ---------------------------------------------------------------------------------------------------------------------
+# Frame
+[[instances]]
+id = "bottom"
+part = "holybro-x500v2-bottom-plate"
+root = true
+group = "frame"
+
+[[instances]]
+id = "top"
+part = "holybro-x500v2-top-plate"
+group = "frame"
+
+[[instances]]
+id = "con1"
+part = "holybro-x500v2-arm-connectors"
+group = "frame"
+
+[[instances]]
+id = "con2"
+part = "holybro-x500v2-arm-connectors"
+group = "frame"
+
+[[instances]]
+id = "con3"
+part = "holybro-x500v2-arm-connectors"
+group = "frame"
+
+[[instances]]
+id = "con4"
+part = "holybro-x500v2-arm-connectors"
+group = "frame"
+
+[[instances]]
+id = "tube1"
+part = "holybro-x500v2-arm-tube"
+group = "frame"
+
+[[instances]]
+id = "tube2"
+part = "holybro-x500v2-arm-tube"
+group = "frame"
+
+[[instances]]
+id = "tube3"
+part = "holybro-x500v2-arm-tube"
+group = "frame"
+
+[[instances]]
+id = "tube4"
+part = "holybro-x500v2-arm-tube"
+group = "frame"
+
+[[instances]]
+id = "leg_f"
+part = "holybro-x500v2-landing-gear"
+group = "frame"
+
+[[instances]]
+id = "leg_r"
+part = "holybro-x500v2-landing-gear"
+group = "frame"
+
+[[instances]]
+id = "rod_l"
+part = "holybro-x500v2-rail-rod"
+group = "frame"
+
+[[instances]]
+id = "rod_r"
+part = "holybro-x500v2-rail-rod"
+group = "frame"
+
+# Propulsion
+[[instances]]
+id = "mot1"
+part = "holybro-2216-kv920"
+group = "propulsion"
+
+[[instances]]
+id = "mot2"
+part = "holybro-2216-kv920"
+group = "propulsion"
+
+[[instances]]
+id = "mot3"
+part = "holybro-2216-kv920"
+group = "propulsion"
+
+[[instances]]
+id = "mot4"
+part = "holybro-2216-kv920"
+group = "propulsion"
+
+[[instances]]
+id = "prop1"
+part = "holybro-1045-prop"
+group = "propulsion"
+
+[[instances]]
+id = "prop2"
+part = "holybro-1045-prop"
+group = "propulsion"
+
+[[instances]]
+id = "prop3"
+part = "holybro-1045-prop"
+group = "propulsion"
+
+[[instances]]
+id = "prop4"
+part = "holybro-1045-prop"
+group = "propulsion"
+
+[[instances]]
+id = "esc1"
+part = "holybro-x500v2-esc-blheli-s-20a"
+group = "propulsion"
+
+[[instances]]
+id = "esc2"
+part = "holybro-x500v2-esc-blheli-s-20a"
+group = "propulsion"
+
+[[instances]]
+id = "esc3"
+part = "holybro-x500v2-esc-blheli-s-20a"
+group = "propulsion"
+
+[[instances]]
+id = "esc4"
+part = "holybro-x500v2-esc-blheli-s-20a"
+group = "propulsion"
+
+# Power. The `params` overrides on pdb / pm02 / fc / sik hold the cable lengths nobody publishes; wires refer to them as "<inst>.<param>".
+[[instances]]
+id = "bat"
+part = "tattu-4s-5200mah-35c"
+group = "power"
+
+[[instances]]
+id = "pm02"
+part = "holybro-pm02-v3"
+group = "power"
+params = { out_lead_length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "The PM02 V3 pre-soldered XT60 + 12 AWG output lead to the PDB has no published length (Holybro pages give only the 12 AWG gauge). In this assembly the PM02 seat (0, -0.045) and the PDB (0, 0) are 45 mm apart on the bottom plate; 0.10 m = that distance plus about one hand-width of slack. Electrical effect: 12 AWG 5.211 mOhm/m x 0.10 m x 2 conductors = 1.0 mOhm." }, fc_cable_length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Length of the PM02 6-pin JST-GH power/sense cable to the Pixhawk POWER1 is not published. The PM02 seat is ~45 mm from the plate centre and the Pixhawk sits on the top plate 28 mm higher, so the straight-line distance is ~0.06 m; 0.15 m allows routing and slack." } }
+
+[[instances]]
+id = "pdb"
+part = "holybro-pdb-60a"
+group = "power"
+params = { esc_lead_length = { value = 0.20, unit = "m", fidelity = "estimated", rationale = "Length of the ESC input pigtail (XT30) from the PDB output to the ESC is not published. In this assembly the ESC sits on its tube at radius 0.148 m from the plate centre (holybro-x500v2-arm-tube esc seat) and the PDB is at the centre, 0.148 m horizontal plus ~0.02 m of height; 0.20 m allows slack. Electrical effect: 16 AWG 13.17 mOhm/m x 0.20 m x 2 = 5 mOhm per ESC." } }
+
+# Avionics
+[[instances]]
+id = "fc"
+part = "holybro-pixhawk-6c"
+group = "avionics"
+params = { pwm_lead_length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "Length of each ESC signal lead from the Pixhawk FMU PWM Out to the ESC signal plug is not published. The ESC is 0.148 m out on the arm (+ ~0.03 m up from the top-plate to the tube level, + the Pixhawk header position); 0.30 m allows routing along the arm. Signal wires carry no current in the model: only the BOM / mass bookkeeping (and that is included in the ESC datasheet mass)." } }
+
+[[instances]]
+id = "gps"
+part = "holybro-m8n-gps"
+group = "avionics"
+
+[[instances]]
+id = "sik"
+part = "holybro-sik-telemetry-radio-v3"
+group = "avionics"
+params = { telem_cable_length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Length of the SiK-to-TELEM1 JST-GH cable is not published (the radio part file folds the cable into its port). The radio seat (0, 0.045) is ~45 mm from the Pixhawk centre, so 0.15 m allows slack." } }
+
+# Off-board data-only instances: no body, no mass. They exist so device bindings can read their params and the target can read the
+# frame-kit published figures.
+[[instances]]
+id = "kit"
+part = "holybro-x500v2-frame-kit"
+offboard = true
+
+[[instances]]
+id = "icm"
+part = "tdk-icm-42688-p"
+offboard = true
+
+[[instances]]
+id = "baro_chip"
+part = "te-ms5611-01ba03"
+offboard = true
+
+[[instances]]
+id = "mag_chip"
+part = "isentek-ist8310"
+offboard = true
+
+[[instances]]
+id = "gnss_chip"
+part = "ublox-neo-m8n"
+offboard = true
+
+# ---- mates ---------------------------------------------------------------------------------------------------------------------------
+# Arm clamps: bottom plate seat -> connector (k = 0 puts each arm on its diagonal). The kit's 16 x M3x38 + flange locknut (4 per arm,
+# airframe doc step 5) run through the whole 2 + 28 + 2 mm plate stack (holybro-x500v2 iso4762-m3x38 port note), so they are counted
+# ONCE per arm, on this (bottom) mate; the top-plate mates below carry no fasteners. At the bottom mate alone the stack is 19.9 mm
+# (plate 2 mm + lower clamp half 17.9 mm), so M3x38 is never short here (no FASTENER_SHORT).
+[[mates]]
+name = "clamp1"
+a = "bottom.arm4"
+b = "con1.plate_lo"
+rotation = 0
+fasteners = { part = "iso4762-m3x38", count = 4, nut = "m3-flange-locknut" }
+
+[[mates]]
+name = "clamp2"
+a = "bottom.arm2"
+b = "con2.plate_lo"
+rotation = 0
+fasteners = { part = "iso4762-m3x38", count = 4, nut = "m3-flange-locknut" }
+
+[[mates]]
+name = "clamp3"
+a = "bottom.arm1"
+b = "con3.plate_lo"
+rotation = 0
+fasteners = { part = "iso4762-m3x38", count = 4, nut = "m3-flange-locknut" }
+
+[[mates]]
+name = "clamp4"
+a = "bottom.arm3"
+b = "con4.plate_lo"
+rotation = 0
+fasteners = { part = "iso4762-m3x38", count = 4, nut = "m3-flange-locknut" }
+
+# Top plate: placed by one connector (con1 -> top.arm4); the other three seats are loop closures (checked to 1e-6 m / rad).
+[[mates]]
+name = "top-seat1"
+a = "con1.plate_hi"
+b = "top.arm4"
+rotation = 0
+
+[[mates]]
+name = "top-seat2"
+a = "con2.plate_hi"
+b = "top.arm2"
+rotation = 0
+closure = true
+
+[[mates]]
+name = "top-seat3"
+a = "con3.plate_hi"
+b = "top.arm1"
+rotation = 0
+closure = true
+
+[[mates]]
+name = "top-seat4"
+a = "con4.plate_hi"
+b = "top.arm3"
+rotation = 0
+closure = true
+
+# Arm tubes: body-side clamp places the tube, the arm-end clamp is a closure.
+[[mates]]
+name = "tube-body1"
+a = "con1.tube_body"
+b = "tube1.body_clamp"
+
+[[mates]]
+name = "tube-body2"
+a = "con2.tube_body"
+b = "tube2.body_clamp"
+
+[[mates]]
+name = "tube-body3"
+a = "con3.tube_body"
+b = "tube3.body_clamp"
+
+[[mates]]
+name = "tube-body4"
+a = "con4.tube_body"
+b = "tube4.body_clamp"
+
+[[mates]]
+name = "tube-end1"
+a = "con1.tube_end"
+b = "tube1.end_clamp"
+closure = true
+
+[[mates]]
+name = "tube-end2"
+a = "con2.tube_end"
+b = "tube2.end_clamp"
+closure = true
+
+[[mates]]
+name = "tube-end3"
+a = "con3.tube_end"
+b = "tube3.end_clamp"
+closure = true
+
+[[mates]]
+name = "tube-end4"
+a = "con4.tube_end"
+b = "tube4.end_clamp"
+closure = true
+
+# Motors: 4 x M3x6 per motor into the motor's tapped holes through the 2 mm motor base (airframe doc: iso4762-m3x6, 16 = 4 per arm).
+# Tapped depth 4 mm + base 2 mm = L_min 6 mm = the screw length (exact fit; no warning).
+[[mates]]
+name = "motor1"
+a = "con1.motor"
+b = "mot1.base"
+rotation = 0
+fasteners = { part = "iso4762-m3x6", count = 4 }
+
+[[mates]]
+name = "motor2"
+a = "con2.motor"
+b = "mot2.base"
+rotation = 0
+fasteners = { part = "iso4762-m3x6", count = 4 }
+
+[[mates]]
+name = "motor3"
+a = "con3.motor"
+b = "mot3.base"
+rotation = 0
+fasteners = { part = "iso4762-m3x6", count = 4 }
+
+[[mates]]
+name = "motor4"
+a = "con4.motor"
+b = "mot4.base"
+rotation = 0
+fasteners = { part = "iso4762-m3x6", count = 4 }
+
+# Props on the motor shafts (shaft.3 male <-> bore.3 female). Spinning hinge, joint axis = motor shaft axis. CCW props (m1, m2) use the
+# shaft axis +z; CW props (m3, m4) reverse it (-z) so the ESC's positive drive is clockwise and the rotor device uses dir = -1 (see the
+# rotor bindings). The prop retainer is not modelled.
+[[mates]]
+name = "spin1"
+a = "mot1.shaft"
+b = "prop1.hub"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "spin2"
+a = "mot2.shaft"
+b = "prop2.hub"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "spin3"
+a = "mot3.shaft"
+b = "prop3.hub"
+joint = { type = "hinge", spin = true, reverse = true }
+
+[[mates]]
+name = "spin4"
+a = "mot4.shaft"
+b = "prop4.hub"
+joint = { type = "hinge", spin = true, reverse = true }
+
+# ESCs sit on their arm tubes (zip tie / heat shrink not modelled).
+[[mates]]
+name = "esc-seat1"
+a = "tube1.esc"
+b = "esc1.base"
+
+[[mates]]
+name = "esc-seat2"
+a = "tube2.esc"
+b = "esc2.base"
+
+[[mates]]
+name = "esc-seat3"
+a = "tube3.esc"
+b = "esc3.base"
+
+[[mates]]
+name = "esc-seat4"
+a = "tube4.esc"
+b = "esc4.base"
+
+# PDB on the bottom plate. 4 x M3x14 + M3 locknut: the research (airframe doc, guide step 3) lists 4 x M3x14, 4 x locknut M3 and 4 nylon
+# standoffs M3x5 for the bottom-plate spacers, which the bottom-plate 'pdb' port already assumes carry the PDB. The tie of these
+# screws to the PDB is an inference (the guide does not label it). M3x14 = PDB 1.6 + standoff 5 + plate 2 + nut 4 + protrusion.
+[[mates]]
+name = "pdb-mount"
+a = "bottom.pdb"
+b = "pdb.base"
+rotation = 0
+fasteners = { part = "iso7045-m3x14", count = 4, nut = "din985-m3-locknut" }
+
+# PM02, Pixhawk, GPS, SiK: flat seats (tape / foam / strap; no hole pattern published) -> no fasteners.
+[[mates]]
+name = "pm02-seat"
+a = "bottom.pm02"
+b = "pm02.base"
+
+[[mates]]
+name = "fc-seat"
+a = "top.fc"
+b = "fc.base"
+
+[[mates]]
+name = "gps-seat"
+a = "top.gps_mast"
+b = "gps.base"
+
+[[mates]]
+name = "sik-seat"
+a = "top.sik"
+b = "sik.base"
+
+# Landing gear (the tee connectors / clamps are not modelled: placeholder interface).
+[[mates]]
+name = "leg-front"
+a = "bottom.leg_front"
+b = "leg_f.plate"
+
+[[mates]]
+name = "leg-rear"
+a = "bottom.leg_rear"
+b = "leg_r.plate"
+
+# Rail rods under the bottom plate; the battery hangs on both rods (left rod places it, right rod is a closure).
+[[mates]]
+name = "rod-l"
+a = "bottom.rail_l"
+b = "rod_l.hanger"
+
+[[mates]]
+name = "rod-r"
+a = "bottom.rail_r"
+b = "rod_r.hanger"
+
+[[mates]]
+name = "battery-l"
+a = "rod_l.slide"
+b = "bat.rail_l"
+
+[[mates]]
+name = "battery-r"
+a = "rod_r.slide"
+b = "bat.rail_r"
+closure = true
+
+# ---- wires ---------------------------------------------------------------------------------------------------------------------------
+# Power chain: battery -> PM02 -> PDB -> 4 ESCs (round trip, conductors = 2). included_in: the lead is already inside that part's
+# datasheet mass (battery 436.5 g incl. 120 mm leads; PM02 20 g; ESC 21 g "incl. cable"; motor 64 g "incl. cable").
+[[wires]]
+name = "bat-to-pm02"
+from = "bat.power_out"
+to = "pm02.power_in"
+part = "awg-10-silicone-wire"
+length = "bat.discharge_wire_length"
+conductors = 2
+included_in = "bat"
+
+[[wires]]
+name = "pm02-to-pdb"
+from = "pm02.power_out"
+to = "pdb.power_in"
+part = "awg-12-silicone-wire"
+length = "pm02.out_lead_length"
+conductors = 2
+included_in = "pm02"
+
+# ESC input pigtails: gauge is NOT published. ESTIMATED 16 AWG (awg-16-silicone-wire): a 20 A continuous ESC (30 A peak, XT30 plug
+# rated for it) is normally wired with 16-18 AWG; 16 is the heavier of the two, i.e. the lower-resistance estimate.
+[[wires]]
+name = "pdb-to-esc1"
+from = "pdb.out1"
+to = "esc1.power_in"
+part = "awg-16-silicone-wire"
+length = "pdb.esc_lead_length"
+conductors = 2
+included_in = "esc1"
+
+[[wires]]
+name = "pdb-to-esc2"
+from = "pdb.out2"
+to = "esc2.power_in"
+part = "awg-16-silicone-wire"
+length = "pdb.esc_lead_length"
+conductors = 2
+included_in = "esc2"
+
+[[wires]]
+name = "pdb-to-esc3"
+from = "pdb.out3"
+to = "esc3.power_in"
+part = "awg-16-silicone-wire"
+length = "pdb.esc_lead_length"
+conductors = 2
+included_in = "esc3"
+
+[[wires]]
+name = "pdb-to-esc4"
+from = "pdb.out4"
+to = "esc4.power_in"
+part = "awg-16-silicone-wire"
+length = "pdb.esc_lead_length"
+conductors = 2
+included_in = "esc4"
+
+# Motor phase leads: length = the motor's 150 mm datasheet cable; gauge NOT published, ESTIMATED 18 AWG (awg-18-silicone-wire; typical
+# for a 17 A peak 920 kV 2216 motor). conductors = 3 phase leads. NOTE: the Esc device models the motor internally (r20 is the
+# line-to-line winding resistance), so these Wire devices sit between two ports no other device uses (electrically dangling).
+[[wires]]
+name = "esc1-to-mot1"
+from = "esc1.motor_out"
+to = "mot1.phase"
+part = "awg-18-silicone-wire"
+length = "mot1.cable_length"
+conductors = 3
+included_in = "mot1"
+
+[[wires]]
+name = "esc2-to-mot2"
+from = "esc2.motor_out"
+to = "mot2.phase"
+part = "awg-18-silicone-wire"
+length = "mot2.cable_length"
+conductors = 3
+included_in = "mot2"
+
+[[wires]]
+name = "esc3-to-mot3"
+from = "esc3.motor_out"
+to = "mot3.phase"
+part = "awg-18-silicone-wire"
+length = "mot3.cable_length"
+conductors = 3
+included_in = "mot3"
+
+[[wires]]
+name = "esc4-to-mot4"
+from = "esc4.motor_out"
+to = "mot4.phase"
+part = "awg-18-silicone-wire"
+length = "mot4.cable_length"
+conductors = 3
+included_in = "mot4"
+
+# Signal / low-power cables (awg-18 is the thinnest wire part in the library and stands in for the real small-gauge signal cable; mass is
+# already inside the device datasheet mass, so included_in everywhere): PM02 5.2 V cable (ships with the PM02), ESC signal leads (ship
+# with the ESCs), GPS cable (pre-attached, 26 cm datasheet), SiK telemetry cable (the radio part file folds the cable into its port).
+[[wires]]
+name = "pm02-to-fc"
+from = "pm02.fc_power"
+to = "fc.power1"
+part = "awg-18-silicone-wire"
+length = "pm02.fc_cable_length"
+conductors = 2
+included_in = "pm02"
+
+[[wires]]
+name = "fc-pwm1"
+from = "fc.pwm1"
+to = "esc1.signal"
+part = "awg-18-silicone-wire"
+length = "fc.pwm_lead_length"
+included_in = "esc1"
+
+[[wires]]
+name = "fc-pwm2"
+from = "fc.pwm2"
+to = "esc2.signal"
+part = "awg-18-silicone-wire"
+length = "fc.pwm_lead_length"
+included_in = "esc2"
+
+[[wires]]
+name = "fc-pwm3"
+from = "fc.pwm3"
+to = "esc3.signal"
+part = "awg-18-silicone-wire"
+length = "fc.pwm_lead_length"
+included_in = "esc3"
+
+[[wires]]
+name = "fc-pwm4"
+from = "fc.pwm4"
+to = "esc4.signal"
+part = "awg-18-silicone-wire"
+length = "fc.pwm_lead_length"
+included_in = "esc4"
+
+[[wires]]
+name = "gps-to-fc"
+from = "gps.gps_out"
+to = "fc.gps1"
+part = "awg-18-silicone-wire"
+length = "gps.cable_length"
+included_in = "gps"
+
+[[wires]]
+name = "sik-to-fc"
+from = "sik.telem"
+to = "fc.telem1"
+part = "awg-18-silicone-wire"
+length = "sik.telem_cable_length"
+included_in = "sik"
+
+# ---- device maps -------------------------------------------------------------------------------------------------------------------
+# ESC + BLDC motor: motor numbers from the motor instance named by the binding's `motor` field; i_limit from the ESC part (its 20 A
+# continuous rating; the 30 A / 10 s peak is not used).
+[device_maps.esc2216]
+"motor.kv" = "motor:kv"
+"motor.r20" = "motor:r_winding"
+"motor.i0" = "motor:i0"
+"motor.rotor_inertia" = "motor:j_rotor_bell"
+"i_limit" = "current_continuous"
+
+[device_maps.prop1045]
+"diameter" = "diameter"
+"j" = "@ct_cq_j.j"
+"ct" = "@ct_cq_j.ct"
+"cq" = "@ct_cq_j.cq"
+
+[device_maps.tattu]
+"capacity_ah" = "capacity_ah"
+"r0" = "r_internal_pack"
+"r1" = "thevenin_r1"
+
+[device_maps.pm02_board]
+"resistance" = "r_series"
+
+[device_maps.pdb_path]
+"resistance" = "r_path"
+
+[device_maps.icm42688]
+"gyro.noise_density" = "gyro_noise_density"
+"gyro.full_scale" = "gyro_fs_max"
+"gyro.bits" = "gyro_adc_bits"
+"accel.noise_density" = "accel_noise_density_xy"
+"accel.full_scale" = "accel_fs_max"
+"accel.bits" = "accel_adc_bits"
+
+[device_maps.ms5611]
+"noise_std" = "pressure_rms_noise_osr4096"
+
+[device_maps.ist8310]
+"noise_std" = "rms_noise"
+
+[device_maps.m8n]
+"rate_hz" = "max_nav_rate_gps_glonass"
+"vel_std" = "velocity_accuracy"
+
+# ---- devices -----------------------------------------------------------------------------------------------------------------------
+# Battery: OCV = lipo-cell-ocv-chen2006 (measured, literature: Chen & Rincon-Mora 2006) x 4 series cells; soc0 = 1 (default, full pack).
+# CAVEAT: Chen's cells were charged to 4.1 V (not 4.2 V), so the full-pack OCV is 4 x 4.103 = 16.41 V, not 16.8 V; a real 4.2 V pack
+# reads ~0.4 V higher at the top. r_internal_pack (20 mOhm, kept) is unchanged. r0 / r1 are the
+# part's estimated pack resistances. c1 = thevenin_tau / r1 (the part publishes the RC time constant 3.3 s, literature, Bauersfeld).
+[[devices]]
+type = "battery"
+name = "battery"
+instance = "bat"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "tattu"
+set = { c1 = { value = 412.5, unit = "F", fidelity = "estimated", rationale = "c1 = tau_RC / r1 = 3.3 s (tattu thevenin_tau, literature, Bauersfeld & Scaramuzza Table I) / 0.008 ohm (tattu thevenin_r1, itself estimated) = 412.5 F. Estimated because r1 is." } }
+
+# Internal board / shunt resistance of the PM02 (r_series, estimated in the part) and of the PDB copper path (r_path, estimated). Naming
+# the ports in an internal `wire` binding makes them separate electrical nodes, so each is a real resistor in the chain.
+[[devices]]
+type = "wire"
+name = "pm02_board"
+instance = "pm02"
+a = "power_in"
+b = "power_out"
+map = "pm02_board"
+
+[[devices]]
+type = "wire"
+name = "pdb_path1"
+instance = "pdb"
+a = "power_in"
+b = "out1"
+map = "pdb_path"
+
+[[devices]]
+type = "wire"
+name = "pdb_path2"
+instance = "pdb"
+a = "power_in"
+b = "out2"
+map = "pdb_path"
+
+[[devices]]
+type = "wire"
+name = "pdb_path3"
+instance = "pdb"
+a = "power_in"
+b = "out3"
+map = "pdb_path"
+
+[[devices]]
+type = "wire"
+name = "pdb_path4"
+instance = "pdb"
+a = "power_in"
+b = "out4"
+map = "pdb_path"
+
+# ESCs. Thermal: c_th / r_th are unpublished. Only data: the vendor thrust table note "Motor temperature is motor surface temperature
+# @100% throttle running 10mins" = 80 degC (holybro-2216-kv920 [tables.thrust_test]); at that row the motor draws 16.37 A through
+# 0.115 ohm = 30.8 W of copper loss, so (80 - 25) K / 30.8 W = 1.8 K/W surface-to-ambient (ambient not stated; 25 degC = the model's
+# t_amb default). The winding is hotter than the surface, so r_th is a LOWER bound; c_th = 64 g x ~0.4 J/(g K) (copper 0.385, steel 0.45,
+# aluminium 0.9 J/(g K), generic textbook values) gives a 46 s time constant, consistent with the vendor reaching steady state in 10 min.
+# complementary is left at its schema default (false: diode freewheel; BLHeli_S damped-light behaviour is not published).
+[[devices]]
+type = "esc"
+name = "esc1"
+instance = "esc1"
+port = "power_in"
+motor = "mot1"
+joint = "spin1"
+map = "esc2216"
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 1.8, unit = "K/W", fidelity = "estimated", rationale = "(80 degC surface at 100 % throttle after 10 min, vendor thrust-test note - 25 degC assumed ambient) / (16.37 A^2 x 0.115 ohm = 30.8 W) = 1.8 K/W; surface, not winding, temperature, so a lower bound for winding-to-ambient." } }
+
+[[devices]]
+type = "esc"
+name = "esc2"
+instance = "esc2"
+port = "power_in"
+motor = "mot2"
+joint = "spin2"
+map = "esc2216"
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 1.8, unit = "K/W", fidelity = "estimated", rationale = "(80 degC surface at 100 % throttle after 10 min, vendor thrust-test note - 25 degC assumed ambient) / (16.37 A^2 x 0.115 ohm = 30.8 W) = 1.8 K/W; surface, not winding, temperature, so a lower bound for winding-to-ambient." } }
+
+[[devices]]
+type = "esc"
+name = "esc3"
+instance = "esc3"
+port = "power_in"
+motor = "mot3"
+joint = "spin3"
+map = "esc2216"
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 1.8, unit = "K/W", fidelity = "estimated", rationale = "(80 degC surface at 100 % throttle after 10 min, vendor thrust-test note - 25 degC assumed ambient) / (16.37 A^2 x 0.115 ohm = 30.8 W) = 1.8 K/W; surface, not winding, temperature, so a lower bound for winding-to-ambient." } }
+
+[[devices]]
+type = "esc"
+name = "esc4"
+instance = "esc4"
+port = "power_in"
+motor = "mot4"
+joint = "spin4"
+map = "esc2216"
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 1.8, unit = "K/W", fidelity = "estimated", rationale = "(80 degC surface at 100 % throttle after 10 min, vendor thrust-test note - 25 degC assumed ambient) / (16.37 A^2 x 0.115 ohm = 30.8 W) = 1.8 K/W; surface, not winding, temperature, so a lower bound for winding-to-ambient." } }
+
+# Rotors: body = the prop instance, joint = its spin mate. Thrust direction = dir x (world joint axis) = +z for all four: CCW props
+# (m1, m2) have axis +z and dir = +1, CW props (m3, m4) have the reversed axis -z and dir = -1 (same convention as tests/data/devices/all.xml).
+# k_h = 0 (H-force off): no data for this prop; its moment-free in-plane force is second order next to thrust at hover.
+[[devices]]
+type = "rotor"
+name = "rotor1"
+instance = "prop1"
+body = "prop1"
+joint = "spin1"
+map = "prop1045"
+dir = 1
+ground_effect = true
+set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
+
+[[devices]]
+type = "rotor"
+name = "rotor2"
+instance = "prop2"
+body = "prop2"
+joint = "spin2"
+map = "prop1045"
+dir = 1
+ground_effect = true
+set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
+
+[[devices]]
+type = "rotor"
+name = "rotor3"
+instance = "prop3"
+body = "prop3"
+joint = "spin3"
+map = "prop1045"
+dir = -1
+ground_effect = true
+set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
+
+[[devices]]
+type = "rotor"
+name = "rotor4"
+instance = "prop4"
+body = "prop4"
+joint = "spin4"
+map = "prop1045"
+dir = -1
+ground_effect = true
+set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
+
+# Sensors. IMU and barometer sit on the Pixhawk site (instance origin = its mounting face; the 6C's internal sensors are a few mm higher,
+# ignored). Magnetometer and GNSS sit on the GPS site (the kit's external compass is in the GPS module, away from the power wiring).
+# The IMU gets no bias / random walk: the part publishes only initial-offset tolerances (a tolerance is not a bias) and no in-run
+# stability (airframe doc gap 4). Accel noise uses the X/Y density (65 ug/rtHz); Z is 70 ug/rtHz.
+# Rates must be 1 / (rate dt) integers at dt = 1 ms.
+[[devices]]
+type = "imu"
+name = "imu"
+instance = "icm"
+site = "fc"
+map = "icm42688"
+set = { rate_hz = { value = 500.0, unit = "Hz", fidelity = "estimated", rationale = "Simulation tick is 1 ms, so 1000 Hz is the fastest representable rate; 500 Hz = every 2nd tick, inside the ICM-42688-P output-data-rate range (12.5-32000 Hz datasheet). The rate at which the flight firmware consumes samples is not modelled here." } }
+
+[[devices]]
+type = "baro"
+name = "baro"
+instance = "baro_chip"
+site = "fc"
+map = "ms5611"
+set = { rate_hz = { value = 50.0, unit = "Hz", fidelity = "estimated", rationale = "MS5611 pressure + temperature conversions take 8.22 ms each at OSR 4096 (datasheet response time), i.e. at most ~60 Hz alternating; 50 Hz (every 20th tick) is chosen. Noise is the OSR 4096 RMS figure, assuming the driver runs that oversampling." } }
+
+[[devices]]
+type = "mag"
+name = "mag"
+instance = "mag_chip"
+site = "gps"
+map = "ist8310"
+set = { rate_hz = { value = 100.0, unit = "Hz", fidelity = "estimated", rationale = "IST8310 output data rate is 1-200 Hz (datasheet); 100 Hz (every 10th tick) is a mid value. The rate the firmware polls it at is not modelled." }, earth_field = { value = [1.1e-6, 2.15e-5, -4.29e-5], unit = "T", fidelity = "estimated", rationale = "Local geomagnetic field in the world frame (x East, y North, z Up) for the GNSS origin below (~47.4 N, 8.5 E): about 21.5 uT horizontal pointing north, 1.1 uT east (declination ~3 deg) and 42.9 uT downward (inclination ~63 deg), total ~48 uT. Recalled approximate values for central Europe, NOT looked up in IGRF/WMM for this site or date; good to ~10 %. Replace with a WMM evaluation if the heading matters." } }
+
+[[devices]]
+type = "gnss"
+name = "gnss"
+instance = "gnss_chip"
+site = "gps"
+map = "m8n"
+set = { lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "Arbitrary simulation origin, the same site as the repo's test model tests/data/devices/all.xml (Zurich); not a claim about where the vehicle flies." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 408.0, unit = "m", fidelity = "estimated", rationale = "As lat0 (all.xml uses 408 m). The environment device below carries the same value as origin_alt, so the barometer's ISA pressure and the GNSS altitude agree." }, horiz_std = { value = 2.1233, unit = "m", fidelity = "derived", derivation = "u-blox NEO-M8N horizontal position accuracy 2.5 m CEP (ublox_neo_m8n horizontal_accuracy_cep_gps, datasheet, 50 % radius) converted to a per-coordinate sigma of a circular normal distribution: sigma = CEP / 1.17741 = 2.1233 m." }, vert_std = { value = 3.185, unit = "m", fidelity = "derived", derivation = "1.5 x horiz_std (2.1233 m) = 3.185 m: the ratio 3.75 m / 2.5 m of the part's vertical_accuracy_cep (itself an estimate: 1.5 x horizontal CEP) to its horizontal CEP, applied to sigma." } }
+
+# Environment: calm air, world z = 0 at the same altitude as the GNSS origin (alt0 above), so the ISA barometer and GNSS agree. The two
+# values are duplicated with identical rationale (one provenance, two keys). Air density for the rotors is evaluated at origin_alt + z.
+[[devices]]
+type = "environment"
+name = "environment"
+instance = "gnss_chip"   # provenance only: origin_alt follows the GNSS origin of this part's binding
+set ={ origin_alt = { value = 408.0, unit = "m", fidelity = "estimated", rationale = "Same value as the GNSS alt0 above: arbitrary simulation origin at the repo's test-model site (Zurich, tests/data/devices/all.xml uses 408 m); not a claim about where the vehicle flies." }, w20 = { value = 0.0, unit = "m/s", fidelity = "estimated", rationale = "Calm air: no wind source exists for this assembly, so turbulence is switched off (w20 = 0) and the steady wind is left empty." } }
+
+# ---- targets ---------------------------------------------------------------------------------------------------------------------
+# Holybro's "Weight: 610g" is listed under "Mechanical Specification" on https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md
+# and on https://holybro.com/products/x500-v2-kits. Evidence for its scope (fetched 2026-10-07):
+#  * docs page, order of sections: "Development Kit Includes" (... "Preinstalled Items: Motors ... ESCs ... 1045 Propellers (6 pcs) ...
+#    Power Distribution Board ...") -> "### X500 V2 Frame Kit Details (SKU30120):" (Body plates, Arm tubes + nylon connectors, Landing
+#    gear, Platform board, Dual 10mm rod x 250 mm rail mounting system, Battery mount with two Battery Straps, Hand tools for installation)
+#    -> "### Mechanical Specification:" (Wheelbase 500mm, Motor mount pattern 16x16mm, Frame Body 144x144mm 2mm thick, Landing gear height
+#    215mm, Space between top and bottom plates 28mm, "Weight: 610g", Flight time ~18 minutes hover, Max payload ~1kg). The Frame Kit Details
+#    heading links to the frame-kit product page (SKU 30120) and is the section immediately above the specification; every other line of
+#    the specification (wheelbase, plates, gear height, plate spacing, motor pattern) describes the frame.
+#  * shop page: the same list appears after "X500 V2 ARF Kit (SKU30125): X500 V2 Frame Kit With Preinstalled Items: Motors, ESCs, 1045
+#    Propellers, Power Distribution Board" and after "X500 V2 Frame Kit Details (SKU30120)". Neither page states what the 610 g covers.
+# Scope chosen from that evidence: the FRAME KIT contents (plates, arms, landing gear, rail rods; group "frame"), not the preinstalled
+# motors / ESCs / props / PDB, which the kit pages list separately as "Preinstalled Items" of the ARF kit. This is an interpretation: the
+# vendor never says "frame kit weight". The modelled frame group omits the platform board, battery mounting board and straps, hangers,
+# tee connectors, foam grips and most hardware (see the header), so a model BELOW the target is expected; the gap is reported, not tuned.
+[[targets]]
+name = "frame kit published weight (Holybro 'Weight: 610g')"
+groups = ["frame"]
+value = "kit.published_weight"

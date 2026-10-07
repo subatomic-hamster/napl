@@ -19,6 +19,82 @@ max_input_voltage   = { value = 6, unit = "V", src = "S1", fidelity = "datasheet
 operating_temp_min  = { value = 248.15, unit = "K", src = "S1", fidelity = "datasheet" }
 imu_count           = { value = 2, unit = "1", src = "S1", fidelity = "datasheet" }
 
+[params.mass]
+value = 0.0593
+unit = "kg"
+src = "S1"
+fidelity = "datasheet"       # "Weight (Aluminum Case): 59.3g" (same as mass_aluminium_case; the builder reads 'mass')
+
+[geometry]
+# Part frame: origin at the centre of the underside (mounting face), x = long axis (84.8 mm, vehicle forward), z up.
+shape = "box"
+size = [0.0424, 0.022, 0.0062]      # half-extents of length 84.8 x width 44 x height 12.4 mm (S1)
+pos = [0.0, 0.0, 0.0062]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Underside seat (mates 'fc' of holybro-x500v2-top-plate). The 6C mounting-hole pattern is published only as a drawing image (docs/research/x500v2-airframe.md gap 4), so a flat foam/tape mount is assumed rather than inventing a hole pattern."
+
+[[ports]]
+name = "power1"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+role = "sink"
+v_max = { value = 6.0, unit = "V", src = "S1", fidelity = "datasheet" }
+note = "POWER1 header (6 pins listed on the Holybro Pixhawk 6C ports page, fetched 2026-10-07); mates the PM02 fc_power cable (female housing). 'max_input_voltage' 6 V per params. The JST-GH family name is the Pixhawk-standard assumption (the page lists pins, not the connector name): estimated."
+
+[[ports]]
+name = "gps1"
+kind = "signal"
+type = "jst-gh.10"
+gender = "male"
+note = "GPS1 header (10 pins listed on the Holybro ports page, 2026-10-07; JST-GH family assumed, estimated); mates the M8N GPS cable (female housing, 26 cm, holybro-m8n-gps)."
+
+[[ports]]
+name = "telem1"
+kind = "signal"
+type = "jst-gh.6"
+gender = "male"
+note = "TELEM1 header (6 pins listed on the Holybro ports page, 2026-10-07; JST-GH family assumed, estimated); the SiK radio connects here. The radio cable is not a filed part, so holybro-sik-telemetry-radio-v3 declares its port neutral."
+
+[[ports]]
+name = "pwm1"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "FMU PWM Out channel 1 (motor 1): the PX4 X500 V2 + Pixhawk 6C airframe is 'preconfigured with the motors on the FMU PWM Out' (S3). Channel-to-motor numbering follows PX4's quad-X motor order and is not quoted here; the breakout cable (10-pin FMU PWM Out header, listed on the ports page) is folded into the port."
+
+[[ports]]
+name = "pwm2"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "FMU PWM Out channel 2 (motor 2); see pwm1."
+
+[[ports]]
+name = "pwm3"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "FMU PWM Out channel 3 (motor 3); see pwm1."
+
+[[ports]]
+name = "pwm4"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "FMU PWM Out channel 4 (motor 4); see pwm1."
+
 [params.vibration_isolation_present]
 value = 1
 unit = "1"
@@ -31,6 +107,13 @@ url = "https://docs.holybro.com/autopilot/pixhawk-6c/technical-specification.md"
 title = "Pixhawk 6C Technical Specification (Holybro docs)"
 accessed = "2026-10-06"
 quote = "Accel/Gyro: ICM-42688-P  Accel/Gyro: BMI088 (BMI055 discontinued due to the end of production of the sensor) Mag: IST8310  Barometer: MS5611 ... Dimensions: 84.8 * 44 * 12.4 mm Weight (Aluminum Case): 59.3g Weight (Plastic Case): 34.6g"
+
+[[sources]]
+id = "S3"
+url = "https://raw.githubusercontent.com/PX4/PX4-user_guide/main/en/frames_multicopter/holybro_x500v2_pixhawk6c.md"
+title = "PX4 User Guide - Holybro X500 v2 + Pixhawk 6C assembly (source markdown)"
+accessed = "2026-10-06"
+quote = "The airframe is preconfigured with the motors on the **FMU PWM Out**."
 
 [[sources]]
 id = "S2"

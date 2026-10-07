@@ -5,7 +5,10 @@ from os import fspath
 
 import numpy as np
 
-from . import _napl
+try:
+    from . import _napl
+except ImportError as _e:  # no built kernel: `napl.design` / `napl design` still work; Sim.load re-raises this
+    _napl, _napl_error = None, _e
 
 __all__ = ["Sim"]
 
@@ -36,6 +39,8 @@ class Sim:
         `max_steps_per_call`: a Step with larger n, or a RunTest/Sweep longer than this, gets limit_exceeded.
         `host=True`: the World lives on a Host thread (starts paused, logs from tick 0): Run / Pause commands then
         work (via call()), and show() can run the viewer beside it."""
+        if _napl is None:
+            raise _napl_error
         return cls(
             (_napl.Host if host else _napl.Sim)(
                 fspath(path),

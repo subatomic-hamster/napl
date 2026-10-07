@@ -22,6 +22,21 @@ origin_rpy = [1.5708, 0.0, 1.5708]
 bbox_min = [-0.0224, 0.0381, -0.0208]
 bbox_max = [0.0253, 0.0695, 0.0594]
 
+# Ports derived by tools/so101_ports.py (closure check: python tools/so101_ports.py --check). Port frame: z = axis (outward), x = ref, y = z x x; part frame = mesh frame.
+[[ports]]
+name = "base_seat"
+kind = "mech"
+type = "bolt-pattern.so101-base-motor-holder"
+gender = "neutral"
+pos = [0.001473626643, 0.053800008326, 0.021699862284]
+axis = [0.0, -0.999999999993, 3.673205e-06]
+ref = [-3.673205e-06, 3.673205e-06, 0.999999999987]
+symmetry = 1
+thickness = 0.004
+fidelity = "derived"
+derivation = "tools/so101_ports.py from meshes/so101/so101_new_calib.urdf (SO-ARM100 a758567): mate frame M at the centre of the bbox overlap of the two parts (mid-plane of the gap where the bboxes only touch), axis along the thinnest overlap dimension from so101-base towards so101-base-motor-holder; port = inv(T_part) @ M (a) or inv(T_part) @ M @ Rx(pi) (b)"
+thickness_rationale = "No published or measurable value; 4 mm placeholder = two 2 mm printed walls clamped by M3 screws. Estimated."
+
 [[sources]]
 id = "S1"
 url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/README.md"

@@ -32,8 +32,48 @@ thevenin_r1     = { value = 0.008, unit = "ohm", fidelity = "estimated", rationa
 thevenin_tau    = { value = 3.3, unit = "s", src = "S3", fidelity = "literature" }
 
 [geometry]
+# Part frame: origin at the body centre, x along the 133 mm length (vehicle forward), y width, z up (top face z = +0.01675).
 shape = "box"
 size = [0.0665, 0.0225, 0.01675]     # half-extents length/width/height
+
+[[ports]]
+name = "power_out"
+kind = "power"
+type = "xt60"
+gender = "male"
+role = "source"
+v_max = { value = 16.8, unit = "V", src = "S2", fidelity = "literature" }
+i_max = { value = 30.0, unit = "A", fidelity = "derived", derivation = "min(pack 35 C x 5.2 Ah = 182 A, XT60 rated continuous 30 A from amass-xt60 current_rated, Amass datasheet RC): the connector at the lead ends limits the port. Burst 60 A (amass-xt60 current_burst)." }
+note = "Main XT60 on the 120 mm 10 AWG discharge leads (S1: 'Main Connector Type XT60', 'Discharge Wire Length 120mm', 'Wire Gauge 10#'); the leads are inside the pack mass. Male plug mates the PM02 power_in (female): the Amass XT60-M/XT60-F gender assignment of the Tattu plug is not stated by Tattu, the male battery plug is the RC convention."
+
+# Rail seats: the pack hangs under the plates on the two rails (battery board and straps not modelled). Positions are the rod axes
+# in the pack frame, ESTIMATED: rods 60 mm apart (y = +-0.030), axis 0.008 m above the pack top face (0.003 m assumed board
+# thickness + 0.005 m rod radius), at x = 0 (the board slides along x; centre assumed).
+[[ports]]
+name = "rail_l"
+kind = "mech"
+type = "tube.10"
+gender = "female"
+pos = [0.0, 0.030, 0.02475]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 0.0, 1.0]
+symmetry = 360
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Battery board (#31108, not modelled) and its slide-bar clips (airframe doc) hold the pack under the rods: z = 0.01675 (pack top) + 0.003 (board thickness assumed) + 0.005 (10 mm rod radius, rail-rod S1) = 0.02475 m; rods 60 mm apart is consistent with the 45 mm pack width plus clips but is not recorded in the STEP notes. Mates 'slide' of holybro-x500v2-rail-rod; rods run along pack x."
+
+[[ports]]
+name = "rail_r"
+kind = "mech"
+type = "tube.10"
+gender = "female"
+pos = [0.0, -0.030, 0.02475]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 0.0, 1.0]
+symmetry = 360
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Mirror of rail_l (see there)."
 
 [[sources]]
 id = "S1"

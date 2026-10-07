@@ -15,6 +15,87 @@ mount_pattern  = { value = 0.045, unit = "m", src = "S1", fidelity = "datasheet"
 mass           = { value = 0.015, unit = "kg", fidelity = "estimated", rationale = "No bare-board mass published (Holybro shipping weights are packaged: 40-50 g). Assumed ~15 g for a ~50 mm 2-layer heavy-copper PCB with XT60 and 4-5 XT30 plugs soldered; unverified." }
 r_path         = { value = 0.0005, unit = "ohm", fidelity = "estimated", rationale = "Board copper path resistance unpublished. A 60 A continuous board needs well under 1 mOhm from XT60 pad to each XT30 pad; 0.5 mOhm assumed (loss at 60 A would be 1.8 W). Plug contact resistance modelled separately via amass-xt60." }
 
+[params.mass_tol]
+value = 0.010
+unit = "kg"
+fidelity = "estimated"
+rationale = "mass (15 g) is itself an estimate with no published bare-board value; Holybro's packaged shipping weights are 40-50 g (this file's mass rationale), so a one-sided +-10 g bound is carried."
+
+[params.board_size_xy]
+value = 0.050
+unit = "m"
+fidelity = "estimated"
+rationale = "Dimensions are published only as an image. The board carries 45x45 mm mounting holes (S1) and its mass rationale above assumes a ~50 mm board; 50 mm leaves 2.5 mm from each hole centre to the edge."
+
+[params.board_height]
+value = 0.006
+unit = "m"
+fidelity = "estimated"
+rationale = "PCB plus soldered XT60/XT30 plugs and wire stubs stand roughly 5-6 mm above the board face; not published. Visual/collision envelope only."
+
+[geometry]
+# Part frame: origin at the centre of the board underside (mounting face), z up (board normal, component side up), x forward.
+shape = "box"
+size = [0.025, 0.025, 0.003]      # half-extents of board_size_xy x board_size_xy x board_height (estimated)
+pos = [0.0, 0.0, 0.003]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.45x45.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+thickness = 0.0016
+holes = 4
+thread = "m3"
+fidelity = "derived"
+src = "S1"
+derivation = "45 x 45 mm mounting-hole pattern from S1 ('45x45mm Mounting Holes'). pos/axis/ref follow the library convention (origin at the mounting-face centre, axis = outward normal of the mounting face = -z). thickness 0.0016 m is a typical 1.6 mm PCB (estimated, not published; the 60 A heavy-copper board may be 2 mm); the thread size M3 is assumed (not stated)."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "xt60"
+gender = "female"
+role = "passthrough"
+i_max = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Pre-soldered XT60 for the power module and battery (S1). Gender female so the PM02 power_out (male) plugs in; Holybro does not state the gender. i_max = 'Rated Current: 60A' (120 A max < 60 s). No input voltage rating is published."
+
+[[ports]]
+name = "out1"
+kind = "power"
+type = "xt30"
+gender = "female"
+role = "passthrough"
+note = "Pre-soldered XT30 for ESC 1 (S2: 'XT30 plug for ESCs & peripherals'); mates the ESC power_in (male). No per-output current rating is published. The kit lists XT30 plugs for 'ESCs & peripherals': 4 are modelled, any extra peripheral outputs are not."
+
+[[ports]]
+name = "out2"
+kind = "power"
+type = "xt30"
+gender = "female"
+role = "passthrough"
+note = "As out1, for ESC 2."
+
+[[ports]]
+name = "out3"
+kind = "power"
+type = "xt30"
+gender = "female"
+role = "passthrough"
+note = "As out1, for ESC 3."
+
+[[ports]]
+name = "out4"
+kind = "power"
+type = "xt30"
+gender = "female"
+role = "passthrough"
+note = "As out1, for ESC 4."
+
 [[sources]]
 id = "S1"
 url = "https://holybro.com/products/power-distribution-board-pdb"

@@ -1,4 +1,5 @@
 id = "te-ms5611-01ba03"
+ports_note = "Data-only barometer chip that lives inside the Pixhawk 6C (holybro-pixhawk-6c); it is never mounted or wired on its own, so it has no ports. Resolution/offset numbers feed the barometer model of the flight controller."
 name = "TE Connectivity MS5611-01BA03 barometric pressure sensor (Pixhawk 6C baro)"
 category = "sensor.baro"
 vendor = "TE Connectivity (MEAS)"

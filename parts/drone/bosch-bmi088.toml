@@ -1,4 +1,5 @@
 id = "bosch-bmi088"
+ports_note = "Data-only sensor chip that lives inside the Pixhawk 6C (holybro-pixhawk-6c); it is never mounted or wired on its own, so it has no ports. Noise/bias numbers feed the IMU model of the flight controller."
 name = "Bosch BMI088 6-axis IMU (Pixhawk 6C secondary IMU, replaces discontinued BMI055)"
 category = "sensor.imu"
 vendor = "Bosch Sensortec"

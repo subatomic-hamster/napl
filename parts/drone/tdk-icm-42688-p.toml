@@ -1,4 +1,5 @@
 id = "tdk-icm-42688-p"
+ports_note = "Data-only sensor chip that lives inside the Pixhawk 6C (holybro-pixhawk-6c); it is never mounted or wired on its own, so it has no ports. Noise/bias numbers feed the IMU model of the flight controller."
 name = "TDK InvenSense ICM-42688-P 6-axis IMU (Pixhawk 6C primary IMU)"
 category = "sensor.imu"
 vendor = "TDK InvenSense"

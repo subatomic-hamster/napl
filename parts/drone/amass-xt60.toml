@@ -19,6 +19,52 @@ recommended_wire   = { value = "12 AWG", unit = "text", src = "S1", fidelity = "
 temp_max           = { value = 120.0, unit = "degC", src = "S1", fidelity = "datasheet" }
 mass               = { value = 0.0045, unit = "kg", fidelity = "estimated", rationale = "Mass is not on the Amass datasheet. 4.5 g per mated pair is an unverified order-of-magnitude assumption (small brass/PA connector pair); matters only at the gram level and should be replaced by a weighed value." }
 
+[params.mass_tol]
+value = 0.002
+unit = "kg"
+fidelity = "estimated"
+rationale = "mass (4.5 g per mated pair) is an unverified order-of-magnitude assumption (see mass rationale), so a +-2 g bound (about +-45%) is carried."
+
+# One part = one mated-pair family. 'male' and 'female' are the two halves; each half's solder cup takes a wire-lead end
+# (awg-* parts, type wire-lead) or a board pad. No geometry: the connector envelope is not recorded (instances ride on the host part).
+[[ports]]
+name = "male"
+kind = "power"
+type = "xt60"
+gender = "male"
+v_max = { value = 500.0, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 30.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "XT60-M half. i_max = rated current RC 30 A, i_burst = instantaneous current MC 60 A, v_max = DC 500 V (datasheet quote); contact resistance per half in params."
+
+[[ports]]
+name = "female"
+kind = "power"
+type = "xt60"
+gender = "female"
+v_max = { value = 500.0, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 30.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "XT60-F half; same ratings as the male half."
+
+[[ports]]
+name = "wire_male"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "passthrough"
+note = "Solder cup of the XT60-M half (recommended wire 12 AWG, params.recommended_wire); joins an awg-* 'end_a'/'end_b' wire-lead port."
+
+[[ports]]
+name = "wire_female"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "passthrough"
+note = "Solder cup of the XT60-F half; as wire_male."
+
 [[sources]]
 id = "S1"
 url = "https://mrsdprojects.ri.cmu.edu/2025teamb/wp-content/uploads/sites/84/2025/05/xt60.pdf"
