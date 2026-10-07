@@ -1,0 +1,16 @@
+<!-- Same launcher with cd 0 (vacuum parabola), no plate; ground plane 10 m below the muzzle. -->
+<mujoco model="launcher_nodrag">
+  <option timestep="0.001"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="1000 1000 1" contype="0" conaffinity="0"/>
+    <body name="barrel" pos="0 0 10">
+      <geom type="box" size="0.05 0.01 0.01" contype="0" conaffinity="0"/>
+      <site name="muzzle" pos="0.05 0 0" euler="0 90 0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "launchers": [{"name": "gun", "site": "muzzle", "muzzle_velocity": 200, "pellet_mass": 0.00055, "diameter": 0.0045, "cd": 0.0}]
+    }'/>
+  </custom>
+</mujoco>

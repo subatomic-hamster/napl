@@ -1,0 +1,26 @@
+<!-- Pellet launcher 10 m up, barrel (site z) along +x; a 2 mm thick plate 40 m downrange; ground plane; environment (calm). 0.55 g, 4.5 mm,
+     cd 0.45, 200 m/s. Visual pool: one mocap body in geom group 5 (outside the default ray mask 31). -->
+<mujoco model="launcher">
+  <option timestep="0.001"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="500 500 1" contype="0" conaffinity="0"/>
+    <body name="barrel" pos="0 0 10">
+      <geom type="box" size="0.05 0.01 0.01" contype="0" conaffinity="0"/>
+      <site name="muzzle" pos="0.05 0 0" euler="0 90 0"/>
+    </body>
+    <body name="target" pos="40 0 10">
+      <geom name="plate" type="box" size="0.001 1 1" contype="0" conaffinity="0"/>
+    </body>
+    <body name="pellet0" mocap="true" pos="0 0 -1000">
+      <geom type="sphere" size="0.05" group="5" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "environments": [{"name": "air"}],
+      "launchers": [{"name": "gun", "site": "muzzle", "muzzle_velocity": 200, "pellet_mass": 0.00055, "diameter": 0.0045,
+                     "cd": 0.45, "ray_groups": 31, "visual_bodies": ["pellet0"]}],
+      "cameras": [{"name": "cam", "site": "muzzle", "fov_v": 0.7156, "width": 1280, "height": 720, "rate_hz": 15}]
+    }'/>
+  </custom>
+</mujoco>

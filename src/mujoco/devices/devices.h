@@ -98,6 +98,16 @@ struct GnssCfg {
   double corr_time_s = 0, corr_frac = 0;                    // Gauss-Markov position error (0 = white), see schema Gnss
 };
 
+constexpr int kMaxPellets = 16;  // launcher pool
+constexpr int kHitRing = 16;     // hits kept (newest overwrite oldest); hit k lives at k % kHitRing
+struct LauncherCfg {
+  Meta meta; std::string site; double v0, mass, diameter, cd, max_time, v_std, spread_std; unsigned ray_groups;
+  std::vector<std::string> visual; std::uint64_t seed;
+  int sid = -1, body = -1;     // resolved by bind(): muzzle site, its body (excluded from the hit test)
+  std::vector<int> mocap;      // mocap index of each visual body
+};
+struct CameraCfg { Meta meta; std::string site; double fov_v, rate_hz; int width, height; int sid = -1; };
+
 // ---- state: every mutable quantity, doubles / uint64 only (no padding), saved and hashed byte-for-byte ----
 // "Outputs" (last solved values) live here too: they are cheap, deterministic, and make get() a plain field read.
 // v, i, ocv: of the last solve (i > 0 = discharging). Fault inputs (F3, 0 = healthy): r_fault = extra series resistance (ohm,
@@ -170,6 +180,23 @@ struct GnssState {
   double fix_lost, jump[3];
 };
 
+// Launcher (schema Launcher). Pool arrays are flat (3 doubles per pellet); active: 0 free, 1 in flight. Hit k (k = hit_n - 1 is
+// the newest) is in ring slot k % kHitRing: body id (0 = ground / static world), geom id, point, sim time, impact speed, pellet round no.
+struct LauncherState {
+  double fire;                                  // input 0 / 1; consumed by the next tick
+  double rounds, hits, ground, expired, dropped;  // counters: fired, hit a non-world body, hit the world, timed out, refused (pool full)
+  double hit_n;                                 // hits + ground contacts recorded so far (ring write count)
+  double time;                                  // s stepped by this device (ticks dt)
+  double muzzle_pos[3], muzzle_dir[3];          // output: world muzzle point and barrel axis (unit)
+  double active[kMaxPellets], round_no[kMaxPellets], age[kMaxPellets];
+  double pos[3 * kMaxPellets], vel[3 * kMaxPellets];
+  double hit_body[kHitRing], hit_geom[kHitRing], hit_t[kHitRing], hit_v[kHitRing], hit_round[kHitRing];
+  double hit_pos[3 * kHitRing];
+  Rng rng;
+};
+// Camera pose (start of the last tick): world position, optical axis, image-up.
+struct CameraState { double pos[3], fwd[3], up[3]; };
+
 template <class C, class S> struct Group {
   using Cfg = C;
   using State = S;
@@ -191,9 +218,11 @@ struct Devices {
   Group<BaroCfg, BaroState> baro;
   Group<MagCfg, MagState> mag;
   Group<GnssCfg, GnssState> gnss;
+  Group<LauncherCfg, LauncherState> launcher;
+  Group<CameraCfg, CameraState> camera;
   int n_nodes = 0;  // highest node id used
   struct Slot {
-    enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss } type;
+    enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss, launcher, camera } type;
     int i;
   };
   std::vector<Slot> slots;  // prim order: type by type, config order within a type
@@ -227,6 +256,9 @@ void step_firmware(const mjModel* m, const mjData* d, Devices& dv);
 void step_forces(const mjModel* m, mjData* d, Devices& dv);
 // Post-step hook (sensors.cpp): samples the sensors that are due, from the derived data of the tick just stepped.
 void sample_sensors(const mjModel* m, mjData* d, Devices& dv);
+// Launcher + camera (launcher.cpp), between the forces and mj_step2, from the kinematics of mj_step1: camera / muzzle pose,
+// a pending fire command spawns a pellet, every pellet flies one tick (RK4 + swept ray test), mocap visuals follow.
+void step_launchers(const mjModel* m, mjData* d, Devices& dv);
 
 std::size_t state_bytes(const Devices& dv);
 void save_state(const Devices& dv, std::byte* out);
