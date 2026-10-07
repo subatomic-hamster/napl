@@ -42,13 +42,13 @@ name = "board_seat"
 kind = "mech"
 type = "bolt-pattern.37x28.m2.5"
 gender = "neutral"
-pos = [0.0, 9.8969e-08, 0.004]
-axis = [0.0, 0.0, 1.0]
+pos = [0.0, 9.8969e-08, 0.0]
+axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 2
 thickness = 0.0016
 fidelity = "estimated"
-rationale = "Hole pattern centre (x, y) derived from the four hole rings in the plate mesh (spacing 37.000 x 28.000 mm, centre (0.0000, 0.0001) mm in the plate frame, matching the 37.00 x 28.00 mm board pattern; the mesh features there are 5 mm diameter circles, so M2.5 is the briefing's thread tag, not read from the mesh); the choice of the +z plate face (z = 0.004) as the board face is an assumption, a central block rises to z = 0.0076 on that face and the URDF does not model the board."
+rationale = "Hole pattern centre (x, y) derived from the four hole rings in the plate mesh (spacing 37.000 x 28.000 mm, centre (0.0000, 0.0001) mm in the plate frame, matching the 37.00 x 28.00 mm board pattern; the mesh features there are 5 mm diameter circles, so M2.5 is the briefing's thread tag, not read from the mesh); the board face is the plate's -z face (z = 0, the outer slab face, axis -z): the plate is a 51 x 42 x 4 mm slab (z 0..4) whose 18 x 18 mm central block rises to z = 0.0076 on the +z side, and that +z side is the one facing the base (world: plate z = +x, the base starts 1 mm beyond the block; base_seat is on it). The board therefore sits on the exposed -z face, clear of the base and base motor holder. This face choice is inferred from the mesh and the URDF placement (the mesh holes are through the slab at z = 0 and z = 0.004), not read from an assembly drawing; the URDF does not model the board."
 thickness_rationale = "Board PCB thickness not published; 1.6 mm is the common standard PCB thickness; estimated."
 
 [[sources]]

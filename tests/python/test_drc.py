@@ -97,13 +97,9 @@ def test_x500_reference_has_no_errors(x500_findings):
 
 
 def test_so101_reference_findings(so101_findings):
-    # The one error class: the Waveshare board (an ESTIMATED 42 x 33 x 12 mm envelope) overlaps the base and the base motor holder
-    # meshes by a few mm. It is a property of the placeholder envelope, reported rather than hidden.
+    # No errors: the Waveshare board sits on the outer (-z) face of its mounting plate, clear of the base and the motor holder.
     errs = {(f.code, tuple(f.where)) for f in so101_findings if f.severity == "error"}
-    assert errs == {
-        ("INTERFERENCE", ("adapter", "base")),
-        ("INTERFERENCE", ("adapter", "base_motor_holder")),
-    }
+    assert errs == set()
     w = codes(so101_findings, "warning")
     assert {
         "FASTENER_SHORT",
@@ -552,8 +548,8 @@ def test_build_report_carries_findings_and_never_fails_on_them(tmp_path):
     r = design.build(SO101, PARTS, tmp_path)
     rep = json.loads(Path(r["report_path"]).read_text())
     assert rep["findings"] == r["report"]["findings"] and rep["findings"]
-    # so101 has DRC errors and still builds; DRC findings are not in the builder's own warning list
-    assert any(f["severity"] == "error" for f in rep["findings"])
+    # DRC findings (here warnings) ride in the report; they are not in the builder's own warning list
+    assert any(f["severity"] == "warning" for f in rep["findings"])
     assert all(
         w["code"] not in drc.RULES or w["code"] == "FASTENER_SHORT"
         for w in rep["warnings"]
@@ -584,10 +580,8 @@ def test_cli_check_exit_codes_and_json(tmp_path, capsys, x500, so101):
     out = json.loads(capsys.readouterr().out)
     assert out and set(out[0]) == {"code", "severity", "message", "where", "fix"}
     assert rc == (1 if any(f["severity"] == "error" for f in out) else 0)
-    assert (
-        main(["design", "check", str(SO101)]) == 1
-    )  # the adapter / base INTERFERENCE errors
-    assert "INTERFERENCE" in capsys.readouterr().out
+    assert main(["design", "check", str(SO101)]) == 0  # warnings only, no errors
+    assert "0 errors" in capsys.readouterr().out
     bad = tmp_path / "bad.toml"
     bad.write_text(
         dumps(
