@@ -1,0 +1,83 @@
+id = "raspberry-pi-zero-2-w"
+name = "Raspberry Pi Zero 2 W (RP3A0, BCM2710A1, 512MB)"
+category = "computer.sbc"
+vendor = "Raspberry Pi Ltd"
+part_number = "Raspberry Pi Zero 2 W"
+url = "https://datasheets.raspberrypi.com/rpizero2/raspberry-pi-zero-2-w-product-brief.pdf"
+
+# Mass and idle/max power draw are not in the product brief and are not recorded here.
+[params]
+length              = { value = 0.065, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.030, unit = "m", src = "S1", fidelity = "datasheet" }
+supply_voltage      = { value = 5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_rated = { value = 2.5, unit = "A", src = "S1", fidelity = "datasheet" }
+operating_temp_min  = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+operating_temp_max  = { value = 343.15, unit = "K", src = "S1", fidelity = "datasheet" }
+cpu_clock           = { value = 1e9, unit = "Hz", src = "S1", fidelity = "datasheet" }
+
+[params.mount_hole_spacing_long]
+value = 0.058
+unit = "m"
+fidelity = "derived"
+derivation = "S1 form factor 65 mm; the drawing shows holes 3.5 mm from the short edges, so spacing = 65 - 2 x 3.5 = 58 mm."
+
+[params.mount_hole_spacing_short]
+value = 0.023
+unit = "m"
+fidelity = "derived"
+derivation = "S1 drawing labels 23 mm between the two hole rows (30 - 2 x 3.5 = 23 for the 30 mm width)."
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.58x23.m2.5"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Hole diameter is not legible in the extracted drawing text; the Zero family uses M2.5 screws in practice (inference)"
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "usb-micro-b"
+gender = "female"
+v_max = { value = 5, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+note = "Powered via a micro USB socket, 5V DC 2.5A"
+
+[[ports]]
+name = "gpio_uart"
+kind = "signal"
+type = "uart"
+gender = "male"
+connector = "HAT-compatible 40-pin I/O header footprint (unpopulated)"
+
+[[ports]]
+name = "gpio_i2c"
+kind = "signal"
+type = "i2c"
+gender = "male"
+connector = "HAT-compatible 40-pin I/O header footprint (unpopulated)"
+
+[[ports]]
+name = "usb_otg"
+kind = "signal"
+type = "usb"
+gender = "female"
+connector = "1 x USB 2.0 with OTG (micro USB)"
+
+[[ports]]
+name = "csi"
+kind = "signal"
+type = "csi"
+gender = "female"
+connector = "CSI-2 camera connector"
+
+[[sources]]
+id = "S1"
+url = "https://datasheets.raspberrypi.com/rpizero2/raspberry-pi-zero-2-w-product-brief.pdf"
+title = "Raspberry Pi Zero 2 W Product Brief (Raspberry Pi Ltd)"
+accessed = "2026-10-07"
+quote = "Form factor: 65mm × 30mm Processor: Broadcom BCM2710A1, quad-core 64-bit SoC (Arm Cortex-A53 @ 1GHz) Memory: 512MB LPDDR2 ... 1 × USB 2.0 interface with OTG HAT-compatible 40-pin I/O header footprint ... CSI-2 camera connector ... Input power: 5V DC 2.5A Operating temperature: -20°C to +70°C ... It is powered via a micro USB socket"

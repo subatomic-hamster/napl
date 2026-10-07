@@ -1,0 +1,84 @@
+id = "pololu-drv8825-carrier"
+name = "Pololu DRV8825 stepper motor driver carrier, high current (item 2133)"
+category = "driver.stepper"
+vendor = "Pololu (TI DRV8825 IC)"
+part_number = "Pololu 2133"
+url = "https://www.pololu.com/product/2133"
+
+# Frame: origin at the board centre on the top (component) face; +z = out of the component side; x along the 0.8 in (20.32 mm) length, y along the 0.6 in (15.24 mm) width.
+# Board thickness is not published; z = 0 is taken as the top surface and the mating pins point to -z.
+# Drives one bipolar stepper: current limit set by the VREF trimpot with 0.100 ohm sense resistors.
+
+[params]
+mass               = { value = 0.0016,  unit = "kg",   src = "S1", fidelity = "datasheet" }
+length             = { value = 0.02032, unit = "m",    src = "S1", fidelity = "datasheet" }  # 0.8 in
+width              = { value = 0.01524, unit = "m",    src = "S1", fidelity = "datasheet" }  # 0.6 in
+v_motor_min        = { value = 8.2,     unit = "V",    src = "S1", fidelity = "datasheet" }
+v_motor_max        = { value = 45.0,    unit = "V",    src = "S1", fidelity = "datasheet" }
+i_continuous_per_phase = { value = 1.5, unit = "A",    src = "S1", fidelity = "datasheet" }  # without heat sink or forced air
+i_max_per_phase    = { value = 2.2,     unit = "A",    src = "S1", fidelity = "datasheet" }  # with sufficient additional cooling
+ic_i_max_per_phase = { value = 2.5,     unit = "A",    src = "S2", fidelity = "datasheet" }  # DRV8825 IC rating; sense resistors limit the board to 2.2 A
+v_logic_min        = { value = 2.5,     unit = "V",    src = "S1", fidelity = "datasheet" }
+v_logic_max        = { value = 5.25,    unit = "V",    src = "S1", fidelity = "datasheet" }
+microstep_modes    = { value = "full, 1/2, 1/4, 1/8, 1/16, 1/32", unit = "-", src = "S1", fidelity = "datasheet" }
+microstep_max_divisor = { value = 32,   unit = "1",    src = "S1", fidelity = "datasheet" }
+r_sense            = { value = 0.100,   unit = "ohm",  src = "S2", fidelity = "datasheet" }
+current_limit_formula = { value = "I_limit = VREF * 2 (A, V)", unit = "-", src = "S2", fidelity = "datasheet" }
+protections        = { value = "adjustable current limiting, over-current, over-temperature", unit = "-", src = "S2", fidelity = "datasheet" }
+reverse_voltage_protection = { value = "no", unit = "-", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "pins"
+kind = "mech"
+type = "pinout.pololu-16pin-stepper"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "16 header holes (male 0.1 in pins supplied, unsoldered); Pololu lists this in its '16-pin Stepper Motor Drivers' family and calls it a higher-performance drop-in replacement for its A4988 carriers (S2). Exact row spacing not extracted from the page text."
+
+[[ports]]
+name = "vmot"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+v_max = { value = 45.0, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 8.2, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 1.5, unit = "A", src = "S1", fidelity = "datasheet" }  # per phase, no extra cooling
+i_peak = { value = 2.2, unit = "A", src = "S1", fidelity = "datasheet" }  # per phase with sufficient cooling
+note = "VMOT/GND header pins; the board has no reverse-voltage protection (S1)."
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "stepper-bipolar-4wire"
+gender = "neutral"
+role = "source"
+i_max = { value = 1.5, unit = "A", src = "S1", fidelity = "datasheet" }  # continuous per phase, no heat sink
+i_peak = { value = 2.2, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "A1/A2/B1/B2 outputs for one bipolar stepper (or 6/8-lead unipolar wired as bipolar)."
+
+[[ports]]
+name = "step_dir"
+kind = "signal"
+type = "step-dir"
+gender = "male"
+level_min = { value = 2.5, unit = "V", src = "S1", fidelity = "datasheet" }
+level_max = { value = 5.25, unit = "V", src = "S1", fidelity = "datasheet" }
+note = "STEP, DIR and microstep/enable pins; logic is powered internally, no external logic supply (S1)."
+
+[[sources]]
+id = "S1"
+url = "https://www.pololu.com/product/2133/specs"
+title = "Pololu item 2133 Specs tab (DRV8825 Stepper Motor Driver Carrier, High Current)"
+accessed = "2026-10-07"
+quote = "Size: | 0.6″ × 0.8″ | Weight: | 1.6 g| 1| General specifications| Minimum operating voltage: | 8.2 V | Maximum operating voltage: | 45 V | Continuous current per phase: | 1.5 A| 2| Maximum current per phase: | 2.2 A| 3| Minimum logic voltage: | 2.5 V| 4| Maximum logic voltage: | 5.25 V| 4| Microstep resolutions: | full, 1/2, 1/4, 1/8, 1/16, and 1/32 | Reverse voltage protection?: | N | Notes: 2 Without a heat sink or forced air flow. 3 With sufficient additional cooling. 4 This driver works with 2.5 V to 5.25 V logic. It does not take an external logic power supply."
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/2133"
+title = "Pololu item 2133 product page, Description and current limiting"
+accessed = "2026-10-07"
+quote = "This breakout board for TI’s DRV8825 microstepping bipolar stepper motor driver features adjustable current limiting, over-current and over-temperature protection, and six microstep resolutions (down to 1/32-step). It operates from 8.2 V to 45 V and can deliver up to approximately 1.5 A per phase without a heat sink or forced air flow (rated for up to 2.2 A per coil with sufficient additional cooling). || (the current sense resistors are 0.100Ω). || Current Limit = VREF * 2 || The DRV8825 driver IC has a maximum current rating of 2.5 A per coil, but the current sense resistors further limit the maximum current to 2.2 A"

@@ -1,0 +1,65 @@
+id = "matek-pm12s-3"
+name = "Matek Power Module PM12S-3 (9-55 V in; Vx 15 A, 5 V 4 A, 12 V 4 A)"
+category = "pcb.pm"
+vendor = "Matek Systems"
+part_number = "PM12S-3"
+url = "https://www.mateksys.com/?portfolio=pm12s-3"
+
+# Three independent buck regulators. Current-sensor signal is a passthrough pad only (no sensor on this board).
+[params]
+mass                = { value = 0.053, unit = "kg", src = "S1", fidelity = "datasheet" }
+length              = { value = 0.061, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.040, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.015, unit = "m", src = "S1", fidelity = "datasheet" }
+input_voltage_min   = { value = 9, unit = "V", src = "S1", fidelity = "datasheet" }
+input_voltage_max   = { value = 55, unit = "V", src = "S1", fidelity = "datasheet" }
+vx_current_cont     = { value = 15, unit = "A", src = "S1", fidelity = "datasheet" }
+vx_current_peak     = { value = 25, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_5v_current_cont = { value = 4, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_12v_current_cont = { value = 4, unit = "A", src = "S1", fidelity = "datasheet" }
+vx_efficiency_min   = { value = 0.90, unit = "1", src = "S1", fidelity = "datasheet" }
+vx_efficiency_max   = { value = 0.96, unit = "1", src = "S1", fidelity = "datasheet" }
+vx_standby_current_max = { value = 0.020, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "vin"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+v_max = { value = 55, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+
+[[ports]]
+name = "vx_out"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+v_max = { value = 8, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 15, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "source"
+note = "5.25 V / 6 V / 8 V options; 15 A continuous needs input >= 15 V"
+
+[[ports]]
+name = "bec_5v"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+v_max = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 4, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "source"
+
+[[ports]]
+name = "bec_12v"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+v_max = { value = 12, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 4, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "source"
+
+[[sources]]
+id = "S1"
+url = "https://www.mateksys.com/?portfolio=pm12s-3"
+title = "Power Module PM12S-3 (Matek Systems product page)"
+accessed = "2026-10-07"
+quote = "Wide 9V to 55V Operating Input Range with TVS protection 3x independent Step-Down Voltage Regulators BEC Vx, 5.2V / 6V / 8V output options. supports typical continuous output current of up to 15A, Peak current of up to 25A. BEC 5V (Fixed), 4A continuous BEC 12V (Fixed), 4A continuous ... Current sensor signal passthrough pad Size & Weight: 61x40x15mm, 53g ... Synchronous switching step-down (or buck) regulator with typical efficiencies of 90% to 96% ... Standby current: 10~20mA ... Output voltage 5.2V, tolerance 1.5% ... Output voltage 12V, tolerance 1.5%"

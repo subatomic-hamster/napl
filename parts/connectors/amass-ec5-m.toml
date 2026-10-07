@@ -1,0 +1,34 @@
+id = "amass-ec5-m"
+name = "Amass EC5-M 2-pole 5 mm bullet connector (male, 10 AWG)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "EC5-M"
+url = "https://www.electrokit.com/en/stromkontakt-ec5-40a-hane"
+
+# Source is a retailer listing (Electrokit) that reproduces the manufacturer figures; no Amass PDF was fetched.
+[params]
+current_rated       = { value = 40, unit = "A", src = "S1", fidelity = "datasheet" }
+current_burst       = { value = 90, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 500, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance  = { value = 0.0004, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mass                = { value = 0.008, unit = "kg", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 1000, unit = "1", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "male"
+kind = "power"
+type = "ec5"
+gender = "male"
+v_max = { value = 500, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 40, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Rated for AWG10-9 (4-6 mm2) cable, reverse-polarity protected"
+
+[[sources]]
+id = "S1"
+url = "https://www.electrokit.com/en/stromkontakt-ec5-40a-hane"
+title = "EC5 power connector 5mm 40(90)A male, Amass EC5-M (Electrokit product page)"
+accessed = "2026-10-07"
+quote = "EC5 high-current DC connector 2-poles for cable assembly, solder connection. ... For cable AWG10-9 (4-6 mm²). Reverse polarity protected Rated voltage: 500 VDC Rated current: 40A continuous (90A momentary) Contact resistance: 0.4 mOhm Weight: 8g Operating temperature -20 to 120°C Contact: Gold plated Use times: 1000 cycles Manufacturer: Amass / RS-PRO"

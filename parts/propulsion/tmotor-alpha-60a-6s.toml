@@ -1,0 +1,65 @@
+id = "tmotor-alpha-60a-6s"
+name = "T-Motor ALPHA 60A 6S multirotor ESC"
+category = "esc"
+vendor = "T-Motor"
+part_number = "ALPHA 60A 6S"
+url = "https://store.tmotor.com/product/alpha-60a-6s-esc.html"
+
+# Part frame: origin at the centre of the ESC body's underside, z up; body 71.3 x 32.5 x 15.9 mm (L along x, W along y). Single-channel ESC
+# with wire leads (no mounting holes); lead end positions are not published, so ports carry no pos.
+# NOTE: the product is named "60A" but the spec table prints Con. Current 40A / Peak Current(10s) 60A (the name follows the peak rating);
+# the printed table values are used. The page does not name a firmware/protocol; throttle is a PWM-type 1100-1940 us signal at 500 Hz refresh.
+
+[params]
+mass            = { value = 0.0628, unit = "kg", src = "S1", fidelity = "datasheet" }         # incl. cables
+length          = { value = 0.0713, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.0325, unit = "m", src = "S1", fidelity = "datasheet" }
+height          = { value = 0.0159, unit = "m", src = "S1", fidelity = "datasheet" }
+v_min           = { value = 18.0, unit = "V", src = "S1", fidelity = "datasheet" }            # Support Voltage(6S) 18-25.2V
+v_max           = { value = 25.2, unit = "V", src = "S1", fidelity = "datasheet" }
+cells_max       = { value = 6, unit = "S", src = "S1", fidelity = "datasheet" }
+i_cont          = { value = 40.0, unit = "A", src = "S1", fidelity = "datasheet" }            # "Con. Current"
+i_burst         = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }            # "Peak Current(10s)"
+burst_duration  = { value = 10.0, unit = "s", src = "S1", fidelity = "datasheet" }
+bec             = { value = "none", unit = "text", src = "S1", fidelity = "datasheet" }
+throttle_pulse_min = { value = 1.1e-3, unit = "s", src = "S1", fidelity = "datasheet" }       # Throttle Pos. Range 1100-1940 us
+throttle_pulse_max = { value = 1.94e-3, unit = "s", src = "S1", fidelity = "datasheet" }
+throttle_refresh = { value = 500, unit = "Hz", src = "S1", fidelity = "datasheet" }
+firmware_protocol = { value = "PWM throttle, 1100-1940 us, 500 Hz refresh", unit = "text", src = "S1", fidelity = "datasheet" }
+power_cable_awg = { value = 14, unit = "AWG", src = "S1", fidelity = "datasheet" }
+motor_cable_awg = { value = 16, unit = "AWG", src = "S1", fidelity = "datasheet" }
+
+[geometry]
+shape = "box"
+size = [0.03565, 0.01625, 0.00795]
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+v_max = { value = 25.2, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 40.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 25.2, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 40.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://store.tmotor.com/product/alpha-60a-6s-esc.html"
+title = "T-MOTOR store - ALPHA 60A 6S ESC (Specification)"
+accessed = "2026-10-07"
+quote = "Size|71.3*32.5*15.9mm（L*W*H）|Power Cable|Silicone wire-red/black-14AWG-175MM|Weight(Incl. cables)|62.8g|Motor Cable|Silicone wire-deep orange-16AWG-70MM*3PCS|Support Voltage(6S)|18-25.2V|BEC|NO|Con. Current|40A|Throttle Pos. Range|1100-1940μs|Peak Current(10s)|60A|Throttle Refresh Frequency|500Hz|Standby Consumption|≤50mA"

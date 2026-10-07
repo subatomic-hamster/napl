@@ -1,0 +1,59 @@
+id = "iflight-blitz-e80-single"
+name = "iFlight BLITZ E80 2-8S 80A single ESC (BLHeli32)"
+category = "esc"
+vendor = "iFlight"
+part_number = "BLITZ E80 Single"
+url = "https://rcdrone.top/products/src-iflight-1797-blitz-e80-single-esc"
+
+# Part frame: origin at the centre of the ESC body's underside, z up; body 43.5 x 20 x 8.5 mm (L along x, W along y). Single-channel board
+# with solder pads (no mounting holes in the spec); pad positions unpublished, so ports carry no pos.
+# NOTE: the older iFlight listing (iflight-blitz-e80) gives Size 40*17mm; the newer spec table (S1, used here) gives 43.5*20*8.5mm.
+
+[params]
+mass            = { value = 0.0145, unit = "kg", src = "S1", fidelity = "datasheet" }         # 14.5 g (+-2 g)
+mass_tol        = { value = 0.002, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.0435, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.020, unit = "m", src = "S1", fidelity = "datasheet" }
+height          = { value = 0.0085, unit = "m", src = "S1", fidelity = "datasheet" }
+cells_min       = { value = 2, unit = "S", src = "S1", fidelity = "datasheet" }
+cells_max       = { value = 8, unit = "S", src = "S1", fidelity = "datasheet" }
+i_cont          = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst         = { value = 100.0, unit = "A", src = "S1", fidelity = "datasheet" }
+mcu             = { value = "STM32G071", unit = "text", src = "S1", fidelity = "datasheet" }
+bec             = { value = "none", unit = "text", src = "S1", fidelity = "datasheet" }
+firmware        = { value = "BLHeli32", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[geometry]
+shape = "box"
+size = [0.02175, 0.01, 0.00425]
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+v_max = { value = 33.6, unit = "V", fidelity = "derived", derivation = "8S x 4.2 V/cell = 33.6 V ('Input Voltage 2-8S', S1)." }
+i_max = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 33.6, unit = "V", fidelity = "derived", derivation = "Output follows battery input, 8S x 4.2 V = 33.6 V." }
+i_max = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "dshot"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://rcdrone.top/products/src-iflight-1797-blitz-e80-single-esc"
+title = "rcdrone.top (iFlight listing) - BLITZ E80 2-8S 80A Single ESC (BLHeli32), Specifications"
+accessed = "2026-10-07"
+quote = "Product Name|BLITZ E80 Single ESC|Input Voltage|2-8S|Max. Continuous Current|80A|Max. Burst Current|100A|MCU|STM32G071|BEC|N/A|Firmware|BLHeli32|Current Sensor|Yes|Telemetry|Supported|Dimensions|43.5*20*8.5mm|Weight|14.5g (±2g)|Protocol|DShot150/300/600"

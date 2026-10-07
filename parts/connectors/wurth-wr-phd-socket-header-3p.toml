@@ -1,0 +1,32 @@
+id = "wurth-wr-phd-socket-header-3p"
+name = "Wurth WR-PHD 2.54 mm socket header, 3 positions (servo/Dupont female socket)"
+category = "connector"
+vendor = "Wurth Elektronik"
+part_number = "61300311821"
+url = "https://www.we-online.com/components/products/datasheet/61300311821.pdf"
+
+# Mates with the 3-pin header wurth-wr-phd-pin-header-3p (same 2.54 mm pitch); modelled with port type servo-3pin.
+# Wurth does not state a part mass in the datasheet.
+[params]
+pitch               = { value = 2.54e-3, unit = "m", src = "S1", fidelity = "datasheet" }
+current_rated       = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_working     = { value = 250, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance_max = { value = 0.020, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 30, unit = "1", src = "S1", fidelity = "datasheet" }
+length              = { value = 8.12e-3, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "socket"
+kind = "power"
+type = "servo-3pin"
+gender = "female"
+v_max = { value = 250, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+
+[[sources]]
+id = "S1"
+url = "https://www.we-online.com/components/products/datasheet/61300311821.pdf"
+title = "WR-PHD Socket Header 61300311821 datasheet (Wurth Elektronik)"
+accessed = "2026-10-07"
+quote = "WR-PHD Socket Header ORDER CODE 61300311821 ... Pins 3 ... Length L 8.12 mm ... Pitch P 2.54 mm Durability 30 Mating cycles ... Rated Current IR 3 A Working Voltage 250 V (AC) ... Contact Resistance R 20 mΩ max."

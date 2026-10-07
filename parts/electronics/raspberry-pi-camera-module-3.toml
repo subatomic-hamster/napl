@@ -1,0 +1,43 @@
+id = "raspberry-pi-camera-module-3"
+name = "Raspberry Pi Camera Module 3 (Sony IMX708, standard lens, autofocus)"
+category = "sensor.camera"
+vendor = "Raspberry Pi Ltd"
+part_number = "Camera Module 3"
+url = "https://datasheets.raspberrypi.com/camera/camera-module-3-product-brief.pdf"
+
+# Standard-lens values recorded. The Wide variant has 102 x 67 deg FOV and 12.4 mm height (S1/S2).
+[params]
+sensor_pixels_h     = { value = 4608, unit = "px", src = "S1", fidelity = "datasheet" }
+sensor_pixels_v     = { value = 2592, unit = "px", src = "S1", fidelity = "datasheet" }
+pixel_size          = { value = 1.4e-6, unit = "m", src = "S1", fidelity = "datasheet" }
+length              = { value = 0.025, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.024, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.0115, unit = "m", src = "S1", fidelity = "datasheet" }
+ribbon_cable_length = { value = 0.2, unit = "m", src = "S1", fidelity = "datasheet" }
+operating_temp_min  = { value = 273.15, unit = "K", src = "S1", fidelity = "datasheet" }
+operating_temp_max  = { value = 323.15, unit = "K", src = "S1", fidelity = "datasheet" }
+fov_horizontal      = { value = 1.152, unit = "rad", src = "S2", fidelity = "datasheet" }
+fov_vertical        = { value = 0.7156, unit = "rad", src = "S2", fidelity = "datasheet" }
+focal_length        = { value = 4.74e-3, unit = "m", src = "S2", fidelity = "datasheet" }
+mass                = { value = 0.004, unit = "kg", src = "S2", fidelity = "datasheet" }
+
+[[ports]]
+name = "csi"
+kind = "signal"
+type = "csi"
+gender = "male"
+connector = "15 x 1 mm FPC, 200 mm ribbon"
+
+[[sources]]
+id = "S1"
+url = "https://datasheets.raspberrypi.com/camera/camera-module-3-product-brief.pdf"
+title = "Raspberry Pi Camera Module 3 Product Brief (Raspberry Pi Ltd)"
+accessed = "2026-10-07"
+quote = "Sensor: Sony IMX708 Resolution: 11.9 megapixels ... Pixel size: 1.4μm × 1.4μm Horizontal/vertical: 4608 × 2592 pixels ... Dimensions: 25 × 24 × 11.5mm (12.4mm height for Wide variants) Ribbon cable length: 200mm Cable connector: 15 × 1mm FPC Operating temperature: 0°C to 50°C"
+
+[[sources]]
+id = "S2"
+url = "https://www.raspberrypi.com/documentation/accessories/camera.html"
+title = "Raspberry Pi Camera hardware (Raspberry Pi documentation), Camera Module 3 specification table"
+accessed = "2026-10-07"
+quote = "Camera Module 3 (standard): Horizontal field of view 66 degrees, Vertical field of view 41 degrees, Focal length 4.74 mm, Focal ratio (F-Stop) F1.8, Weight 4 g (values read through a page summariser; the page itself returned HTTP 403 to a direct scripted fetch)"

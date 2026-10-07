@@ -1,0 +1,47 @@
+id = "jst-gh-6p"
+name = "JST GH 1.25 mm wire-to-board connector, 6 positions (Pixhawk-standard port)"
+category = "connector"
+vendor = "JST"
+part_number = "GHR-06V-S housing / SM06B-GHS-TB header (series ratings)"
+url = "https://www.jst-mfg.com/product/pdf/eng/eGH.pdf"
+
+# Series datasheet: ratings apply to every GH position count (2-15); jst-gh.<n> is the port family name. The datasheet text
+# does not state a mating-cycle count or part mass. Matek calls the pitch '1.27 mm' on some pages, JST says 1.25 mm.
+[params]
+pitch               = { value = 1.25e-3, unit = "m", src = "S1", fidelity = "datasheet" }
+current_rated       = { value = 1.0, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 50, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance_initial_max = { value = 0.030, unit = "ohm", src = "S1", fidelity = "datasheet" }
+contact_resistance_after_test_max = { value = 0.050, unit = "ohm", src = "S1", fidelity = "datasheet" }
+insulation_resistance_min = { value = 1e8, unit = "ohm", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 233.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 378.15, unit = "K", src = "S1", fidelity = "datasheet" }
+wire_awg_min        = { value = 30, unit = "AWG", src = "S1", fidelity = "datasheet" }
+wire_awg_max        = { value = 26, unit = "AWG", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "housing"
+kind = "power"
+type = "jst-gh.6"
+gender = "female"
+v_max = { value = 50, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 1.0, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Cable-side crimp housing; the 1.0 A rating is for AWG #26 wire"
+
+[[ports]]
+name = "header"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+v_max = { value = 50, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 1.0, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Board-side header"
+
+[[sources]]
+id = "S1"
+url = "https://www.jst-mfg.com/product/pdf/eng/eGH.pdf"
+title = "GH CONNECTOR 1.25 mm pitch Wire-to-Board connectors (JST datasheet)"
+accessed = "2026-10-07"
+quote = "Current rating: 1.0 A AC/DC（AWG #26） Voltage rating: 50 V AC/DC Temperature range: ‑40 ℃ to +105 ℃ (including temperature rise in applying electrical current) Contact resistance: Initial value/ 30 mΩ max. After test/ 50 mΩ max. Insulation resistance: 100 MΩ min. ... Conductor size/ AWG #30 to AWG #26"

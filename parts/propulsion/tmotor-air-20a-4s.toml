@@ -1,0 +1,61 @@
+id = "tmotor-air-20a-4s"
+name = "T-Motor AIR 20A 3-4S multirotor ESC (AIR Gear 355 set)"
+category = "esc"
+vendor = "T-Motor"
+part_number = "AIR 20A"
+url = "https://store.tmotor.com/product/air-20a-4s-esc.html"
+
+# Part frame: origin at the centre of the ESC body's underside, z up; body 53 x 22 x 7 mm (L along x, W along y). Single-channel ESC with
+# wire leads (no mounting holes): power in on the -x end, motor out (3.5 mm banana plugs) and signal on the +x end - positions not published,
+# so ports carry no pos. Specs are read from the AIR Gear 355 combo page (the standalone product page lists no spec table in its text).
+# Firmware/protocol name is not stated; "Throttle Signal Frequency 50Hz-600Hz" is a PWM-type throttle input.
+
+[params]
+mass            = { value = 0.021, unit = "kg", src = "S1", fidelity = "datasheet" }          # incl. cable
+length          = { value = 0.053, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.022, unit = "m", src = "S1", fidelity = "datasheet" }
+height          = { value = 0.007, unit = "m", src = "S1", fidelity = "datasheet" }
+cells_min       = { value = 3, unit = "S", src = "S1", fidelity = "datasheet" }
+cells_max       = { value = 4, unit = "S", src = "S1", fidelity = "datasheet" }
+i_cont          = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst         = { value = 30.0, unit = "A", src = "S1", fidelity = "datasheet" }            # peak, 10 s
+burst_duration  = { value = 10.0, unit = "s", src = "S1", fidelity = "datasheet" }
+bec             = { value = "none", unit = "text", src = "S1", fidelity = "datasheet" }       # BEC "/"
+throttle_freq_min = { value = 50, unit = "Hz", src = "S1", fidelity = "datasheet" }
+throttle_freq_max = { value = 600, unit = "Hz", src = "S1", fidelity = "datasheet" }
+firmware_protocol = { value = "PWM throttle, 50-600 Hz", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[geometry]
+shape = "box"
+size = [0.0265, 0.011, 0.0035]
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+v_max = { value = 16.8, unit = "V", fidelity = "derived", derivation = "4S x 4.2 V/cell = 16.8 V (rated 3-4s, S1)." }
+i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 16.8, unit = "V", fidelity = "derived", derivation = "Output follows the battery input: 4S x 4.2 V = 16.8 V." }
+i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://store.tmotor.com/product/air-gear-355-combo-set.html"
+title = "T-MOTOR store - AIR GEAR 355 combo set (AIR 20A ESC specification block)"
+accessed = "2026-10-07"
+quote = "AIR 20A-Specifications|Size(L x W x H)|53x22x7mm|Rated Voltage(Lipo)|3-4s|Con.Current|20A|BEC|/|Peak Current(10s)|30A|Weight (Incl. Cable)|21g|Banana Plug|3.5mm|Throttle Signal Frequency|50Hz-600Hz"

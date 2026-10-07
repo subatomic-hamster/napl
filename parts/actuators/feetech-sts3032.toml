@@ -1,0 +1,86 @@
+id = "feetech-sts3032"
+name = "Feetech STS3032 6V 4.5kg.cm serial bus servo (ST-3032-C001)"
+category = "motor.servo"
+vendor = "Feetech (Shenzhen Feite Model Co., Ltd.)"
+part_number = "STS3032-C001"
+url = "https://aifitlab.com/products/feetech-sts3032-servo-motor"
+
+# Frame: origin on the output axis at the horn-side (top) face of the case; +z = output axis out of the case;
+# x = long case dimension (23.2 mm), y = short (12.1 mm). Case occupies z in [-0.0285, 0].
+# Gear ratio is NOT published on the retrieved pages, so only output-referred electrical constants (ke_out) can be derived, not motor-side Ke.
+# Source inconsistency: the product name says 'magnetically coded' but the spec row says 'Potentiometer(360deg/4096)'; resolution 4096 is used either way.
+
+[params]
+mass            = { value = 0.020,   unit = "kg",  src = "S1", fidelity = "datasheet" }
+length          = { value = 0.0232,  unit = "m",   src = "S1", fidelity = "datasheet" }
+width           = { value = 0.0121,  unit = "m",   src = "S1", fidelity = "datasheet" }
+height          = { value = 0.0285,  unit = "m",   src = "S1", fidelity = "datasheet" }
+gear_material   = { value = "metal gears, aluminium case, core motor, 2 ball bearings", unit = "-", src = "S1", fidelity = "datasheet" }
+horn_spline     = { value = "25T (POM plastic horn)", unit = "-", src = "S1", fidelity = "datasheet" }
+encoder_resolution = { value = 4096, unit = "counts/rev", src = "S1", fidelity = "datasheet" }
+protocol        = { value = "Half-duplex asynchronous serial, ID 0-253", unit = "-", src = "S1", fidelity = "datasheet" }
+baud_min        = { value = 38400,   unit = "bit/s", src = "S1", fidelity = "datasheet" }
+baud_max        = { value = 1000000, unit = "bit/s", src = "S1", fidelity = "datasheet" }
+operating_temp_min = { value = -15, unit = "degC", src = "S1", fidelity = "datasheet" }
+operating_temp_max = { value = 70,  unit = "degC", src = "S1", fidelity = "datasheet" }
+
+# --- datasheet performance at 6 V (kg.cm converted with g = 9.80665) ---
+v_operating_min     = { value = 4.8,    unit = "V",     src = "S1", fidelity = "datasheet" }
+v_operating_max     = { value = 6.0,    unit = "V",     src = "S1", fidelity = "datasheet" }
+no_load_speed_6v    = { value = 11.6355, unit = "rad/s", src = "S1", fidelity = "datasheet" }  # 0.09 s/60deg
+no_load_current_6v  = { value = 0.15,   unit = "A",     src = "S1", fidelity = "datasheet" }
+stall_torque_6v     = { value = 0.4413, unit = "N*m",   src = "S1", fidelity = "datasheet" }  # 4.5 kg.cm
+stall_current_6v    = { value = 1.2,    unit = "A",     src = "S1", fidelity = "datasheet" }
+rated_torque_6v     = { value = 0.1471, unit = "N*m",   src = "S1", fidelity = "datasheet" }  # 1.5 kg.cm
+
+# --- DC-motor equivalent, derived (output-referred where noted) ---
+r_effective = { value = 5.0, unit = "ohm", fidelity = "derived", derivation = "R = V/I_stall = 6 V / 1.2 A = 5.0 ohm (includes driver and lead resistance at stall)." }
+ke_out = { value = 0.4512, unit = "V*s/rad", fidelity = "derived", derivation = "Output-referred back-EMF constant N*Ke = (V - I0*R)/omega_out = (6 - 0.15*5.0)/(pi/3 / 0.09 = 11.6355 rad/s) = 0.4512 V*s/rad (equivalently N*m/A at the output shaft for an ideal train). Motor-side Ke needs the gear ratio, which is unpublished." }
+gear_efficiency = { value = 0.931, unit = "1", fidelity = "derived", derivation = "eta = tau_stall/(ke_out*(I_stall - I0)) = 0.4413/(0.4512*(1.2-0.15)) = 0.931; the gear ratio cancels. Implausibly high for a metal gear train, so the published stall values are probably optimistic; treat as upper bound." }
+friction_torque_out_noload = { value = 0.0677, unit = "N*m", fidelity = "derived", derivation = "ke_out*I0 = 0.4512*0.15 = 0.0677 N*m of no-load loss referred to the output shaft." }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.feetech-sts3032-base"
+gender = "neutral"
+pos = [0.0, 0.0, -0.0285]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Hole pattern only in Feetech's drawing PDF / STEP, not retrievable as text; opaque family tag."
+
+[[ports]]
+name = "output"
+kind = "mech"
+type = "servo-horn.25t"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 25
+note = "25T spline; OD not stated for this model."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "servo-bus-3pin"
+gender = "female"
+role = "sink"
+v_max = { value = 6.0, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 4.8, unit = "V", src = "S1", fidelity = "datasheet" }
+i_peak = { value = 1.2, unit = "A", src = "S1", fidelity = "datasheet" }  # stall current at 6 V
+note = "Connector housing not stated on the AIFITLAB page (200 mm lead); generic 3-pin bus connector."
+
+[[ports]]
+name = "bus"
+kind = "signal"
+type = "feetech-ttl"
+gender = "female"
+
+[[sources]]
+id = "S1"
+url = "https://aifitlab.com/products/feetech-sts3032-servo-motor"
+title = "AIFITLAB Feetech STS3032 product page, Technical Specifications"
+accessed = "2026-10-07"
+quote = "Model| STS3032| Product Name| 6V 4.5kg magnetically coded 360-degree serial bus servo| Operating Temperature Range| -15℃～70℃| Dimensions| A：23.2mm B：12.1mm C：28.5mm| Weight| 20g| Gear type| Metal Gear| Bearing| 2 Ball bearings| Horn gear spline| 25T| Case| Aluminium| Connector wire| 200mm ±5 mm| Motor| Core Motor| Operating Voltage Range| 4.8-6V| No load speed| 0.09sec/60°@6V| Runnig current(at no load) | 150 mA@6V| Peak stall torque| 4.5kg.cm@6V| Rated torque| 1.5kg.cm@6V| Stall current| 1200mA@6V| Protocol Type| Half Duplex Asynchronous Serial Communication| ID Range| 0-253| Communication speed| 38400bps ~ 1 Mbps| Running degree| 360° (when 0~4096)| Position Sensor Resolution| Potentiometer(360°/4096)"

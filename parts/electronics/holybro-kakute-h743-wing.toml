@@ -1,0 +1,88 @@
+id = "holybro-kakute-h743-wing"
+name = "Holybro Kakute H743-Wing flight controller (25x25 M2, 10-36V PDB, 3x BEC)"
+category = "pcb.fc"
+vendor = "Holybro"
+part_number = "Kakute H743-Wing"
+url = "https://docs.holybro.com/autopilot/kakute-h743-wing/overview.md"
+
+# IMU: ICM-42688-P; barometer BMP280; CAN bus; on-board PDB and BECs.
+[params]
+mass            = { value = 0.028, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.045, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.030, unit = "m", src = "S1", fidelity = "datasheet" }
+height          = { value = 0.0135, unit = "m", src = "S1", fidelity = "datasheet" }
+vbat_min        = { value = 10, unit = "V", src = "S1", fidelity = "datasheet" }
+vbat_max        = { value = 36, unit = "V", src = "S1", fidelity = "datasheet" }
+current_sense_continuous = { value = 90, unit = "A", src = "S1", fidelity = "datasheet" }
+current_sense_peak = { value = 220, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_5v_current_cont = { value = 2, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_5v_current_peak = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_9v_12v_current_cont = { value = 2, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_vx_current_cont = { value = 6, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_vx_current_peak = { value = 8, unit = "A", src = "S1", fidelity = "datasheet" }
+ldo_3v3_current_max = { value = 0.2, unit = "A", src = "S1", fidelity = "datasheet" }
+static_current_5v = { value = 0.160, unit = "A", src = "S1", fidelity = "datasheet" }
+uart_count      = { value = 7, unit = "1", src = "S1", fidelity = "datasheet" }
+pwm_outputs     = { value = 14, unit = "1", src = "S1", fidelity = "datasheet" }
+i2c_ports_external = { value = 2, unit = "1", src = "S1", fidelity = "datasheet" }
+can_buses       = { value = 1, unit = "1", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.25x25.m2"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+
+[[ports]]
+name = "vbat_in"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+v_max = { value = 36, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+note = "Input voltage range 10~36V (3~8S LiPo); also the ESC power pad"
+
+[[ports]]
+name = "can"
+kind = "signal"
+type = "can"
+gender = "neutral"
+
+[[ports]]
+name = "serial"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+count = 7
+
+[[ports]]
+name = "pwm_out"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+count = 14
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+count = 2
+
+[[ports]]
+name = "usb"
+kind = "signal"
+type = "usb"
+gender = "neutral"
+connector = "USB/DFU Key Extender with USB Type-C"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/autopilot/kakute-h743-wing/overview.md"
+title = "Kakute H743-Wing Overview (Holybro docs)"
+accessed = "2026-10-07"
+quote = "IMU: ICM-42688P (SPI3) Baro: BMP280 (I2C4) ... 7x Uarts (1,2,3,5,6,7,8) with built-in inversion. 14x PWM outputs 1x CAN ... 3x I2C (I2C1 and I2C2 for external devices, I2C4 for onboard sensors) ... Static power 160mA@5V ... Input voltage range: 10~36V (3~8S LiPo) ... Current Sense: 90A continuous, 220A peak. ... Continuous current 2 Amps, 3A Peak ... Continuous current 6 Amps, 8A Peak ... Continuous current: 200mA ... Mounting: 25 x 25mm, M2 hole Dimensions: 45x 30 x 13.5 mm Weight: 28g with USB extender"

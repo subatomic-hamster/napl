@@ -1,0 +1,49 @@
+id = "matek-m10q-5883"
+name = "Matek M10Q-5883 GNSS + QMC5883L compass (15x15 patch)"
+category = "pcb.gps"
+vendor = "Matek Systems"
+part_number = "M10Q-5883"
+url = "https://www.mateksys.com/?portfolio=m10q-5883"
+
+[params]
+mass                = { value = 0.008, unit = "kg", src = "S1", fidelity = "datasheet" }
+length              = { value = 0.020, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.020, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.0124, unit = "m", src = "S1", fidelity = "datasheet" }
+antenna_size_xy     = { value = 0.015, unit = "m", src = "S1", fidelity = "datasheet" }
+antenna_thickness   = { value = 0.004, unit = "m", src = "S1", fidelity = "datasheet" }
+supply_voltage_min  = { value = 4, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max  = { value = 9, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current      = { value = 0.013, unit = "A", src = "S1", fidelity = "datasheet" }
+default_baud        = { value = 9600, unit = "baud", src = "S1", fidelity = "datasheet" }
+operating_temp_min  = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+operating_temp_max  = { value = 353.15, unit = "K", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "gps_in"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+v_max = { value = 9, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+note = "JST-GH-6P connector (SM06B-GHS-TB), listed by Matek as 1.27 mm pitch; 5 V pad/pin input range 4~9 V"
+
+[[ports]]
+name = "uart"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+note = "QMC5883L compass"
+
+[[sources]]
+id = "S1"
+url = "https://www.mateksys.com/?portfolio=m10q-5883"
+title = "GNSS & Compass, M10Q-5883 (Matek Systems product page)"
+accessed = "2026-10-07"
+quote = "GNSS u-blox M10 series (GPS, GLONASS, Galileo and BeiDou) Magnetic Compass QMC5883L Patch antenna 15*15*4mm Input voltage range: 4~9V (5V pad/pin) Power consumption: 13mA UART baudrate: 9600 default Operating Temperatures: -20~80 °C ... JST-GH-6P connector (SM06B-GHS-TB). 1.27mm pitch ... 20mm*20mm*12.4mm 8g"

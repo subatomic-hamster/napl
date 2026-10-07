@@ -1,0 +1,46 @@
+id = "gemfan-hurricane-51466"
+name = "Gemfan Hurricane 51466 3-blade 5-inch propeller"
+category = "prop"
+vendor = "Gemfan"
+part_number = "Hurricane 51466 (getfpv SKU 10196)"
+url = "https://www.getfpv.com/gemfan-hurricane-51466-propeller-set-of-4.html"
+
+# Part frame: origin at the hub centre on the blade mid-plane, z up (thrust direction). The bore faces down (-z) toward the motor.
+# This is the "51466" prop used in the iFlight XING2 2207 spec-image thrust tables. The hub bore is not printed on the retailer pages
+# fetched; 5 mm is assumed (estimated below) from the 5 mm motor shafts this prop is paired with -> port type bore.5 is an inference.
+
+[params]
+diameter    = { value = 0.12954, unit = "m", src = "S1", fidelity = "datasheet" }           # Length 5.1 in
+pitch       = { value = 0.118364, unit = "m", src = "S1", fidelity = "datasheet" }          # 4.66 in
+blade_count = { value = 3, unit = "1", src = "S2", fidelity = "datasheet" }
+mass        = { value = 0.00413, unit = "kg", src = "S1", fidelity = "datasheet" }          # 4.13 g
+material    = { value = "Polycarbonate", unit = "text", src = "S1", fidelity = "datasheet" }
+hub_thickness = { value = 0.007, unit = "m", src = "S1", fidelity = "datasheet" }
+bore_diameter = { value = 0.005, unit = "m", fidelity = "estimated", rationale = "Hub ID is not printed on the fetched getfpv/myfpvstore pages; 5 mm assumed because the iFlight XING2 2207 (5 mm shaft, M5 thread) lists 51466 as its test prop, and HQProp/Gemfan 5-inch FPV props are sold for 5 mm shafts." }
+j_prop      = { value = 5.78e-6, unit = "kg*m^2", fidelity = "derived", derivation = "Slender uniform rod about its midpoint: J = m*L^2/12 = 0.00413*0.12954^2/12 = 5.78e-6 kg*m^2. Upper bound (real blades keep mass nearer the hub)." }
+
+[geometry]
+shape = "cylinder"
+size = [0.06477, 0.0035]       # disc envelope: radius D/2, half of the 7 mm hub thickness
+
+[[ports]]
+name = "hub"
+kind = "mech"
+type = "bore.5"
+gender = "female"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+
+[[sources]]
+id = "S1"
+url = "https://www.getfpv.com/gemfan-hurricane-51466-propeller-set-of-4.html"
+title = "GetFPV - Gemfan Hurricane 51466 Propeller (Set of 4)"
+accessed = "2026-10-07"
+quote = "Specifications|Length: 5.1\"|Pitch: 4.66\"|Hub Thickness: 7mm|POPO: Yes|Weight: 4.13g|Material: Polycarbonate"
+
+[[sources]]
+id = "S2"
+url = "https://myfpvstore.com/6wap"
+title = "MyFPVStore - GemFan Hurricane 5in Durable 3 Blade 51466 Prop (Set of 4)"
+accessed = "2026-10-07"
+quote = "Length: 5.1 inch|Pitch: 4.66 inch|Blades: 3|Material: Polycarbonate|Weight: 4.13g"

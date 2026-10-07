@@ -1,0 +1,52 @@
+id = "holybro-m10-gps"
+name = "Holybro M10 GPS (u-blox M10 + IST8310 compass), V1 and V2 casings"
+category = "pcb.gps"
+vendor = "Holybro"
+part_number = "M10 GPS"
+url = "https://docs.holybro.com/gps-and-rtk-system/m8n-m9n-m10-gps/standard-m10-m9n-m8n-gps/overview.md"
+
+# Same page and casing as the M9N variant (parts holybro-m9n-gps); accuracy and update rate differ.
+[params]
+mass_v1              = { value = 0.032, unit = "kg", src = "S1", fidelity = "datasheet" }
+mass_v2              = { value = 0.0368, unit = "kg", src = "S1", fidelity = "datasheet" }
+diameter_v1          = { value = 0.050, unit = "m", src = "S1", fidelity = "datasheet" }
+height_v1            = { value = 0.0144, unit = "m", src = "S1", fidelity = "datasheet" }
+diameter_v2          = { value = 0.051, unit = "m", src = "S1", fidelity = "datasheet" }
+height_v2            = { value = 0.0185, unit = "m", src = "S1", fidelity = "datasheet" }
+accuracy_cep         = { value = 2.0, unit = "m", src = "S1", fidelity = "datasheet" }
+nav_rate_max_single_gnss = { value = 25, unit = "Hz", src = "S1", fidelity = "datasheet" }
+nav_rate_max_four_gnss   = { value = 10, unit = "Hz", src = "S1", fidelity = "datasheet" }
+supply_voltage_min   = { value = 4.7, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max   = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_max   = { value = 0.2, unit = "A", src = "S1", fidelity = "datasheet" }
+default_baud         = { value = 115200, unit = "baud", src = "S1", fidelity = "datasheet" }
+cable_length         = { value = 0.26, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "gps_in"
+kind = "power"
+type = "jst-gh.10"
+gender = "male"
+v_max = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+note = "Port Type JST-GH-10P; carries 5 V, UART and I2C (compass)"
+
+[[ports]]
+name = "uart"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+note = "IST8310 compass"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/gps-and-rtk-system/m8n-m9n-m10-gps/standard-m10-m9n-m8n-gps/overview.md"
+title = "Standard M10/M9N/M8N GPS Overview (Holybro docs), specification table, M10 column"
+accessed = "2026-10-07"
+quote = "Holybro M10 GPS | Ublox M10 ... Accuracy 2.0m CEP ... Nav. Update Rate Up to 25 Hz (single GNSS), Up to 10 Hz (4 concurrent GNSS) ... Default Baud Rate 115200 ... Input Voltage 4.7-5.2V ... Port Type JST-GH-10P ... Power consumption Less than 200mA @ 5V ... Dimension (V1) φ50 x14.4 mm ... Dimension (V2) φ51 x18.5 mm ... Weight (V1) 32g ... Weight (V2) 36.8g ... Cable Length 26cm"

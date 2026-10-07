@@ -1,0 +1,100 @@
+id = "raspberry-pi-5"
+name = "Raspberry Pi 5 (BCM2712, 4GB/8GB)"
+category = "computer.sbc"
+vendor = "Raspberry Pi Ltd"
+part_number = "Raspberry Pi 5"
+url = "https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-product-brief.pdf"
+
+# Mass is not published in the product brief or mechanical drawing, so it is left out rather than guessed.
+# Power draw is a public measurement by a third party (S3); the vendor only specifies the supply (S1).
+[params]
+length              = { value = 0.085, unit = "m", src = "S2", fidelity = "datasheet" }
+width               = { value = 0.056, unit = "m", src = "S2", fidelity = "datasheet" }
+mount_hole_diameter = { value = 0.0027, unit = "m", src = "S2", fidelity = "datasheet" }
+supply_voltage      = { value = 5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_rated = { value = 5, unit = "A", src = "S1", fidelity = "datasheet" }
+operating_temp_min  = { value = 273.15, unit = "K", src = "S1", fidelity = "datasheet" }
+operating_temp_max  = { value = 343.15, unit = "K", src = "S1", fidelity = "datasheet" }
+cpu_clock           = { value = 2.4e9, unit = "Hz", src = "S1", fidelity = "datasheet" }
+power_idle_4gb      = { value = 3.3, unit = "W", src = "S3", fidelity = "measured" }
+power_idle_8gb      = { value = 3.2, unit = "W", src = "S3", fidelity = "measured" }
+power_stress_ng_4gb = { value = 9.8, unit = "W", src = "S3", fidelity = "measured" }
+power_stress_ng_8gb = { value = 9.8, unit = "W", src = "S3", fidelity = "measured" }
+
+[params.mount_hole_spacing_long]
+value = 0.058
+unit = "m"
+fidelity = "derived"
+derivation = "Read from the S2 drawing: 58 mm label along the 85 mm edge; across the 56 mm edge the 49 mm label equals 56 - 2 x 3.5 (holes 3.5 mm from the edges), consistent with the 3.5 label. Axis assignment (58 along 85) is from the figure layout, not from text."
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.58x49.m2.5"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Four holes of dia 2.7 mm (S2) take M2.5 screws"
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "usb-c-pd"
+gender = "female"
+v_max = { value = 5, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 5, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "sink"
+note = "5V/5A DC power via USB-C, with Power Delivery support"
+
+[[ports]]
+name = "gpio_uart"
+kind = "signal"
+type = "uart"
+gender = "male"
+connector = "Raspberry Pi standard 40-pin GPIO header"
+
+[[ports]]
+name = "gpio_i2c"
+kind = "signal"
+type = "i2c"
+gender = "male"
+connector = "Raspberry Pi standard 40-pin GPIO header"
+
+[[ports]]
+name = "usb"
+kind = "signal"
+type = "usb"
+gender = "female"
+count = 4
+connector = "2 x USB 3.0 + 2 x USB 2.0 Type-A"
+
+[[ports]]
+name = "csi"
+kind = "signal"
+type = "csi"
+gender = "female"
+count = 2
+note = "2 x 4-lane MIPI camera/display transceivers (S1); FPC connector pitch not stated in S1"
+
+[[sources]]
+id = "S1"
+url = "https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-product-brief.pdf"
+title = "Raspberry Pi 5 Product Brief (Raspberry Pi Ltd)"
+accessed = "2026-10-07"
+quote = "Broadcom BCM2712 2.4GHz quad-core 64-bit Arm Cortex-A76 CPU ... 2 × USB 3.0 ports ... 2 × USB 2.0 ports ... 2 × 4-lane MIPI camera / display transceivers ... 5V/5A DC power via USB-C, with Power Delivery support ... Raspberry Pi standard 40-pin GPIO header ... Operating temperature 0°C to 70°C"
+
+[[sources]]
+id = "S2"
+url = "https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-mechanical-drawing.pdf"
+title = "Raspberry Pi 5 mechanical drawing (Raspberry Pi Ltd)"
+accessed = "2026-10-07"
+quote = "Drawing: Raspberry Pi 5 ... 85 ... 58 ... 49 ... 56 ... 3.5 ... Ø2.7 ... Note: All dimensions in mm (text extracted from the drawing; numeric labels only)"
+
+[[sources]]
+id = "S3"
+url = "https://www.jeffgeerling.com/blog/2024/new-2gb-pi-5-has-33-smaller-die-30-idle-power-savings/"
+title = "New 2GB Pi 5 has 33% smaller die, 30% idle power savings (Jeff Geerling)"
+accessed = "2026-10-07"
+quote = "Idle power | 2.4W | 3.3W | 0.9W (+32%) | 3.2W | 0.8W (+29%) ... stress-ng power | 8.9W | 9.8W | 0.9W (+10%) | 9.8W | 0.9W (+10%) (columns: Pi 5 2GB D0, Pi 5 4GB C1, 4GB Delta, Pi 5 8GB C1, 8GB Delta)"

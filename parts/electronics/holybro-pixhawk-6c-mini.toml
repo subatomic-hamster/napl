@@ -1,0 +1,77 @@
+id = "holybro-pixhawk-6c-mini"
+name = "Holybro Pixhawk 6C Mini flight controller (Model A, current)"
+category = "pcb.fc"
+vendor = "Holybro"
+part_number = "Pixhawk 6C Mini"
+url = "https://docs.holybro.com/autopilot/pixhawk-6c-mini/technical-specification.md"
+
+# Sensors: ICM-42688-P + BMI088 IMUs, IST8310 mag, MS5611 baro (see parts tdk-icm-42688-p, bosch-bmi088, isentek-ist8310,
+# te-ms5611-01ba03). Three Model variants exist; Model A (Current) is recorded, others differ in size and mass.
+[params]
+mass_model_a_current = { value = 0.0424, unit = "kg", src = "S1", fidelity = "datasheet" }
+mass_model_a_legacy  = { value = 0.0392, unit = "kg", src = "S1", fidelity = "datasheet" }
+mass_model_b         = { value = 0.0468, unit = "kg", src = "S1", fidelity = "datasheet" }
+length             = { value = 0.0543, unit = "m", src = "S1", fidelity = "datasheet" }
+width              = { value = 0.039, unit = "m", src = "S1", fidelity = "datasheet" }
+height             = { value = 0.0175, unit = "m", src = "S1", fidelity = "datasheet" }
+fmu_clock          = { value = 480e6, unit = "Hz", src = "S1", fidelity = "datasheet" }
+max_input_voltage  = { value = 6, unit = "V", src = "S1", fidelity = "datasheet" }
+servo_rail_voltage_max = { value = 36, unit = "V", src = "S1", fidelity = "datasheet" }
+imu_count          = { value = 2, unit = "1", src = "S1", fidelity = "datasheet" }
+pwm_outputs        = { value = 14, unit = "1", src = "S1", fidelity = "datasheet" }
+uart_count         = { value = 2, unit = "1", src = "S1", fidelity = "datasheet" }
+can_buses          = { value = 2, unit = "1", src = "S1", fidelity = "datasheet" }
+operating_temp_min = { value = 248.15, unit = "K", src = "S1", fidelity = "datasheet" }
+operating_temp_max = { value = 358.15, unit = "K", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+v_max = { value = 6, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+note = "1 analog power input port; analog PM02 V3/PM06 V2/PM07 list a 6Pin GHR 1.25mm connector for this FC family (S2)"
+
+[[ports]]
+name = "pwm_out"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+count = 14
+level_options = "3.3 V or 5 V hardware switchable"
+
+[[ports]]
+name = "telem"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+count = 2
+
+[[ports]]
+name = "can"
+kind = "signal"
+type = "can"
+gender = "neutral"
+count = 2
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+count = 1
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/autopilot/pixhawk-6c-mini/technical-specification.md"
+title = "Pixhawk 6C Mini Technical Specification (Holybro docs)"
+accessed = "2026-10-07"
+quote = "Accel/Gyro: ICM-42688-P Accel/Gyro: BMI088 ... Mag: IST8310 Barometer: MS5611 ... Max input voltage: 6V ... Servo Rail Input: 0~36V ... Dimensions (Model A Current): 54.3x39x17.5 mm ... Weight (Model A Legacy): 39.2g Weight (Model A Current): 42.4g Weight (Model B): 46.8g ... 14- PWM servo outputs (8 from IO, 6 from FMU) ... 2 CAN Buses ... 1 Power input port (Analog)"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/power-module-and-pdb/power-module-comparison.md"
+title = "Power Module Comparison (Holybro docs)"
+accessed = "2026-10-07"
+quote = "Analog Power Module (Applicable for Pixhawk 6C & 6C Mini, Pix32 V6, Cube Orange, etc) ... PM02 V3 ... Ports XT60 6Pin GHR 1.25mm"

@@ -1,0 +1,90 @@
+id = "pololu-tb6612fng-carrier"
+name = "Pololu TB6612FNG Dual Motor Driver Carrier (item 713)"
+category = "driver.dc"
+vendor = "Pololu (Toshiba TB6612FNG IC)"
+part_number = "Pololu 713"
+url = "https://www.pololu.com/product/713"
+
+# Frame: origin at the board centre on the top (component) face; +z = out of the component side; x along the 0.80 in (20.32 mm) length, y along the 0.60 in (15.24 mm) width.
+# Board thickness is not published; z = 0 is taken as the top surface and the mating pins point to -z. Orientation of the axes is a convention only.
+
+[params]
+mass               = { value = 0.0015,  unit = "kg",   src = "S1", fidelity = "datasheet" }
+length             = { value = 0.02032, unit = "m",    src = "S1", fidelity = "datasheet" }  # 0.80 in
+width              = { value = 0.01524, unit = "m",    src = "S1", fidelity = "datasheet" }  # 0.60 in
+motor_channels     = { value = 2,       unit = "1",    src = "S1", fidelity = "datasheet" }
+v_motor_min        = { value = 4.5,     unit = "V",    src = "S1", fidelity = "datasheet" }  # can operate down to 2.5 V with reduced current capability
+v_motor_max        = { value = 13.5,    unit = "V",    src = "S1", fidelity = "datasheet" }
+i_continuous_per_channel = { value = 1.0, unit = "A",  src = "S1", fidelity = "datasheet" }
+i_peak_per_channel = { value = 3.0,     unit = "A",    src = "S1", fidelity = "datasheet" }
+i_continuous_paralleled = { value = 2.0, unit = "A",   src = "S1", fidelity = "datasheet" }
+pwm_max_frequency  = { value = 100000.0, unit = "Hz",  src = "S1", fidelity = "datasheet" }
+v_logic_min        = { value = 2.7,     unit = "V",    src = "S1", fidelity = "datasheet" }
+v_logic_max        = { value = 5.5,     unit = "V",    src = "S1", fidelity = "datasheet" }
+reverse_voltage_protection = { value = "yes", unit = "-", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "pins"
+kind = "mech"
+type = "pinout.pololu-tb6612fng-carrier"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Header pin count and spacing are not in the retrieved spec text; opaque family tag."
+
+[[ports]]
+name = "vmot"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+v_max = { value = 13.5, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 4.5, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 2.0, unit = "A", src = "S1", fidelity = "datasheet" }  # both channels paralleled, continuous
+i_peak = { value = 6.0, unit = "A", fidelity = "derived", derivation = "2 channels * 3 A peak per channel = 6 A total if both channels peak simultaneously; Pololu publishes no paralleled peak figure (inference)." }
+note = "Motor supply input; reverse-voltage protection present (S1)."
+
+[[ports]]
+name = "motor_a"
+kind = "power"
+type = "dc-motor-2wire"
+gender = "neutral"
+role = "source"
+i_max = { value = 1.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_peak = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Channel A output; also pairs with channel B to drive one bipolar stepper (S2)."
+
+[[ports]]
+name = "motor_b"
+kind = "power"
+type = "dc-motor-2wire"
+gender = "neutral"
+role = "source"
+i_max = { value = 1.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_peak = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Channel B output."
+
+[[ports]]
+name = "pwm_in"
+kind = "signal"
+type = "pwm"
+gender = "male"
+level_min = { value = 2.7, unit = "V", src = "S1", fidelity = "datasheet" }  # minimum logic voltage
+level_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }  # maximum logic voltage
+note = "PWM and direction inputs, up to 100 kHz PWM (S1)."
+
+[[sources]]
+id = "S1"
+url = "https://www.pololu.com/product/713/specs"
+title = "Pololu item 713 Specs tab (TB6612FNG Dual Motor Driver Carrier)"
+accessed = "2026-10-07"
+quote = "Size: | 0.60\" x 0.80\" | Weight: | 1.5 g | General specifications| Motor driver: | TB6612FNG | Motor channels: | 2 | Minimum operating voltage: | 4.5 V| 1| Maximum operating voltage: | 13.5 V | Continuous output current per channel: | 1 A | Peak output current per channel: | 3 A | Continuous paralleled output current: | 2 A | Maximum PWM frequency: | 100 kHz | Minimum logic voltage: | 2.7 V | Maximum logic voltage: | 5.5 V | Reverse voltage protection?: | Y | Notes:| 1| Can operate down to 2.5 V with reduced current capabilities."
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/713"
+title = "Pololu item 713 product page, description"
+accessed = "2026-10-07"
+quote = "This tiny board is an easy way to use Toshiba’s TB6612FNG dual motor driver, which can independently control two bidirectional DC motors or one bipolar stepper motor. A recommended motor voltage of 4.5 V to 13.5 V and peak current output of 3 A per channel (1 A continuous) make this a great motor driver for low-power motors."

@@ -1,0 +1,77 @@
+id = "speedybee-f405-v4"
+name = "SpeedyBee F405 V4 30x30 flight controller"
+category = "pcb.fc"
+vendor = "SpeedyBee"
+part_number = "F405 V4 30x30 FC"
+url = "https://www.speedybee.com/speedybee-f405-v4-bls-55a-30x30-fc-esc-stack/"
+
+# IMU: ICM42688P; barometer is built in (chip not named on the page). The stack page also lists the BLS 55A ESC,
+# which is a separate part and not recorded here.
+[params]
+mass            = { value = 0.0105, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.0416, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.0394, unit = "m", src = "S1", fidelity = "datasheet" }
+height          = { value = 0.0078, unit = "m", src = "S1", fidelity = "datasheet" }
+mount_hole_diameter = { value = 0.004, unit = "m", src = "S1", fidelity = "datasheet" }
+vbat_min_cells  = { value = 3, unit = "S", src = "S1", fidelity = "datasheet" }
+vbat_max_cells  = { value = 6, unit = "S", src = "S1", fidelity = "datasheet" }
+out_5v_total_current = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
+out_9v_total_current = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
+out_3v3_current_max  = { value = 0.5, unit = "A", src = "S1", fidelity = "datasheet" }
+out_4v5_current_max  = { value = 1.0, unit = "A", src = "S1", fidelity = "datasheet" }
+uart_count      = { value = 6, unit = "1", src = "S1", fidelity = "datasheet" }
+esc_signal_outputs = { value = 8, unit = "1", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.30.5x30.5.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+note = "30.5 x 30.5 mm with 4 mm hole diameter (S1); M3 screws through grommets assumed as for other 30.5 mm FCs"
+
+[[ports]]
+name = "vbat_in"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+note = "3S-6S LiPo through G and BAT pins/pads of the 8-pin connector or 8 pads on the bottom (S1)"
+
+[[ports]]
+name = "esc_out"
+kind = "signal"
+type = "dshot"
+gender = "neutral"
+count = 8
+
+[[ports]]
+name = "serial"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+count = 6
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+note = "SDA and SCL pads on front side"
+
+[[ports]]
+name = "usb"
+kind = "signal"
+type = "usb"
+gender = "neutral"
+connector = "Type-C"
+
+[[sources]]
+id = "S1"
+url = "https://www.speedybee.com/speedybee-f405-v4-bls-55a-30x30-fc-esc-stack/"
+title = "SpeedyBee F405 V4 BLS 55A 30x30 FC&ESC Stack (SpeedyBee product page), FC specification table"
+accessed = "2026-10-07"
+quote = "MCU STM32F405 IMU(Gyro) ICM42688P USB Port Type Type-C Barometer Built-in ... Power Input 3S - 6S Lipo ... 5V Output ... The total current load is 3A. 9V Output ... The total current load is 3A. 3.3V Output ... Up to 500mA current load. 4.5V Output ... Up to 1A current load. ESC Signal M1 - M4 on bottom side and M5-M8 on front side. UART 6 sets(UART1, UART2, UART3, UART4(Dedicated for Bluetooth connection)), UART5(Dedicated for ESC telemetry),UART6 ... Mounting 30.5 x 30.5mm( 4mm hole diameter) Dimension 41.6(L) x 39.4(W) x 7.8(H)mm Weight 10.5g"

@@ -1,0 +1,73 @@
+id = "holybro-pm03d"
+name = "Holybro PM03D digital power module with distribution board (2-6S, 45x45 mount)"
+category = "pcb.pm"
+vendor = "Holybro"
+part_number = "PM03D"
+url = "https://holybro.com/collections/power-modules-pdbs/products/pm03d-power-module"
+
+# Distribution board variant: B+ pads x4 and optional XT30 x6. Battery-side connector gender is a modelling convention.
+[params]
+mass                = { value = 0.059, unit = "kg", src = "S1", fidelity = "datasheet" }
+length              = { value = 0.084, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.078, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.012, unit = "m", src = "S1", fidelity = "datasheet" }
+input_cells_max     = { value = 6, unit = "S", src = "S1", fidelity = "datasheet" }
+pcb_current_cont    = { value = 60, unit = "A", src = "S1", fidelity = "datasheet" }
+pcb_current_burst   = { value = 120, unit = "A", src = "S1", fidelity = "datasheet" }
+current_sense_max   = { value = 164, unit = "A", src = "S1", fidelity = "datasheet" }
+output_5v_voltage   = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+output_5v_current_max = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
+output_hv_current_max = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.45x45.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+note = "45 x 45 mm mounting hole spacing per S1; hole size not stated, M3 assumed (inference)"
+
+[[ports]]
+name = "battery_in"
+kind = "power"
+type = "xt60"
+gender = "male"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "2~6S per S1: 6 cells x 4.2 V full charge = 25.2 V." }
+i_max = { value = 60, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+
+[[ports]]
+name = "fc_out"
+kind = "power"
+type = "molex-clik-mate.6"
+gender = "female"
+v_max = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "source"
+
+[[ports]]
+name = "esc_xt30"
+kind = "power"
+type = "xt30"
+gender = "female"
+count = 6
+role = "source"
+note = "XT30 x6 optional; each rated by the XT30 connector, board 60 A continuous total"
+
+[[ports]]
+name = "bplus_pads"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+count = 4
+role = "source"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/power-module-and-pdb/power-module-comparison.md"
+title = "Power Module Comparison (Holybro docs), Digital Power Modules table"
+accessed = "2026-10-07"
+quote = "PM03D ... Input Voltage 2~6S ... PCB Cont./Burst Current Rating 60A/120A ... Max Current Sensing 164A ... Output Voltage 5.2V/3A Max 8V/12V 3A (Selectable) ... Ports XT60 6Pin Molex 2.0mm XT30 *6 (optional) B+ Pads *4 ... Built-in Power Distribution Yes ... Dimensions 84 x 78 x 12 mm ... Weight 59g ... Mounting Hole 45 x 45 mm"

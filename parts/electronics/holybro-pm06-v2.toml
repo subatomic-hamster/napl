@@ -1,0 +1,72 @@
+id = "holybro-pm06-v2"
+name = "Holybro PM06 V2 micro analog power module with PDB (2-14S, 30.5x30.5 mount)"
+category = "pcb.pm"
+vendor = "Holybro"
+part_number = "PM06 V2"
+url = "https://holybro.com/collections/power-modules-pdbs/products/micro-power-module-pm06-v2"
+
+# Analog module for Pixhawk 6C/6C Mini/Pix32 V6. Battery-side connector gender is a modelling convention.
+[params]
+mass                = { value = 0.024, unit = "kg", src = "S1", fidelity = "datasheet" }
+length              = { value = 0.035, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.035, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.010, unit = "m", src = "S1", fidelity = "datasheet" }
+input_cells_max     = { value = 14, unit = "S", src = "S1", fidelity = "datasheet" }
+pcb_current_cont    = { value = 70, unit = "A", src = "S1", fidelity = "datasheet" }
+pcb_current_burst   = { value = 120, unit = "A", src = "S1", fidelity = "datasheet" }
+current_sense_max   = { value = 120, unit = "A", src = "S1", fidelity = "datasheet" }
+output_voltage      = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+output_current_max  = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.30.5x30.5.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+note = "30.5 x 30.5 mm per S1; hole size not stated, M3 assumed (inference)"
+
+[[ports]]
+name = "battery_in"
+kind = "power"
+type = "xt60"
+gender = "male"
+v_max = { value = 58.8, unit = "V", fidelity = "derived", derivation = "2~14S per S1: 14 cells x 4.2 V full charge = 58.8 V." }
+i_max = { value = 70, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Stock XT60 plug and 12 AWG lead are 30 A continuous / 60 A burst (S2)"
+
+[[ports]]
+name = "fc_out"
+kind = "power"
+type = "jst-gh.6"
+gender = "female"
+v_max = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "source"
+note = "6Pin GHR 1.25mm analog power cable"
+
+[[ports]]
+name = "bplus_pads"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+count = 4
+role = "source"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/power-module-and-pdb/power-module-comparison.md"
+title = "Power Module Comparison (Holybro docs), Analog Power Module table"
+accessed = "2026-10-07"
+quote = "PM06 V2 ... Input Voltage 2~14S ... PCB Cont./Burst Current Rating 70A/120A ... Max Current Sensing 120A ... Output Voltage 5.2V/3A Max ... Ports XT60 6Pin GHR 1.25mm B+ Pads *4 ... Built-in Power Distribution Yes ... Dimensions 35 x 35 x10 mm ... Weight 24g ... Mounting Hole 30.5 x 30.5 mm ... Applicable Products Pixhawk 6C/6C Mini Pix32 V6"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/power-module-and-pdb/power-module/connector-and-wire-rating.md"
+title = "Connector & Wire Rating (Holybro docs)"
+accessed = "2026-10-07"
+quote = "The XT60 plug and 12AWG wire that are pre-soldered on Holybro Power module are rated for 30A continuous current and 60A instantaneous current (<1 minute)."

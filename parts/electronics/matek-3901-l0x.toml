@@ -1,0 +1,42 @@
+id = "matek-3901-l0x"
+name = "Matek Optical Flow 3901-L0X (PixArt PMW3901 + ST VL53L0X rangefinder)"
+category = "sensor.flow"
+vendor = "Matek Systems"
+part_number = "3901-L0X"
+url = "https://www.mateksys.com/?portfolio=3901-l0x"
+
+# FOV values are the vendor's PMW3901 and VL53L0X numbers (42 deg and 27 deg).
+[params]
+mass                = { value = 0.002, unit = "kg", src = "S1", fidelity = "datasheet" }
+length              = { value = 0.036, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.012, unit = "m", src = "S1", fidelity = "datasheet" }
+range_min           = { value = 0.08, unit = "m", src = "S1", fidelity = "datasheet" }
+range_max           = { value = 2.0, unit = "m", src = "S1", fidelity = "datasheet" }
+fov_flow            = { value = 0.733, unit = "rad", src = "S1", fidelity = "datasheet" }
+fov_lidar           = { value = 0.471, unit = "rad", src = "S1", fidelity = "datasheet" }
+min_illumination    = { value = 60, unit = "lux", src = "S1", fidelity = "datasheet" }
+supply_voltage_min  = { value = 4.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max  = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current      = { value = 0.04, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+
+[[ports]]
+name = "uart"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+note = "Interface UART, protocol MSP (INAV); ArduPilot uses SERIALn_PROTOCOL = 32"
+
+[[sources]]
+id = "S1"
+url = "https://www.mateksys.com/?portfolio=3901-l0x"
+title = "Optical FLow 3901-L0X (Matek Systems product page)"
+accessed = "2026-10-07"
+quote = "Optical Flow: PMW3901 Lidar: ST VL53L0X (max. range 2 m) Interface UART Protocol: MSP Working Range: 8cm~200cm Field of view: 42 degree(PMW3901), 27 degree(VL53L0X) Minimum Illumination >60Lux Input voltage: 4.5~5.5V Power Consumption: 40mA Size: 36*12mm (F051 version), 2g"

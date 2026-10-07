@@ -1,0 +1,98 @@
+id = "iflight-blitz-e55r-4in1"
+name = "iFlight BLITZ E55R 4-in-1 2-6S ESC (G2, BLHeli32), 20x20 stack"
+category = "esc"
+vendor = "iFlight"
+part_number = "BLITZ E55R 4-IN-1 (G2)"
+url = "https://rcdrone.top/products/iflight-blitz-e55r-4-in-1-esc"
+
+# Part frame: origin at the centre of the board underside, z up, +x toward the signal-connector edge (assumed). Mount pattern 20 x 20 mm,
+# listed as "20 x20 mm/Φ4mm"; the bolt-pattern type uses m3 as an inference (a 4 mm hole fits an M3 screw). The listing does not state the
+# thread, so it is a modelling choice. Board outline and thickness are not published (assumed 27 x 27 x 6 mm box); pad positions unpublished.
+
+[params]
+mass            = { value = 0.0113, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.027, unit = "m", fidelity = "estimated", rationale = "Board outline not published in the E55R listing; 27 mm assumed from the 20 mm hole pattern plus ~3.5 mm edge margin per side (typical 20x20 stack boards are about 25-28 mm)." }
+width           = { value = 0.027, unit = "m", fidelity = "estimated", rationale = "Board outline not published in the E55R listing; 27 mm assumed from the 20 mm hole pattern plus ~3.5 mm edge margin per side (typical 20x20 stack boards are about 25-28 mm)." }
+height          = { value = 0.006, unit = "m", fidelity = "estimated", rationale = "Board thickness not published; ~6 mm taken from the Holybro Tekko32 4-in-1 spec (6 mm) as same-class comparable." }
+cells_min       = { value = 2, unit = "S", src = "S1", fidelity = "datasheet" }
+cells_max       = { value = 6, unit = "S", src = "S1", fidelity = "datasheet" }
+i_cont_per_ch   = { value = 55.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst_per_ch  = { value = 65.0, unit = "A", src = "S1", fidelity = "datasheet" }
+channels        = { value = 4, unit = "1", src = "S1", fidelity = "datasheet" }
+mcu             = { value = "G071", unit = "text", src = "S1", fidelity = "datasheet" }
+bec             = { value = "none", unit = "text", src = "S1", fidelity = "datasheet" }
+firmware        = { value = "BLHeli32", unit = "text", src = "S1", fidelity = "datasheet" }
+current_rate    = { value = 200, unit = "1", src = "S1", fidelity = "datasheet" }
+
+[geometry]
+shape = "box"
+size = [0.0135, 0.0135, 0.003]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.20x20.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+note = "20 x 20 mm per S1 (4 mm hole); thread class m3 is an inference, M2 is also common for this pitch"
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V (upper end of 'Input Voltage: 2-6S', S1)." }
+i_max = { value = 220.0, unit = "A", fidelity = "derived", derivation = "4 channels x 55 A continuous per channel (S1) = 220 A; no total-input rating is published." }
+
+[[ports]]
+name = "motor_out_1"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "Output follows battery input, 6S x 4.2 V = 25.2 V." }
+i_max = { value = 55.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "motor_out_2"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "Output follows battery input, 6S x 4.2 V = 25.2 V." }
+i_max = { value = 55.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "motor_out_3"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "Output follows battery input, 6S x 4.2 V = 25.2 V." }
+i_max = { value = 55.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "motor_out_4"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "Output follows battery input, 6S x 4.2 V = 25.2 V." }
+i_max = { value = 55.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "dshot"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://rcdrone.top/products/iflight-blitz-e55r-4-in-1-esc"
+title = "rcdrone.top (iFlight listing) - BLITZ E55R 4-IN-1 ESC (G2)"
+accessed = "2026-10-07"
+quote = "Product Name: BLITZ E55R 4-IN-1 ESC (G2)|Input Voltage: 2-6S|Max. Continuous Current: 55A|Max. Burst Current: 65A |MCU: G071|BEC: No|Firmware: BLHeli32|Current Sensor: Yes|Current rate: 200|Telemetry: Supported|Target: IFLIGHT_BLITZ_G2|Mounting Holes: 20 x20 mm/Φ4mm|Weight: 11.3g|Protocol: Supports DShot150/300/600/MultiShot/ OneShot etc."

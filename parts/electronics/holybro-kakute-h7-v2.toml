@@ -1,0 +1,84 @@
+id = "holybro-kakute-h7-v2"
+name = "Holybro Kakute H7 v2 flight controller (30.5x30.5, BMI270, Bluetooth)"
+category = "pcb.fc"
+vendor = "Holybro"
+part_number = "Kakute H7 v2"
+url = "https://docs.holybro.com/autopilot/kakute-h7-v1-v2-mini/kakute-h7-v2/overview.md"
+
+# IMU: BMI270 (part bosch-bmi270); barometer: BMP280; OSD AT7456E; Bluetooth ESP32-C3.
+[params]
+mass            = { value = 0.008, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.035, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.035, unit = "m", src = "S1", fidelity = "datasheet" }
+mount_hole_diameter = { value = 0.004, unit = "m", src = "S1", fidelity = "datasheet" }
+grommet_diameter    = { value = 0.003, unit = "m", src = "S1", fidelity = "datasheet" }
+vbat_min_cells  = { value = 3, unit = "S", src = "S1", fidelity = "datasheet" }
+vbat_max_cells  = { value = 8, unit = "S", src = "S1", fidelity = "datasheet" }
+bec_5v_current_cont = { value = 2, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_9v_current_cont = { value = 1.5, unit = "A", src = "S1", fidelity = "datasheet" }
+uart_count      = { value = 6, unit = "1", src = "S1", fidelity = "datasheet" }
+pwm_outputs     = { value = 9, unit = "1", src = "S1", fidelity = "datasheet" }
+mcu_clock       = { value = 480e6, unit = "Hz", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.30.5x30.5.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+note = "Φ4 mm holes with Φ3 mm grommets per S1, so M3 screws"
+
+[[ports]]
+name = "vbat_in"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+note = "Battery input 3S-8S (S1); no upper voltage in volts is published on the page"
+
+[[ports]]
+name = "esc_a"
+kind = "power"
+type = "jst-sh.8"
+gender = "male"
+role = "source"
+note = "1 of 2x JST-SH1.0 8-pin 4-in-1 ESC ports (power + signal), x8/octocopter compatible"
+
+[[ports]]
+name = "hd_vtx"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+role = "source"
+note = "1x JST-GH1.5 6-pin for HD systems (9 V pit-switch rail); S1 writes the pitch as GH1.5"
+
+[[ports]]
+name = "serial"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+count = 6
+
+[[ports]]
+name = "motor_out"
+kind = "signal"
+type = "dshot"
+gender = "neutral"
+count = 8
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+note = "SDA and SCL pads for external GPS/magnetometers"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/autopilot/kakute-h7-v1-v2-mini/kakute-h7-v2/overview.md"
+title = "Kakute H7 v2 Overview (Holybro docs)"
+accessed = "2026-10-07"
+quote = "MCU - STM32H743 32-bit processor running at 480 MHz IMU – BMI270 Barometer - BMP280 ... 6x UARTs (1,2,3,4,6,7; UART2 is used for Bluetooth telemetry) 9x PWM Outputs (8 Motor Output, 1 LED) Battery input voltage: 3S-8S BEC 5V 2A Cont. BEC 9V 1.5A Cont. ... Mounting - 30.5 x 30.5mm/Φ4mm hole with Φ3mm Grommets Dimension - 35x35mm Weight - 8g 2x JST-SH1.0_8pin port (4in1 ESCs, x8/Octocopter compatible) 1x JST-GH1.5_6pin port (For HD System like Caddx Vista, Air Unit, or other VTX)"

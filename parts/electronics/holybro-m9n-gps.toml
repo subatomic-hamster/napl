@@ -1,0 +1,57 @@
+id = "holybro-m9n-gps"
+name = "Holybro M9N GPS (u-blox NEO-M9N + IST8310 compass), V1 and V2 casings"
+category = "pcb.gps"
+vendor = "Holybro"
+part_number = "M9N GPS"
+url = "https://docs.holybro.com/gps-and-rtk-system/m8n-m9n-m10-gps/standard-m10-m9n-m8n-gps/overview.md"
+
+# Compass: IST8310 (part isentek-ist8310). V1 casing has buzzer + safety switch; V2 is IP67 without them.
+# The related M8N variant is in parts/drone/holybro-m8n-gps.toml; the M10 variant is holybro-m10-gps.
+[params]
+mass_v1              = { value = 0.032, unit = "kg", src = "S1", fidelity = "datasheet" }
+mass_v2              = { value = 0.0368, unit = "kg", src = "S1", fidelity = "datasheet" }
+diameter_v1          = { value = 0.050, unit = "m", src = "S1", fidelity = "datasheet" }
+height_v1            = { value = 0.0144, unit = "m", src = "S1", fidelity = "datasheet" }
+diameter_v2          = { value = 0.051, unit = "m", src = "S1", fidelity = "datasheet" }
+height_v2            = { value = 0.0185, unit = "m", src = "S1", fidelity = "datasheet" }
+antenna_size_xy      = { value = 0.025, unit = "m", src = "S1", fidelity = "datasheet" }
+antenna_thickness    = { value = 0.004, unit = "m", src = "S1", fidelity = "datasheet" }
+accuracy_cep         = { value = 1.5, unit = "m", src = "S1", fidelity = "datasheet" }
+nav_rate_max         = { value = 25, unit = "Hz", src = "S1", fidelity = "datasheet" }
+supply_voltage_min   = { value = 4.7, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max   = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_max   = { value = 0.2, unit = "A", src = "S1", fidelity = "datasheet" }
+default_baud         = { value = 115200, unit = "baud", src = "S1", fidelity = "datasheet" }
+cable_length         = { value = 0.26, unit = "m", src = "S1", fidelity = "datasheet" }
+operating_temp_min   = { value = 233.15, unit = "K", src = "S1", fidelity = "datasheet" }
+operating_temp_max   = { value = 353.15, unit = "K", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "gps_in"
+kind = "power"
+type = "jst-gh.10"
+gender = "male"
+v_max = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+note = "Port Type JST-GH-10P carries 5 V, UART and I2C (compass); gender male assumed (board header) with a cable supplied"
+
+[[ports]]
+name = "uart"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+level = { value = 3.3, unit = "V", fidelity = "estimated", rationale = "Level not stated on the Holybro page; u-blox M9 UART is 3.3 V class and Pixhawk GPS ports are 3.3 V logic. Treat as unverified." }
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+note = "IST8310 compass"
+
+[[sources]]
+id = "S1"
+url = "https://docs.holybro.com/gps-and-rtk-system/m8n-m9n-m10-gps/standard-m10-m9n-m8n-gps/overview.md"
+title = "Standard M10/M9N/M8N GPS Overview (Holybro docs), specification table, M9N column"
+accessed = "2026-10-07"
+quote = "Holybro M9N GPS | Ublox M9N ... Compass IST8310 ... Accuracy ... 1.5m CEP ... Nav. Update Rate ... Up to 25 Hz (4 concerrent GNSS) ... Default Baud Rate 115200 ... Input Voltage 4.7-5.2V ... Port Type JST-GH-10P ... Antenna 25 x 25 x 4 mm ceramic patch antenna ... Power consumption Less than 200mA @ 5V ... Operating Temperature -40~80C ... Dimension (V1) φ50 x14.4 mm ... Dimension (V2) φ51 x18.5 mm ... Weight (V1) 32g ... Weight (V2) 36.8g ... Cable Length 26cm (42cm cable purchase separately)"

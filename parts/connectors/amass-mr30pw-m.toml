@@ -1,0 +1,33 @@
+id = "amass-mr30pw-m"
+name = "Amass MR30PW-M 3-pole connector (male, 3 x 20 A)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "MR30PW-M30"
+url = "https://www.china-amass.net/mr30pw-m-product/"
+
+# MR30 carries three phases (e.g. brushless motor leads); the rating is per contact.
+[params]
+current_rated       = { value = 20, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance_max = { value = 0.0012, unit = "ohm", src = "S1", fidelity = "datasheet" }
+insulation_resistance_min = { value = 2e9, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 100, unit = "1", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "male"
+kind = "power"
+type = "mr30"
+gender = "male"
+v_max = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 20, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "20 A per contact at a temperature rise <= 85 K"
+
+[[sources]]
+id = "S1"
+url = "https://www.china-amass.net/mr30pw-m-product/"
+title = "AMASS MR30PW-M product page (Amass), electrical and mechanical SPEC"
+accessed = "2026-10-07"
+quote = "Current rating 20A (△≤85K) Rated voltage 80V DC Insulation Resistance ≥2000MΩ ≤1.2mΩ Mechanical characteristics Plug Life. 100 times Environmental resistance Work Temperature -20℃ to 120℃ Materials Flame Level （Body） UL94 V-0"

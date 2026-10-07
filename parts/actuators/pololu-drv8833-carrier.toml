@@ -1,0 +1,86 @@
+id = "pololu-drv8833-carrier"
+name = "Pololu DRV8833 Dual Motor Driver Carrier (item 2130)"
+category = "driver.dc"
+vendor = "Pololu (TI DRV8833 IC)"
+part_number = "Pololu 2130"
+url = "https://www.pololu.com/product/2130"
+
+# Frame: origin at the board centre on the top (component) face; +z = out of the component side; x along the 0.8 in (20.32 mm) length, y along the 0.5 in (12.70 mm) width.
+# Board thickness is not published; z = 0 is taken as the top surface and the mating pins point to -z. Orientation of 0.8 in vs 0.5 in axes is an assumption (convention only).
+
+[params]
+mass               = { value = 0.0010,  unit = "kg",   src = "S1", fidelity = "datasheet" }  # without included hardware
+length             = { value = 0.02032, unit = "m",    src = "S1", fidelity = "datasheet" }  # 0.8 in
+width              = { value = 0.0127,  unit = "m",    src = "S1", fidelity = "datasheet" }  # 0.5 in
+motor_channels     = { value = 2,       unit = "1",    src = "S1", fidelity = "datasheet" }
+v_motor_min        = { value = 2.7,     unit = "V",    src = "S1", fidelity = "datasheet" }
+v_motor_max        = { value = 10.8,    unit = "V",    src = "S1", fidelity = "datasheet" }
+i_continuous_per_channel = { value = 1.2, unit = "A",  src = "S1", fidelity = "datasheet" }  # typical, 100 % duty, room temperature
+i_peak_per_channel = { value = 2.0,     unit = "A",    src = "S1", fidelity = "datasheet" }
+i_continuous_paralleled = { value = 2.4, unit = "A",   src = "S1", fidelity = "datasheet" }  # typical, 100 % duty, room temperature
+reverse_voltage_protection = { value = "yes", unit = "-", src = "S1", fidelity = "datasheet" }
+protections        = { value = "reverse-voltage, under-voltage, over-current, over-temperature", unit = "-", src = "S2", fidelity = "datasheet" }
+
+[[ports]]
+name = "pins"
+kind = "mech"
+type = "pinout.pololu-drv8833-carrier"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Header pin count and spacing are not in the retrieved spec text; opaque family tag."
+
+[[ports]]
+name = "vmot"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+v_max = { value = 10.8, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 2.7, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 2.4, unit = "A", src = "S1", fidelity = "datasheet" }  # both channels paralleled, continuous
+i_peak = { value = 4.0, unit = "A", fidelity = "derived", derivation = "2 channels * 2 A peak per channel = 4 A total if both channels peak simultaneously; Pololu does not publish a paralleled peak figure (inference, not tested for thermal limits)." }
+note = "Motor supply input; reverse-voltage protection present (S1)."
+
+[[ports]]
+name = "motor_a"
+kind = "power"
+type = "dc-motor-2wire"
+gender = "neutral"
+role = "source"
+i_max = { value = 1.2, unit = "A", src = "S1", fidelity = "datasheet" }
+i_peak = { value = 2.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Channel A output for one brushed DC motor; channel B (motor_b) is identical."
+
+[[ports]]
+name = "motor_b"
+kind = "power"
+type = "dc-motor-2wire"
+gender = "neutral"
+role = "source"
+i_max = { value = 1.2, unit = "A", src = "S1", fidelity = "datasheet" }
+i_peak = { value = 2.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Channel B output for one brushed DC motor."
+
+[[ports]]
+name = "pwm_in"
+kind = "signal"
+type = "pwm"
+gender = "male"
+note = "Four input pins (two per channel); logic-level thresholds are not in the retrieved Pololu text."
+
+[[sources]]
+id = "S1"
+url = "https://www.pololu.com/product/2130/specs"
+title = "Pololu item 2130 Specs tab (DRV8833 Dual Motor Driver Carrier)"
+accessed = "2026-10-07"
+quote = "Size: | 0.5″ × 0.8″| 1| Weight: | 1.0 g| 1| General specifications| Motor driver: | DRV8833 | Motor channels: | 2 | Minimum operating voltage: | 2.7 V | Maximum operating voltage: | 10.8 V | Continuous output current per channel: | 1.2 A| 2| Peak output current per channel: | 2 A | Continuous paralleled output current: | 2.4 A| 2| Reverse voltage protection?: | Y | Notes:| 1| Without included hardware.| 2| Typical results with 100% duty cycle at room temperature."
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/2130"
+title = "Pololu item 2130 product page, description"
+accessed = "2026-10-07"
+quote = "This tiny breakout board for TI’s DRV8833 dual motor driver can deliver 1.2 A per channel continuously (2 A peak) to a pair of DC motors. With an operating voltage range from 2.7 V to 10.8 V and built-in protection against reverse-voltage, under-voltage, over-current, and over-temperature, this driver is a great solution for powering small, low-voltage motors."

@@ -1,0 +1,72 @@
+id = "towerpro-sg92r"
+name = "TowerPro SG92R micro PWM servo (coreless, carbon-fibre POM gears)"
+category = "motor.servo"
+vendor = "TowerPro (sold by Adafruit as product 169)"
+part_number = "SG92R"
+url = "https://www.adafruit.com/product/169"
+
+# Frame: origin on the output axis at the horn-seat (top) face of the case; +z = output axis out of the case;
+# x = long case dimension (23 mm), y = short (11 mm); case height 29 mm taken along z (inference from the 23x11x29 listing), so z in [-0.029, 0].
+# The output axis is offset from the case centre along x; the offset is not published as text and is left at the origin.
+# No current figures are published, so no electrical DC-motor model (R, Kt, eta) can be derived. Spline tooth count not published on the page.
+
+[params]
+mass            = { value = 0.009,   unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.023,   unit = "m",  src = "S1", fidelity = "datasheet" }
+width           = { value = 0.011,   unit = "m",  src = "S1", fidelity = "datasheet" }
+height          = { value = 0.029,   unit = "m",  src = "S1", fidelity = "datasheet" }
+gear_material   = { value = "POM with carbon-fibre gear", unit = "-", src = "S1", fidelity = "datasheet" }
+protocol        = { value = "PWM, 1 us dead band", unit = "-", src = "S1", fidelity = "datasheet" }
+position_range  = { value = 3.1416, unit = "rad", src = "S1", fidelity = "datasheet" }  # "approximately 180 degrees (90 in each direction)"
+v_nominal           = { value = 4.8,    unit = "V",     src = "S1", fidelity = "datasheet" }
+v_operating_min     = { value = 3.0,    unit = "V",     src = "S1", fidelity = "datasheet" }
+v_operating_max     = { value = 6.0,    unit = "V",     src = "S1", fidelity = "datasheet" }
+no_load_speed_4v8   = { value = 10.472, unit = "rad/s", src = "S1", fidelity = "datasheet" }  # 60 deg in 0.1 s
+stall_torque        = { value = 0.2452, unit = "N*m",   src = "S1", fidelity = "datasheet" }  # 2.5 kg-cm; test voltage not stated (4.8 V nominal)
+operating_temp_min  = { value = -30,    unit = "degC",  src = "S1", fidelity = "datasheet" }
+operating_temp_max  = { value = 60,     unit = "degC",  src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.servo-micro-ears"
+gender = "neutral"
+pos = [0.0, 0.0, -0.029]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Micro (9 g class) servo mounting ears; hole spacing not published on the vendor page, opaque family tag."
+
+[[ports]]
+name = "output"
+kind = "mech"
+type = "servo-horn.micro"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Micro-servo spline; tooth count not published on the retrieved page, opaque family tag."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "servo-3pin"
+gender = "female"
+role = "sink"
+v_max = { value = 6.0, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 3.0, unit = "V", src = "S1", fidelity = "datasheet" }
+note = "Power shares the 3-pin servo connector with the signal; no current rating published."
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "pwm"
+gender = "female"
+
+[[sources]]
+id = "S1"
+url = "https://www.adafruit.com/product/169"
+title = "Adafruit Micro servo - TowerPro SG92R, Technical Details"
+accessed = "2026-10-07"
+quote = "Specifications:| Size : 23x11x29 mm| Voltage : 4.8V nominal (3V to 6V DC)| Weight: 9g / 0.32oz| Speed : 0.1 sec/60 degree (at 4.8V)| Torque : 2.5 kg-cm| Operation Speed: 0.1sec /60degree| Working Temp : -30C~60C| Gear Type: POM with Carbon Fiber Gear| Dead Band Width: 1 us| Teflon Bushing, 19cm wire, coreless motor, servo arms & screw included || Description| Tiny little servo can rotate approximately 180 degrees (90 in each direction)"

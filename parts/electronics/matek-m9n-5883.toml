@@ -1,0 +1,50 @@
+id = "matek-m9n-5883"
+name = "Matek M9N-5883 GNSS (NEO-M9N) + QMC5883 compass (25x25 patch)"
+category = "pcb.gps"
+vendor = "Matek Systems"
+part_number = "M9N-5883"
+url = "https://www.mateksys.com/?portfolio=m9n-5883"
+
+# The vendor page notes the compass changed from QMC5883L to QMC5883P as of January 2026.
+[params]
+mass                = { value = 0.0145, unit = "kg", src = "S1", fidelity = "datasheet" }
+length              = { value = 0.032, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.032, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.010, unit = "m", src = "S1", fidelity = "datasheet" }
+antenna_size_xy     = { value = 0.025, unit = "m", src = "S1", fidelity = "datasheet" }
+antenna_thickness   = { value = 0.004, unit = "m", src = "S1", fidelity = "datasheet" }
+supply_voltage_min  = { value = 4, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max  = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current      = { value = 0.05, unit = "A", src = "S1", fidelity = "datasheet" }
+default_baud        = { value = 38400, unit = "baud", src = "S1", fidelity = "datasheet" }
+operating_temp_min  = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+operating_temp_max  = { value = 353.15, unit = "K", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "gps_in"
+kind = "power"
+type = "jst-gh.6"
+gender = "male"
+v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+note = "JST-GH-6P connector; 5 V pad/pin input 4~5.5 V; header gender assumed"
+
+[[ports]]
+name = "uart"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+note = "QMC5883L/QMC5883P compass"
+
+[[sources]]
+id = "S1"
+url = "https://www.mateksys.com/?portfolio=m9n-5883"
+title = "GNSS & Compass M9N-5883 (Matek Systems product page)"
+accessed = "2026-10-07"
+quote = "GNSS NEO-M9N (GPS, GLONASS, Galileo and BeiDou) Magnetic Compass QMC5883L/QMC5883P Patch antenna 25*25*4mm Input voltage range: 4~5.5V (5V pad/pin) Power consumption: 50mA UART baudrate: 38400 default Operating Temperatures: -20~80 °C ... JST-GH-6P connector ... 32mm*32mm*10mm 14.5g"
