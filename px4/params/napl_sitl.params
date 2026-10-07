@@ -15,10 +15,25 @@ SIM_BAT_ENABLE 0
 COM_RC_IN_MODE 4
 # No data-link-loss failsafe (0 = disabled; already the default, pinned so a PX4 default change cannot affect the test).
 NAV_DLL_ACT 0
-# Height reference = barometer (0). The v1.17.0 default is GPS, whose vertical noise in the parts-built model is the M8N datasheet
-# accuracy (vert_std 3.2 m, 5 Hz) against the 0.5 m the EKF assumes by default: with the GPS reference the truth altitude wanders
-# +-1 m over 30 s from run to run (observed on the assembly: hold at 4.3-5.1 m, then 5.9-6.5 m, for a 5 m target). The MS5611 model
-# (1.2 Pa = 0.1 m) is the better height sensor, as on a real X500 flown with the baro reference.
+
+# ---- navigation quality (N5c; evidence: tools/px4_nav_diag.py, docs/research/px4-sitl.md "N5c") ----
+# Barometer auto-calibration OFF. Root cause of the +-2..3 m height jumps: sensors/vehicle_air_data VehicleAirData::BaroGNSSAltitudeOffset
+# (SENS_BAR_AUTOCAL, default 1) shifts the baro pressure ~4 s after the first GNSS fix so that the baro altitude equals the GNSS altitude
+# averaged over 2 s. Our GNSS vertical error is 3.2 m (1 sigma, datasheet-derived), our MS5611 model has no offset at all (bias 0; its ISA
+# pressure is referenced to the same origin_alt as the GNSS), so the calibration can only import GNSS error into the baro: observed jump
+# +1.95 m at t = 5 s on the ground, after the EKF had already started, which moved the local down state by -1.9 m (reported "down +3.19 m on
+# the ground"), moved the home altitude, and made PX4's relative / AMSL altitudes (RTL altitude, takeoff target) disagree by metres.
+# With it off the baro altitude error is constant 0.30 m (= the Pixhawk site height above the base body) with 0.06 m noise.
+SENS_BAR_AUTOCAL 0
+# Height reference = barometer (0); the v1.17.0 default is GPS (1). GNSS vertical error (3.2 m, 5 Hz) is 30x the MS5611 model's (1.2 Pa =
+# 0.1 m): measured with the baro-autocal off, GPS reference -> truth hold altitude 6.4-6.6 m for a 5 m target (GNSS error leaks into the
+# height state), baro reference -> 4.9-5.0 m. The GNSS altitude still initialises the baro bias, and (EKF2_GPS_CTRL default 7) is fused
+# against the baro reference, so the reported AMSL altitude follows the GNSS bias as on a real vehicle.
 EKF2_HGT_REF 0
-# GNSS fusion bits: 1 horizontal position + 4 3-D velocity (default 7 also fuses the 3 m-noise vertical position).
-EKF2_GPS_CTRL 5
+# EKF assumed baro noise (default 3.5 m, sized for a real quad: prop wash, gusts). The device model has only the MS5611 RMS noise,
+# 1.2 Pa (OSR 4096 datasheet) / (rho g = 1.17 kg/m3 x 9.81) = 0.105 m; 0.3 m keeps ~3x margin for quantisation and ground effect.
+EKF2_BARO_NOISE 0.3
+# GNSS delay. Our receiver model outputs the sample taken round(latency_s x rate_hz) samples ago: latency_s 0.2 s (assembly and fixture),
+# plus one 1 ms tick before a sample becomes visible; PX4's default is 110 ms. 200 ms makes the EKF fuse each fix at the time it
+# describes: the mismatch (90 ms x 3 m/s = 0.27 m of position bias in the square) was visible as 0.18 m fast / 2.1 m max error before.
+EKF2_GPS_DELAY 200

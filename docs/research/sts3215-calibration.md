@@ -10,7 +10,7 @@ Local clones used for quotes (scratch, not committed): Rhoban/bam `e9a619d` (202
 | Item | Value | Basis (section) |
 |---|---|---|
 | Recommended `pid_scale` | **4000** (P term). Tight measured band 3900-4000; plausible range 2100-4000 (lower edge: BAM-identified torque-per-duty, see 1.2) | 1.2 (oscilloscope-measured 0.166 and Feetech-fork 0.163 give 3927 / 3999), 1.4 (official table: P "(1/4)", duty unit 0.1 %, i.e. 4 x 1000 = 4000). Current 8192 is a guess and is 2x too soft by this evidence. |
-| D-term note | With the same `pid_scale`, sim `d` should be `D/2` (D=32 -> 16), because the official table scales Kp by 1/4 and Kd by 1/8. Inference, not measured. | 1.3, 1.4 |
+| D-term note | With the same `pid_scale`, sim `d` should be `D/2` (D=32 -> 16), because the official table scales Kp by 1/4 and Kd by 1/8. Inference, not measured. Implemented in N6c as the servo `d_scale` = 8000 (part param `d_scale`), so D = 32 is entered as-is. | 1.3, 1.4 |
 | Resulting LeRobot-default sag (P=16, zero pose, from caller's duties 0.199 / 0.133) | shoulder_lift 49.8 counts = 4.4 deg (was 9.0), elbow 33.3 counts = 2.9 deg (was 6.0) | 1.7 arithmetic |
 | Max duty clamp | 0.97 measured on STS3215 (BAM) vs 1.0 in sim | 1.2 |
 | Payload figure | **500 g** published only for the Seeed SO-ARM101 **Pro** kit (12 V follower servos) by a Seeed reseller listing; third-party "~500 g" with inconsistent voltage. No figure exists for the 7.4 V / 5 V standard kit; official repo, LeRobot docs, Seeed wiki publish none. | 3 |

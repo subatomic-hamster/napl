@@ -1,0 +1,21 @@
+<!-- GNSS position error statistics: a static post, two receivers at 1 kHz (a sample every tick), vertical sigma 3 m.
+     g_white: white noise (corr_time_s 0, the default). g_gm: same sigma, 80 % of the variance Gauss-Markov with a 0.05 s
+     time constant (phi = exp(-1 / (1000 x 0.05)) = 0.9802 per sample), 20 % white. Horizontal sigma 2 m, velocity noise off. -->
+<mujoco model="sens_gnss_gm">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="post" pos="0 0 10">
+      <geom type="box" size="0.05 0.05 0.05" mass="0.1" contype="0" conaffinity="0"/>
+      <site name="sp" pos="0 0 0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "gnss_receivers": [
+        {"name": "g_white", "site": "sp", "rate_hz": 1000, "lat0": 47.3769, "lon0": 8.5417, "alt0": 408,
+         "horiz_std": 2, "vert_std": 3, "seed": 11},
+        {"name": "g_gm", "site": "sp", "rate_hz": 1000, "lat0": 47.3769, "lon0": 8.5417, "alt0": 408,
+         "horiz_std": 2, "vert_std": 3, "seed": 12, "corr_time_s": 0.05, "corr_frac": 0.8}]
+    }'/>
+  </custom>
+</mujoco>

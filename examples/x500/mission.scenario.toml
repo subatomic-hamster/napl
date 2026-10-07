@@ -15,10 +15,10 @@ cpu_s = 600
 
 # trace columns: x y z (world, m) and the derived alt (z - z at start) / dist_home (horizontal distance from the start).
 [[monitors]]
-name = "max_altitude"                    # takeoff 5 m; ceiling 8 m (PX4's altitude estimate wanders: truth peaked 5.1-6.9 m in 3 runs)
+name = "max_altitude"                    # takeoff 5 m; ceiling 6.5 m (truth peaks 5.0-5.3 m since the baro auto-calibration is off, N5c)
 column = "alt"
 op = "always"
-hi = 8.0
+hi = 6.5
 
 [[monitors]]
 name = "reached_5m"
@@ -39,10 +39,16 @@ op = "eventually"
 lo = 13.0                                # past the diagonal corner (14.1 m)
 
 [[monitors]]
-name = "landed_within_1p5m_of_home"
+# GNSS-only RTL lands where the EKF thinks home is, so the landing offset is the GNSS position error change between arming and
+# touchdown (~1 min): measured 0.6-2.2 m (median 1.0 m) in 14 runs over 8 GNSS noise seeds with the Gauss-Markov receiver model
+# (docs/research/px4-sitl.md, N5c); 1.5 m would fail 2 of those (1.65 m, 2.20 m). Real-world evidence: PX4 docs,
+# precision landing: "GPS precision, by contrast, may be as large as several meters"; ArduPilot forum (discuss.ardupilot.org/t/97765):
+# "When my copter performs the RTL command the landings are sometimes very accurate and sometimes 2 m off"; (/t/90793): "Normal GPS.
+# Less than 2 metre." So 1.5 m is not a realistic GNSS-only bound; 3 m is (the M8N's 2.5 m CEP plus margin).
+name = "landed_within_3m_of_home"
 column = "dist_home"
 op = "final"
-hi = 1.5
+hi = 3.0
 
 [[monitors]]
 name = "landed_on_ground"

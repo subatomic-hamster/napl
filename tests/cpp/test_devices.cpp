@@ -1105,6 +1105,22 @@ TEST(devices, servo_protect_save_restore_mid_overload_bitwise) {
   EXPECT_EQ(a->save(), b->save());
 }
 
+// d_scale: the first firmware step after enabling has e_prev = 0, so u = (p e + i e) / pid_scale + d e / d_scale; with
+// d_scale absent (servo_step.xml, same config otherwise) the single-scale law u = (p + i + d) e / pid_scale, exactly.
+TEST(devices, servo_d_scale_separates_the_derivative_scale) {
+  const double p = 32, i = 2, d = 32, ps = 8192, ds = 16384, goal = 0.05;
+  for (const bool separate : {false, true}) {
+    auto s = load(separate ? "servo_dscale.xml" : "servo_step.xml");
+    enable(*s, "/devices/s1", goal);
+    ASSERT_EQ(s->step(1), 1);
+    const auto& st = ms(*s).devices()->servo.st[0];
+    const double e = std::floor(goal * 4096 / (2 * M_PI) + 0.5);
+    ASSERT_EQ(st.e_prev, e);
+    const double want = separate ? (p + i) * e / ps + d * e / ds : (p + i + d) * e / ps;
+    EXPECT_LT(rel(st.cmd, want), 1e-12) << separate;
+  }
+}
+
 TEST(devices, servo_bad_firmware_rate_fails_load) {
   try {
     load("bad_servo_rate.xml");
@@ -1397,6 +1413,37 @@ TEST(devices, gnss_timing_hold_and_latency) {
   EXPECT_EQ(changes, 40);  // 400 ticks / 10: the output changes once per sample, i.e. it is held in between
 }
 
+// (f6) GNSS Gauss-Markov position error (sens_gnss_gm.xml, 100000 samples of the altitude error, sigma 3 m): the white
+// receiver has variance 9 and lag-1 autocorrelation 0; the Gauss-Markov one has the SAME total variance and lag-1
+// autocorrelation corr_frac x phi = 0.8 x exp(-0.02) = 0.7842 (the white 20 % does not correlate). The estimator error of
+// the variance is ~4 % (effective sample ~1300), so 12 %; of the autocorrelation ~0.02, so 0.05.
+TEST(devices, gnss_gauss_markov_error) {
+  auto s = load("sens_gnss_gm.xml");
+  std::vector<double> w, g;
+  for (int i = 0; i < 100000; ++i) {
+    ASSERT_EQ(s->step(1), 1);
+    w.push_back(get(*s, "/devices/g_white", "alt") - 408);
+    g.push_back(get(*s, "/devices/g_gm", "alt") - 408);
+  }
+  auto stats = [](const std::vector<double>& x) {
+    double m = 0;
+    for (double v : x) m += v;
+    m /= static_cast<double>(x.size());
+    double c0 = 0, c1 = 0;
+    for (std::size_t i = 0; i < x.size(); ++i) {
+      c0 += (x[i] - m) * (x[i] - m);
+      if (i + 1 < x.size()) c1 += (x[i] - m) * (x[i + 1] - m);
+    }
+    return std::pair{c0 / static_cast<double>(x.size()), c1 / c0};
+  };
+  const auto [vw, rw] = stats(w);
+  const auto [vg, rg] = stats(g);
+  EXPECT_NEAR(vw, 9.0, 0.27);
+  EXPECT_NEAR(rw, 0.0, 0.02);
+  EXPECT_NEAR(vg, 9.0, 1.08);
+  EXPECT_NEAR(rg, 0.8 * std::exp(-0.02), 0.05);
+}
+
 TEST(devices, sensor_bad_config_fails_load_with_message) {
   struct Case { const char* file; const char* dev; const char* needle; };
   for (const Case& c : {Case{"bad_sensor_rate.xml", "imu_bad", "rate_hz"},
@@ -1638,4 +1685,68 @@ TEST(devices, motor_loss_needs_reference_speed) {
     EXPECT_NE(std::string(e.what()).find("m_bad_loss"), std::string::npos) << e.what();
     EXPECT_NE(std::string(e.what()).find("i0_w"), std::string::npos) << e.what();
   }
+}
+
+// ======== ESC losses (r_on, sw_loss, i_q): analytic checks, written from the definition ========
+namespace {
+constexpr double kRon = 0.02, kSw = 0.01, kIq = 0.05;  // motor_esc_loss.xml
+}
+
+// (e1) At zero throttle only the quiescent current flows: bus = PSU = i_q, no phase current.
+// (e2) Stalled (w = 0) at d = 0.05: I_m = d V / (R(T) + r_on); I_bus = (d + sw) I_m + i_q; PSU current = I_bus (KCL), and the
+// input power splits exactly into winding + FET conduction loss, switching loss and quiescent loss.
+TEST(devices, esc_loss_idle_and_stall_balance) {
+  auto s = load("motor_esc_loss.xml");
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_DOUBLE_EQ(get(*s, "/devices/m1", "bus_current"), kIq);
+  EXPECT_LT(rel(get(*s, "/devices/bench", "current"), kIq), 1e-9);
+  EXPECT_EQ(get(*s, "/devices/m1", "current"), 0.0);
+
+  const double d = 0.05;
+  put_ok(*s, "/devices/m1", "throttle", d);
+  ASSERT_EQ(s->step(1), 1);
+  ASSERT_EQ(get(*s, "/devices/m1", "omega"), 0.0);
+  const double v = get(*s, "/devices/m1", "voltage"), im = get(*s, "/devices/m1", "current"), ib = get(*s, "/devices/m1", "bus_current");
+  EXPECT_LT(rel(im, d * v / (r_at(kTamb) + kRon)), 1e-12);
+  EXPECT_LT(rel(ib, (d + kSw) * im + kIq), 1e-12);
+  EXPECT_LT(rel(get(*s, "/devices/bench", "current"), ib), 1e-9);  // PSU current = ESC bus current
+  const double p_in = v * ib, p_cu = im * im * r_at(kTamb), p_fet = im * im * kRon, p_sw = kSw * v * im, p_q = kIq * v;
+  EXPECT_LT(rel(p_in, p_cu + p_fet + p_sw + p_q), 1e-9) << p_in << " vs " << p_cu + p_fet + p_sw + p_q;
+  EXPECT_LT(rel(get(*s, "/devices/m1", "temperature"), kTamb + 0.0), 1e-3);  // r_on heats the ESC, not the winding
+}
+
+// (e3) Current limit with losses: the phase current is the limit (10 A), duty = I_lim (R + r_on) / V at w = 0, bus current
+// (duty + sw) I_lim + i_q.
+TEST(devices, esc_loss_current_limit) {
+  auto s = load("motor_esc_loss.xml");
+  put_ok(*s, "/devices/m1", "throttle", 1.0);
+  ASSERT_EQ(s->step(1), 1);
+  const double v = get(*s, "/devices/m1", "voltage"), duty = get(*s, "/devices/m1", "duty");
+  EXPECT_EQ(ms(*s).devices()->esc.st[0].mode, 2.0);
+  EXPECT_DOUBLE_EQ(get(*s, "/devices/m1", "current"), 10.0);
+  EXPECT_LT(rel(duty, 10.0 * (r_at(kTamb) + kRon) / v), 1e-12);
+  EXPECT_LT(rel(get(*s, "/devices/m1", "bus_current"), (duty + kSw) * 10.0 + kIq), 1e-12);
+  EXPECT_LT(rel(get(*s, "/devices/bench", "current"), get(*s, "/devices/m1", "bus_current")), 1e-9);
+}
+
+// (e4) Spinning: the steady state satisfies d V = Ke w + I_m (R + r_on) with I_m Ke = Kt I0 (Coulomb friction, no load), i.e.
+// w = (d V - I0 (R + r_on)) / Ke; the loss changes the speed against the ideal stage.
+TEST(devices, esc_loss_no_load_speed) {
+  auto s = load("motor_esc_loss.xml");
+  put_ok(*s, "/devices/m1", "throttle", 0.5);
+  ASSERT_EQ(s->step(3000), 3000);
+  const double v = get(*s, "/devices/m1", "voltage"), t = get(*s, "/devices/m1", "temperature");
+  const double want = (0.5 * v - kI0 * (r_at(t) + kRon)) / ke();
+  EXPECT_LT(rel(get(*s, "/devices/m1", "omega"), want), 0.005);
+  EXPECT_NEAR(get(*s, "/devices/m1", "current"), kI0, 0.01 * kI0);
+  EXPECT_FALSE(s->diverged());
+}
+
+// (e5) Zero loss fields are the ideal stage, bit for bit (same throttle schedule as the determinism tests).
+TEST(devices, esc_loss_zero_is_ideal) {
+  auto a = load("motor.xml"), b = load("motor_esc_zero.xml");
+  run(*a, 0, 400);
+  run(*b, 0, 400);
+  EXPECT_EQ(a->state_hash(), b->state_hash());
+  EXPECT_EQ(get(*a, "/devices/m1", "bus_current"), get(*b, "/devices/m1", "bus_current"));
 }

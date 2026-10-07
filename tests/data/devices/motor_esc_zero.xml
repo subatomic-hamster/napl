@@ -1,0 +1,17 @@
+<!-- motor.xml with the ESC loss fields present but zero: must be bitwise identical to motor.xml (esc_loss_zero_is_ideal). -->
+<mujoco model="motor_esc_zero">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="rotor" pos="0 0 0.1">
+      <joint name="shaft" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.001"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "bench", "node": 1, "voltage": 16, "r_series": 0.001, "parts": ["test-psu"]}],
+      "escs": [{"name": "m1", "node": 1, "joint": "shaft", "r_on": 0, "sw_loss": 0, "i_q": 0,
+                "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 20, "r_th": 3}}]
+    }'/>
+  </custom>
+</mujoco>

@@ -4,8 +4,9 @@
 //  - No inductance, no PWM ripple, no bus capacitance: the network is solved algebraically each tick from the state at the
 //    start of the tick (rotor speed, throttle, battery SoC / RC voltage, temperature). Real ESC input capacitors and
 //    wiring inductance smooth / delay the bus on a sub-ms scale; below our tick rate they are not resolved.
-//  - ESC = ideal buck stage of duty d = throttle (linear), linearised for the bus as I_bus = d I_m with
-//    I_m = (d V - Ke w)/R(T): g = d^2/R, i0 = d Ke w/R (see eval_esc). Switching / dead-time losses are not modelled.
+//  - ESC = buck stage of duty d = throttle (linear), linearised for the bus as I_bus = (d + sw) I_m + i_q with
+//    I_m = (d V - Ke w)/(R(T) + r_on): g = (d + sw) d/R, i0 = (d + sw) Ke w/R (see eval_esc). r_on (FET conduction),
+//    sw (switching + dead-time, fraction of the motor-side power) and i_q (electronics) default to 0 = ideal stage.
 //  - A zero-throttle ESC is open (coast), also when `complementary`: real BLHeli ESCs idle with the FETs off; braking
 //    applies only while d > 0.
 //  - Non-regenerating phase: I_m < 0 -> open (diode freewheel), solved by re-solving until the modes settle.
@@ -65,10 +66,14 @@ double ocv_at(const BatteryCfg& c, double soc) {  // piecewise linear, clamped a
 // One drive stage (ESC or servo H-bridge) + motor as the network sees it. cmd: duty command (throttle >= 0 for an ESC,
 // signed for a servo); omega: motor shaft speed; open: phase open (ESC: zero throttle, servo: torque disabled);
 // comp: current may reverse (servo: always, synchronous H-bridge).
-struct Drv { int node; const MotorCfg* m; double cmd, omega, temp, i_limit; bool comp, open; };
+// r_on / sw / iq: ESC losses (EscCfg), all 0 for a servo and for an ideal ESC (then every expression below reduces to the
+// original one bit for bit: x + 0.0 == x).
+struct Drv { int node; const MotorCfg* m; double cmd, omega, temp, i_limit; bool comp, open; double r_on = 0, sw = 0, iq = 0; };
 Drv drv_of(const EscCfg& c, const EscState& s) {
-  return {c.node, &c.motor, s.throttle, s.omega, s.temp, c.i_limit, c.complementary, !(s.throttle > 0)};
+  return {c.node, &c.motor, s.throttle, s.omega, s.temp, c.i_limit, c.complementary, !(s.throttle > 0),
+          c.r_on, c.sw_loss, c.i_q};
 }
+double r_tot(const Drv& g) { return g.m->r_at(g.temp) + g.r_on; }  // winding + FET conduction resistance
 Drv drv_of(const ServoCfg& c, const ServoState& s) {
   return {c.node, &c.motor, s.cmd, s.omega, s.temp, c.i_limit, true, servo_open(s)};
 }
@@ -78,7 +83,7 @@ struct DrvEval { int mode; double ic; };
 
 // Motor current that makes |I_m| = i_limit and the duty that gives it, at bus voltage V.
 void limited(const Drv& g, double V, double& im, double& duty) {
-  const double r = g.m->r_at(g.temp), ke = g.m->ke();
+  const double r = r_tot(g), ke = g.m->ke();
   im = std::copysign(g.i_limit, (g.cmd * V - ke * g.omega) / r);
   duty = (im * r + ke * g.omega) / V;
 }
@@ -86,12 +91,12 @@ void limited(const Drv& g, double V, double& im, double& duty) {
 // Which regime the drive is in at bus voltage V (from the free, unlimited current at d = cmd).
 DrvEval eval_drv(const Drv& g, double V) {
   if (g.open) return {1, 0};
-  const double i_free = (g.cmd * V - g.m->ke() * g.omega) / g.m->r_at(g.temp);
+  const double i_free = (g.cmd * V - g.m->ke() * g.omega) / r_tot(g);
   if (!g.comp && i_free < 0) return {1, 0};
   if (g.i_limit > 0 && std::abs(i_free) > g.i_limit && V > 1e-9) {
     double im, duty;
     limited(g, V, im, duty);
-    return {2, duty * im};
+    return {2, g.sw != 0 ? (duty + g.sw) * im : duty * im};
   }
   return {0, 0};
 }
@@ -100,7 +105,7 @@ DrvEval eval_drv(const Drv& g, double V) {
 void drv_out(const Drv& g, int mode, double V, double& duty, double& i_m) {
   if (mode == 0) {
     duty = g.cmd;
-    i_m = (duty * V - g.m->ke() * g.omega) / g.m->r_at(g.temp);
+    i_m = (duty * V - g.m->ke() * g.omega) / r_tot(g);
   } else if (mode == 2) {
     limited(g, V, i_m, duty);
   } else {
@@ -161,13 +166,14 @@ void solve_electrical(Devices& dv, double dt) {
     }
     for (std::size_t k = 0; k < nd; ++k) {
       const Drv g = drv(k);
-      if (dv.drv_mode[k] == 0) {  // I_bus = d I_m = (d^2/R) V - d Ke w / R
-        const double r = g.m->r_at(g.temp), d = g.cmd;
-        cond(g.node, 0, d * d / r);
-        inject(g.node, d * g.m->ke() * g.omega / r);
+      if (dv.drv_mode[k] == 0) {  // I_bus = (d + sw) I_m = ((d + sw) d / R) V - (d + sw) Ke w / R, R = winding + r_on
+        const double r = r_tot(g), d = g.cmd, db = g.sw != 0 ? d + g.sw : d;  // db: bus-side duty (keeps d's bits when sw = 0)
+        cond(g.node, 0, db * d / r);
+        inject(g.node, db * g.m->ke() * g.omega / r);
       } else if (dv.drv_mode[k] == 2) {
         inject(g.node, -dv.drv_ic[k]);
       }
+      inject(g.node, -g.iq);  // quiescent draw of the ESC electronics, in every mode (also at zero throttle)
     }
     gauss_solve(n, a, v);
 
@@ -223,7 +229,9 @@ void solve_electrical(Devices& dv, double dt) {
   auto drive_out = [&](auto& s, const Drv& g, int mode) {  // s: EscState or ServoState
     s.v = volt(g.node);
     drv_out(g, mode, s.v, s.duty, s.i_m);
-    s.i_bus = s.duty * s.i_m;
+    s.i_bus = s.duty * s.i_m;  // guarded so a servo / an ideal ESC keeps its bits (0 * -x = -0, -0 + 0 = +0)
+    if (g.sw != 0) s.i_bus += g.sw * s.i_m;
+    if (g.iq != 0) s.i_bus += g.iq;
   };
   for (std::size_t e = 0; e < ne; ++e) {
     dv.esc.st[e].mode = dv.drv_mode[e];

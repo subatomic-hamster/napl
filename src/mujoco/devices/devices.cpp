@@ -242,6 +242,10 @@ Devices parse(const std::string& json) {
       c.complementary = e->complementary();
       c.i_limit = e->i_limit();
       need(c.i_limit >= 0, n, "i_limit must be >= 0 (0 = none)");
+      c.r_on = e->r_on(); c.sw_loss = e->sw_loss(); c.i_q = e->i_q();
+      need(c.r_on >= 0 && c.r_on < c.motor.r20 * 10 && std::isfinite(c.r_on), n, "r_on must be in [0, 10 R20)");
+      need(c.sw_loss >= 0 && c.sw_loss < 0.5, n, "sw_loss must be in [0, 0.5)");
+      need(c.i_q >= 0 && std::isfinite(c.i_q), n, "i_q must be >= 0");
       c.seed = e->seed();
       use_node(c.node);
       slot(Devices::Slot::esc, static_cast<int>(dv.esc.cfg.size()));
@@ -341,6 +345,8 @@ Devices parse(const std::string& json) {
       c.p = sv->p(); c.i = sv->i(); c.d = sv->d(); c.pid_scale = sv->pid_scale(); c.deadband = sv->deadband();
       need(c.p >= 0 && c.i >= 0 && c.d >= 0 && std::isfinite(c.p + c.i + c.d), n, "p, i, d must be finite and >= 0");
       need(c.pid_scale > 0 && std::isfinite(c.pid_scale), n, "pid_scale must be > 0");
+      c.d_scale = sv->d_scale();
+      need(c.d_scale >= 0 && std::isfinite(c.d_scale), n, "d_scale must be >= 0 (0 = pid_scale)");
       need(c.deadband >= 0 && std::isfinite(c.deadband), n, "deadband must be >= 0 (counts)");
       c.max_torque = sv->max_torque();
       need(c.max_torque > 0 && c.max_torque <= 1000, n, "max_torque must be in (0, 1000]");
@@ -414,6 +420,9 @@ Devices parse(const std::string& json) {
       std_ok(n, c.vert_std, "vert_std must be finite and >= 0");
       std_ok(n, c.vel_std, "vel_std must be finite and >= 0");
       std_ok(n, c.latency_s, "latency_s must be finite and >= 0");
+      c.corr_time_s = s->corr_time_s(); c.corr_frac = s->corr_frac();
+      std_ok(n, c.corr_time_s, "corr_time_s must be finite and >= 0");
+      need(c.corr_frac >= 0 && c.corr_frac <= 1, n, "corr_frac must be in [0, 1]");
       const double delay = c.latency_s * c.rate_hz;
       need(delay < kGnssRing - 0.5, n, "latency_s * rate_hz must round to at most 63 samples (the ring capacity)");
       c.delay = static_cast<int>(std::lround(delay));
@@ -607,15 +616,16 @@ namespace {
 // friction (bearings + iron loss) stays. Thermal: explicit Euler, C_th dT/dt = I_m^2 R(T) - (T - T_amb)/R_th, R(T) of the
 // tick start.
 template <class S>
-void drive_motor(const MotorCfg& mc, mjModel* m, mjData* d, int dof, double n, double eta, bool open, S& s, double dt) {
-  const double kt = mc.ke(), r = mc.r_at(s.temp);
+void drive_motor(const MotorCfg& mc, mjModel* m, mjData* d, int dof, double n, double eta, bool open, S& s, double dt,
+                 double r_on = 0.0) {  // r_on: ESC FET resistance in series (mechanical side uses R + r_on, heating R only)
+  const double kt = mc.ke(), r = mc.r_at(s.temp), rt = r + r_on;
   const double fric = mc.loss(s.omega);
   const double dq = d->qvel[dof];  // dof_damping was 0 in step1: add the whole -b*qvel to the passive force arrays
   const double tau_m = kt * s.i_m - fric;
   const double g = std::tanh(s.omega / mc.w_s) * (tau_m > 0 ? 1.0 : tau_m < 0 ? -1.0 : 0.0);  // > 0: motor delivers power
   const double k = g >= 0 ? eta : eta + (1.0 - eta) * -g;
-  s.b = open ? 0.0 : k * kt * mc.ke() * n * n / r;
-  s.drive = open ? 0.0 : k * n * kt * s.duty * s.v / r;
+  s.b = open ? 0.0 : k * kt * mc.ke() * n * n / rt;
+  s.drive = open ? 0.0 : k * n * kt * s.duty * s.v / rt;
   s.torque = k * n * (kt * s.i_m - fric);
   d->qfrc_applied[dof] += s.drive - k * n * fric;
   d->qfrc_passive[dof] -= s.b * dq;
@@ -650,7 +660,8 @@ void step(mjModel* m, mjData* d, Devices& dv) {
 
   // 4. motors (drive_motor above).
   for (std::size_t e = 0; e < dv.esc.cfg.size(); ++e)
-    drive_motor(dv.esc.cfg[e].motor, m, d, dv.esc.cfg[e].dof, 1.0, 1.0, dv.esc.st[e].mode == 1, dv.esc.st[e], dt);
+    drive_motor(dv.esc.cfg[e].motor, m, d, dv.esc.cfg[e].dof, 1.0, 1.0, dv.esc.st[e].mode == 1, dv.esc.st[e], dt,
+                dv.esc.cfg[e].r_on);
   for (std::size_t i = 0; i < dv.servo.cfg.size(); ++i) {
     const ServoCfg& c = dv.servo.cfg[i];
     drive_motor(c.motor, m, d, c.dof, c.n, c.eta, servo_open(dv.servo.st[i]), dv.servo.st[i], dt);

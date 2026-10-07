@@ -774,6 +774,9 @@ included_in = "sik"
 "motor.i0" = "motor:i0"
 "motor.rotor_inertia" = "motor:j_rotor_bell"
 "i_limit" = "current_continuous"
+"r_on" = "r_on_total"
+"sw_loss" = "switching_loss_fraction"
+"i_q" = "quiescent_current"
 
 [device_maps.prop1045]
 "diameter" = "diameter"
@@ -897,9 +900,12 @@ instance = "pm02"
 port = "power_in"
 set = { i0 = { value = -0.0258, unit = "A", fidelity = "derived", derivation = "SiK radio V3: 5.2 V x 0.0625 A (sik supply_current_avg = (25 mA receive + 100 mA transmit at 20 dBm) / 2, 50 % TX duty assumed) / (0.85 x 14.8 V) = 0.02583 A out of the battery." } }
 
+# ESC losses (map esc2216: r_on, sw_loss, i_q from the ESC part): FET conduction resistance in series with the winding, switching +
+# dead-time fraction and quiescent current of the BLHeli_S 20A ESC, all estimated in the part with rationale (BLHeli_S manual: complementary
+# "damped light" PWM, so no body-diode freewheel loss). Hover: ~0.45 W + 0.14 W + 0.24 W of 40 W per motor; docs/validation/x500-hover.md.
 # ESCs. Thermal: c_th / r_th are unpublished. Only data: the vendor thrust table note "Motor temperature is motor surface temperature
 # @100% throttle running 10mins" = 80 degC (holybro-2216-kv920 [tables.thrust_test]). r_th is the thrust-stand bench's calibration
-# (0.927 K/W: the winding of the fitted stand model sits at 80 degC at that row, ambient 25 degC = the model's t_amb default; the
+# (0.962 K/W: the winding of the fitted stand model sits at 80 degC at that row, ambient 25 degC = the model's t_amb default; the
 # earlier hand figure 1.8 K/W used the table's 16.37 A at a cold 0.115 ohm and ignored R(T)). The winding is hotter than the
 # surface, so r_th is a LOWER bound; c_th = 64 g x ~0.4 J/(g K) (copper 0.385, steel 0.45,
 # aluminium 0.9 J/(g K), generic textbook values) gives a 46 s time constant, consistent with the vendor reaching steady state in 10 min.
@@ -912,7 +918,7 @@ port = "power_in"
 motor = "mot1"
 joint = "spin1"
 map = "esc2216"
-set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.927, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.927 K/W. Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.962, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.962 K/W (the stand fit now carries the ESC loss model, which lowers the fitted I_m at the 100 % row; 0.927 K/W without it). Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
 
 [[devices]]
 type = "esc"
@@ -922,7 +928,7 @@ port = "power_in"
 motor = "mot2"
 joint = "spin2"
 map = "esc2216"
-set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.927, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.927 K/W. Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.962, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.962 K/W (the stand fit now carries the ESC loss model, which lowers the fitted I_m at the 100 % row; 0.927 K/W without it). Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
 
 [[devices]]
 type = "esc"
@@ -932,7 +938,7 @@ port = "power_in"
 motor = "mot3"
 joint = "spin3"
 map = "esc2216"
-set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.927, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.927 K/W. Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.962, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.962 K/W (the stand fit now carries the ESC loss model, which lowers the fitted I_m at the 100 % row; 0.927 K/W without it). Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
 
 [[devices]]
 type = "esc"
@@ -942,7 +948,7 @@ port = "power_in"
 motor = "mot4"
 joint = "spin4"
 map = "esc2216"
-set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.927, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.927 K/W. Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.962, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.962 K/W (the stand fit now carries the ESC loss model, which lowers the fitted I_m at the 100 % row; 0.927 K/W without it). Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
 
 # Rotors: body = the prop instance, joint = its spin mate. Thrust direction = dir x (world joint axis) = +z for all four: CCW props
 # (m1, m2) have axis +z and dir = +1, CW props (m3, m4) have the reversed axis -z and dir = -1 (same convention as tests/data/devices/all.xml).
@@ -958,6 +964,7 @@ map = "prop1045"
 dir = 1
 ground_effect = true
 reynolds = true
+cq_ref = { value = 0.005794, unit = "1", fidelity = "derived", derivation = "C_Q(J=0) at x = 4.5 m^2/s of the T1045II prop = C_Q0 of the 2216 thrust-stand fit with the ESC loss modelled separately (napl bench thrust holybro-2216-kv920; docs/validation/thrust-stands.md; 3 training rows; tests/python/test_bench.py asserts this number equals the bench's). Replaces the prop part's torque-column-derived 0.00526: the vendor prints torque to 0.01 N m, and 0.00526 leaves 16 % of the vendor's own electrical input power (47.8 W) unexplained at the hover thrust (docs/validation/x500-hover.md). Independent cross-check: the UIUC static tables of APC 9x4.5 E (C_T 0.098) and 10x4.7 SF (C_T 0.12) give C_Q / C_T = 0.062 .. 0.064, i.e. C_Q 0.0057 .. 0.0058 at this prop's C_T 0.0908." }
 set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
 
 [[devices]]
@@ -970,6 +977,7 @@ map = "prop1045"
 dir = 1
 ground_effect = true
 reynolds = true
+cq_ref = { value = 0.005794, unit = "1", fidelity = "derived", derivation = "C_Q(J=0) at x = 4.5 m^2/s of the T1045II prop = C_Q0 of the 2216 thrust-stand fit with the ESC loss modelled separately (napl bench thrust holybro-2216-kv920; docs/validation/thrust-stands.md; 3 training rows; tests/python/test_bench.py asserts this number equals the bench's). Replaces the prop part's torque-column-derived 0.00526: the vendor prints torque to 0.01 N m, and 0.00526 leaves 16 % of the vendor's own electrical input power (47.8 W) unexplained at the hover thrust (docs/validation/x500-hover.md). Independent cross-check: the UIUC static tables of APC 9x4.5 E (C_T 0.098) and 10x4.7 SF (C_T 0.12) give C_Q / C_T = 0.062 .. 0.064, i.e. C_Q 0.0057 .. 0.0058 at this prop's C_T 0.0908." }
 set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
 
 [[devices]]
@@ -982,6 +990,7 @@ map = "prop1045"
 dir = -1
 ground_effect = true
 reynolds = true
+cq_ref = { value = 0.005794, unit = "1", fidelity = "derived", derivation = "C_Q(J=0) at x = 4.5 m^2/s of the T1045II prop = C_Q0 of the 2216 thrust-stand fit with the ESC loss modelled separately (napl bench thrust holybro-2216-kv920; docs/validation/thrust-stands.md; 3 training rows; tests/python/test_bench.py asserts this number equals the bench's). Replaces the prop part's torque-column-derived 0.00526: the vendor prints torque to 0.01 N m, and 0.00526 leaves 16 % of the vendor's own electrical input power (47.8 W) unexplained at the hover thrust (docs/validation/x500-hover.md). Independent cross-check: the UIUC static tables of APC 9x4.5 E (C_T 0.098) and 10x4.7 SF (C_T 0.12) give C_Q / C_T = 0.062 .. 0.064, i.e. C_Q 0.0057 .. 0.0058 at this prop's C_T 0.0908." }
 set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
 
 [[devices]]
@@ -994,6 +1003,7 @@ map = "prop1045"
 dir = -1
 ground_effect = true
 reynolds = true
+cq_ref = { value = 0.005794, unit = "1", fidelity = "derived", derivation = "C_Q(J=0) at x = 4.5 m^2/s of the T1045II prop = C_Q0 of the 2216 thrust-stand fit with the ESC loss modelled separately (napl bench thrust holybro-2216-kv920; docs/validation/thrust-stands.md; 3 training rows; tests/python/test_bench.py asserts this number equals the bench's). Replaces the prop part's torque-column-derived 0.00526: the vendor prints torque to 0.01 N m, and 0.00526 leaves 16 % of the vendor's own electrical input power (47.8 W) unexplained at the hover thrust (docs/validation/x500-hover.md). Independent cross-check: the UIUC static tables of APC 9x4.5 E (C_T 0.098) and 10x4.7 SF (C_T 0.12) give C_Q / C_T = 0.062 .. 0.064, i.e. C_Q 0.0057 .. 0.0058 at this prop's C_T 0.0908." }
 set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
 
 # Sensors. IMU and barometer sit on the Pixhawk site (instance origin = its mounting face; the 6C's internal sensors are a few mm higher,
@@ -1023,7 +1033,7 @@ name = "mag"
 instance = "mag_chip"
 site = "gps"
 map = "ist8310"
-set = { rate_hz = { value = 100.0, unit = "Hz", fidelity = "estimated", rationale = "IST8310 output data rate is 1-200 Hz (datasheet); 100 Hz (every 10th tick) is a mid value. The rate the firmware polls it at is not modelled." }, earth_field = { value = [1.1e-6, 2.15e-5, -4.29e-5], unit = "T", fidelity = "estimated", rationale = "Local geomagnetic field in the world frame (x East, y North, z Up) for the GNSS origin below (~47.4 N, 8.5 E): about 21.5 uT horizontal pointing north, 1.1 uT east (declination ~3 deg) and 42.9 uT downward (inclination ~63 deg), total ~48 uT. Recalled approximate values for central Europe, NOT looked up in IGRF/WMM for this site or date; good to ~10 %. Replace with a WMM evaluation if the heading matters." } }
+set = { rate_hz = { value = 100.0, unit = "Hz", fidelity = "estimated", rationale = "IST8310 output data rate is 1-200 Hz (datasheet); 100 Hz (every 10th tick) is a mid value. The rate the firmware polls it at is not modelled." }, earth_field = { value = [1.294e-6, 2.1756e-5, -4.3027e-5], unit = "T", fidelity = "derived", derivation = "The field PX4 itself assumes at the GNSS origin (47.3769 N, 8.5417 E), so the EKF's mag declination matches the simulated field: PX4 v1.17.0 src/lib/world_magnetic_model/geo_mag_declination.cpp (bilinear lookup in the WMM-2020 tables of geo_magnetic_tables.hpp, 10 deg grid), same corners as tests/data/px4/x500_fixture.xml (decl raw 252 629 719 193 x 0.00545143529, incl 20340 20695 24404 24176 x 0.00269892697, intensity 22117 22515 24073 23819 x 2.04183477 nT) with weights lat 0.73769, lon 0.85417: declination 3.4038 deg, inclination 63.1360 deg (down), F = 48231.8 nT; H = F cos(inc) = 21.795 uT, B_E = H sin(dec) = 1.294e-6 T, B_N = H cos(dec) = 2.1756e-5 T, B_U = -F sin(inc) = -4.3027e-5 T. (Replaces the earlier recalled 1.1e-6 / 2.15e-5 / -4.29e-5, 0.5 deg off in declination; the ULog yaw error did not change measurably, docs/research/px4-sitl.md N5c.)" } }
 
 [[devices]]
 type = "gnss"
@@ -1031,7 +1041,7 @@ name = "gnss"
 instance = "gnss_chip"
 site = "gps"
 map = "m8n"
-set = { latency_s = { value = 0.2, unit = "s", fidelity = "estimated", rationale = "No part publishes the receiver's output latency. PX4's EKF2 assumes EKF2_GPS_DELAY = 110 ms (its default, v1.17.0); the device lags by round(latency_s x rate_hz) samples, and at the datasheet 5 Hz one sample is 0.2 s, the smallest non-zero lag." }, lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "Arbitrary simulation origin, the same site as the repo's test model tests/data/devices/all.xml (Zurich); not a claim about where the vehicle flies." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 408.0, unit = "m", fidelity = "estimated", rationale = "As lat0 (all.xml uses 408 m). The environment device below carries the same value as origin_alt, so the barometer's ISA pressure and the GNSS altitude agree." }, horiz_std = { value = 2.1233, unit = "m", fidelity = "derived", derivation = "u-blox NEO-M8N horizontal position accuracy 2.5 m CEP (ublox_neo_m8n horizontal_accuracy_cep_gps, datasheet, 50 % radius) converted to a per-coordinate sigma of a circular normal distribution: sigma = CEP / 1.17741 = 2.1233 m." }, vert_std = { value = 3.185, unit = "m", fidelity = "derived", derivation = "1.5 x horiz_std (2.1233 m) = 3.185 m: the ratio 3.75 m / 2.5 m of the part's vertical_accuracy_cep (itself an estimate: 1.5 x horizontal CEP) to its horizontal CEP, applied to sigma." } }
+set = { latency_s = { value = 0.2, unit = "s", fidelity = "estimated", rationale = "No part publishes the receiver's output latency. PX4's EKF2_GPS_DELAY default is 110 ms (v1.17.0), px4/params/napl_sitl.params sets 200 ms to match this device; the device lags by round(latency_s x rate_hz) samples, and at the datasheet 5 Hz one sample is 0.2 s, the smallest non-zero lag." }, lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "Arbitrary simulation origin, the same site as the repo's test model tests/data/devices/all.xml (Zurich); not a claim about where the vehicle flies." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 408.0, unit = "m", fidelity = "estimated", rationale = "As lat0 (all.xml uses 408 m). The environment device below carries the same value as origin_alt, so the barometer's ISA pressure and the GNSS altitude agree." }, horiz_std = { value = 2.1233, unit = "m", fidelity = "derived", derivation = "u-blox NEO-M8N horizontal position accuracy 2.5 m CEP (ublox_neo_m8n horizontal_accuracy_cep_gps, datasheet, 50 % radius) converted to a per-coordinate sigma of a circular normal distribution: sigma = CEP / 1.17741 = 2.1233 m." }, vert_std = { value = 3.185, unit = "m", fidelity = "derived", derivation = "1.5 x horiz_std (2.1233 m) = 3.185 m: the ratio 3.75 m / 2.5 m of the part's vertical_accuracy_cep (itself an estimate: 1.5 x horizontal CEP) to its horizontal CEP, applied to sigma." }, corr_time_s = { value = 600.0, unit = "s", fidelity = "estimated", rationale = "Time constant of the slowly varying part of the position error (ionosphere, orbit / clock residuals, multipath geometry). The u-blox figure is a 24 h static CEP, i.e. mostly slow error, not per-fix scatter. Published stand-alone GPS data: Banachowicz (GPS / DGPS position coordinates, https://yadda.icm.edu.pl/baztech/element/bwmeta1.element.baztech-article-PWAB-0002-0006) finds them 'significantly correlated' with a mean correlation time 'within the range of a couple or more minutes'; Beard and McLain's textbook sUAS GPS model uses k_GPS = 1/1100 s (recalled, not re-fetched). 600 s sits inside that range; no receiver-specific value is published, so this is an estimate (docs/research/px4-sitl.md, N5c section)." }, corr_frac = { value = 0.9, unit = "1", fidelity = "estimated", rationale = "Share of the position VARIANCE that is the Gauss-Markov part (the rest is white per-fix scatter); total sigma stays the datasheet-derived horiz_std / vert_std. 0.9 gives a white scatter of 0.32 x sigma = 0.67 m horizontal / 1.0 m vertical and a Gauss-Markov sigma of 2.01 m / 3.02 m. No source splits the M8N error budget; chosen so that the fast scatter is of the order of a metre, as seen on static consumer-GNSS tracks, while the 2.5 m CEP is reached over the long run. Estimate." } }
 
 # Environment: calm air, world z = 0 at the same altitude as the GNSS origin (alt0 above), so the ISA barometer and GNSS agree. The two
 # values are duplicated with identical rationale (one provenance, two keys). Air density for the rotors is evaluated at origin_alt + z.

@@ -5,7 +5,7 @@
     ...                                      # user program flies; bridge writes run_dir/trace.csv and run_dir/replay.naplog
     final = st.stop()                        # {"tick": n, "state_hash": "<hex>"} of the bridge's World; kills both processes
 
-Launch logic mirrors tests/python/test_px4_flight.py (kept separate on purpose: that test is not edited by this module).
+tests/python/test_px4_flight.py launches through this same Stack (after stop(): st.rc = the bridge's exit code).
 Env: NAPL_PX4_DIR (PX4 checkout, default the hfbox path), NAPL_PX4_INSTANCE (default 0), NAPL_BRIDGE_EXE, NAPL_REPLAY_EXE.
 Everything binds 127.0.0.1-reachable ports 4560+N (tcp) and 14540+N / 14550+N / 18570+N (udp); never 5177-5194, 8000, 8010, 8093.
 """
@@ -13,8 +13,10 @@ Everything binds 127.0.0.1-reachable ports 4560+N (tcp) and 14540+N / 14550+N / 
 import os
 import queue
 import re
+import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -110,8 +112,17 @@ class _Proc:
 
 class Stack:
     def __init__(
-        self, cfg, run_dir, model=None, instance=None, speed=1.0, connect_timeout=120
-    ):
+        self,
+        cfg,
+        run_dir,
+        model=None,
+        instance=None,
+        speed=1.0,
+        connect_timeout=120,
+        params=None,
+        ctl=False,
+    ):  # params: extra PX4 parameters (name -> value) applied after napl_sitl.params; ctl: the bridge also serves st.ctl
+        self.params = dict(params or {})
         n = (
             int(os.environ.get("NAPL_PX4_INSTANCE", 0))
             if instance is None
@@ -125,9 +136,13 @@ class Stack:
             connect_timeout,
         )
         self.tcp, self.udp = [4560 + n], [14540 + n, 14550 + n, 14580 + n, 18570 + n]
-        self.n, self.bridge, self.px4 = n, None, None
+        self.n, self.bridge, self.px4, self.rc = n, None, None, None
         self.mavlink = f"udp://:{14540 + n}"  # a MAVSDK program listens here (PX4 sends its offboard stream to 14540)
         self.trace, self.log = self.dir / "trace.csv", self.dir / "replay.naplog"
+        # ctl: unix socket onto the bridge's World (napl.ctl.RemoteSim); short path (sun_path is 107 bytes), removed by the bridge
+        self.ctl = (
+            Path(tempfile.mkdtemp(prefix="napl-ctl-")) / "ctl.sock" if ctl else None
+        )
 
     def start(self):
         if (why := skip_reason()) is not None:
@@ -141,11 +156,15 @@ class Stack:
             )
         n, run = self.n, self.dir / "px4run"
         run.mkdir(parents=True, exist_ok=True)
+        # --sysid: PX4 instance n runs with MAV_SYS_ID n + 1 (rcS) and drops BATTERY_STATUS from any other system id
         argv = [str(BRIDGE), "--config", str(self.cfg), "--port", str(4560 + n), "--px4-udp", str(18570 + n),
                 "--udp-bind", str(14550 + n), "--speed", str(self.speed), "--trace", str(self.trace),
-                "--log", str(self.log), "--connect-timeout", str(self.ct)]  # fmt: skip
+                "--log", str(self.log), "--connect-timeout", str(self.ct),
+                "--sysid", str(n + 1)]  # fmt: skip
         if self.model:
             argv += ["--model", str(self.model)]
+        if self.ctl:
+            argv += ["--ctl", str(self.ctl)]
         try:
             self.bridge = _Proc(argv, self.dir / "bridge.log", stdin=subprocess.PIPE)
             self.bridge.wait_line("listening", 30)
@@ -155,6 +174,7 @@ class Stack:
                 if line.strip() and not line.lstrip().startswith("#"):
                     name, val = line.split(None, 1)
                     env[f"PX4_PARAM_{name}"] = val.strip()
+            env.update({f"PX4_PARAM_{k}": str(v) for k, v in self.params.items()})
             self.px4 = _Proc([str(PX4_BIN), "-d", "-i", str(n), "-s", "etc/init.d-posix/rcS", str(BUILD / "etc")],
                              self.dir / "px4.log", cwd=run, env=env)  # fmt: skip
             self.bridge.wait_line("connected", 90)
@@ -177,11 +197,15 @@ class Stack:
                         b.wait_line("final", 30),
                     )
                     out = {"tick": int(m[1]), "state_hash": m[2]}
-                    b.p.wait(30)
+                    self.rc = b.p.wait(
+                        30
+                    )  # the bridge's exit code (0 = clean shutdown)
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
                 pass  # best effort: kill() below is the guarantee
         for p in (b, self.px4):
             if p:
                 p.kill()
         self.bridge = self.px4 = None
+        if self.ctl:
+            shutil.rmtree(self.ctl.parent, ignore_errors=True)
         return out

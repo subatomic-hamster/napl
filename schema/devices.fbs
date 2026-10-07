@@ -72,6 +72,16 @@ table Esc {
   complementary: bool;    // true: phase current may go negative (braking / regen); false: diode freewheel, I_m >= 0
   i_limit: double;        // > 0: motor-current limit, A
   seed: uint64;
+  // ESC losses (all default 0 = ideal, the original model, bitwise). Motoring, averaged over a PWM period:
+  //   r_on:    ohm, FET conduction resistance in series with the winding (two conducting FETs + traces): the phase current is
+  //            I_m = (d V - Ke w) / (R(T) + r_on); the loss r_on I_m^2 heats the ESC, not the winding.
+  //   sw_loss: dimensionless, switching + dead-time diode loss as a fraction of the motor-side power: bus current
+  //            I_bus = (d + sw_loss) I_m + i_q (= f_sw (t_r + t_f) / 2 + 2 t_dead f_sw V_f / V, see parts / docs/models.md).
+  //            Assumes I_m >= 0; in regen (complementary ESC, I_m < 0) it overstates the returned current by sw_loss |I_m|.
+  //   i_q:     A, quiescent bus current of the ESC electronics (MCU, gate drivers, regulator), drawn also at zero throttle.
+  r_on: double;
+  sw_loss: double;
+  i_q: double;
 }
 
 // STS3215-like bus servo (S3): DC motor + gearbox + output encoder + firmware position loop, on the gear OUTPUT
@@ -81,7 +91,7 @@ table Esc {
 // simulation ticks per firmware step (1 / (firmware_hz dt) integral), checked at bind.
 // Firmware (every firmware step; calibration notes in servo.cpp):
 //   e = round(setpoint * cpr / 2 pi) - counts, |e| <= deadband -> 0;
-//   u = (p e + i sum(e) + d (e - e_prev)) / pid_scale;
+//   u = (p e + i sum(e)) / pid_scale + d (e - e_prev) / (d_scale > 0 ? d_scale : pid_scale);
 //   duty = clamp(u, -max_torque / 1000, +max_torque / 1000), held until the next firmware step.
 // Runtime inputs (set): goal_position (rad), goal_speed (rad/s, 0 = no profile), torque_enable (0 / 1, power-up 0).
 table Servo {
@@ -94,6 +104,8 @@ table Servo {
   firmware_hz: double;
   p: double; i: double; d: double;  // register units (>= 0)
   pid_scale: double;      // > 0: register units -> duty; a calibration knob (the true Feetech scaling is not public)
+  d_scale: double;        // > 0: register units -> duty for the D term only (the Feetech table scales D by 1/8, P by 1/4);
+                          // 0 (default) = use pid_scale for D as well
   deadband: double;       // counts, >= 0 (default 0 = none)
   max_torque: double;     // register 0..1000 (here (0, 1000]): |duty| limit = max_torque / 1000
   i_limit: double;        // > 0: motor-current limit, A (default 0 = none)
@@ -194,6 +206,9 @@ table Mag {
 // GNSS: local frame world x = East, y = North, z = Up; the world origin is (lat0 deg, lon0 deg, alt0 m). Flat-earth
 // conversion with the WGS84 radii at lat0. horiz_std: per north / east coordinate, vert_std: altitude, vel_std: each
 // NED velocity component. latency_s: outputs lag by round(latency_s rate_hz) samples (at most 63).
+// Position error model: corr_time_s = 0 (default): white Gaussian, sigma = horiz_std / vert_std per sample. corr_time_s > 0:
+// the same total sigma, split into a first-order Gauss-Markov part (time constant corr_time_s, variance fraction
+// corr_frac in [0, 1], started in its stationary distribution) plus a white part (the rest). Velocity stays white.
 table Gnss {
   name: string (required); parts: [string];
   site: string (required); rate_hz: double;
@@ -201,6 +216,8 @@ table Gnss {
   horiz_std: double; vert_std: double; vel_std: double;  // m, m, m/s
   latency_s: double;
   seed: uint64;
+  corr_time_s: double;    // s, 0 = white
+  corr_frac: double;      // 0..1, share of the position variance that is Gauss-Markov
 }
 
 table Devices {

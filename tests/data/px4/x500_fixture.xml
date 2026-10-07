@@ -114,8 +114,10 @@
     GNSS [ublox-neo-m8n] on gps_site: rate 10 Hz = 10 ticks [max_nav_rate_gps_only], horiz_std = CEP 2.5 m
       [horizontal_accuracy_cep_gps] / 1.1774 = 2.123 m per axis (D: circular-normal CEP = 1.1774 sigma), vert_std = 1.5 x 2.123 =
       3.185 m (D: the part's estimated vertical_accuracy_cep is 1.5 x horizontal), vel_std 0.05 m/s [velocity_accuracy],
-      latency_s 0.1 (E: no latency in any part file; one 10 Hz sample, near PX4's EKF2_GPS_DELAY default of 110 ms,
-      src/modules/ekf2/params_gnss.yaml), home lat0 47.397742, lon0 8.545594, alt0 488.0 (PX4 SITL default home).
+      latency_s 0.2 (E: no latency in any part file; 2 samples at 10 Hz, the same 0.2 s as assemblies/x500v2.toml;
+      px4/params/napl_sitl.params sets EKF2_GPS_DELAY 200 ms to match, PX4's default is 110 ms), home lat0 47.397742, lon0 8.545594, alt0 488.0 (PX4 SITL default home).
+      corr_time_s 600, corr_frac 0.9 (E, as assemblies/x500v2.toml: position error = Gauss-Markov 90 % of the variance, tau 600 s,
+      plus white 10 %; total sigma unchanged).
     Environment: origin_alt 488.0 (world z = 0 is ground at 488 m MSL), no wind, w20 0 (calm). ref_body base.
     Top-level seed 1: arbitrary RNG seed (E: no source applies).
   Gravity left at MuJoCo's default 0 0 -9.81.
@@ -256,7 +258,8 @@
         "earth_field": [1.2939e-6, 2.1743e-5, -4.3041e-5], "noise_std": 3.0e-7}],
       "gnss_receivers": [{"name": "gnss", "site": "gps_site", "rate_hz": 10, "parts": ["ublox-neo-m8n", "holybro-m8n-gps"],
         "lat0": 47.397742, "lon0": 8.545594, "alt0": 488.0,
-        "horiz_std": 2.123, "vert_std": 3.185, "vel_std": 0.05, "latency_s": 0.1}]
+        "horiz_std": 2.123, "vert_std": 3.185, "vel_std": 0.05, "latency_s": 0.2,
+        "corr_time_s": 600, "corr_frac": 0.9}]
     }'/>
   </custom>
 </mujoco>

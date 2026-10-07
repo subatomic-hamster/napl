@@ -899,7 +899,7 @@ def _validation_md(name, V):
         o += [
             "- Validated against closed forms only (static noise statistics, quantisation, pendulum / centripetal truth, ISA pressure, "
             "WGS84 flat-earth offset): the model implements the datasheet numbers, no hardware recording was compared.",
-            "- Noise parameters are datasheet values; vibration, temperature drift, multipath and time-correlated GNSS error are not modelled.",
+            "- Noise parameters are datasheet values; vibration, temperature drift and multipath are not modelled. GNSS position error is white unless a device sets corr_time_s (the X500 assembly does: Gauss-Markov part, estimated split).",
             "",
         ]
     else:

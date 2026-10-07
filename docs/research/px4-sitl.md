@@ -142,6 +142,49 @@ subject to different licenses ... As an exception, if you use this Software to c
 following MIT license". => the generated C headers are **MIT**; usable in our proprietary bridge. Do not vendor the generator; vendoring generated headers
 should carry the MIT text. Plan note (phase2-plan) "c_library_v2, MIT" is consistent but rests on this exception rather than a per-repo licence file.
 
+## N5c: navigation quality (root causes, measured)
+
+Tool: `tools/px4_nav_diag.py` (flies `examples/x500/mission.py` through `napl.px4.Stack`, then compares PX4's ULog `vehicle_global_position`,
+`home_position`, `vehicle_air_data`, attitude with the bridge's true state in trace.csv; PX4 lockstep time = sim time, so the clocks agree).
+Errors = estimate - truth; offset = mean, slow = std of the 5 s moving average, fast = residual std.
+
+1. **Baro auto-calibration against GNSS altitude (the +-2..3 m, "+3.19 m on the ground", 15.7 m).** `SENS_BAR_AUTOCAL` (default 1,
+   `vehicle_air_data/VehicleAirData.cpp: BaroGNSSAltitudeOffset`) low-passes (baro altitude - GNSS altitude) for 2 s, requires `epv < 8 m`, and
+   then shifts the baro pressure so the two agree. Our GNSS vertical error is 3.2 m (1 sigma), our baro model has bias 0 and the same origin altitude, so
+   the shift can only import GNSS error. Seen on the ground at t = 5 s: `vehicle_air_data.baro_alt_meter` steps 408.30 -> 410.25 m (+1.95 m, pressure
+   -22 Pa) with the truth at rest; the EKF (already running, height reference baro) moved its down state by -1.9 m (local down on the ground -1.9 m,
+   AMSL error +2.1 m for the whole flight, `up` slow 0.45 m). `home_position.alt` is a raw GNSS sample and stayed (-1.2 .. -2.8 m off), so
+   MAVSDK's AMSL and relative altitudes (global - home) disagreed by 3..5 m on the ground; with the GPS height reference the same mismatch reached
+   8 m (home alt +9.2 m, EKF AMSL +1.1 m). Fix: `SENS_BAR_AUTOCAL 0`. `home_position.alt` stays a raw GNSS sample (-2.1..+1.6 m off in the
+   12 runs after the fix), a PX4 design; the mission only feels it through the RTL return altitude (home alt + `RTL_RETURN_ALT`, so +-2 m on a 5 m
+   return), not through takeoff. After: baro error constant 0.30 m (= Pixhawk site height over the base body) with 0.06 m std, AMSL
+   error offset +0.33..0.38 m (the same 0.30 m), slow 0.06..0.08 m, fast 0.03..0.04 m, local down on the ground -0.01 m.
+2. **Height reference.** With the autocal off, `EKF2_HGT_REF` default (GPS) still wanders: truth 6.46 / 6.63 m peak for a 5 m target; baro reference
+   (kept in napl_sitl.params, with the GNSS height bias estimated against it) 4.9..5.1 m. `EKF2_GPS_CTRL 5` is no longer needed (default 7: truth
+   peak 4.89..5.15 m in 3 runs with it) and was removed.
+3. **GNSS delay.** Our receiver outputs a 0.2 s old sample (+1 tick), PX4 assumes 110 ms. `EKF2_GPS_DELAY 200`: fast error 0.18..0.24 -> 0.08 m, max
+   |e| 2.1 -> 1.0..1.4 m (same noise seed).
+4. **GNSS error model.** White per-sample noise of the datasheet size (2.12 m per axis, 3.2 m vertical) fights the EKF: the first fix (error 2 m) becomes the
+   local origin, then the filter averages it away over ~15 s, so the home position (set at arming, ~13 s after boot) carried 1.0..1.5 m of that
+   transient (landing 1.9 m from home) and the estimate wandered 0.4..0.7 m (slow) with 0.25..0.5 m fast. Real receivers are strongly time-correlated.
+   New schema fields `corr_time_s`, `corr_frac` (0 = white, the old stream bit for bit): position error = Gauss-Markov (tau, variance share) + white
+   (rest), total sigma still CEP / 1.1774 = 2.1233 m (vertical 1.5x). Assembly values tau = 600 s, share 0.9 (both `estimated`: Banachowicz,
+   GPS/DGPS coordinates "significantly correlated ... mean time of correlation within the range of a couple or more minutes",
+   https://yadda.icm.edu.pl/baztech/element/bwmeta1.element.baztech-article-PWAB-0002-0006; Beard & McLain use k_GPS = 1/1100 s;
+   the u-blox CEP is a 24 h static figure, i.e. mostly slow error; arXiv 2102.06492 models the same receiver as white 2.12 m plus a slow
+   random walk). Consequence, as on a real vehicle: the EKF follows the GNSS bias (estimate offsets of +-2 m, up to 4.4 m = 2.2 sigma) but the home-to-landing
+   offset is only the change of that bias in ~40 s.
+5. **Checked, no fault found.** HIL_SENSOR pressure units (hPa -> `sensor_baro.pressure` 96516 Pa = ISA at 408.3 m, matches the model), temperature (ISA at the
+   site; PX4 pressure altitude uses ISA, consistent), HIL_GPS altitude (mm MSL = alt0 + z, PX4 sets MSL = ellipsoid, no geoid in the model), `time_usec`
+   monotonic from the tick counter (lockstep), IMU biases 0, GNSS velocity white 0.05 m/s (PX4 floors its noise at 0.3 m/s `EKF2_GPS_V_NOISE`, hardcoded
+   sacc 0.25 m/s), `EKF2_GPS_P_NOISE` 0.5 m is below the 2.12 m `eph` we send, which PX4 uses instead. The mag field was a recalled approximation
+   (declination 2.9 deg); replaced by PX4's own WMM table lookup at the origin (3.40 deg), better provenance but NO measurable effect: yaw error after
+   20 s (est - truth) mean +0.59 / +0.65 / +0.62 deg with the old field and +0.62 / +0.41 / +0.47 with the new one (seeds 3 / 11 / 12, std 0.3-0.55); the residual +0.5 deg
+   is not the declination (not investigated further, heading does not affect the position results).
+   `EKF2_BARO_NOISE` default 3.5 m vs the model's 0.105 m: set 0.3 m.
+6. **Bridge bug found on the way:** PX4 instance N runs `MAV_SYS_ID` N+1 and drops BATTERY_STATUS from another system; the bridge sent sysid 1, so battery
+   telemetry was invalid on every instance but 0 (PX4 voltage read 65.535 V). `--sysid` added; `Stack` passes N+1.
+
 ## Gaps / risks
 
 1. Nothing was built or run; launch commands and `none_iris` flow are inferred from source.

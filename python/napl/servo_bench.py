@@ -14,9 +14,10 @@ off, output joint driving a 50 g link, no backlash joint. Two variants:
 Everything is one fixed-step run at the model timestep (1 ms), nothing fitted here.
 
 Datasheet comparisons carry a `kind`: "circular" = the part's derived param was fitted to that very point (eta to the stall
-torques, r_effective to the stall V/I, Ke to the no-load speed, i0 IS the 7.4 V no-load current), so agreement only shows
-the fixture reproduces the derivation; "independent" = not an input of the model (the 6 V no-load current, whose model value
-is the constant i0, and the step time, which depends on rotor inertia, an estimate).
+torques, r_effective to the stall V/I, Ke to the no-load speed, i0 IS the 7.4 V no-load current and the viscous loss share
+i0_visc is solved so that the 6 V no-load current comes out at the datasheet's 0.13 A: two points, one fitted number, so the
+two no-load currents are reproduced by construction, no residual degree of freedom); "independent" = not an input of the
+model (only the step time, which depends on rotor inertia, an estimate; it is not a datasheet comparison, see step_checks).
 12 V is a different part (STS3215 C018/C047, 30 kg.cm, 12 V coil) and is not benched: C001 is a 4-7.4 V servo.
 """
 
@@ -24,8 +25,10 @@ import functools
 import json
 import math
 import re
+import sys
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 import napl
 from napl import design
@@ -33,6 +36,18 @@ from napl import design
 ROOT = Path(__file__).resolve().parents[2]
 ASM = ROOT / "assemblies" / "so101.toml"
 PART_ID = "feetech-sts3215-c001"
+
+
+class Target(NamedTuple):
+    """What the bench builds: an assembly and the servo part whose built device config (first servo carrying it) is the fixture's."""
+
+    asm: Path
+    part_id: str
+
+
+STS = Target(
+    ASM, PART_ID
+)  # the default of every function below: the STS3215 bench is unchanged
 R_SERIES = 0.001  # ohm, PSU series resistance of the regulated bench supply
 TOL = 10.0  # % tolerance of the datasheet comparison
 JOINTS = [
@@ -49,29 +64,28 @@ STEP_KIND = "not comparable: datasheet figure is the no-load speed restated"
 
 
 @functools.cache
-def _built():
-    """Build assemblies/so101.toml once into a temp dir (kept for the process) -> (xml path, devices dict)."""
+def _built(asm: Path = ASM):
+    """Build an assembly (default assemblies/so101.toml) once into a temp dir (kept for the process) -> (tmp, xml path, devices dict)."""
     tmp = tempfile.TemporaryDirectory(prefix="servo_bench_")
     # compute() = build() without the report / DRC step (the bench needs only the MJCF); mesh paths are relative to tmp
-    xml_text, _ = design.compute(ASM, ROOT / "parts", tmp.name)
-    xml = Path(tmp.name) / "so101.xml"
+    xml_text, _ = design.compute(asm, ROOT / "parts", tmp.name)
+    xml = Path(tmp.name) / f"{asm.stem}.xml"
     xml.write_text(xml_text, encoding="utf-8")
     m = re.search(r"name=\"napl\.devices\" data='(.*?)'/>", xml.read_text(), re.DOTALL)
     return tmp, xml, json.loads(m.group(1))
 
 
-def servo_config(**over) -> dict:
-    """The so101 servo1 device config (from the part via the builder), minus node / joint binding, with overrides (p, d, ...)."""
-    cfg = {
-        k: v
-        for k, v in _built()[2]["servos"][0].items()
-        if k not in ("name", "node", "joint", "parts")
-    }
+def servo_config(tgt: Target = STS, **over) -> dict:
+    """The target's servo device config (from the part via the builder), minus node / joint binding, with overrides (p, d, ...)."""
+    srv = next(
+        s for s in _built(tgt.asm)[2]["servos"] if tgt.part_id in s.get("parts", [])
+    )
+    cfg = {k: v for k, v in srv.items() if k not in ("name", "node", "joint", "parts")}
     cfg.update(over)
     return cfg
 
 
-def fixture(voltage: float, stalled: bool, **over) -> str:
+def fixture(voltage: float, stalled: bool, tgt: Target = STS, **over) -> str:
     joint = '<joint name="out" type="hinge" axis="0 0 1"' + (
         ' limited="true" range="-0.05 0.05"/>' if stalled else "/>"
     )
@@ -79,7 +93,16 @@ def fixture(voltage: float, stalled: bool, **over) -> str:
         "psus": [
             {"name": "bench", "node": 1, "voltage": voltage, "r_series": R_SERIES}
         ],
-        "servos": [{"name": "s1", "node": 1, "joint": "out", **servo_config(**over)}],
+        # overload_load 0: the factory 80 % / 2 s overload protection (the built arm's power-up state) would release the
+        # torque during the 1.7 s full-duty stall; the datasheet points are measured without a protection trip
+        "servos": [
+            {
+                "name": "s1",
+                "node": 1,
+                "joint": "out",
+                **servo_config(tgt, **{"overload_load": 0, **over}),
+            }
+        ],
     }
     return f"""<mujoco model="servo_bench"><compiler angle="radian"/><option timestep="0.001" gravity="0 0 0"/>
 <worldbody><body name="link" pos="0 0 0.1">{joint}
@@ -87,9 +110,9 @@ def fixture(voltage: float, stalled: bool, **over) -> str:
 <custom><text name="napl.devices" data='{json.dumps(dev)}'/></custom></mujoco>"""
 
 
-def _sim(voltage, stalled, **over):
+def _sim(voltage, stalled, tgt: Target = STS, **over):
     tmp = Path(tempfile.mkdtemp(prefix="servo_fx_"))
-    (tmp / "fx.xml").write_text(fixture(voltage, stalled, **over))
+    (tmp / "fx.xml").write_text(fixture(voltage, stalled, tgt, **over))
     sim = napl.Sim.load(tmp / "fx.xml")
     return sim, lambda a: float(sim.query("/devices/s1", a)[0][0])
 
@@ -104,18 +127,19 @@ def _hold(sim, q, attrs, n):
     return acc
 
 
-def stall(voltage: float) -> dict:
-    """Stalled variant at full duty: output torque (N*m) and supply current (A, `bus_current` is the node current, `current` the motor's)."""
-    sim, q = _sim(voltage, True)
-    sim.set("/devices/s1", "goal_position", 1.0)
+def stall(voltage: float, tgt: Target = STS, goal: float = 1.0, **over) -> dict:
+    """Stalled variant at full duty (goal 1 rad = saturated; a small goal gives a partial duty): output torque (N*m) and supply
+    current (A, `bus_current` is the node current, `current` the motor's); also `counts` (the stalled encoder count)."""
+    sim, q = _sim(voltage, True, tgt, **over)
+    sim.set("/devices/s1", "goal_position", goal)
     sim.set("/devices/s1", "torque_enable", 1)
     sim.step(1500)
-    return _hold(sim, q, ["torque", "current", "duty", "voltage"], 200)
+    return _hold(sim, q, ["torque", "current", "duty", "voltage", "counts"], 200)
 
 
-def no_load(voltage: float) -> dict:
+def no_load(voltage: float, tgt: Target = STS) -> dict:
     """Free variant, saturated duty: steady output speed (rad/s) and motor current (A)."""
-    sim, q = _sim(voltage, False)
+    sim, q = _sim(voltage, False, tgt)
     sim.set("/devices/s1", "goal_position", 100.0)
     sim.set("/devices/s1", "torque_enable", 1)
     sim.step(1500)
@@ -123,13 +147,20 @@ def no_load(voltage: float) -> dict:
 
 
 def step_response(
-    voltage: float, p: float, pid_scale: float | None = None, d: float = 32.0
+    voltage: float,
+    p: float,
+    pid_scale: float | None = None,
+    d: float = 32.0,
+    deg: float = STEP_DEG,
+    tgt: Target = STS,
+    **extra,
 ) -> dict:
-    """60 deg step from rest, no load (pid_scale None = the assembly's). t_cover = first time the output is within 2 counts of
-    60 deg; rise = 10-90 %; overshoot in %; settle = last time outside +-2 % of the step; peak_speed = max output speed rad/s."""
+    """`deg` step (default 60) from rest, no load (pid_scale None = the assembly's; extra = more device overrides, e.g. d_scale).
+    t_cover = first time the output is within 2 counts of the step; rise = 10-90 %; overshoot in %; settle = last time outside
+    +-2 % of the step; peak_speed = max output speed rad/s; final = counts of error at the end of the 3 s run."""
     over = {} if pid_scale is None else {"pid_scale": pid_scale}
-    sim, q = _sim(voltage, False, p=p, d=d, **over)
-    goal, cpr = math.radians(STEP_DEG), servo_config()["encoder_cpr"]
+    sim, q = _sim(voltage, False, tgt, p=p, d=d, **over, **extra)
+    goal, cpr = math.radians(deg), servo_config(tgt)["encoder_cpr"]
     sim.set("/devices/s1", "goal_position", goal)
     sim.set("/devices/s1", "torque_enable", 1)
     t, pos, peak = [], [], 0.0
@@ -148,6 +179,7 @@ def step_response(
         "overshoot": max(0.0, (max(pos) - goal) / goal * 100),
         "settle": out[-1] if out else 0.0,
         "peak_speed": peak,
+        "final": (pos[-1] - goal) * cpr / (2 * math.pi),
     }
 
 
@@ -156,10 +188,10 @@ def full_duty_step(voltage: float) -> dict:
     return step_response(voltage, p=1e4, d=0.0)
 
 
-def spin_up_tau() -> float:
+def spin_up_tau(tgt: Target = STS) -> float:
     """J / b of the servo model (s): J = rotor inertia reflected to the output (I_rotor N^2), b = the damping split coefficient
     of devices.cpp drive_motor, b = eta Ke^2 N^2 / R (driving side, k = eta; R at 20 C, the winding barely warms in a step)."""
-    cfg = servo_config()
+    cfg = servo_config(tgt)
     m, n = cfg["motor"], cfg["gear_ratio"]
     ke = 60.0 / (2 * math.pi * m["kv"])
     return m["rotor_inertia"] * n * n / (cfg["efficiency"] * ke * ke * n * n / m["r20"])
@@ -233,7 +265,7 @@ def datasheet_rows() -> list:
                 part.value(f"no_load_current_{s}"),
                 "circular (i0 = this value)"
                 if v == 7.4
-                else "independent; FAIL cause: the model i0 is a constant (the 7.4 V value) and the datasheet current falls with V",
+                else "circular (i0_visc is solved from this value: the 6 V / 7.4 V pair fixes one loss-law number)",
             ),
         ]
         ref = part.value(f"no_load_speed_{s}")
@@ -269,7 +301,7 @@ def step_table() -> list:
 def arm_sim(pid_scale=None, p=None):
     """SO-101 (assemblies/so101.toml via design.compute) as a Sim, torque off; optional pid_scale / p override on all six
     servos (config edit of the built MJCF: pid_scale is a config, not a runtime attr)."""
-    _, xml, _ = _built()
+    _, xml, _ = _built(ASM)
     text = xml.read_text()
 
     def patch(m):
@@ -326,6 +358,172 @@ def pan_settle_error(
         sim.step(round(seconds * 1000))
         out[side] = abs(q("servo1", "counts") - round(goal * cpr / (2 * math.pi)))
     return out
+
+
+# ---- DYNAMIXEL bench (python -m napl.servo_bench dxl): the Koch follower's servos, built from assemblies/koch.toml ---------------------------
+# Same fixture, same variants (stalled / free), same `kind` labels as the STS3215 bench; only the target (assembly + part) and the
+# datasheet tables differ. Evidence chain: docs/research/dynamixel-calibration.md.
+KOCH = ROOT / "assemblies" / "koch.toml"
+XL430 = Target(KOCH, "robotis-xl430-w250-t")
+XL330 = Target(KOCH, "robotis-xl330-m288-t")
+DXL_VOLTS = {
+    XL430: ((9.0, "9v"), (11.1, "11v1"), (12.0, "12v")),
+    XL330: ((3.7, "3v7"), (5.0, "5v"), (6.0, "6v")),
+}
+# The voltage the part's R_eff / eta fit left out (XL430: the 9 V point, 1-digit current; XL330: the 3.7 V point is in no fit of
+# R_eff / eta, but Ke uses all three).
+HELD_OUT = {XL430: "9v", XL330: "3v7"}
+BAM_XL330_NO_LOAD_A = 0.14  # Rhoban BAM m1.json friction (Coulomb + viscous at the 5 V no-load speed) as motor current: 0.13-0.15 A
+DXL_STEP_DEG = 90.0
+
+
+def _dxl_kind(tgt: Target, tag: str, quantity: str) -> str:
+    held = tag == HELD_OUT[tgt]
+    if quantity == "no-load speed rad/s":
+        if tgt == XL330:
+            return "circular (Ke = mean of the three no-load points; the residual shows only their linearity in V)"
+        return (
+            "independent (held out: Ke is fitted to 11.1 / 12 V)"
+            if held
+            else "circular (Ke fitted to the 11.1 / 12 V no-load points)"
+        )
+    what = {
+        "stall torque N*m": "eta fitted to the two top-voltage stall torques",
+        "stall current A": "r_effective = mean V / I_stall of the two top voltages",
+    }[quantity]
+    return "independent (held out: not in the fit)" if held else f"circular ({what})"
+
+
+def dxl_rows(tgt: Target) -> list:
+    """[{servo, quantity, V, sim, datasheet, err_pct, pass, kind}] for one Koch servo part at its three datasheet voltages."""
+    part = design.Library(ROOT / "parts").get(tgt.part_id)
+    rows = []
+    for v, s in DXL_VOLTS[tgt]:
+        st, nl = stall(v, tgt), no_load(v, tgt)
+        for quantity, sim, key in (
+            ("stall torque N*m", abs(st["torque"]), f"stall_torque_{s}"),
+            ("stall current A", abs(st["current"]), f"stall_current_{s}"),
+            ("no-load speed rad/s", abs(nl["velocity"]), f"no_load_speed_{s}"),
+        ):
+            rows.append(
+                {
+                    "servo": tgt.part_id,
+                    **_row(
+                        quantity, v, sim, part.value(key), _dxl_kind(tgt, s, quantity)
+                    ),
+                }
+            )
+    if (
+        tgt == XL330
+    ):  # the only no-load current number: BAM's friction identification (no datasheet figure exists)
+        nl = no_load(5.0, tgt)
+        row = _row(
+            "no-load current A",
+            5.0,
+            abs(nl["current"]),
+            BAM_XL330_NO_LOAD_A,
+            "independent (BAM identified friction converted to motor current, 0.13-0.15 A; part i0 is an estimate)",
+        )
+        rows.append({"servo": tgt.part_id, **row, "pass": None})
+    return rows
+
+
+def static_duty(tgt: Target, v: float, goal: float = 0.2) -> dict:
+    """Stalled at a partial error: the device duty vs the register law duty = P * e / pid_scale (e = goal counts - stalled counts;
+    D is zero at rest). Model self-consistency of the gain chain, not a datasheet comparison."""
+    cfg = servo_config(tgt)
+    st = stall(v, tgt, goal)
+    e = round(goal * cfg["encoder_cpr"] / (2 * math.pi)) - st["counts"]
+    return {
+        "e_counts": e,
+        "duty": st["duty"],
+        "pred": cfg["p"] * e / cfg["pid_scale"],
+        "torque": st["torque"],
+    }
+
+
+def dxl_steps() -> list:
+    """90 deg no-load steps at the supply the Koch uses (XL430 12 V, XL330 5 V) under the registers' e-Manual defaults, LeRobot's
+    elbow gains, the pessimistic gain scale (pid_scale and d_scale x2: BAM's XL330 divisor 256 instead of 128) and a 500 Hz loop
+    (the loop rate is unpublished; D / I are per firmware step, so a slower loop changes their time-domain weight)."""
+    out = []
+    for tgt, v, regs in (
+        (XL430, 12.0, ((640, 4000, "e-Manual default P=640 D=4000"),)),
+        (
+            XL330,
+            5.0,
+            (
+                (400, 0, "e-Manual default P=400 D=0"),
+                (1500, 600, "LeRobot elbow P=1500 D=600"),
+            ),
+        ),
+    ):
+        cfg = servo_config(tgt)
+        for p, d, name in regs:
+            for k, scale, extra in (
+                ("calibrated", 1, {}),
+                ("BAM divisor", 2, {}),
+                ("500 Hz loop", 1, {"firmware_hz": 500.0}),
+            ):
+                r = step_response(
+                    v,
+                    p,
+                    cfg["pid_scale"] * scale,
+                    d,
+                    DXL_STEP_DEG,
+                    tgt,
+                    d_scale=cfg["d_scale"] * scale,
+                    **extra,
+                )
+                out.append(
+                    {"servo": tgt.part_id, "V": v, "registers": f"{name}, {k}", **r}
+                )
+    return out
+
+
+def main_dxl():
+    print(
+        f"| servo | V | quantity | datasheet | sim | err % | pass (+-{TOL:g} %) | kind |\n|---|---|---|---|---|---|---|---|"
+    )
+    for tgt in (XL430, XL330):
+        for r in dxl_rows(tgt):
+            verdict = "n/a" if r["pass"] is None else "PASS" if r["pass"] else "FAIL"
+            print(
+                f"| {r['servo']} | {r['V']:g} | {r['quantity']} | {r['datasheet']:.4g} | {r['sim']:.4g} | {r['err_pct']:+.1f} | {verdict} | {r['kind']} |"
+            )
+    print(
+        "\nstalled at a partial error (goal 0.2 rad): device duty vs the register law P e / pid_scale (self-consistency, not a datasheet point):"
+    )
+    print(
+        "| servo | V | e counts | duty | P e / pid_scale | torque N*m |\n|---|---|---|---|---|---|"
+    )
+    for tgt, v in ((XL430, 12.0), (XL330, 5.0)):
+        s = static_duty(tgt, v)
+        print(
+            f"| {tgt.part_id} | {v:g} | {s['e_counts']:.1f} | {s['duty']:.4f} | {s['pred']:.4f} | {s['torque']:.4f} |"
+        )
+    print(
+        "\nfull-duty 90 deg step excess over 90 deg / w_sim vs the spin-up time constant J / b (model self-consistency):"
+    )
+    print(
+        "| servo | V | t s | 90deg / w_sim s | excess s | J / b s |\n|---|---|---|---|---|---|"
+    )
+    for tgt, v in ((XL430, 12.0), (XL330, 5.0)):
+        sr = step_response(v, 1e4, d=0.0, deg=DXL_STEP_DEG, tgt=tgt)
+        t_min = math.radians(DXL_STEP_DEG) / abs(no_load(v, tgt)["velocity"])
+        print(
+            f"| {tgt.part_id} | {v:g} | {sr['t_cover']:.3f} | {t_min:.3f} | {sr['t_cover'] - t_min:.3f} | {spin_up_tau(tgt):.3f} |"
+        )
+    print(
+        "\n90 deg no-load step, model only (no published Koch / BAM step data to compare with; BAM's command delay of 5.9-10.6 ms is not modelled):"
+    )
+    print(
+        "| servo | V | registers | t to 90deg (2 counts) s | rise 10-90 % s | overshoot % | settle (2 %) s | final err counts | peak speed rad/s |\n|---|---|---|---|---|---|---|---|---|"
+    )
+    for r in dxl_steps():
+        print(
+            f"| {r['servo']} | {r['V']:g} | {r['registers']} | {r['t_cover']:.3f} | {r['rise']:.3f} | {r['overshoot']:.1f} | {r['settle']:.3f} | {r['final']:+.1f} | {r['peak_speed']:.2f} |"
+        )
 
 
 def main():
@@ -394,4 +592,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main_dxl() if sys.argv[1:] == ["dxl"] else main()

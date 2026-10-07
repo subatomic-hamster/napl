@@ -26,7 +26,15 @@ the port reads the device attrs back into its register image, and a RESET instru
   21 P, 22 D, 23 I (register units, order as in the table) ........ S     -> p_gain, d_gain, i_gain
   26 / 27 dead zone (counts) ...................................... S     -> deadband = max of the two (the sim's is symmetric)
   35 protection time (10 ms), 36 overload torque (%) .............. S     -> overload_time, overload_load (fraction of FULL duty)
-  18, 20, 24-25, 28-34, 37-39 ..................................... P     (protection current, holding torque, ...: stored only)
+  31-32 homing offset (counts, sign-magnitude bit 11) ............. P     applied by the port: present position = (sim counts -
+                                                                           offset) mod cpr and a goal register g is the sim count
+                                                                           g + offset (the firmware's "Present_Position =
+                                                                           Actual_Position - Homing_Offset", LeRobot feetech.py
+                                                                           _get_half_turn_homings; Feetech table addr 31 "Position
+                                                                           offset", sign by bit 11 as in LeRobot's encodings table).
+                                                                           Sim "actual position" = the encoder count, zero at the
+                                                                           zero pose. 0 = factory. Rewrite the goal after changing it.
+  18, 20, 24-25, 28-30, 33-34, 37-39 .............................. P     (protection current, holding torque, ...: stored only)
   40 torque enable ................................................ S     -> torque_enable (any nonzero = 1)
   41 acceleration, 44-45 goal time ................................ P
   42-43 goal position (counts, bit 15 = sign) ..................... S     -> goal_position [rad]  (0..cpr-1 = that many counts
@@ -36,7 +44,7 @@ the port reads the device attrs back into its register image, and a RESET instru
   46-47 goal speed (steps/s, bit 15 = sign, magnitude used) ....... S     -> goal_speed [rad/s]  (0 = no profile)
   48-49 torque limit (0.1 %) ...................................... S     -> torque_limit
   55 lock (1 = EEPROM addr < 40 read-only) ........................ P
-  56-57 present position (0..cpr-1, wrapped) ...................... S R   counts mod cpr (the sim encoder is unwrapped)
+  56-57 present position (0..cpr-1, wrapped) ...................... S R   (counts - homing offset) mod cpr (the sim encoder is unwrapped)
   58-59 present speed (steps/s, bit 15 sign) ...................... S R   `velocity` (output shaft, rad/s) x cpr / 2 pi
   60-61 present load (0.1 % of full duty, bit 10 sign) ............ S R   `load` (effective duty, fraction) x 1000
   62 present voltage (0.1 V) ...................................... S R   `voltage` attr
@@ -393,7 +401,16 @@ class FeetechPort:
             lo, hi = s.w(9), s.w(11)
             if hi > 0:
                 g = min(max(g, lo), hi)
-            if (
+            off = self._offset(s)
+            if off:  # register frame -> encoder frame: raw = goal + offset. A single-turn goal (0..cpr-1) is the
+                # representative of (goal + offset) mod cpr nearest the present count (a joint with a limited range never
+                # needs the other turn); a signed (bit 15) goal is a plain shift.
+                single = 0 <= g < self.cpr
+                g += off
+                if single:
+                    cur = self._q(s, "counts")
+                    g += round((cur - g) / self.cpr) * self.cpr
+            elif (
                 0 <= g < self.cpr
             ):  # single-turn target, reached without wrapping: stay in the current turn. The turn is counts / cpr
                 # truncated towards zero (turn 0 for |counts| < cpr, also for negative angles: a floor would put a joint
@@ -407,16 +424,38 @@ class FeetechPort:
                 self.servos[new] = self.servos.pop(s.id)
                 s.id = new
 
+    @staticmethod
+    def _offset(
+        s,
+    ):  # homing offset, regs 31-32: sign-magnitude bit 11 (the 12 bits; higher bits ignored)
+        return _sm(s.w(31) & 0xFFF, 11)
+
+    _LIVE = (
+        "counts",
+        "velocity",
+        "load",
+        "goal_position",
+        "alarm",
+        "voltage",
+        "temperature",
+        "current",
+    )
+
     def _refresh(self, s):
-        counts = round(self._q(s, "counts"))
-        speed = round(self._q(s, "velocity") * self.cpr / (2 * pi))
-        load = round(self._q(s, "load") * 1000)
-        goal = self._q(s, "goal_position") * self.cpr / (2 * pi)
-        s.put(56, counts % self.cpr)
+        qm = getattr(
+            self.sim, "query_many", None
+        )  # a remote sim (napl.ctl.RemoteSim): one round trip, not eight
+        v = dict(zip(self._LIVE, qm(s.path, self._LIVE))) if qm else None
+        q = (lambda a: v[a]) if v else (lambda a: self._q(s, a))
+        counts = round(q("counts"))
+        speed = round(q("velocity") * self.cpr / (2 * pi))
+        load = round(q("load") * 1000)
+        goal = q("goal_position") * self.cpr / (2 * pi)
+        s.put(56, (counts - self._offset(s)) % self.cpr)
         s.put(58, _to_sm(max(-32767, min(speed, 32767)), 15))
         s.put(60, _to_sm(max(-1000, min(load, 1000)), 10))
-        s.put(65, int(self._q(s, "alarm")), 1)
-        s.put(62, round(self._q(s, "voltage") * 10), 1)
-        s.put(63, round(self._q(s, "temperature")), 1)
+        s.put(65, int(q("alarm")), 1)
+        s.put(62, round(q("voltage") * 10), 1)
+        s.put(63, round(q("temperature")), 1)
         s.put(66, int(s.mem[40] != 0 and abs(goal - counts) > 2), 1)
-        s.put(69, round(abs(self._q(s, "current")) / 0.0065))
+        s.put(69, round(abs(q("current")) / 0.0065))

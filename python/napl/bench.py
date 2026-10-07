@@ -47,8 +47,13 @@ LOSS_VISC, LOSS_QUAD = 0.0, 0.0
 LOSS_GRID = [(0.0, 0.0), (0.1, 0.0), (0.25, 0.0), (0.5, 0.0), (1.0, 0.0), (0.25, 0.25)]
 MODELS = {
     "baseline": dict(re=False, visc=0.0, quad=0.0, thermal=False),
-    "n4b": dict(re=True, visc=LOSS_VISC, quad=LOSS_QUAD, thermal=True),
+    "n4b": dict(re=True, visc=LOSS_VISC, quad=LOSS_QUAD, thermal=True, esc=True),
 }
+# `esc` switch (default off when the key is absent): model the ESC losses (r_on, sw_loss, i_q of the ESC part named here) in
+# series with the winding, so the fitted C_Q0 no longer absorbs them. Only the 2216 table has an ESC to model: the Holybro
+# vendor test does not name its ESC, the kit's own BLHeli_S 20A part is the stand-in (docs/validation/thrust-stands.md,
+# "ESC loss"); every other table keeps its ideal stage, so their numbers are unchanged.
+ESC_FOR = {"holybro-2216-kv920": "holybro-x500v2-esc-blheli-s-20a"}
 
 # Vendor-printed motor temperature (degC, "Operating temperature ... at 100 % throttle" / "Temperature in full-throttle
 # load"; the 2807 / 2814 / 3110 / 4214 / mn* tables say "Temperature N C"), transcribed from the comments above each table
@@ -228,6 +233,15 @@ def make_case(
     ke = 60 / (2 * math.pi * m["kv"])
     case["i0_w"] = (v0 - m["r_winding"] * m["i0"]) / ke
     case["i0_voltage"] = v0
+    # ESC losses of the stand (zeros = ideal stage): the ESC part's r_on_total / switching_loss_fraction / quiescent_current
+    case["esc"] = {"r_on": 0.0, "sw_loss": 0.0, "i_q": 0.0}
+    if model.get("esc") and motor_id in ESC_FOR:
+        ep = load_part(ESC_FOR[motor_id])
+        case["esc"] = {
+            "r_on": pv(ep, "r_on_total"),
+            "sw_loss": pv(ep, "switching_loss_fraction"),
+            "i_q": pv(ep, "quiescent_current"),
+        }
     # thermal: ambient and (calibrated per case by calibrate_r_th) winding-to-ambient resistance
     case["t_vendor"] = VENDOR_TEMP_C.get((motor_id, table_name))
     case["r_th"] = 1.0  # K/W placeholder until calibrate_r_th
@@ -251,11 +265,12 @@ def steady(theta: dict, case: dict, V, thr, tmp_temp_ok=True) -> dict:
     ke = 60 / (2 * math.pi * kv)
     d = min(max(theta["a"] * thr + theta["b"], 0.0), 1.0)
     t_amb = case["t_amb"]
+    ro, sw, iq = case["esc"]["r_on"], case["esc"]["sw_loss"], case["esc"]["i_q"]
     if d <= 0:
         return {
             "omega": 0.0,
             "thrust": 0.0,
-            "current": 0.0,
+            "current": iq,
             "rpm": 0.0,
             "i_m": 0.0,
             "torque": 0.0,
@@ -285,8 +300,12 @@ def steady(theta: dict, case: dict, V, thr, tmp_temp_ok=True) -> dict:
         )
 
     def solve(R):  # steady shaft speed at winding resistance R
-        def i_m(w):
-            return (d * V - ke * w) / (R + R_SERIES * d * d)
+        def i_m(
+            w,
+        ):  # PSU series drop on the bus current (d + sw) I_m + i_q; FET r_on in series with the winding
+            return (d * V - d * R_SERIES * iq - ke * w) / (
+                R + ro + R_SERIES * d * (d + sw)
+            )
 
         def g(w):
             return ke * i_m(w) - loss(w) - cq * fre(w, "fq") * w * w
@@ -318,7 +337,7 @@ def steady(theta: dict, case: dict, V, thr, tmp_temp_ok=True) -> dict:
         "omega": w,
         "rpm": w * 60 / (2 * math.pi),
         "thrust": theta["ct0"] * fre(w, "ft") * RHO0 * n * n * D**4,
-        "current": d * im,
+        "current": (d + sw) * im + iq,
         "i_m": im,
         "torque": cq * fre(w, "fq") * w * w,
         "duty": d,
@@ -430,6 +449,11 @@ def motor_cfg(case: dict, t_amb: float, c_th: float, r_th: float) -> dict:
     return m
 
 
+def esc_cfg(case: dict) -> dict:
+    """Esc-table loss fields (schema devices.fbs) of the case: only the nonzero ones, none = the ideal stage."""
+    return {k: v for k, v in case["esc"].items() if v}
+
+
 def stand_mjcf(
     case: dict, theta: dict, volts: float, dt: float = 0.001, temp: float = T_ISO
 ) -> str:
@@ -445,6 +469,7 @@ def stand_mjcf(
                 "joint": "shaft",
                 "parts": [case["motor"]],
                 "motor": motor_cfg(case, temp, 1e6, 1e6),
+                **esc_cfg(case),
             }
         ],
         "rotors": [
@@ -685,6 +710,57 @@ def _held(b: dict) -> dict:
     return {k: 100 * v["mape"] for k, v in b["summary"]["held_out"].items()}
 
 
+def esc_compare() -> list:
+    """The N4b fit of every ESC_FOR table with and without the ESC loss model (same 3-row protocol; closed-form rows)."""
+    out = []
+    for m in ESC_FOR:
+        for t in thrust_tables(load_part(m)):
+            row = {"motor": m, "table": t}
+            for name, md in (
+                ("ideal", dict(MODELS["n4b"], esc=False)),
+                ("esc", MODELS["n4b"]),
+            ):
+                b = bench(m, t, sim_rows=False, model=md)
+                row[name] = {
+                    **b["fitted"]["params"],
+                    "cost": b["fitted"]["cost"],
+                    "r_th": b["thermal"]["r_th_K_per_W"],
+                    "held": _held(b),
+                }
+            row["esc_params"] = make_case(m, t)["esc"]
+            row["esc_part"] = ESC_FOR[m]
+            out.append(row)
+    return out
+
+
+def esc_markdown(rows: list) -> list:
+    out = [
+        "",
+        "## ESC loss (2216 only): separate from the prop torque coefficient",
+        "",
+        "The vendor test ESC is not named; the kit's own BLHeli_S 20A part stands in. Its losses are the device fields `r_on` "
+        "(FET conduction, in series with the winding), `sw_loss` (switching + dead-time fraction of the motor-side power) and "
+        "`i_q` (quiescent bus current), read from the ESC part (all estimated, rationale in the part file; BLHeli_S is "
+        "complementary damped-light PWM, so no body-diode freewheel loss). They are fixed, not fitted. Same 3-row fit protocol; "
+        "`ideal` = N4b without the ESC loss (the previous adopted model), `with ESC` = adopted. Without the separate loss the "
+        "fitted C_Q0 also pays for the ESC; the other tables keep the ideal stage.",
+        "",
+        "| table | ESC part | r_on ohm | sw_loss | i_q A | variant | C_T0 | C_Q0 | duty a | duty b | fit cost | r_th K/W | held-out thrust / current / rpm MAPE % |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        e = r["esc_params"]
+        for name, label in (("ideal", "ideal ESC"), ("esc", "with ESC")):
+            v, h = r[name], r[name]["held"]
+            ep = e if name == "esc" else {"r_on": 0, "sw_loss": 0, "i_q": 0}
+            out.append(
+                f"| {r['motor']} {r['table']} | {r['esc_part']} | {ep['r_on']} | {ep['sw_loss']} | {ep['i_q']} | {label} | "
+                f"{v['ct0']:.4f} | {v['cq0']:.5f} | {v['a']:.3f} | {v['b']:.3f} | {v['cost']:.2e} | {v['r_th']:.3f} | "
+                f"{h['thrust']:.1f} / {h['current']:.1f} / {h.get('rpm', float('nan')):.1f} |"
+            )
+    return out
+
+
 def scan_loss_split(grid=LOSS_GRID) -> list:
     """Pooled TRAIN-row cost (sum of the LM cost of every table) of the n4b model for each (visc, quad) share of the datasheet
     I0 torque, with the held-out means alongside for information only (the choice uses the train cost)."""
@@ -846,7 +922,12 @@ def compare_markdown(bl: list, scan: list | None) -> list:
     return out
 
 
-def markdown(results: list, hover: dict | None = None, scan: list | None = None) -> str:
+def markdown(
+    results: list,
+    hover: dict | None = None,
+    scan: list | None = None,
+    esc: list | None = None,
+) -> str:
     bl = [b for r in results for b in r["tables"]]
     out = [
         "# Thrust-stand validation (N4)",
@@ -914,6 +995,8 @@ def markdown(results: list, hover: dict | None = None, scan: list | None = None)
             f"| {b['motor']} | {b['table']} | {100 * r['throttle']:.0f} | {k} | {r['obs'][k]:.4g} | {r['pred'][k]:.4g} | {100 * r['rel_err'][k]:+.1f} |"
         )
     out += compare_markdown(bl, scan)
+    if esc:
+        out += esc_markdown(esc)
     out += [
         "",
         "## Fidelity limits and likely causes of error",
@@ -929,8 +1012,11 @@ def markdown(results: list, hover: dict | None = None, scan: list | None = None)
         "- Tables without an rpm column (xing2 2207 pairs) cannot separate C_T0 from the duty slope; the fit there uses a "
         "weak log-normal prior (C_T ~ 0.10, C_Q ~ 0.0065, factor 1.65) and b fixed 0, so the fitted C_T0/C_Q0/a are not "
         "individually meaningful; only thrust/current predictions are checked.",
-        "- ESC losses, wire and connector resistance of the vendor rig are not recorded; they are absorbed into the duty "
-        "map and C_Q0.",
+        "- ESC losses of the vendor rigs are not recorded. The 2216 table models them separately (estimated BLHeli_S 20A "
+        "numbers, section above); the other tables keep an ideal ESC and absorb them, with wire / connector resistance, into "
+        "the duty map and C_Q0. Even for the 2216 the vendor's electrical input at hover is not fully explained by shaft torque "
+        "+ copper + I0 friction + modelled ESC loss (the unmodelled remainder, PWM-ripple copper / iron loss and the rounding "
+        "of the vendor torque column are the candidates; docs/validation/x500-hover.md).",
         "- Vendor table voltages are as printed; where the printed voltage is a no-load figure, sag is unrecorded.",
     ]
     if hover:
@@ -946,11 +1032,13 @@ def run_all(motors=None, hover: bool = True) -> list:
     if motors is None:
         scan = scan_loss_split()
         _ok(OUT / "loss_scan.json", scan)
+        esc = esc_compare()
+        _ok(OUT / "esc_loss.json", esc)
         # summary.md under build/ is the artifact to pull (tools/remote.sh pull src/build/bench/summary.md); DOCS is
         # also written for local runs.
         DOCS.parent.mkdir(parents=True, exist_ok=True)
-        DOCS.write_text(markdown(results, hv, scan))
-        (OUT / "summary.md").write_text(markdown(results, hv, scan))
+        DOCS.write_text(markdown(results, hv, scan, esc))
+        (OUT / "summary.md").write_text(markdown(results, hv, scan, esc))
     return results
 
 
@@ -1072,6 +1160,7 @@ def hover_bench(
                     0.6 * 420.0 * mo["mass"],
                     b2216["thermal"]["r_th_K_per_W"],
                 ),
+                **esc_cfg(case),
             }
         )
         rotors.append(

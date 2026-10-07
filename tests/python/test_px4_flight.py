@@ -14,29 +14,25 @@ Note: mavsdk>=4 is an in-process binding (libcmavsdk); there is no mavsdk_server
 import asyncio
 import json
 import os
-import queue
 import re
 import shutil
-import signal
 import subprocess
 import tempfile
-import threading
 import time
 import tomllib
 from pathlib import Path
 
 import numpy as np
 import pytest
+from napl import px4
 from test_px4_fixture import G, fixture_mass
 
 pytestmark = pytest.mark.px4
 
-REPO = Path(__file__).resolve().parents[2]
-PX4_DIR = Path(os.environ.get("NAPL_PX4_DIR", "/workspace/wt/napl/px4/src"))
-B = PX4_DIR / "build" / "px4_sitl_default"
-PX4_BIN = B / "bin" / "px4"
-BRIDGE = Path(os.environ.get("NAPL_BRIDGE_EXE", REPO / "build" / "napl-px4-bridge"))
-REPLAY = Path(os.environ.get("NAPL_REPLAY_EXE", REPO / "build" / "napl-replay"))
+# The PX4 + bridge launch (ports, env, params, process groups, shutdown) lives in python/napl/px4.py (Stack), shared with
+# `napl program`; this test only adds the MAVSDK flight and the checks.
+REPO = px4.REPO
+PX4_BIN, BRIDGE, REPLAY, PARAMS = px4.PX4_BIN, px4.BRIDGE, px4.REPLAY, px4.PARAMS
 N = int(os.environ.get("NAPL_PX4_INSTANCE", "0"))
 CFGS = {
     "asm": REPO / "px4" / "bridge_x500v2_asm.toml",
@@ -45,102 +41,8 @@ CFGS = {
 ASM = REPO / "assemblies" / "x500v2.toml"
 ASM_OUT = REPO / "build" / "assemblies"
 FLIGHT_JSON = REPO / "build" / "px4" / "x500v2_flight.json"
-PARAMS = REPO / "px4" / "params" / "napl_sitl.params"
 MOTOR_TOML = REPO / "parts" / "drone" / "holybro-2216-kv920.toml"
-PORTS_TCP = [4560 + N]
-PORTS_UDP = [14540 + N, 14550 + N, 14580 + N, 18570 + N]
-FORBIDDEN = set(range(5177, 5195)) | {8000, 8010, 8093}
-
-try:
-    import mavsdk
-except ImportError:
-    mavsdk = None
-
-SKIP = (
-    "mavsdk not installed (pip install -e '.[px4]')"
-    if mavsdk is None
-    else f"PX4 binary missing: {PX4_BIN}"
-    if not PX4_BIN.exists()
-    else f"bridge exe missing: {BRIDGE}"
-    if not BRIDGE.exists()
-    else f"napl-replay missing: {REPLAY}"
-    if not REPLAY.exists()
-    else None
-)
-
-
-def busy_ports(proto, ports):
-    """Local ports in use, from /proc/net (no `ss` on the host). TCP TIME_WAIT is not a conflict (SO_REUSEADDR)."""
-    busy = set()
-    for name in (proto, proto + "6"):
-        for line in Path(f"/proc/net/{name}").read_text().splitlines()[1:]:
-            f = line.split()
-            port = int(f[1].rsplit(":", 1)[1], 16)
-            if port in ports and not (proto == "tcp" and f[3] == "06"):
-                busy.add(port)
-    return busy
-
-
-class Proc:
-    """Subprocess in its own process group, stdout lines pumped into a queue (and a log file)."""
-
-    def __init__(self, argv, log, cwd=None, env=None, stdin=subprocess.DEVNULL):
-        self.q, self.lines = queue.Queue(), []
-        self.log = open(log, "w")
-        self.p = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            env=env,
-            stdin=stdin,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            start_new_session=True,
-        )
-        threading.Thread(target=self._pump, daemon=True).start()
-
-    def _pump(self):
-        for line in self.p.stdout:
-            self.log.write(line)
-            self.log.flush()
-            self.lines.append(line.rstrip())
-            self.q.put(line.rstrip())
-        self.q.put(None)
-
-    def wait_line(self, prefix, timeout):
-        end = time.monotonic() + timeout
-        while (left := end - time.monotonic()) > 0:
-            try:
-                line = self.q.get(timeout=min(left, 1.0))
-            except queue.Empty:
-                continue
-            if line is None:
-                raise AssertionError(
-                    f"{argv_name(self.p)} exited (rc={self.p.poll()}) before '{prefix}'"
-                )
-            if line.startswith(prefix):
-                return line
-        raise AssertionError(
-            f"timeout {timeout}s waiting for '{prefix}' from {argv_name(self.p)}"
-        )
-
-    def kill(self):
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(self.p.pid, sig)
-            except ProcessLookupError:
-                break
-            try:
-                self.p.wait(5)
-                break
-            except subprocess.TimeoutExpired:
-                pass
-        # the group is gone once the leader is; sweep remaining members (px4 forks nothing outside its group)
-        self.log.close()
-
-
-def argv_name(p):
-    return Path(p.args[0]).name
+SKIP = px4.skip_reason()
 
 
 def strays(tmp):
@@ -300,86 +202,24 @@ def model_info(model):
 @pytest.mark.skipif(SKIP is not None, reason=SKIP or "")
 @pytest.mark.parametrize("model", ["asm", "fixture"])
 def test_px4_flight(model):
-    assert not (set(PORTS_TCP + PORTS_UDP) & FORBIDDEN), (
-        "instance maps onto a forbidden port"
-    )
-    assert not busy_ports("tcp", PORTS_TCP), (
-        f"tcp ports busy: {busy_ports('tcp', PORTS_TCP)}"
-    )
-    assert not busy_ports("udp", PORTS_UDP), (
-        f"udp ports busy: {busy_ports('udp', PORTS_UDP)}"
-    )
-
+    assert "SIM_BAT_ENABLE 0" in PARAMS.read_text()
     tmp = Path(tempfile.mkdtemp(prefix="napl_px4_"))
-    run = tmp / "px4run"
-    run.mkdir()
-    trace, rlog = tmp / "trace.csv", tmp / "replay.log"
     cfg, base, mass = model_info(model)
     ev = {"t0": time.time(), "base": base, "mass": mass, "model": model}
-    bridge = px4 = None
+    st = px4.Stack(cfg, tmp, instance=N)  # the model comes from the bridge config
     keep = os.environ.get("NAPL_PX4_KEEP")
     try:
-        bridge = Proc(
-            [
-                str(BRIDGE),
-                "--config",
-                str(cfg),
-                "--port",
-                str(4560 + N),
-                "--px4-udp",
-                str(18570 + N),
-                "--udp-bind",
-                str(14550 + N),
-                "--speed",
-                "1.0",
-                "--trace",
-                str(trace),
-                "--log",
-                str(rlog),
-                "--connect-timeout",
-                "120",
-            ],
-            tmp / "bridge.out",
-            stdin=subprocess.PIPE,
-        )
-        bridge.wait_line("listening", 30)
-
-        env = {k: v for k, v in os.environ.items() if not k.startswith("PX4_")}
-        env["PX4_SYS_AUTOSTART"] = "4902"  # PX4_SIM_MODEL stays unset
-        for line in PARAMS.read_text().splitlines():
-            if line.strip() and not line.lstrip().startswith("#"):
-                name, val = line.split(None, 1)
-                env[f"PX4_PARAM_{name}"] = val.strip()
-        assert env["PX4_PARAM_SIM_BAT_ENABLE"] == "0"
-        px4 = Proc(
-            [
-                str(PX4_BIN),
-                "-d",
-                "-i",
-                str(N),
-                "-s",
-                "etc/init.d-posix/rcS",
-                str(B / "etc"),
-            ],
-            tmp / "px4.out",
-            cwd=run,
-            env=env,
-        )
-        bridge.wait_line("connected", 90)
-
-        ev["trace"] = trace
-        asyncio.run(fly(bridge, tmp, ev))
-
-        bridge.p.stdin.write("quit\n")
-        bridge.p.stdin.flush()
-        bridge.p.stdin.close()
-        bridge.wait_line("stats", 30)
-        final = bridge.wait_line("final", 30)
-        assert bridge.p.wait(30) == 0
+        st.start()  # raises on busy / forbidden ports
+        ev["trace"] = st.trace
+        asyncio.run(fly(st.bridge, tmp, ev))
+        bridge = st.bridge
+        final = st.stop()  # quit, wait for the final line, kill both; sets st.rc
+        assert st.rc == 0, st.rc
+        assert any(ln.startswith("stats") for ln in bridge.lines), bridge.lines[-5:]
         ev["wall"] = time.time() - ev["t0"]
-        check(tmp, trace, rlog, final, ev)
+        check(tmp, st.trace, st.log, final, ev)
     except BaseException:
-        for p in (px4, bridge):
+        for p in (st.px4, st.bridge):
             if p:
                 print(
                     f"----- tail of {p.log.name} -----\n" + "\n".join(p.lines[-40:]),
@@ -387,16 +227,7 @@ def test_px4_flight(model):
                 )
         raise
     finally:
-        for p in (bridge, px4):
-            if p:
-                try:
-                    if p is bridge and p.p.poll() is None and not p.p.stdin.closed:
-                        p.p.stdin.write("quit\n")
-                        p.p.stdin.flush()
-                        p.p.wait(10)
-                except (OSError, ValueError, subprocess.TimeoutExpired):
-                    pass  # best-effort graceful quit; kill() below is the guarantee
-                p.kill()
+        st.stop(final=False)  # no-op when already stopped
         left = strays(tmp)
         if keep:
             print(f"[keep] run dir {tmp}")
@@ -406,6 +237,7 @@ def test_px4_flight(model):
 
 
 def check(tmp, trace, rlog, final, ev):
+    final = f"final tick={final['tick']} state_hash={final['state_hash']}"  # the bridge's last stdout line
     tr = read_trace(trace)
     dt = tr["t"][-1] / tr["tick"][-1]
     mon = ev["mon"]

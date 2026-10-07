@@ -56,10 +56,12 @@ struct WireCfg { Meta meta; int a, b; double r; };
 struct LoadCfg { Meta meta; int node; double g, i0; };
 struct EscCfg {
   Meta meta; int node; std::string joint; MotorCfg motor; bool complementary; double i_limit; std::uint64_t seed;
+  double r_on = 0, sw_loss = 0, i_q = 0;  // ESC losses (schema Esc); 0 = ideal
   int jnt = -1, dof = -1;  // resolved by bind()
 };
 struct ServoCfg {
   Meta meta; int node; std::string joint; MotorCfg motor; double n, eta, rate_hz, p, i, d, pid_scale, deadband, max_torque;
+  double d_scale = 0;  // 0 = D uses pid_scale
   double i_limit; int cpr; std::string backlash_joint;
   double min_voltage, max_voltage, max_temp, overload_load, overload_time; int unload_mask;  // protection, initial values
   int jnt = -1, dof = -1, qadr = -1, period = 0;  // resolved by bind(): firmware period in ticks
@@ -93,6 +95,7 @@ constexpr int kGnssRing = 64;  // samples held for the latency: delay <= kGnssRi
 struct GnssCfg {
   Meta meta; std::string site; double rate_hz, lat0, lon0, alt0, horiz_std, vert_std, vel_std, latency_s;
   std::uint64_t seed; int sid = -1, period = 0, delay = 0;  // delay (samples) = round(latency_s rate_hz), set by parse
+  double corr_time_s = 0, corr_frac = 0;                    // Gauss-Markov position error (0 = white), see schema Gnss
 };
 
 // ---- state: every mutable quantity, doubles / uint64 only (no padding), saved and hashed byte-for-byte ----
@@ -145,6 +148,7 @@ struct MagState { double field[3]; Rng rng; std::uint64_t ticks; };
 struct GnssState {
   double lat, lon, alt, vel_ned[3];  // output: deg, deg, m, m/s (the sample taken `delay` samples ago)
   double ring[kGnssRing][6];         // lat, lon, alt, vel_ned of the last samples, sample k at ring[k % kGnssRing]
+  double gm[3];                      // Gauss-Markov position error north, east, up, m (corr_time_s > 0 only)
   Rng rng;
   std::uint64_t ticks, samples;      // samples: taken so far
 };

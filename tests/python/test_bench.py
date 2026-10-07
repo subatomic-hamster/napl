@@ -141,11 +141,20 @@ def test_assembly_rotor_and_motor_thermal_match_the_bench(suite):
             and r["re_fq"] == shape["fq"]
         )
     r = adev["rotors"][0]
-    # least-squares C_ref of the prop's own static table against f(x): ct 0.0908 (stand fit C_T0 = 0.0898), cq 0.00526
-    assert abs(r["ct"][0] - 0.0908) < 2e-4 and abs(r["cq"][0] - 0.00526) < 2e-5
+    # ct: least-squares C_ref of the prop's own static table against f(x) = 0.0908 (stand fit C_T0 = 0.0899); cq: the assembly's
+    # cq_ref, which is the bench's C_Q0 (fit with the ESC loss modelled separately), not the part's torque-column 0.00526
     (b,) = suite["holybro-2216-kv920"]["tables"]
+    assert abs(r["ct"][0] - 0.0908) < 2e-4
+    assert abs(r["cq"][0] - b["fitted"]["params"]["cq0"]) < 2e-6, (
+        r["cq"][0],
+        b["fitted"]["params"],
+    )
     for e in adev["escs"]:
         assert abs(e["motor"]["r_th"] - b["thermal"]["r_th_K_per_W"]) < 5e-4, (
             e["motor"]["r_th"],
             b["thermal"]["r_th_K_per_W"],
         )
+        # the ESC loss the stand was fitted with is the one the assembly flies (same ESC part)
+        stand = bench.make_case("holybro-2216-kv920")["esc"]
+        assert stand == {"r_on": 0.012, "sw_loss": 0.0015, "i_q": 0.015}
+        assert {k: e[k] for k in stand} == stand

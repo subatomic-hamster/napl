@@ -29,8 +29,10 @@
 //  - GNSS: world x = East, y = North, z = Up, origin (lat0, lon0, alt0). Flat earth: lat = lat0 + N / M, lon = lon0 +
 //    E / (R_n cos lat0), alt = alt0 + U with the WGS84 meridian radius M and prime-vertical radius R_n at lat0:
 //    accurate to ~ (distance / R)^2, i.e. cm over ~10 km; the altitude adds no height scaling to M, R_n and no geoid.
-//    Errors are white Gaussian (real receivers are strongly time-correlated, with multipath and a slowly varying
-//    bias). Velocity is the site point's world velocity as NED. Latency: output = the sample taken
+//    Position errors: white Gaussian by default; with corr_time_s > 0 each of north / east / up is a first-order
+//    Gauss-Markov process (variance share corr_frac, time constant corr_time_s) plus white noise (the rest), total
+//    sigma unchanged (real receivers are strongly time-correlated: ionosphere, orbit, multipath). Velocity errors
+//    are always white. Velocity is the site point's world velocity as NED. Latency: output = the sample taken
 //    round(latency_s rate_hz) samples ago, from a fixed ring of kGnssRing samples (delay <= 63, checked at load);
 //    until that many samples exist the output stays at the origin / zero.
 #include <algorithm>
@@ -119,9 +121,18 @@ void sample_sensors(const mjModel* m, mjData* d, Devices& dv) {
     double v[6];
     mj_objectVelocity(m, d, mjOBJ_SITE, c.sid, v, 0);  // world axes, of the site point
     double n[6] = {0, 0, 0, 0, 0, 0};                  // north, east, up, vn, ve, vd errors
+    const bool gm = c.corr_time_s > 0 && c.corr_frac > 0;  // else white, bitwise the pre-Gauss-Markov stream
+    const double phi = gm ? std::exp(-1.0 / (c.rate_hz * c.corr_time_s)) : 0.0;
     for (int k = 0; k < 6; ++k) {
       const double sd = k < 2 ? c.horiz_std : k == 2 ? c.vert_std : c.vel_std;
-      if (sd > 0) n[k] = sd * s.rng.gauss();
+      if (sd <= 0) continue;
+      if (gm && k < 3) {  // total variance sd^2 = Gauss-Markov (corr_frac) + white (the rest); GM starts stationary
+        const double sc = sd * std::sqrt(c.corr_frac), sw = sd * std::sqrt(1.0 - c.corr_frac);
+        s.gm[k] = s.samples == 0 ? sc * s.rng.gauss() : phi * s.gm[k] + std::sqrt(1.0 - phi * phi) * sc * s.rng.gauss();
+        n[k] = s.gm[k] + (sw > 0 ? sw * s.rng.gauss() : 0.0);
+      } else {
+        n[k] = sd * s.rng.gauss();
+      }
     }
     double* slot = s.ring[s.samples % kGnssRing];
     slot[0] = c.lat0 + (p[1] + n[0]) / r_mer * kDeg;

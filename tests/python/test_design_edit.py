@@ -450,7 +450,9 @@ def test_simulate_hover_stock_x500(x500, tmp_path):
 def test_simulate_hold_stock_arm(so101, tmp_path):
     r = so101.simulate("hold", out=tmp_path)
     print({k: v for k, v in r.items() if k != "servos"})
-    assert r["pass"] and r["sag_max_rad"] < 0.1 and r["current_max_A"] > 0
+    # 0.1 -> 0.13 rad (N6c): the two-point no-load identification moved most of the motor loss to the viscous term, so
+    # standstill friction fell and the LeRobot-gain hold sags 6.8 deg (was 5.3) at the zero pose
+    assert r["pass"] and r["sag_max_rad"] < 0.13 and r["current_max_A"] > 0
     with pytest.raises(DesignError, match="no servo"):
         Design.open(X500, PARTS).simulate("hold", out=tmp_path)
 

@@ -315,6 +315,39 @@ def test_negative_encoder_reads_wrapped_single_turn(bus, sim):
     assert bus.read_pos(1) == CPR - 100
 
 
+def test_homing_offset_is_what_lerobot_calibration_expects(bus, sim):
+    """LeRobot set_half_turn_homings: offset = position - 2047, and "Present_Position = Actual_Position - Homing_Offset"
+    (feetech.py `_get_half_turn_homings`; Homing_Offset is regs 31-32, sign-magnitude bit 11). Goals use the same frame."""
+    sim.set(JOINTS[1], "qpos", -goal_rad(100))
+    sim.step(1)
+    pos = bus.read_pos(1)
+    assert pos == CPR - 100
+    h = pos - 2047  # 1949
+    bus.write(1, 31, h, 2)
+    assert bus.read(1, 31, 2) == h
+    sim.step(1)
+    assert (
+        bus.read_pos(1) == 2047
+    )  # the half-turn homing puts the calibration pose at mid-range
+    bus.enable(1)
+    bus.write_pos(1, 2047 + 200)  # register frame: 200 counts from the calibration pose
+    sim.step(600)
+    assert (
+        abs(sim.query("/devices/s1", "counts")[0][0] - 100) <= 2
+    )  # -100 + 200 encoder counts
+    assert abs(bus.read_pos(1) - 2247) <= 2
+    # a negative offset: bit 11 is the sign (2048 + magnitude), position = counts + 300
+    bus.write(1, 31, 2048 + 300, 2)
+    sim.step(1)
+    assert (
+        abs(bus.read_pos(1) - (100 + 300)) <= 2
+    )  # the joint settled within 2 counts of the goal
+    bus.write(1, 31, 0, 2)  # factory
+    sim.step(1)
+    assert abs(bus.read_pos(1) - 100) <= 2
+    assert bus.txrx(1, RESET)[:2] == (1, 0)
+
+
 # ---- 2/3. SDK / raw client against the running sim ---------------------------------------------------------------------
 @pytest.fixture(params=["raw", "sdk"])
 def live(request, sim):

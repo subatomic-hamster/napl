@@ -1,5 +1,5 @@
 // napl-px4-bridge --config <toml> [--model <xml>] [--port 4560] [--px4-udp 18570] [--udp-bind 14550] [--speed 1.0]
-//                 [--trace <csv>] [--log <replay log>] [--connect-timeout <s>]
+//                 [--trace <csv>] [--log <replay log>] [--connect-timeout <s>] [--sysid <MAV_SYS_ID of PX4, default [px4] sysid>]
 // PX4 SITL <-> napl World, lockstep, over the Simulator MAVLink API (docs/research/px4-sitl.md). We are the TCP SERVER on
 // 127.0.0.1:<port>; PX4 connects. Per step (4 ms of sim time): step the World, send HIL_SENSOR (id 0, drives PX4's lockstep
 // clock) + HIL_GPS when the GNSS sampled + HIL_STATE_QUATERNION, then block for HIL_ACTUATOR_CONTROLS and apply it to the
@@ -7,6 +7,8 @@
 // normal MAVLink UDP link (HIL_SENSOR has no battery field and simulator_mavlink does not dispatch BATTERY_STATUS).
 //
 // stdin: `monitor <name> <prim> <attr> <index> <lo> <hi> <duration_s>` | `quit`.   (one `always` Monitor per line)
+// --ctl <unix socket>: a text-line control socket onto the same World (set / get / mget / tick, see Bridge::on_ctl), so a second
+// robot's user-side driver (the Feetech pty of `napl program`) acts in this lockstep world; its writes are logged and replayed.
 // stdout: `listening <port>`, `connected`, `monitor_result {json}`, `stats ...`, `final tick=<n> state_hash=<hex>`.
 // Exit: 0 clean shutdown (PX4 disconnect, quit, SIGINT/SIGTERM), 1 error / connect timeout / solver divergence, 2 usage.
 //
@@ -19,6 +21,7 @@
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -145,6 +148,22 @@ int bind_udp(int port) {
     const std::string e = std::strerror(errno);
     close(fd);
     fail("cannot bind udp 127.0.0.1:" + std::to_string(port) + ": " + e);
+  }
+  return fd;
+}
+
+int bind_unix(const std::string& path) {  // --ctl: a unix stream socket a second robot's user-side driver talks to
+  sockaddr_un a{};
+  a.sun_family = AF_UNIX;
+  if (path.size() >= sizeof a.sun_path) fail("--ctl path too long: " + path);
+  std::strncpy(a.sun_path, path.c_str(), sizeof a.sun_path - 1);
+  const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
+  ::unlink(path.c_str());
+  // ttsr-ignore: cpp/no-reinterpret-const-cast (the BSD sockets API takes sockaddr*)
+  if (bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0 || listen(fd, 1) != 0) {
+    const std::string e = std::strerror(errno);
+    close(fd);
+    fail("cannot listen on unix socket " + path + ": " + e);
   }
   return fd;
 }
@@ -291,15 +310,100 @@ struct Bridge {
       inbuf.erase(0, nl + 1);
     }
   }
+  // ---- ctl socket (--ctl): one client at a time, one text line per request, one per reply. Runs between steps on the World's
+  // thread, and every state change goes through World::execute (so the replay log records it, like the ESC throttles):
+  //   set <source> <prim> <attr> <v>...  -> ok | err <message>
+  //   get <prim> <attr> [frame]          -> ok <tick> <v>...        (frame: body prim path, as Query)
+  //   mget <prim> <attr>...              -> ok <tick> <v>...        (one scalar per attr: a whole device in one round trip)
+  //   tick                               -> ok <tick>
+  int ctl_listen = -1, ctl_fd = -1;
+  std::string ctl_in;
+  void close_ctl() {
+    if (ctl_fd >= 0) close(ctl_fd);
+    ctl_fd = -1;
+    ctl_in.clear();
+  }
+  void ctl_reply(const std::string& s) {
+    const std::string out = s + "\n";
+    std::size_t off = 0;
+    while (off < out.size() && ctl_fd >= 0) {
+      const ssize_t r = ::send(ctl_fd, out.data() + off, out.size() - off, MSG_NOSIGNAL);
+      if (r > 0) off += static_cast<std::size_t>(r);
+      else if (r < 0 && (errno == EAGAIN || errno == EINTR)) { pollfd p{ctl_fd, POLLOUT, 0}; ::poll(&p, 1, 100); }
+      else close_ctl();
+    }
+  }
+  void on_ctl(const std::string& line) {
+    std::istringstream is(line);
+    std::string cmd, a, b, c;
+    is >> cmd;
+    const std::string tk = std::to_string(w->tick());
+    if (cmd == "tick") return ctl_reply("ok " + tk);
+    if (cmd == "set") {
+      std::vector<double> v;
+      double x;
+      if (!(is >> a >> b >> c)) return ctl_reply("err usage: set <source> <prim> <attr> <v>...");
+      while (is >> x) v.push_back(x);
+      flatbuffers::FlatBufferBuilder fb;
+      const auto sa = napl::CreateSetAttr(fb, fb.CreateString(b), fb.CreateString(c), fb.CreateString(""), fb.CreateVector(v));
+      fb.Finish(napl::CreateEnvelope(fb, 0, fb.CreateString(a), napl::Command::SetAttr, sa.Union()));
+      const auto reply = w->execute({fb.GetBufferPointer(), fb.GetSize()}, session);
+      const auto* r = flatbuffers::GetRoot<napl::Reply>(reply.data());
+      if (r->ok()) return ctl_reply("ok");
+      std::string m = r->message() ? r->message()->str() : "failed";
+      std::replace(m.begin(), m.end(), '\n', ' ');
+      return ctl_reply("err " + m);
+    }
+    if (cmd == "get" || cmd == "mget") {
+      if (!(is >> a)) return ctl_reply("err usage: get <prim> <attr> [frame] | mget <prim> <attr>...");
+      std::vector<std::string> attrs;
+      while (is >> b) attrs.push_back(b);
+      if (attrs.empty()) return ctl_reply("err missing attr");
+      std::string out = "ok " + tk;
+      for (std::size_t i = 0; i < (cmd == "get" ? 1 : attrs.size()); ++i) {
+        std::vector<double> v;
+        const Result r = w->solver().get(a, attrs[i], cmd == "get" && attrs.size() > 1 ? attrs[1] : "", v);
+        if (r.code != Result::ok) return ctl_reply("err " + a + " " + attrs[i] + ": " + r.message);
+        if (cmd == "mget" && v.size() != 1) return ctl_reply("err mget needs scalar attrs: " + attrs[i]);
+        for (double d : v) out += " " + jnum(d);
+      }
+      return ctl_reply(out);
+    }
+    ctl_reply("err unknown ctl command '" + cmd + "'");
+  }
+  void pump_ctl() {
+    if (ctl_fd < 0) return;
+    char buf[2048];
+    for (;;) {
+      const ssize_t r = ::recv(ctl_fd, buf, sizeof buf, 0);
+      if (r == 0) return close_ctl();
+      if (r < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) close_ctl();
+        return;
+      }
+      ctl_in.append(buf, static_cast<std::size_t>(r));
+      for (std::size_t nl; ctl_fd >= 0 && (nl = ctl_in.find('\n')) != std::string::npos;) {
+        const std::string line = ctl_in.substr(0, nl);
+        ctl_in.erase(0, nl + 1);
+        on_ctl(line);
+      }
+    }
+  }
   void io(int timeout_ms) {
-    pollfd p[3] = {{tcp, POLLIN, 0}, {udp, POLLIN, 0}, {0, POLLIN, 0}};
-    if (::poll(p, stdin_eof ? 2 : 3, timeout_ms) <= 0) return;
+    pollfd p[5] = {{tcp, POLLIN, 0}, {udp, POLLIN, 0}, {0, POLLIN, 0}, {ctl_listen, POLLIN, 0}, {ctl_fd, POLLIN, 0}};  // fd -1: ignored
+    if (stdin_eof) p[2].fd = -1;
+    if (::poll(p, 5, timeout_ms) <= 0) return;
     if (p[0].revents) pump_tcp();
     if (p[1].revents) {
       char d[2048];  // PX4 telemetry on the UDP link: drained, ignored
       while (::recvfrom(udp, d, sizeof d, 0, nullptr, nullptr) >= 0) {}
     }
     if (!stdin_eof && p[2].revents) pump_stdin();
+    if (p[3].revents) {  // a new client replaces the old one
+      const int fd = ::accept4(ctl_listen, nullptr, nullptr, SOCK_NONBLOCK);
+      if (fd >= 0) { close_ctl(); ctl_fd = fd; }
+    }
+    if (p[4].revents && ctl_fd == p[4].fd) pump_ctl();
   }
 
   // ---- monitors ----
@@ -437,7 +541,7 @@ struct Bridge {
 int usage() {
   std::fprintf(stderr,
                "usage: napl-px4-bridge --config <toml> [--model <xml>] [--port 4560] [--px4-udp 18570] [--udp-bind 14550]\n"
-               "                       [--speed 1.0] [--trace <csv>] [--log <out>] [--connect-timeout <s>]\n");
+               "                       [--speed 1.0] [--trace <csv>] [--log <out>] [--connect-timeout <s>] [--sysid <n>] [--ctl <unix socket>]\n");
   return 2;
 }
 
@@ -465,8 +569,8 @@ bool wait_for_px4(Bridge& b, int listen_fd, double timeout) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string cfg_path, model, trace_path, log_path;
-  int port = 4560, px4_udp = 18570, udp_bind = 14550;
+  std::string cfg_path, model, trace_path, log_path, ctl_path;
+  int port = 4560, px4_udp = 18570, udp_bind = 14550, sysid = -1;
   double speed = 1.0, connect_timeout = 60;
   try {
     for (int i = 1; i < argc; ++i) {
@@ -482,6 +586,8 @@ int main(int argc, char** argv) {
       else if (a == "--trace") trace_path = v;
       else if (a == "--log") log_path = v;
       else if (a == "--connect-timeout") connect_timeout = std::stod(v);
+      else if (a == "--sysid") sysid = std::stoi(v);
+      else if (a == "--ctl") ctl_path = v;
       else return usage();
     }
   } catch (const std::exception&) {
@@ -500,6 +606,7 @@ int main(int argc, char** argv) {
   int rc = 0;
   try {
     b.cfg = load_cfg(cfg_path, model);
+    if (sysid >= 0) b.cfg.sysid = sysid;  // PX4 instance N runs with MAV_SYS_ID N + 1 and drops BATTERY_STATUS from another system
     const Cfg& c = b.cfg;
     b.w = std::make_unique<World>(load_mujoco, c.model);
     if (!log_path.empty()) b.w->start_log();
@@ -555,6 +662,7 @@ int main(int argc, char** argv) {
     }
 
     b.udp = bind_udp(udp_bind);
+    if (!ctl_path.empty()) b.ctl_listen = bind_unix(ctl_path);
     b.px4_udp.sin_family = AF_INET;
     b.px4_udp.sin_port = htons(static_cast<std::uint16_t>(px4_udp));
     b.px4_udp.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -598,6 +706,8 @@ int main(int argc, char** argv) {
   if (b.tcp >= 0) close(b.tcp);
   if (b.udp >= 0) close(b.udp);
   if (listen_fd >= 0) close(listen_fd);
+  b.close_ctl();
+  if (b.ctl_listen >= 0) { close(b.ctl_listen); ::unlink(ctl_path.c_str()); }
   if (b.trace) std::fclose(b.trace);
   if (b.w) {
     try {

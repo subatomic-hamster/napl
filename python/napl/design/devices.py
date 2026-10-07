@@ -16,6 +16,9 @@ FIELD_UNITS = {
     "r1": OHM,
     "resistance": OHM,
     "r_series": OHM,
+    "r_on": OHM,
+    "sw_loss": {"1": 1.0},
+    "i_q": AMP,
     "i0": AMP,
     "i_limit": AMP,
     "rotor_inertia": {"kg*m^2": 1.0},
@@ -43,6 +46,8 @@ FIELD_UNITS = {
     "vel_std": {"m/s": 1.0},
     "rate_hz": {"Hz": 1.0},
     "latency_s": {"s": 1.0},
+    "corr_time_s": {"s": 1.0},  # gnss
+    "corr_frac": {"1": 1.0},  # gnss
     "alt0": UNITS["m"],
     "origin_alt": UNITS["m"],
     "w20": {"m/s": 1.0},
@@ -52,10 +57,21 @@ FIELD_UNITS = {
     "i": {"count": 1.0},
     "d": {"count": 1.0},
     "pid_scale": {"1": 1.0},
+    "d_scale": {"1": 1.0},
     "deadband": {"count": 1.0},
     "max_torque": {"0.1 %": 1.0},
+    # servo protection registers (initial values; the part's register-unit params -> schema units)
+    "min_voltage": {"V": 1.0},
+    "max_voltage": {"V": 1.0},
+    "max_temp": {"degC": 1.0},
+    "overload_load": {"%": 0.01},
+    "overload_time": {"10 ms": 0.01, "s": 1.0},
+    "unload_mask": {"bitmask": 1.0},
+    "i0_visc": {"1": 1.0},
+    "i0_quad": {"1": 1.0},
+    "i0_w": {"rad/s": 1.0},
 }
-INT_FIELDS = {"awg", "encoder_cpr", "bits"}
+INT_FIELDS = {"awg", "encoder_cpr", "bits", "unload_mask"}
 TYPE_KEY = {
     "battery": "batteries",
     "psu": "psus",
@@ -90,6 +106,7 @@ RESERVED = {
     "ocv",
     "cells",
     "reynolds",
+    "cq_ref",
 }
 MAX_NODES = 32
 VEHICLE_GROUP = 4  # MJCF geom group of every vehicle geom; the floor stays in group 0
@@ -572,6 +589,8 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
             d.setdefault("ray_groups", RAY_GROUPS)
             if b.get("reynolds"):
                 _rotor_reynolds(ctx, inst, d, where, parts)
+            if "cq_ref" in b:
+                _rotor_cq_ref(ctx, b["cq_ref"], d, where)
         add(typ, d, parts)
 
     if not dev:
@@ -614,6 +633,20 @@ def _rotor_reynolds(ctx: Ctx, inst, d: dict, where: str, parts: set):
             "rationale": "f_T, f_Q pooled from 7 UIUC APC static tables (napl.design.reynolds); ct / cq re-referenced to x = 4.5 m^2/s",
         },
     )
+
+
+def _rotor_cq_ref(ctx: Ctx, spec, d: dict, where: str):
+    """Binding field `cq_ref = {value, unit = "1", fidelity, derivation}`: the static torque coefficient C_Q(J = 0) (at x_ref
+    when `reynolds` is on) to use in place of the prop part's own, applied as a uniform scale of the mapped cq list (keeps the
+    J shape). For a prop whose part value comes from a vendor-rounded torque column that contradicts the vendor's own electrical
+    power (docs/validation/x500-hover.md): the value is then a fitted / derived number carrying its provenance."""
+    if "cq" not in d or not d["cq"]:
+        raise DesignError(f"{where}: cq_ref needs a mapped cq list")
+    v, _ = ctx.num(spec, f"{where} cq_ref", {"1": 1.0}, "cq_ref")
+    if not 0 < v < 0.05:
+        raise DesignError(f"{where}: cq_ref {v} outside (0, 0.05)")
+    k = v / d["cq"][0]
+    d["cq"] = [c * k for c in d["cq"]]
 
 
 def _battery_ocv(ctx: Ctx, b: dict, d: dict, where: str, parts: set):

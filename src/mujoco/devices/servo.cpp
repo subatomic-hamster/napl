@@ -10,8 +10,8 @@
 //    not accumulated while the output is saturated and the error pushes further into saturation.
 //  - pid_scale (register units -> duty): duty = (p e + i sum(e) + d de) / pid_scale with e in counts and sum(e), de per
 //    firmware step. Calibrated for the STS3215 per docs/research/sts3215-calibration.md: official table P "(1/4)" with the
-//    0.1 % duty unit -> 4000, Rhoban BAM oscilloscope gain 0.166 -> 3927. The table scales D by 1/8, not modelled
-//    separately (one pid_scale for p, i, d). The vendor's firmware structure (loop rate, integral limit, speed profile
+//    0.1 % duty unit -> 4000, Rhoban BAM oscilloscope gain 0.166 -> 3927. The table scales D by 1/8 (P by 1/4): the
+//    optional d_scale (> 0) replaces pid_scale for the D term only (8000 for the STS3215), 0 = D uses pid_scale. The vendor's firmware structure (loop rate, integral limit, speed profile
 //    shape) is not modelled beyond what is listed here.
 //  - torque_enable = 0: open phase, integrator reset, the setpoint follows the measured position (so enabling with a
 //    goal speed ramps from where the servo is; without one the setpoint jumps to the goal). Disabling acts on the next
@@ -72,7 +72,11 @@ void step_firmware(const mjModel* m, const mjData* d, Devices& dv) {
     double e = std::floor(s.setpoint * per_rad + 0.5) - s.counts;
     if (std::abs(e) <= s.deadband) e = 0;
     const double lim = std::min(s.max_torque, s.torque_limit) / 1000.0;
-    auto pid = [&](double sum) { return (s.p * e + s.i * sum + s.d * (e - s.e_prev)) / c.pid_scale; };
+    // d_scale = 0: the original single-scale expression, bit for bit (recorded hashes / fixtures unchanged)
+    auto pid = [&](double sum) {
+      if (c.d_scale <= 0) return (s.p * e + s.i * sum + s.d * (e - s.e_prev)) / c.pid_scale;
+      return (s.p * e + s.i * sum) / c.pid_scale + s.d * (e - s.e_prev) / c.d_scale;
+    };
     double u = pid(s.integ + e);
     if (std::abs(u) > lim && u * e > 0) u = pid(s.integ);  // saturated and still pushing: freeze the integrator
     else s.integ += e;
