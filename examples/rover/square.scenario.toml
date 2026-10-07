@@ -1,0 +1,79 @@
+# napl program examples/rover/square.scenario.toml
+# The Pololu 37D rover (assemblies/rover.toml: 2 x 4751 gearmotor, RoboClaw 2x7A, 3S LiPo) on a RoboClaw Packet Serial pty; square.py (the
+# unmodified official `basicmicro` library) drives a 1 m square by encoder odometry. Needs the `rover` extra (pip install -e ".[rover]").
+name = "rover-square"
+
+[model]
+assembly = "../../assemblies/rover.toml"   # the free-base rover on the floor plane
+
+[interfaces.roboclaw]
+motors = { 1 = "/devices/wheel_l", 2 = "/devices/wheel_r" }   # M1 = left, M2 = right
+address = 128                                                  # 0x80
+baud = 38400                                                   # the library default
+
+[program]
+cmd = ["python", "{dir}/square.py"]
+
+[limits]
+wall_s = 150
+sim_s = 120
+cpu_s = 150
+
+[[monitors]]
+name = "back_at_start"                 # final position within 5 cm of the start (odometry drift + stopping error)
+path = "/world/plate"
+attr = "pos"
+indices = [0, 1]
+ref = [0.0, 0.0]
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "corner_1_0"                    # the three other corners were visited (within 5 cm)
+path = "/world/plate"
+attr = "pos"
+indices = [0, 1]
+ref = [1.0, 0.0]
+op = "eventually"
+hi = 0.05
+
+[[monitors]]
+name = "corner_1_1"
+path = "/world/plate"
+attr = "pos"
+indices = [0, 1]
+ref = [1.0, 1.0]
+op = "eventually"
+hi = 0.05
+
+[[monitors]]
+name = "corner_0_1"
+path = "/world/plate"
+attr = "pos"
+indices = [0, 1]
+ref = [0.0, 1.0]
+op = "eventually"
+hi = 0.05
+
+[[monitors]]
+name = "upright_on_three_points"       # plate height stays 21.8 mm +- 6 mm: no tipping
+path = "/world/plate"
+attr = "pos"
+index = 2
+op = "always"
+lo = 0.016
+hi = 0.028
+
+[[monitors]]
+name = "no_motor_alarm"
+paths = ["/devices/wheel_l", "/devices/wheel_r"]
+attr = "alarm"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "pack_above_cutoff"             # 3S pack never below 9.0 V (3.0 V / cell)
+path = "/devices/battery"
+attr = "voltage"
+op = "always"
+lo = 9.0

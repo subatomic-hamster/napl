@@ -1,0 +1,60 @@
+id = "gensace-2200mah-3s-25c-gea223s25t3gt"
+name = "Gens Ace G-Tech 2200mAh 3S 11.1V 25C LiPo pack (GEA223S25T3GT), 14 AWG leads"
+category = "battery.lipo"
+vendor = "Gens Ace"
+part_number = "GEA223S25T3GT"
+url = "https://rcdrone.top/products/src-gea223s25t3gt-gens-ace-2200mah-3s-11-1v-25c-g-tech-lipo-battery-pack-with-ec3-deans-and-xt60-adapter-for-rc-plane"
+
+# Part frame: origin at the pack centre, x along length (107 mm), y along width (33 mm), z up (22 mm). Pack resistance not published. This is the
+# small 3S pack of the rover (the other 3S packs in the library have no mounting port).
+
+[params]
+capacity_ah     = { value = 2.2, unit = "Ah", src = "S1", fidelity = "datasheet" }
+capacity        = { value = 7920.0, unit = "C", fidelity = "derived", derivation = "2.2 Ah x 3600 s/h = 7920 C (coulombs)." }
+cells_series    = { value = 3, unit = "1", src = "S1", fidelity = "datasheet" }
+cells_parallel  = { value = 1, unit = "1", src = "S1", fidelity = "datasheet" }
+v_nominal       = { value = 11.1, unit = "V", src = "S1", fidelity = "datasheet" }
+v_full          = { value = 12.6, unit = "V", fidelity = "derived", derivation = "3S x 4.2 V/cell full-charge LiPo limit = 12.6 V." }
+c_rating_cont   = { value = 25, unit = "C", src = "S1", fidelity = "datasheet" }
+c_rating_burst  = { value = 50, unit = "C", src = "S1", fidelity = "datasheet" }
+i_max_continuous = { value = 55.0, unit = "A", fidelity = "derived", derivation = "25 C x 2.2 Ah = 55 A (rating label)." }
+mass            = { value = 0.169, unit = "kg", src = "S1", fidelity = "datasheet" }          # 169 g (+-20 g)
+length          = { value = 0.107, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.033, unit = "m", src = "S1", fidelity = "datasheet" }
+height          = { value = 0.022, unit = "m", src = "S1", fidelity = "datasheet" }
+discharge_wire_awg = { value = 14, unit = "AWG", src = "S1", fidelity = "datasheet" }
+discharge_wire_length = { value = 0.120, unit = "m", src = "S1", fidelity = "datasheet" }
+r_internal_pack = { value = 0.0354, unit = "ohm", fidelity = "estimated", rationale = "No pack resistance published. R_cell = 0.026 ohm*Ah / capacity (rule of parts/propulsion/tattu-1800mah-4s-75c-xt60.toml): 0.026/2.2 = 11.8 mOhm/cell x 3 cells = 35.4 mOhm. Plus-or-minus 50%." }
+
+[geometry]
+shape = "box"
+size = [0.0535, 0.0165, 0.011]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, -0.011]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+thickness = 0.0
+note = "Underside of the pack (strap / hook-and-loop seat); no hole pattern."
+
+[[ports]]
+name = "power_out"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "source"
+v_max = { value = 12.6, unit = "V", fidelity = "derived", derivation = "3S x 4.2 V/cell = 12.6 V." }
+i_max = { value = 55.0, unit = "A", fidelity = "derived", derivation = "C rating x capacity = 25 C x 2.2 Ah = 55 A (S1 label)." }
+note = "The main lead, 120 mm of 14 AWG wire (S1); the shipped EC3 / Deans / XT60 plug is cut off for the RoboClaw's screw terminal (the S1 connector line says 'EC3, Deans and XT60 adapter')."
+
+[[sources]]
+id = "S1"
+url = "https://rcdrone.top/products/src-gea223s25t3gt-gens-ace-2200mah-3s-11-1v-25c-g-tech-lipo-battery-pack-with-ec3-deans-and-xt60-adapter-for-rc-plane"
+title = "rcdrone.top (authorized Gens Ace distributor) - Gens Ace 2200mAh 3S 11.1V 25C G-Tech LiPo battery pack with EC3, Deans and XT60 adapter"
+accessed = "2026-10-07"
+quote = "Capacity|2200mAh|Capacity Range(mAh)|2200|Voltage|11.1V|Configuration|3S1P|Cells|3S / 3 Cell|Discharge Rate|25C|Max Burst Discharge Rate|50C|Size (L x W x H)|107mm x 33mm x 22mm|Length(±5mm)|107|Width(±2mm)|33|Height(±2mm)|22|Net Weight(±20g)|169g|Connector Type|EC3, Deans and XT60 adapter|Balancer Connector Type|G-tech-4P|Balancer Wire Length(mm)|65|Discharge Wire Length(mm)|120|Wire Gauge|14#"

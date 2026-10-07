@@ -131,7 +131,13 @@ struct ServoState {
   // Fault inputs (F3, 0 = healthy): ext_torque = external torque on the output joint, N m (a load the servo must fight);
   // jam = 1 seizes the joint at the angle it had when set (stiff spring + damper in servo stall); jammed / q_lock: latch.
   double ext_torque, jam, jammed, q_lock;
-  std::uint64_t ticks;                               // ticks stepped; firmware runs when ticks % period == 0
+  // Motor-controller firmware (A4, RoboClaw-style, see servo.cpp): mode 0 = the position firmware above (default, unchanged),
+  // 1 = open-loop duty, 2 = velocity PID on the encoder. All inputs settable, all 0 at power-up.
+  double mode, goal_duty, duty_accel;                // duty_accel: duty change per second (0 = immediate)
+  double goal_velocity, vel_accel, qpps;             // counts/s, counts/s^2 (0 = immediate), counts/s at 100 % duty
+  double vel_p, vel_i, vel_d;                        // dimensionless, 1/s, s
+  double vsp, vmeas, vraw, vint, ve_prev, counts_prev;  // ramped setpoint, filtered / raw speed (counts/s), sum(e) Ts, last e, last counts
+  std::uint64_t ticks;                              // ticks stepped; firmware runs when ticks % period == 0
 };
 // Phase open (no drive): torque off, or released by a latched alarm that is in the unload mask.
 inline bool servo_open(const ServoState& s) {

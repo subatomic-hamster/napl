@@ -38,6 +38,7 @@
 namespace devs {
 namespace {
 constexpr unsigned kAlarmVoltage = 1, kAlarmTemp = 4, kAlarmOverload = 32;  // STS status byte bits
+constexpr double kSpeedTau = 0.02;  // s, low-pass of the encoder speed used by the velocity mode (ESTIMATED, see below)
 }  // namespace
 
 void step_firmware(const mjModel* m, const mjData* d, Devices& dv) {
@@ -61,9 +62,35 @@ void step_firmware(const mjModel* m, const mjData* d, Devices& dv) {
     s.alarm = a;
 
     if (s.ticks++ % static_cast<std::uint64_t>(c.period) != 0) continue;  // between firmware steps: duty held
+    // Speed over the last firmware step (counts/s), every step in every mode (mode 0 ignores it).
+    const double ts = c.period * dt;
+    s.vraw = (s.counts - s.counts_prev) / ts;
+    s.counts_prev = s.counts;
+    s.vmeas += (ts / (ts + kSpeedTau)) * (s.vraw - s.vmeas);
     if (servo_open(s)) {  // torque off or released by an alarm (the drive itself is open from this very tick)
       s.setpoint = s.position;
       s.integ = s.e_prev = s.cmd = 0;
+      s.vsp = s.vint = s.ve_prev = 0;
+      continue;
+    }
+    if (s.mode > 0.5) {  // motor-controller modes: duty (1) / velocity (2)
+      const double lim = std::min(s.max_torque, s.torque_limit) / 1000.0;
+      if (s.mode < 1.5) {
+        const double step = s.duty_accel > 0 ? s.duty_accel * ts : 2.0;
+        s.cmd = std::clamp(s.cmd + std::clamp(s.goal_duty - s.cmd, -step, step), -lim, lim);
+        s.vsp = s.vmeas;  // a switch to velocity mode starts from the measured speed
+        s.vint = s.ve_prev = 0;
+      } else {
+        const double step = s.vel_accel > 0 ? s.vel_accel * ts : 1e30;
+        s.vsp += std::clamp(s.goal_velocity - s.vsp, -step, step);
+        const double e = s.vsp - s.vmeas, q = s.qpps > 0 ? s.qpps : 1.0;
+        auto law = [&](double sum) { return (s.vsp + s.vel_p * e + s.vel_i * sum + s.vel_d * (e - s.ve_prev) / ts) / q; };
+        double u = law(s.vint + e * ts);
+        if (std::abs(u) > lim && u * e > 0) u = law(s.vint);  // saturated and still pushing: freeze the integrator
+        else s.vint += e * ts;
+        s.ve_prev = e;
+        s.cmd = std::clamp(u, -lim, lim);
+      }
       continue;
     }
     const double step = s.goal_speed * c.period * dt;

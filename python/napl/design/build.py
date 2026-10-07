@@ -133,6 +133,9 @@ def part_shapes(lib: Library, part) -> list:
             "mesh": None,
             "path": None,
             "size": s.get("size"),
+            "friction": s.get(
+                "friction"
+            ),  # optional [sliding(, torsional, rolling)]: wheel / caster contact (see geom_xml)
         }
         if kind == "mesh":
             p = lib.root / str(s.get("mesh", ""))
@@ -704,6 +707,10 @@ def compute(asm, parts_dir, out_dir, lib=None):
             T[:3, :3], T[:3, 3] = g["R"], g["pos"]
             s += pose_attrs(T)
         s += f' rgba="{vec(appearance_rgba(lib, lib.get(g["part"])))}"'
+        if g.get(
+            "friction"
+        ):  # priority 1: this geom's friction replaces the floor's (MuJoCo default is the max of the two)
+            s += f' friction="{vec(g["friction"])}" priority="1"'
         s += f' mass="{f(g["mass"])}" contype="{1 if g["collide"] else 0}" conaffinity="0" group="{VEHICLE_GROUP}"/>'
         geoms[g["name"]] = g["part"]
         return s

@@ -17,6 +17,8 @@ Scenario (TOML; relative paths are relative to the scenario file):
     baud = 1000000
     [interfaces.dynamixel]       # instead of feetech: a Dynamixel Protocol 2.0 pty, same Host sim / env; models = { id = "xl430-w250-t" |
     servos = { 1 = "/devices/servo1" }         #   "xl330-m288-t" | "xl330-m077-t" } per bus id (default xl430-w250-t), baud as above
+    [interfaces.roboclaw]        # instead: a Basicmicro RoboClaw Packet Serial pty (napl.roboclaw): motors = { 1 = "/devices/wheel_l", 2 = ... },
+    address = 128                #   address 0x80..0x87 (default 128), baud (default 38400)
     [interfaces.px4]             # PX4 SITL + napl-px4-bridge (own World); env NAPL_MAVLINK=udp://:14540. Exactly one interface per scenario.
     bridge = "../../px4/bridge_x500.toml"
     # px4 from a DESIGN instead of a hand-written bridge file: [design] path = "my-quad.toml" (a saved napl.design design / assembly; optional
@@ -118,8 +120,10 @@ def load_scenario(path) -> dict:
     sc.setdefault("name", path.stem.removesuffix(".scenario"))
     sc["limits"] = {**LIMITS, **sc.get("limits", {})}
     ifs = sc.get("interfaces", {})
-    if not (set(ifs) <= {"feetech", "dynamixel", "px4"} and ifs):
-        raise ScenarioError("[interfaces] needs one of feetech / dynamixel / px4")
+    if not (set(ifs) <= {"feetech", "dynamixel", "roboclaw", "px4"} and ifs):
+        raise ScenarioError(
+            "[interfaces] needs one of feetech / dynamixel / roboclaw / px4"
+        )
     _check_faults(sc, ifs)
     if "design" in sc and "px4" not in ifs:
         _arm_design(sc, ifs)
@@ -669,12 +673,17 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
     from . import Sim
     from .dynamixel import DynamixelPort
     from .feetech import FeetechPort
+    from .roboclaw import RoboclawPort
 
     fc, lim = sc["interfaces"][res["kind"]], sc["limits"]
-    dxl = res["kind"] == "dynamixel"
-    Port = DynamixelPort if dxl else FeetechPort
+    dxl, rc = res["kind"] == "dynamixel", res["kind"] == "roboclaw"
+    Port = RoboclawPort if rc else DynamixelPort if dxl else FeetechPort
     extra = (
-        dict(models={int(i): m for i, m in fc.get("models", {}).items()}) if dxl else {}
+        dict(models={int(i): m for i, m in fc.get("models", {}).items()})
+        if dxl
+        else dict(address=fc.get("address", 0x80))
+        if rc
+        else {}
     )
     model = _build_model(sc, run_dir / "model")
     sim = Sim.load(model, host=True)
@@ -684,8 +693,8 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
                 sim.set(p, s["attr"], s["values"])
         port = Port(
             sim,
-            {int(i): p for i, p in fc["servos"].items()},
-            baud=fc.get("baud", 1_000_000),
+            {int(i): p for i, p in fc["motors" if rc else "servos"].items()},
+            baud=fc.get("baud", 38400 if rc else 1_000_000),
             realtime=True,
             **extra,
         )

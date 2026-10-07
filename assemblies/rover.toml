@@ -1,0 +1,257 @@
+# Differential-drive ground rover (phase 3 third robot class): 2 x Pololu 37D 19:1 gearmotor with 64 CPR encoder (item 4751, 12 V) on machined brackets,
+# Pololu 90x10 mm wheels on 6 mm universal hubs, a 3/4 inch ball caster, a Basicmicro RoboClaw 2x7A (Packet Serial, CRC16) and a Gens Ace 3S 2200 mAh
+# LiPo, on a custom 3 mm aluminium plate. Parts: parts/actuators/pololu-37d-19-1-12v-4751, parts/electronics/basicmicro-roboclaw-2x7a-3682,
+# parts/structure/pololu-{wheel-90x10mm-1436, hub-6mm-4-40-1083, 37d-bracket-machined-1995, ball-caster-3-4in-metal-955} and rover-chassis-plate-custom,
+# parts/propulsion/gensace-2200mah-3s-25c-gea223s25t3gt. Research and validation: docs/research/rover.md, tests/python/test_rover.py.
+#
+# WORLD FRAME / BODIES. base = "free": the plate sits on the floor on its three contacts (two wheels, the caster ball: the lowest collision points
+# are all at 0 to within 0.2 mm, see the heights below). Plate frame: x forward, y left, z up, origin on the midpoint of the wheel axle line.
+#   plate -> bracket_l -> motor_l -(wheel_l, hinge)-> hub_l -> wheel_l_tire      (and the mirror, wheel_r)
+#   plate -> caster, battery, controller (rigid)
+# Joint sign: positive q = the wheel rolls FORWARD (+x). The left hub's z axis is +y, so the hinge axis (+z of the hub) turns it forward as is;
+# the right motor is the mirror image (hub z = -y), hence reverse = true. Both encoders then count UP when the rover drives forward (the RoboClaw
+# default; a real build would swap an encoder's A / B or use 'Set encoder mode' if one counted down).
+#
+# HEIGHTS (the wheel's lowest point and the caster ball's lowest point must both be on the floor): wheel radius 0.045 m = caster height 0.02032 m (the
+# 0.8 inch spacer stack) + plate 0.003 m + bracket motor-axis height 0.02168 m. The last one is ESTIMATED (the bracket's drawing is an image), chosen
+# for exactly this; the build then reports the 3-point stance.
+#
+# ELECTRICAL. Battery -> RoboClaw main terminal (14 AWG, the pack's own 120 mm lead). The RoboClaw's H-bridge + velocity / duty firmware is modelled as
+# two `servo` devices (src/mujoco/devices/servo.cpp, mode 1 duty / mode 2 velocity PID) on the RoboClaw's power node, each driving one wheel hinge
+# through the motor of its channel: the device node is the controller's power_in, the motor numbers come through the `motor` binding field. The motor
+# leads (controller m1 / m2 -> motor, 22 AWG, the motor's 20 cm lead) are `wire` devices between ports no device uses (electrically dangling, as the
+# ESC -> motor wires of assemblies/x500v2.toml): the Servo models the motor internally, so the 20 cm of lead (~10 mOhm of a 2.18 ohm winding) is not in the
+# loop. The 8 mOhm FET on-resistance is likewise not in the loop (Servo has no r_on): both are < 1 % of the winding resistance.
+# NOT MODELLED: RoboClaw 5 V BEC (encoder Vcc), logic battery, current limit (the RoboClaw's max-current command is stored by the port, not applied),
+# the 4 gearmotor leads' inductance, wheel slip beyond MuJoCo's friction cone, tire compliance. Wire connectors: every port on this robot is neutral
+# (screw terminals, solder pads, bare leads), so no wire end has a connector to pin.
+
+[assembly]
+name = "rover"
+description = "Pololu 37D 4751 differential-drive rover on a RoboClaw 2x7A (Packet Serial) and a 3S 2200 mAh LiPo: 3 contact points (2 wheels + ball caster), free base"
+base = "free"
+timestep = 0.001
+seed = 1
+
+# ---- structure ---------------------------------------------------------------------------------------------------------------------------
+[[instances]]
+id = "plate"
+part = "rover-chassis-plate-custom"
+root = true
+group = "chassis"
+
+[[instances]]
+id = "bracket_l"
+part = "pololu-37d-bracket-machined-1995"
+group = "drive"
+
+[[instances]]
+id = "bracket_r"
+part = "pololu-37d-bracket-machined-1995"
+group = "drive"
+
+[[instances]]
+id = "motor_l"
+part = "pololu-37d-19-1-12v-4751"
+group = "drive"
+
+[[instances]]
+id = "motor_r"
+part = "pololu-37d-19-1-12v-4751"
+group = "drive"
+
+[[instances]]
+id = "hub_l"
+part = "pololu-hub-6mm-4-40-1083"
+group = "drive"
+
+[[instances]]
+id = "hub_r"
+part = "pololu-hub-6mm-4-40-1083"
+group = "drive"
+
+[[instances]]
+id = "tire_l"
+part = "pololu-wheel-90x10mm-1436"
+group = "drive"
+
+[[instances]]
+id = "tire_r"
+part = "pololu-wheel-90x10mm-1436"
+group = "drive"
+
+[[instances]]
+id = "caster"
+part = "pololu-ball-caster-3-4in-metal-955"
+group = "chassis"
+
+[[instances]]
+id = "battery"
+part = "gensace-2200mah-3s-25c-gea223s25t3gt"
+group = "power"
+
+[[instances]]
+id = "controller"
+part = "basicmicro-roboclaw-2x7a-3682"
+group = "electronics"
+
+# ---- mates -------------------------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "plate--bracket_l"
+a = "plate.bracket_l"
+b = "bracket_l.base"
+
+[[mates]]
+name = "bracket_l--motor_l"
+a = "bracket_l.motor_face"
+b = "motor_l.mount"
+
+[[mates]]
+name = "wheel_l"
+a = "motor_l.shaft"
+b = "hub_l.bore"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "hub_l--tire_l"
+a = "hub_l.wheel_seat"
+b = "tire_l.hub_seat"
+
+[[mates]]
+name = "plate--bracket_r"
+a = "plate.bracket_r"
+b = "bracket_r.base"
+
+[[mates]]
+name = "bracket_r--motor_r"
+a = "bracket_r.motor_face"
+b = "motor_r.mount"
+
+[[mates]]
+name = "wheel_r"
+a = "motor_r.shaft"
+b = "hub_r.bore"
+joint = { type = "hinge", spin = true, reverse = true }
+
+[[mates]]
+name = "hub_r--tire_r"
+a = "hub_r.wheel_seat"
+b = "tire_r.hub_seat"
+
+[[mates]]
+name = "plate--caster"
+a = "plate.caster_seat"
+b = "caster.mount"
+
+[[mates]]
+name = "plate--battery"
+a = "plate.battery_seat"
+b = "battery.base"
+
+[[mates]]
+name = "plate--controller"
+a = "plate.controller_seat"
+b = "controller.base"
+
+# ---- wires -------------------------------------------------------------------------------------------------------------------------------
+# Battery main lead: the pack's own 120 mm of 14 AWG (mass inside the pack).
+[[wires]]
+name = "battery_to_controller"
+from = "battery.power_out"
+to = "controller.power_in"
+part = "awg-14-silicone-wire"
+length = "battery.discharge_wire_length"
+conductors = 2
+included_in = "battery"
+
+# Motor leads: the gearmotor's 20 cm red / black leads (gauge not published: 22 AWG estimated) and its four encoder leads (26 AWG estimated).
+[[wires]]
+name = "m1_motor_l"
+from = "controller.m1_out"
+to = "motor_l.motor_power"
+part = "awg-22-silicone-wire"
+length = "motor_l.lead_length"
+conductors = 2
+included_in = "motor_l"
+
+[[wires]]
+name = "m2_motor_r"
+from = "controller.m2_out"
+to = "motor_r.motor_power"
+part = "awg-22-silicone-wire"
+length = "motor_r.lead_length"
+conductors = 2
+included_in = "motor_r"
+
+[[wires]]
+name = "enc1_motor_l"
+from = "controller.enc1"
+to = "motor_l.encoder"
+part = "awg-26-silicone-wire"
+length = "motor_l.lead_length"
+conductors = 4
+included_in = "motor_l"
+
+[[wires]]
+name = "enc2_motor_r"
+from = "controller.enc2"
+to = "motor_r.encoder"
+part = "awg-26-silicone-wire"
+length = "motor_r.lead_length"
+conductors = 4
+included_in = "motor_r"
+
+# ---- device maps -------------------------------------------------------------------------------------------------------------------------
+[device_maps.pack]
+"capacity_ah" = "capacity_ah"
+"r0" = "r_internal_pack"
+
+# One wheel drive: the controller (device instance) gives the firmware / protection numbers, the `motor` field instance the DC gearmotor numbers.
+[device_maps.wheel_drive]
+"motor.kv" = "motor:kv_equivalent"
+"motor.r20" = "motor:r_effective"
+"motor.i0" = "motor:no_load_current_12v"
+"motor.i0_w" = "motor:omega_noload_motor_12v"
+"motor.i0_visc" = "motor:i0_visc"
+"motor.rotor_inertia" = "motor:rotor_inertia_motor"
+"motor.c_th" = "motor:c_th"
+"motor.r_th" = "motor:r_th"
+gear_ratio = "motor:gear_ratio"
+efficiency = "motor:gear_efficiency"
+encoder_cpr = "motor:encoder_resolution"
+firmware_hz = "firmware_hz"
+pid_scale = "pid_scale"
+max_torque = "max_duty_register"
+i_limit = "i_peak"
+min_voltage = "v_min"
+max_voltage = "v_max"
+unload_mask = "protect_voltage_mask"
+
+# ---- devices -----------------------------------------------------------------------------------------------------------------------------
+# Battery: OCV = lipo-cell-ocv-chen2006 (literature, Chen & Rincon-Mora 2006) x 3 cells; soc0 = 1. Chen's cells were charged to 4.1 V, so the full pack
+# reads 3 x 4.103 = 12.31 V, not 12.6 V (a real 4.2 V pack sits ~0.3 V higher at the top). r0 = the part's estimated pack resistance; no RC pair.
+[[devices]]
+type = "battery"
+name = "battery"
+instance = "battery"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack"
+
+[[devices]]
+type = "servo"
+name = "wheel_l"
+instance = "controller"
+port = "power_in"
+motor = "motor_l"
+joint = "wheel_l"
+map = "wheel_drive"
+
+[[devices]]
+type = "servo"
+name = "wheel_r"
+instance = "controller"
+port = "power_in"
+motor = "motor_r"
+joint = "wheel_r"
+map = "wheel_drive"

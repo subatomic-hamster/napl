@@ -781,7 +781,16 @@ constexpr Attr<ServoState> kServo[] = {
     {"overload_time", "s", &ServoState::overload_time, true, false, 0, 1e4},
     {"unload_mask", "1", &ServoState::unload_mask, true, false, 0, 255},  // integer bit mask; fraction truncated
     {"velocity", "rad/s", &ServoState::velocity}, {"load", "1", &ServoState::duty}, {"alarm", "1", &ServoState::alarm},
-    {"ext_torque", "N*m", &ServoState::ext_torque, true, false, -100, 100}, {"jam", "1", &ServoState::jam, true, true, 0, 1}};
+    {"ext_torque", "N*m", &ServoState::ext_torque, true, false, -100, 100}, {"jam", "1", &ServoState::jam, true, true, 0, 1},
+    // Motor-controller firmware (A4, servo.cpp): mode 0 position / 1 duty / 2 velocity; counts are encoder counts.
+    {"mode", "1", &ServoState::mode, true, false, 0, 2}, {"goal_duty", "1", &ServoState::goal_duty, true, false, -1, 1},
+    {"duty_accel", "1/s", &ServoState::duty_accel, true, false, 0, 1e6},
+    {"goal_velocity", "counts/s", &ServoState::goal_velocity, true, false, -1e8, 1e8},
+    {"vel_accel", "counts/s^2", &ServoState::vel_accel, true, false, 0, 1e10},
+    {"qpps", "counts/s", &ServoState::qpps, true, false, 0, 1e8}, {"vel_p", "1", &ServoState::vel_p, true, false, 0, 1e6},
+    {"vel_i", "1/s", &ServoState::vel_i, true, false, 0, 1e6}, {"vel_d", "s", &ServoState::vel_d, true, false, 0, 1e6},
+    {"speed", "counts/s", &ServoState::vmeas}, {"speed_raw", "counts/s", &ServoState::vraw},
+    {"speed_setpoint", "counts/s", &ServoState::vsp}};
 constexpr Attr<EnvState> kEnv[] = {{"density", "kg/m^3", &EnvState::density}};
 // 3-vector attrs (same fields as Attr, member is a double[3]).
 template <class S> struct Attr3 {

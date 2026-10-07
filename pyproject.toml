@@ -20,6 +20,9 @@ px4 = ["mavsdk==4.0.3"]
 # dynamixel-sdk (ROBOTIS DynamixelSDK, PyPI METADATA "License: Apache 2.0", LICENSE.txt = Apache License 2.0; dep: pyserial, BSD-3-Clause).
 # Only for the SDK client test of the Dynamixel pty (tests/python/test_dynamixel.py); the port itself needs no SDK.
 arm = ["dynamixel-sdk==4.1.0"]
+# basicmicro (Basicmicro official RoboClaw library, PyPI METADATA "License :: OSI Approved :: MIT License", LICENSE = MIT; dep: pyserial, BSD-3-Clause).
+# Only for the library client tests / example of the RoboClaw pty (tests/python/test_roboclaw.py, examples/rover/); the port needs no library.
+rover = ["basicmicro==2.0.10"]
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
