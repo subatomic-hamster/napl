@@ -1,0 +1,51 @@
+<!-- Three DYNAMIXEL-class servos, each turning a light link about a vertical axis (zero gravity), for the Protocol 2.0 pty
+     tests (python/napl/dynamixel.py): s1, s2 = XL430-W250-T on a 12 V supply (parts/arm/robotis-xl430-w250-t.toml), s3 =
+     XL330-M288-T on a 5 V supply (robotis-xl330-m288-t.toml), the Koch v1.1 follower's two supplies.
+     Numbers from the part files: XL430 kv 1405 rpm/V, r20 = r_effective 8.55 ohm, i0 0.084 A (estimated), rotor_inertia 1.3e-7
+     (estimated), gear 258.5, efficiency 0.650, encoder_cpr 4096; XL330-M288: kv 6305, r20 3.42, i0 0.088, rotor_inertia 1.89e-8,
+     gear 288.4, efficiency 0.851. Gains = the e-Manual register defaults mapped 1:1 by pid_scale = 128 x 885 = 113280 and
+     d_scale = 16 x 885 = 14160 (docs/research/dynamixel.md section 10): XL430 P 640 D 4000 I 0, XL330 P 400 D 0. max_torque 1000 =
+     PWM Limit 885. Protection = the e-Manual defaults: temperature limit 72 / 70 degC, voltage limits 6.0-14.0 V / 3.5-7.0 V,
+     unload_mask = Shutdown default (52 / 53) & the device's alarm bits (4 + 32 / 1 + 4 + 32). overload_load 0.8 / overload_time
+     2.0 s are NOT published (estimates). TEST VALUES: c_th 10 J/K, r_th 15 K/W, supply r_series 0.05 ohm, firmware_hz 1000. -->
+
+<mujoco model="dynamixel_arm3">
+  <compiler angle="radian"/>
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="l1" pos="0 0 0.1">
+      <joint name="j1" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.01" mass="0.05" contype="0" conaffinity="0"/>
+    </body>
+    <body name="l2" pos="0.3 0 0.1">
+      <joint name="j2" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.01" mass="0.05" contype="0" conaffinity="0"/>
+    </body>
+    <body name="l3" pos="0.6 0 0.1">
+      <joint name="j3" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.01" mass="0.05" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "bus12", "node": 1, "voltage": 12.0, "r_series": 0.05},
+               {"name": "bus5", "node": 2, "voltage": 5.0, "r_series": 0.05}],
+      "servos": [
+        {"name": "s1", "node": 1, "joint": "j1", "parts": ["robotis-xl430-w250-t"],
+         "motor": {"kv": 1405, "r20": 8.55, "i0": 0.084, "rotor_inertia": 1.3e-7, "c_th": 10, "r_th": 15},
+         "gear_ratio": 258.5, "efficiency": 0.650, "encoder_cpr": 4096, "firmware_hz": 1000,
+         "p": 640, "i": 0, "d": 4000, "pid_scale": 113280, "d_scale": 14160, "deadband": 0, "max_torque": 1000,
+         "min_voltage": 6.0, "max_voltage": 14.0, "max_temp": 72, "overload_load": 0.8, "overload_time": 2.0, "unload_mask": 36},
+        {"name": "s2", "node": 1, "joint": "j2", "parts": ["robotis-xl430-w250-t"],
+         "motor": {"kv": 1405, "r20": 8.55, "i0": 0.084, "rotor_inertia": 1.3e-7, "c_th": 10, "r_th": 15},
+         "gear_ratio": 258.5, "efficiency": 0.650, "encoder_cpr": 4096, "firmware_hz": 1000,
+         "p": 640, "i": 0, "d": 4000, "pid_scale": 113280, "d_scale": 14160, "deadband": 0, "max_torque": 1000,
+         "min_voltage": 6.0, "max_voltage": 14.0, "max_temp": 72, "overload_load": 0.8, "overload_time": 2.0, "unload_mask": 36},
+        {"name": "s3", "node": 2, "joint": "j3", "parts": ["robotis-xl330-m288-t"],
+         "motor": {"kv": 6305, "r20": 3.42, "i0": 0.088, "rotor_inertia": 1.89e-8, "c_th": 10, "r_th": 15},
+         "gear_ratio": 288.4, "efficiency": 0.851, "encoder_cpr": 4096, "firmware_hz": 1000,
+         "p": 400, "i": 0, "d": 0, "pid_scale": 113280, "d_scale": 14160, "deadband": 0, "max_torque": 1000,
+         "min_voltage": 3.5, "max_voltage": 7.0, "max_temp": 70, "overload_load": 0.8, "overload_time": 2.0, "unload_mask": 37}]
+    }'/>
+  </custom>
+</mujoco>

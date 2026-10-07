@@ -1,0 +1,449 @@
+# Koch v1.1 FOLLOWER arm (jess-moss/koch-v1-1 1a553e1 + s1lent4gnt URDF cc1a4eb; Apache-2.0): 7 printed parts, 2 x Dynamixel XL430-W250-T
+# (12 V) + 4 x XL330-M288-T (5 V via a 12 V -> 5 V reducer), Waveshare bus servo adapter, 12 V 5 A supply. Parts: parts/arm/koch-*.toml and
+# the robotis / eplzon / facmogu / waveshare parts. Research: docs/research/koch-v1.1.md, docs/research/dynamixel.md. Leader arm: not modelled.
+# PROVENANCE: the structure follows assemblies/so101.toml / aos5.toml; tests/python/test_design_koch.py proves that napl.design.Design (the
+# editing API) loads, checks and builds this exact file and that an edit (swap a servo) round-trips through Design.save; this header is the
+# only hand-written part that save() does not keep.
+#
+# WORLD FRAME. root_frame = "urdf_link": world = the URDF base_link frame of meshes/koch/follower.urdf, so q = 0 is the URDF zero (upper arm
+# vertical, forearm along -x; tools/koch_ports.py --check proves the ports reproduce the URDF forward kinematics to 1e-16 m) and gravity acts
+# along the arm's real "down". base = "fixed": welded (the real arm is clamped to a table; the C-clamp is not modelled).
+#
+# KINEMATIC TREE. Every URDF joint axis is the INVERSE of the servo output (horn) axis, so every joint mate carries reverse = true (the horn seats
+# carry joint_reverse = true): positive q is the URDF joint direction. Mate names = LeRobot joint names = MJCF joint names.
+#   base -> servo1 -(shoulder_pan)-> shoulder_rotation -> servo2 -(shoulder_lift)-> shoulder_to_elbow -> servo3 -(elbow_flex)->
+#   elbow_to_wrist_extension -> servo4 -(wrist_flex)-> elbow_to_wrist -> servo5 -(wrist_roll)-> gripper_static -> servo6 -(gripper)-> gripper_moving
+# Joint ranges are the `<joint>_range` params of the child printed part: Menagerie's "approximate joint limits", fidelity ESTIMATED (the upstream
+# URDF has +-3.14 placeholders). The gripper is a position servo here although LeRobot runs it in current-based position mode (operating mode 5,
+# Goal_Current limits the grip force): the simulated servo has no current mode, so the gripper holds like the other joints, unlimited by current.
+#
+# NO FASTENERS. The Koch follower BOM lists no screws (the servo kits' own screws are assumed, not verified) and the printed parts have no thread /
+# hole tags, so none are modelled, as for the SO-101 structural screws. The idler frames (FPX330-H101 x3, HN11-I101), jumper wires and the table
+# clamp are not modelled (no mesh / mass published).
+#
+# ELECTRICAL (docs/research/dynamixel.md section 8.2, wiring diagram of the repo): 12 V supply -> Waveshare board DC jack -> board servo port.
+# From that port: (a) the XL430 chain servo1 -> servo2 at 12 V, (b) the 12 V -> 5 V reducer input. The reducer output feeds the XL330 chain
+# servo3 -> servo4 -> servo5 -> servo6 at 5 V; the four XL330 never see 12 V (their maximum is 6.0 V). The board's DATA line is shared by both
+# chains (one half-duplex bus); the sim has no signal-path model, so no signal wire is placed and the 3-conductor cable mass is carried by the
+# power wire entries (the `conductors = 2` field sets only the electrical loop, see assemblies/README.md "Conductor convention").
+# BOARD <-> DYNAMIXEL CONNECTOR MISMATCH, resolved explicitly (the Waveshare part is NOT edited): the part declares the board's servo port as
+# type 5264-3p (an ASSUMPTION of that part: Feetech 5264 3P) and its signal port as feetech-ttl, whereas the servos' ports are jst-eh.3 /
+# dynamixel-ttl; the Robot Cable-X3P ends are jst-eh.3 male, so a cable there would be WIRE_CONNECTOR_MISMATCH (a real finding of the DRC). The two board-side hops
+# (board -> servo1, board -> reducer, and reducer -> servo3, whose pads are solder-pad) are therefore modelled as short 22 AWG lead wires (wire-lead
+# ends, the BOM lists a jumper-wire set; lengths and gauge ESTIMATED) instead of Robot Cables. Which cable physically meets the board header is
+# NOT confirmed by any source read; the DATA pin between a Feetech-style 5264 header and Dynamixel TTL is the same single-wire 5 V half-duplex UART
+# at 1 Mbps in LeRobot, which is what the Koch BOM relies on; the part's `bus` port type name is left as is. Servo-to-servo hops are real Robot
+# Cable-X3P 180 mm cables (jst-eh.3 male <-> the servos' female port_a / port_b), one per hop.
+# OFFBOARD: the board, the supply and the reducer have no seat on the Koch base (the base has only a table_seat); they sit on the bench, so they are
+# offboard: no body, no mass in the arm total, still electrical nodes. Their lead wires from an offboard end are attached to the servo body.
+# NOT MODELLED electrical: the reducer's 12 V input current (P_out / 0.9; up to 5.9 A x 5 V / 0.9 / 12 V = 2.7 A with all four XL330 stalled) is not
+# a load on the 12 V net (no load device is bound), so the 12 V net checks undercount; two XL430 stalled (2.8 A) + 2.7 A is 5.5 A > the 5 A supply.
+#
+# DEVICES. One device map per servo model (xl430_w250, xl330_m288): a change of pid_scale / d_scale is ONE edit of the part param. pid_scale 113280
+# = 128 x 885 and d_scale 14160 = 16 x 885 (derived part params, docs/research/dynamixel.md section 10: KPP = P/128, KPD = D/16 on a PWM of 885 =
+# 100 %; error in encoder counts is an inference); a later calibration stage may revise them. Initial P / I / D = the e-Manual defaults (XL430 640 / 0 / 4000,
+# XL330 400 / 0 / 0; LeRobot writes 1500 / 0 / 600 only on the elbow_flex servo, NOT applied here); device i = I_reg / 512, inert at the default 0.
+# KNOWN BEHAVIOUR of these defaults (measured in tests/python/test_design_koch.py): (1) the XL430 D = 4000 with d_scale 14160 turns a +-1 count flip
+# of the integer encoder error at 1 kHz into a duty kick of 0.28, so shoulder_lift limit-cycles (duty -0.22 / +0.35, +-1 count, 500 Hz); the MEAN
+# torque still equals the gravity torque to 1 %. Whether the real firmware does this is unknown (the D time base is an inference, dynamixel.md section 10.1
+# item 7): d_scale is the knob. (2) With P = 400 the elbow (XL330) holds the zero pose with a 5.6 deg sag (stiffness 1.2 N*m/rad; 1500 as LeRobot writes would cut it to ~1.5 deg).
+# Protections from the part: temperature limit (XL430 72 degC, XL330 70 degC), voltage limits (register defaults: XL430 6.0 .. 14.0 V, XL330
+# 3.5 .. 7.0 V), unload_mask = the Shutdown register default (XL430 52 = 0x34, XL330 53 = 0x35). The Dynamixel Shutdown bits 0 / 2 / 5 (input
+# voltage / overheating / overload) coincide with the sim's alarm bits 1 / 4 / 32; the bits 16 (electrical shock) and 8 (encoder) of the registers are not
+# modelled and never set. The Dynamixel has no published overload-load / protection-time register, so overload_load stays 0 (overload check off).
+# Thermal params (c_th, r_th) are estimated, see the device bindings. firmware_hz and encoder_cpr (4096) from the part.
+
+[assembly]
+name = "koch"
+description = "Koch v1.1 follower arm: 2 x XL430-W250-T on a 12 V supply + 4 x XL330-M288-T on a 12 V -> 5 V reducer, through the Waveshare bus servo adapter; arm at q = 0 in the URDF base_link frame"
+base = "fixed"
+root_frame = "urdf_link"
+timestep = 0.001
+
+# ---- printed parts (mass = mesh volume x PLA density x 30 % infill, 2 walls estimated) ------------------------------------------------
+[[instances]]
+id = "base"
+part = "koch-base"
+root = true
+group = "arm"
+
+[[instances]]
+id = "shoulder_rotation"
+part = "koch-shoulder-rotation"
+group = "arm"
+
+[[instances]]
+id = "shoulder_to_elbow"
+part = "koch-shoulder-to-elbow"
+group = "arm"
+
+[[instances]]
+id = "elbow_to_wrist_extension"
+part = "koch-elbow-to-wrist-extension"
+group = "arm"
+
+[[instances]]
+id = "elbow_to_wrist"
+part = "koch-elbow-to-wrist"
+group = "arm"
+
+[[instances]]
+id = "gripper_static"
+part = "koch-gripper-static"
+group = "arm"
+
+[[instances]]
+id = "gripper_moving"
+part = "koch-gripper-moving"
+group = "arm"
+
+# ---- servos (joint k = servo k = Dynamixel ID k in LeRobot) ----------------------------------------------------------------------------
+[[instances]]
+id = "servo1"
+part = "robotis-xl430-w250-t"
+group = "arm"
+
+[[instances]]
+id = "servo2"
+part = "robotis-xl430-w250-t"
+group = "arm"
+
+[[instances]]
+id = "servo3"
+part = "robotis-xl330-m288-t"
+group = "arm"
+
+[[instances]]
+id = "servo4"
+part = "robotis-xl330-m288-t"
+group = "arm"
+
+[[instances]]
+id = "servo5"
+part = "robotis-xl330-m288-t"
+group = "arm"
+
+[[instances]]
+id = "servo6"
+part = "robotis-xl330-m288-t"
+group = "arm"
+
+# ---- electronics (bench, offboard) -----------------------------------------------------------------------------------------------------
+[[instances]]
+id = "adapter"
+part = "waveshare-bus-servo-adapter-a"
+group = "electronics"
+offboard = true
+
+[[instances]]
+id = "reducer"
+part = "eplzon-12v-5v-reducer"
+group = "electronics"
+offboard = true
+
+[[instances]]
+id = "psu"
+part = "facmogu-12v-5a-psu"
+group = "bench"
+offboard = true
+
+# Reference holders for the wire parts' params (a wire is a [[wires]] entry, not a body); offboard: no body, no mass.
+[[instances]]
+id = "cable"
+part = "robotis-robot-cable-x3p-180mm"
+group = "bench"
+offboard = true
+
+[[instances]]
+id = "lead"
+part = "awg-22-silicone-wire"
+group = "bench"
+offboard = true
+
+# ---- joint 1 shoulder_pan: servo1 in the base, horn drives shoulder_rotation ----------------------------------------------------------------
+[[mates]]
+name = "base--servo1"
+a = "base.servo_seat"
+b = "servo1.base"
+
+[[mates]]
+name = "shoulder_pan"
+a = "servo1.output"
+b = "shoulder_rotation.horn_seat"
+joint = { type = "hinge", range = "shoulder_rotation.shoulder_pan_range", reverse = true }
+
+# ---- joint 2 shoulder_lift ---------------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "shoulder_rotation--servo2"
+a = "shoulder_rotation.servo_seat"
+b = "servo2.base"
+
+[[mates]]
+name = "shoulder_lift"
+a = "servo2.output"
+b = "shoulder_to_elbow.horn_seat"
+joint = { type = "hinge", range = "shoulder_to_elbow.shoulder_lift_range", reverse = true }
+
+# ---- joint 3 elbow_flex ------------------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "shoulder_to_elbow--servo3"
+a = "shoulder_to_elbow.servo_seat"
+b = "servo3.base"
+
+[[mates]]
+name = "elbow_flex"
+a = "servo3.output"
+b = "elbow_to_wrist_extension.horn_seat"
+joint = { type = "hinge", range = "elbow_to_wrist_extension.elbow_flex_range", reverse = true }
+
+# ---- joint 4 wrist_flex ------------------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "elbow_to_wrist_extension--servo4"
+a = "elbow_to_wrist_extension.servo_seat"
+b = "servo4.base"
+
+[[mates]]
+name = "wrist_flex"
+a = "servo4.output"
+b = "elbow_to_wrist.horn_seat"
+joint = { type = "hinge", range = "elbow_to_wrist.wrist_flex_range", reverse = true }
+
+# ---- joint 5 wrist_roll ------------------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "elbow_to_wrist--servo5"
+a = "elbow_to_wrist.servo_seat"
+b = "servo5.base"
+
+[[mates]]
+name = "wrist_roll"
+a = "servo5.output"
+b = "gripper_static.horn_seat"
+joint = { type = "hinge", range = "gripper_static.wrist_roll_range", reverse = true }
+
+# ---- joint 6 gripper ---------------------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "gripper_static--servo6"
+a = "gripper_static.servo_seat"
+b = "servo6.base"
+
+[[mates]]
+name = "gripper"
+a = "servo6.output"
+b = "gripper_moving.horn_seat"
+joint = { type = "hinge", range = "gripper_moving.gripper_range", reverse = true }
+
+# ---- power wiring --------------------------------------------------------------------------------------------------------------------------------
+# PSU cord: the supply's own fixed 1.5 m cord (datasheet cable_length), a generic wire part (gauge not published), mass inside the PSU (offboard).
+[[wires]]
+name = "psu_cord"
+from = "psu.power_out"
+to = "adapter.power_in"
+part = "awg-22-silicone-wire"
+length = "psu.cable_length"
+conductors = 2
+included_in = "psu"
+
+# Board -> servo1 (12 V chain): 22 AWG lead bridging the board's 5264-3p port to the servo's jst-eh.3 port, see the header.
+[[wires]]
+name = "lead_adapter_servo1"
+from = "adapter.servo_bus"
+to = "servo1.port_a"
+part = "awg-22-silicone-wire"
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Not published. The board sits on the bench next to the arm base (the servo-to-servo cable is 0.18 m): 0.15 m taken, the same as the SO-101 board-to-servo cable estimate." }
+conductors = 2
+
+[[wires]]
+name = "cable_servo1_servo2"
+from = "servo1.port_b"
+to = "servo2.port_a"
+part = "robotis-robot-cable-x3p-180mm"
+length = "cable.length_default"
+conductors = 2
+
+# Board -> reducer input (12 V) and reducer output -> XL330 chain (5 V).
+[[wires]]
+name = "lead_adapter_reducer"
+from = "adapter.servo_bus"
+to = "reducer.power_in"
+part = "awg-22-silicone-wire"
+length = { value = 0.1, unit = "m", fidelity = "estimated", rationale = "Not published; the reducer is a small loose module beside the board (wiring diagram, no dimensions): 0.1 m taken." }
+conductors = 2
+
+[[wires]]
+name = "lead_reducer_servo3"
+from = "reducer.power_out"
+to = "servo3.port_a"
+part = "awg-22-silicone-wire"
+length = { value = 0.1, unit = "m", fidelity = "estimated", rationale = "Not published; solder-pad output of the reducer to the XL330 chain cable, 0.1 m taken (wiring diagram, no lengths)." }
+conductors = 2
+
+[[wires]]
+name = "cable_servo3_servo4"
+from = "servo3.port_b"
+to = "servo4.port_a"
+part = "robotis-robot-cable-x3p-180mm"
+length = "cable.length_default"
+conductors = 2
+
+[[wires]]
+name = "cable_servo4_servo5"
+from = "servo4.port_b"
+to = "servo5.port_a"
+part = "robotis-robot-cable-x3p-180mm"
+length = "cable.length_default"
+conductors = 2
+
+[[wires]]
+name = "cable_servo5_servo6"
+from = "servo5.port_b"
+to = "servo6.port_a"
+part = "robotis-robot-cable-x3p-180mm"
+length = "cable.length_default"
+conductors = 2
+
+# ---- device maps -----------------------------------------------------------------------------------------------------------------------------
+[device_maps.psu]
+voltage = "v_out_nominal"
+r_series = "r_out"
+i_limit = "current_limit"
+
+# The reducer is modelled as an ideal-ish 5 V source behind r_out (0.05 ohm, estimated) limited at current_limit (6 A): its input side is not modelled.
+[device_maps.reducer]
+voltage = "v_out_nominal"
+r_series = "r_out"
+i_limit = "current_limit"
+
+# XL430-W250-T at 12 V. motor.i0 / i0_w = the 12 V no-load current estimate and the motor-side no-load speed at that voltage (ESTIMATED current, derived speed).
+# p / i / d / max_torque: e-Manual defaults (part params device_*_default). pid_scale / d_scale: derived part params (dynamixel.md section 10), ONE edit to change.
+[device_maps.xl430_w250]
+"motor.kv" = "kv_equivalent"
+"motor.r20" = "r_effective"
+"motor.i0" = "no_load_current_12v"
+"motor.i0_w" = "omega_noload_motor_12v"
+"motor.i0_visc" = "i0_visc"
+"motor.rotor_inertia" = "rotor_inertia_motor"
+gear_ratio = "gear_ratio"
+efficiency = "gear_efficiency"
+encoder_cpr = "encoder_resolution"
+firmware_hz = "firmware_hz"
+p = "device_p_default"
+i = "device_i_default"
+d = "device_d_default"
+pid_scale = "pid_scale"
+d_scale = "d_scale"
+deadband = "dead_zone_default"
+max_torque = "device_max_torque_default"
+min_voltage = "reg_min_voltage_limit_default"
+max_voltage = "reg_max_voltage_limit_default"
+max_temp = "reg_temperature_limit_default"
+unload_mask = "reg_shutdown_default"
+
+# XL330-M288-T at 5 V (the reducer output): the 5 V no-load current and speed.
+[device_maps.xl330_m288]
+"motor.kv" = "kv_equivalent"
+"motor.r20" = "r_effective"
+"motor.i0" = "no_load_current_5v"
+"motor.i0_w" = "omega_noload_motor_5v"
+"motor.i0_visc" = "i0_visc"
+"motor.rotor_inertia" = "rotor_inertia_motor"
+gear_ratio = "gear_ratio"
+efficiency = "gear_efficiency"
+encoder_cpr = "encoder_resolution"
+firmware_hz = "firmware_hz"
+p = "device_p_default"
+i = "device_i_default"
+d = "device_d_default"
+pid_scale = "pid_scale"
+d_scale = "d_scale"
+deadband = "dead_zone_default"
+max_torque = "device_max_torque_default"
+min_voltage = "reg_min_voltage_limit_default"
+max_voltage = "reg_max_voltage_limit_default"
+max_temp = "reg_temperature_limit_default"
+unload_mask = "reg_shutdown_default"
+
+# ---- devices ---------------------------------------------------------------------------------------------------------------------------------
+[[devices]]
+type = "psu"
+name = "psu"
+instance = "psu"
+port = "power_out"
+map = "psu"
+
+[[devices]]
+type = "psu"
+name = "reducer"
+instance = "reducer"
+port = "power_out"
+map = "reducer"
+
+# The board's DC jack and its servo port are different nodes (sink / source, not passthrough): an internal resistive edge joins them.
+[[devices]]
+type = "wire"
+name = "adapter_board"
+instance = "adapter"
+a = "power_in"
+b = "servo_bus"
+set = { resistance = { value = 0.02, unit = "ohm", fidelity = "estimated", rationale = "The part publishes no series resistance (bus_forward_drop is an estimated 0 V). 20 mohm = the DC jack contact pair plus a short trace, as in assemblies/so101.toml (two mated 5264 contacts at 10 mohm each); a zero-resistance edge would be singular." } }
+
+[[devices]]
+type = "servo"
+name = "servo1"
+instance = "servo1"
+port = "port_a"
+joint = "shoulder_pan"
+map = "xl430_w250"
+set = { "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "No published winding thermal capacity for the XL430. 10 J/K = the SO-101 STS3215 test value (55 g; 57.2 g here, same size class and plastic case), itself unsourced; only the temperature readout and the time to the 72 degC limit depend on it." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "No published winding-to-ambient resistance. 15 K/W = the STS3215 value of assemblies/so101.toml (similar mass and case), unsourced." } }
+
+[[devices]]
+type = "servo"
+name = "servo2"
+instance = "servo2"
+port = "port_a"
+joint = "shoulder_lift"
+map = "xl430_w250"
+set = { "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1." } }
+
+[[devices]]
+type = "servo"
+name = "servo3"
+instance = "servo3"
+port = "port_a"
+joint = "elbow_flex"
+map = "xl330_m288"
+set = { "motor.c_th" = { value = 3.3, unit = "J/K", fidelity = "estimated", rationale = "No published value. Scaled from the 10 J/K of the 55 g STS3215 by the mass ratio 18 g / 55 g (heat capacity ~ mass): 3.3 J/K. Only the temperature readout and the time to the 70 degC limit depend on it." }, "motor.r_th" = { value = 30.0, unit = "K/W", fidelity = "estimated", rationale = "No published value. Scaled from 15 K/W of the 55 g STS3215 by (55/18)^(2/3) = 2.1 (surface area ~ m^(2/3) at equal case construction): 31 K/W, 30 K/W taken." } }
+
+[[devices]]
+type = "servo"
+name = "servo4"
+instance = "servo4"
+port = "port_a"
+joint = "wrist_flex"
+map = "xl330_m288"
+set = { "motor.c_th" = { value = 3.3, unit = "J/K", fidelity = "estimated", rationale = "As servo3." }, "motor.r_th" = { value = 30.0, unit = "K/W", fidelity = "estimated", rationale = "As servo3." } }
+
+[[devices]]
+type = "servo"
+name = "servo5"
+instance = "servo5"
+port = "port_a"
+joint = "wrist_roll"
+map = "xl330_m288"
+set = { "motor.c_th" = { value = 3.3, unit = "J/K", fidelity = "estimated", rationale = "As servo3." }, "motor.r_th" = { value = 30.0, unit = "K/W", fidelity = "estimated", rationale = "As servo3." } }
+
+# Gripper: a position servo here; LeRobot uses current-based position mode (operating mode 5, Goal_Current limit), which the sim servo does not have.
+[[devices]]
+type = "servo"
+name = "servo6"
+instance = "servo6"
+port = "port_a"
+joint = "gripper"
+map = "xl330_m288"
+set = { "motor.c_th" = { value = 3.3, unit = "J/K", fidelity = "estimated", rationale = "As servo3." }, "motor.r_th" = { value = 30.0, unit = "K/W", fidelity = "estimated", rationale = "As servo3." } }
+
+# ---- target ----------------------------------------------------------------------------------------------------------------------------------
+# No arm mass is published (docs/research/koch-v1.1.md, Masses): the target is the BOM-based estimate, NOT an independent reference.
+[[targets]]
+name = "BOM-based estimate (no published mass)"
+groups = ["arm"]
+value = { value = 0.28696, unit = "kg", fidelity = "derived", derivation = "docs/research/koch-v1.1.md Masses: servos 2 x 57.2 g + 4 x 18 g = 186.4 g (ROBOTIS e-Manual) + 7 printed parts 100.56 g (mesh volume x PLA 1240 kg/m^3 x 30 % infill, 2 walls) = 286.96 g, before idler frames, screws, cables and the driver board. The model adds the 4 servo-to-servo cables (in group arm) on top, so a positive gap of about that mass is expected; this is the same printed-mass model, so agreement says nothing independent." }
