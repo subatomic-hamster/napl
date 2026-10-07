@@ -1,0 +1,47 @@
+# napl program examples/faults/x500_gnss_outage.scenario.toml     (needs PX4 SITL + napl-px4-bridge + mavsdk; see python/napl/px4.py)
+# X500 under PX4 hovering in HOLD (position control, GNSS-aided). 3 s after flight.py prints HOLDING the GNSS receiver loses its fix
+# for 10 s (device attr gnss.fix_lost; the bridge then sends HIL_GPS fix_type 0, 0 satellites). What PX4 does is read off the
+# program log (flight mode changes, PX4 status texts) and the trace; see tests/python/test_faults_px4.py for the asserted numbers.
+name = "x500-gnss-outage"
+
+[interfaces.px4]
+bridge = "../../px4/bridge_x500.toml"
+
+[program]
+cmd = ["python", "{dir}/flight.py"]
+
+[limits]
+wall_s = 300
+cpu_s = 400
+
+[[faults]]
+name = "gps_out"
+kind = "gnss_outage"
+target = "/devices/gnss"
+after = "program+3"
+log_marker = "HOLDING"
+duration = 10.0
+
+[[monitors]]
+name = "hovers_through_the_first_4s"           # PX4 rides the outage out on its other sensors for ~5 s
+column = "alt"
+phase = "fault:gps_out"
+to = 4.0
+op = "always"
+lo = 4.5
+
+[[monitors]]
+name = "failsafe_lands_it"                     # then the position-loss failsafe switches to LAND: on the ground within 15 s
+column = "alt"
+phase = "fault:gps_out"
+to = 15.0
+op = "eventually"
+hi = 0.3
+
+[[monitors]]
+name = "no_flyaway_during_outage"              # no GNSS but attitude + baro: it drifts only centimetres
+column = "dist_home"
+phase = "fault:gps_out"
+to = 15.0
+op = "always"
+hi = 2.0

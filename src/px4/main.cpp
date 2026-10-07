@@ -477,9 +477,12 @@ struct Bridge {
     if (sampled(tick0, n, p_gnss)) {
       const auto& g = *gnss_cfg;
       const V3 vn = q3(gnss, "vel_ned");
-      mavlink_msg_hil_gps_pack(sys, 1, &m, t_us, 3, deg_e7(q1(gnss, "lat")), deg_e7(q1(gnss, "lon")), mm(q1(gnss, "alt")), cm_u16(g.horiz_std),
-                               cm_u16(g.vert_std), cm_u16(std::hypot(vn[0], vn[1])), cm_s_i16(vn[0]), cm_s_i16(vn[1]), cm_s_i16(vn[2]),
-                               cog_cdeg(vn[0], vn[1]), static_cast<std::uint8_t>(cfg.sats), 0, 0);
+      // Fault gnss_outage (device attr fix_lost = 1): a receiver without a fix reports fix_type 0, no satellites, unknown accuracy.
+      const bool lost = q1(gnss, "fix_lost") > 0.5;
+      mavlink_msg_hil_gps_pack(sys, 1, &m, t_us, lost ? 0 : 3, deg_e7(q1(gnss, "lat")), deg_e7(q1(gnss, "lon")), mm(q1(gnss, "alt")),
+                               lost ? UINT16_MAX : cm_u16(g.horiz_std), lost ? UINT16_MAX : cm_u16(g.vert_std), cm_u16(std::hypot(vn[0], vn[1])),
+                               cm_s_i16(vn[0]), cm_s_i16(vn[1]), cm_s_i16(vn[2]), cog_cdeg(vn[0], vn[1]),
+                               static_cast<std::uint8_t>(lost ? 0 : cfg.sats), 0, 0);
       if (!send_tcp(m)) return;
     }
 

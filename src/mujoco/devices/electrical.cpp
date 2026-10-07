@@ -70,7 +70,7 @@ double ocv_at(const BatteryCfg& c, double soc) {  // piecewise linear, clamped a
 // original one bit for bit: x + 0.0 == x).
 struct Drv { int node; const MotorCfg* m; double cmd, omega, temp, i_limit; bool comp, open; double r_on = 0, sw = 0, iq = 0; };
 Drv drv_of(const EscCfg& c, const EscState& s) {
-  return {c.node, &c.motor, s.throttle, s.omega, s.temp, c.i_limit, c.complementary, !(s.throttle > 0),
+  return {c.node, &c.motor, s.throttle, s.omega, s.temp, c.i_limit, c.complementary, !(s.throttle > 0) || s.fault_open > 0.5,
           c.r_on, c.sw_loss, c.i_q};
 }
 double r_tot(const Drv& g) { return g.m->r_at(g.temp) + g.r_on; }  // winding + FET conduction resistance
@@ -144,9 +144,10 @@ void solve_electrical(Devices& dv, double dt) {
     // Battery / PSU as Norton equivalents (E/R into the node, 1/R to ground).
     for (std::size_t i = 0; i < dv.battery.cfg.size(); ++i) {
       const BatteryCfg& c = dv.battery.cfg[i];
-      const double e = ocv_at(c, dv.battery.st[i].soc) - dv.battery.st[i].v_rc;
-      cond(c.node, 0, 1.0 / c.r0);
-      inject(c.node, e / c.r0);
+      const double e = ocv_at(c, dv.battery.st[i].soc) - dv.battery.st[i].v_rc + dv.battery.st[i].ocv_offset;
+      const double r0 = c.r0 + dv.battery.st[i].r_fault;  // F3 cell fault: extra series resistance / lost EMF (0 = healthy)
+      cond(c.node, 0, 1.0 / r0);
+      inject(c.node, e / r0);
     }
     for (std::size_t i = 0; i < np; ++i) {
       const PsuCfg& c = dv.psu.cfg[i];
@@ -204,7 +205,7 @@ void solve_electrical(Devices& dv, double dt) {
     BatteryState& s = dv.battery.st[i];
     s.ocv = ocv_at(c, s.soc);
     s.v = volt(c.node);
-    s.i = (s.ocv - s.v_rc - s.v) / c.r0;
+    s.i = (s.ocv - s.v_rc + s.ocv_offset - s.v) / (c.r0 + s.r_fault);
     if (c.r1 > 0) {  // exact exponential step of dv1/dt = (I R1 - v1)/tau for I held over the tick
       const double decay = std::exp(-dt / (c.r1 * c.c1));
       s.v_rc = s.v_rc * decay + s.i * c.r1 * (1.0 - decay);

@@ -635,6 +635,10 @@ void drive_motor(const MotorCfg& mc, mjModel* m, mjData* d, int dof, double n, d
 }
 }  // namespace
 
+// Servo jam (F3 servo_stall): a seized gearbox as a stiff spring + damper, N m/rad and N m s/rad on the output joint.
+// Explicit, so k dt^2 / J and c dt / J must stay < 1: fine for an STS3215 (reflected armature J N^2 ~ 1e-2 kg m^2).
+constexpr double kJamK = 200.0, kJamC = 1.0;
+
 // Order of device phases (fixed): sensors-read -> controllers -> electrical solve -> motors -> aero/forces -> mj_step2
 // -> post-step hook (sensors sample). Sensors-read: the held samples already sit in the state; nothing consumes them yet.
 void step(mjModel* m, mjData* d, Devices& dv) {
@@ -665,6 +669,14 @@ void step(mjModel* m, mjData* d, Devices& dv) {
   for (std::size_t i = 0; i < dv.servo.cfg.size(); ++i) {
     const ServoCfg& c = dv.servo.cfg[i];
     drive_motor(c.motor, m, d, c.dof, c.n, c.eta, servo_open(dv.servo.st[i]), dv.servo.st[i], dt);
+    ServoState& s = dv.servo.st[i];  // F3 faults: external torque on the output joint; a jam = stiff spring + damper at the latched angle
+    d->qfrc_applied[c.dof] += s.ext_torque;
+    if (s.jam > 0.5) {
+      if (!(s.jammed > 0.5)) s.q_lock = d->qpos[c.qadr], s.jammed = 1;
+      d->qfrc_applied[c.dof] -= kJamK * (d->qpos[c.qadr] - s.q_lock) + kJamC * d->qvel[c.dof];
+    } else {
+      s.jammed = 0;
+    }
   }
 
   // 5. aero / forces: environment (turbulence), rotors, body drag.
@@ -728,7 +740,10 @@ template <class S> struct Attr {
 };
 constexpr Attr<BatteryState> kBattery[] = {{"voltage", "V", &BatteryState::v}, {"current", "A", &BatteryState::i},
                                            {"soc", "1", &BatteryState::soc}, {"ocv", "V", &BatteryState::ocv},
-                                           {"v_rc", "V", &BatteryState::v_rc}};
+                                           {"v_rc", "V", &BatteryState::v_rc},
+                                           // F3 fault inputs (0 = healthy): see the state struct comments in devices.h
+                                           {"r_fault", "ohm", &BatteryState::r_fault, true, false, 0, 10},
+                                           {"ocv_offset", "V", &BatteryState::ocv_offset, true, false, -100, 100}};
 constexpr Attr<PsuState> kPsu[] = {{"voltage", "V", &PsuState::v}, {"current", "A", &PsuState::i},
                                    {"limited", "1", &PsuState::limited}, {"enable", "1", &PsuState::enable, true, true, 0, 1}};
 constexpr Attr<WireState> kWire[] = {{"current", "A", &WireState::i}, {"voltage", "V", &WireState::v}};
@@ -737,12 +752,12 @@ constexpr Attr<EscState> kEsc[] = {
     {"throttle", "1", &EscState::throttle, true, false, 0, 1}, {"duty", "1", &EscState::duty},
     {"current", "A", &EscState::i_m}, {"bus_current", "A", &EscState::i_bus}, {"voltage", "V", &EscState::v},
     {"omega", "rad/s", &EscState::omega}, {"torque", "N*m", &EscState::torque},
-    {"temperature", "degC", &EscState::temp}};
+    {"temperature", "degC", &EscState::temp}, {"fault_open", "1", &EscState::fault_open, true, true, 0, 1}};
 
 constexpr Attr<RotorState> kRotor[] = {
     {"omega", "rad/s", &RotorState::omega}, {"thrust", "N", &RotorState::thrust}, {"torque", "N*m", &RotorState::torque},
     {"advance_ratio", "1", &RotorState::advance_ratio}, {"ge_ratio", "1", &RotorState::ge_ratio},
-    {"rho", "kg/m^3", &RotorState::rho}};
+    {"rho", "kg/m^3", &RotorState::rho}, {"damage", "1", &RotorState::damage, true, false, 0, 1}};
 constexpr Attr<ServoState> kServo[] = {
     {"goal_position", "rad", &ServoState::goal_position, true, false, -1e6, 1e6},
     {"goal_speed", "rad/s", &ServoState::goal_speed, true, false, 0, 1e4},
@@ -765,7 +780,8 @@ constexpr Attr<ServoState> kServo[] = {
     {"overload_load", "1", &ServoState::overload_load, true, false, 0, 1},
     {"overload_time", "s", &ServoState::overload_time, true, false, 0, 1e4},
     {"unload_mask", "1", &ServoState::unload_mask, true, false, 0, 255},  // integer bit mask; fraction truncated
-    {"velocity", "rad/s", &ServoState::velocity}, {"load", "1", &ServoState::duty}, {"alarm", "1", &ServoState::alarm}};
+    {"velocity", "rad/s", &ServoState::velocity}, {"load", "1", &ServoState::duty}, {"alarm", "1", &ServoState::alarm},
+    {"ext_torque", "N*m", &ServoState::ext_torque, true, false, -100, 100}, {"jam", "1", &ServoState::jam, true, true, 0, 1}};
 constexpr Attr<EnvState> kEnv[] = {{"density", "kg/m^3", &EnvState::density}};
 // 3-vector attrs (same fields as Attr, member is a double[3]).
 template <class S> struct Attr3 {
@@ -776,12 +792,19 @@ constexpr Attr3<EnvState> kEnv3[] = {{"wind", "m/s", &EnvState::wind, true, -200
                                      {"turbulence", "m/s", &EnvState::turb}};
 constexpr Attr3<DragState> kDrag3[] = {{"force", "N", &DragState::force}};
 // Sensors: the held sample (all read-only).
-constexpr Attr3<ImuState> kImu3[] = {{"gyro", "rad/s", &ImuState::gyro}, {"accel", "m/s^2", &ImuState::accel}};
-constexpr Attr<BaroState> kBaro[] = {{"pressure", "Pa", &BaroState::pressure}};
+constexpr Attr3<ImuState> kImu3[] = {{"gyro", "rad/s", &ImuState::gyro}, {"accel", "m/s^2", &ImuState::accel},
+                                     // current bias (config + walk): writing it is a bias step (F3 imu_bias_step)
+                                     {"gyro_bias", "rad/s", &ImuState::gyro_bias, true, -10, 10},
+                                     {"accel_bias", "m/s^2", &ImuState::accel_bias, true, -100, 100}};
+constexpr Attr<BaroState> kBaro[] = {{"pressure", "Pa", &BaroState::pressure},
+                                     {"bias_extra", "Pa", &BaroState::bias_extra, true, false, -1e5, 1e5},
+                                     {"drift_rate", "Pa/s", &BaroState::drift_rate, true, false, -1e3, 1e3}};
 constexpr Attr3<MagState> kMag3[] = {{"field", "T", &MagState::field}};
 constexpr Attr<GnssState> kGnss[] = {{"lat", "deg", &GnssState::lat}, {"lon", "deg", &GnssState::lon},
                                      {"alt", "m", &GnssState::alt}};
-constexpr Attr3<GnssState> kGnss3[] = {{"vel_ned", "m/s", &GnssState::vel_ned}};
+constexpr Attr<GnssState> kGnssIn[] = {{"fix_lost", "1", &GnssState::fix_lost, true, true, 0, 1}};  // F3 gnss_outage
+constexpr Attr3<GnssState> kGnss3[] = {{"vel_ned", "m/s", &GnssState::vel_ned},
+                                       {"jump", "m", &GnssState::jump, true, -1e5, 1e5}};  // F3 gnss_jump: ENU position step
 
 template <class P> struct Found { P p; const char* unit; bool rw, bin; double lo, hi; std::size_t n = 1; };
 template <class D> auto locate(D& dv, int slot, const std::string& attr) {
@@ -809,7 +832,7 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
     case Devices::Slot::imu: pick3(kImu3, dv.imu.st); break;
     case Devices::Slot::baro: pick(kBaro, dv.baro.st); break;
     case Devices::Slot::mag: pick3(kMag3, dv.mag.st); break;
-    case Devices::Slot::gnss: pick(kGnss, dv.gnss.st); pick3(kGnss3, dv.gnss.st); break;
+    case Devices::Slot::gnss: pick(kGnss, dv.gnss.st); pick(kGnssIn, dv.gnss.st); pick3(kGnss3, dv.gnss.st); break;
   }
   return f;
 }

@@ -160,14 +160,15 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
       ft = interp(c.re_x, c.re_ft, x);
       fq = interp(c.re_x, c.re_fq, x);
     }
-    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge;
-    const double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter;
+    const double healthy = 1.0 - s.damage;  // F3 prop damage: fraction of thrust and torque lost (0 = x * 1.0, bitwise unchanged)
+    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy;
+    const double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter * healthy;
     double* xf = d->xfrc_applied + 6 * c.bid;
     for (int i = 0; i < 3; ++i) {
       xf[i] += thrust * ax[i] - c.k_h * std::abs(w) * vperp[i];
       xf[3 + i] += -sgn(w) * q_aero * ax[i];
     }
-    s = {w, thrust, q_aero, adv, ge, rho};
+    s.omega = w; s.thrust = thrust; s.torque = q_aero; s.advance_ratio = adv; s.ge_ratio = ge; s.rho = rho;  // damage is an input: keep
   }
 
   // Body drag.

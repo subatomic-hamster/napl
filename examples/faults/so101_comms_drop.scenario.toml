@@ -1,0 +1,58 @@
+# napl program examples/faults/so101_comms_drop.scenario.toml
+# The SO-101 (assembly, 6 x STS3215) on a Feetech pty; comms_drop.py moves the shoulder pan 0.5 rad over 2 s. 0.7 s after it prints
+# MOVE the pty discards everything the host sends for 0.5 s: reads time out, goals are lost, the servo holds its last goal; the
+# program sees the timeouts and resumes when the link is back. The drop is bus-side only (not in the replay log).
+name = "so101-comms-drop"
+
+[model]
+assembly = "../../assemblies/so101.toml"
+
+[interfaces.feetech]
+servos = { 1 = "/devices/servo1", 2 = "/devices/servo2", 3 = "/devices/servo3", 4 = "/devices/servo4", 5 = "/devices/servo5", 6 = "/devices/servo6" }
+baud = 1000000
+
+[[setup]]                              # hold the zero pose from tick 0 (a powered-off arm would fold under gravity)
+paths = ["/devices/servo1", "/devices/servo2", "/devices/servo3", "/devices/servo4", "/devices/servo5", "/devices/servo6"]
+attr = "torque_enable"
+values = [1]
+
+[program]
+cmd = ["python", "{dir}/comms_drop.py"]
+
+[limits]
+wall_s = 60
+sim_s = 40
+cpu_s = 60
+
+[[faults]]
+name = "link_loss"
+kind = "comms_drop"
+after = "program+0.7"
+log_marker = "MOVE"
+duration = 0.5
+
+[[monitors]]
+name = "pan_reaches_target"
+path = "/devices/servo1"
+attr = "position"
+indices = [0]
+ref = [0.5]
+op = "final"
+hi = 0.03
+
+[[monitors]]
+name = "pan_lags_while_the_link_is_down"      # the last 0.2 s of the drop: the arm sits at the last goal it got, short of the move
+path = "/devices/servo1"
+attr = "position"
+phase = "fault:link_loss"
+from = 0.3
+to = 0.5
+op = "always"
+hi = 0.25
+
+[[monitors]]
+name = "no_servo_alarm"
+path = "/devices/servo1"
+attr = "alarm"
+op = "always"
+hi = 0

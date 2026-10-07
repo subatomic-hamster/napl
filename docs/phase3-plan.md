@@ -38,6 +38,35 @@ still apply; phase 3 generalises them so the X500 V2 and SO-101 become two examp
 7. **Showcase + report** — benches validated against datasheets, scenario tests, sweeps,
    rendered frames, and a fidelity report listing every model's provenance and error.
 
+## Fault injection (F3)
+
+Scenario `[[faults]]` (schema: `python/napl/program.py` docstring; examples: `examples/faults/`; tests: `tests/python/test_faults.py`,
+`test_faults_px4.py`). A fault is a scripted SetAttr through the bus on a device input, so it is in the replay log and the replayed
+hash matches. Trigger: `at` (sim s) or `after = "<program>+s"` (optionally from a program's `log_marker` line); optional `duration`
+undoes it. Monitors can use `phase = "fault:<name>"` (from / to relative to the fault window) and the derived trace column `tilt`.
+
+| kind | device attr (new unless noted) | physics |
+|---|---|---|
+| motor_out | esc `fault_open` | phase open: no drive torque, no back-EMF damping, the rotor coasts on friction + prop torque |
+| motor_degraded | rotor `damage` (thrust_loss) | C_T and C_Q x (1 - damage): a chipped prop. (Not modelled: a Kt / efficiency drop of the motor itself.) |
+| battery_cell_fault | battery `r_fault` (ohm), `ocv_offset` (V) | extra series resistance / lost EMF of one cell in the Thevenin pack: V = OCV + offset - v_rc - I (r0 + r_fault) |
+| gnss_outage | gnss `fix_lost` | output holds; the PX4 bridge sends HIL_GPS fix_type 0, 0 satellites |
+| gnss_jump | gnss `jump` (E, N, U m) | position step in all later samples (through the latency ring) |
+| baro_drift | baro `drift_rate` (Pa/s), `bias_extra` | bias ramp; stays when the drift stops |
+| imu_bias_step | imu `gyro_bias`, `accel_bias` (existing state, now settable) | the scenario adds the step to the current bias |
+| servo_overload | servo `ext_torque` | external torque on the output joint |
+| servo_stall | servo `jam` | joint seized: spring 200 N m/rad + damper 1 N m s/rad at the angle it had |
+| comms_drop | port `drop` (bus side) | the pty discards the host's bytes: real timeouts in the SDK; not in the replay log (the commands that did arrive are) |
+
+Measured on real PX4 SITL (X500 fixture, 5 m HOLD, fault 3 s after the hold starts, PX4 instance 4):
+- **GNSS outage 10 s**: PX4 rides it out on baro / IMU for 5.0 s, then "Failsafe activated" and LAND at +5.7 s (position-health flag
+  false at +7.7 s); the quad lands in place at +11.5 s with 0.2 m horizontal drift; GPS health is back 1.7 s after the fix returns.
+- **One motor open (esc0)**: no failsafe and no mode change at all. PX4 prints only "Preflight Fail: Attitude failure (roll)" at +1.0 s;
+  the quad is below 0.5 m at +1.3 s, max tilt 180 deg (upside down, altitude -0.46 m). SITL gives PX4 no ESC feedback.
+- **+60 mOhm cell**: PX4's battery voltage 16.48 V -> 15.82 V (-0.66 V; hover current 10.3 A, I R = 0.62 V).
+- **SO-101 comms drop 0.5 s mid-move**: 13 consecutive read timeouts in the user program, the pan holds its last goal (0.14 rad vs 0.32
+  commanded), the program resumes and reaches the 0.5 rad target (final error 3 mrad).
+
 ## Milestones (after N2)
 
 | # | Scope | Exit check |

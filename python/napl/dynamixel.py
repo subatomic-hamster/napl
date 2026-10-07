@@ -460,6 +460,7 @@ class DynamixelPort:
                     s.set(name, dec(cur))
             s.set("goal_position", self._pos(s, self._q(s, "counts")))
         self._rx = bytearray()
+        self.drop = False  # comms fault (napl program [[faults]] comms_drop): while True every byte the host sends is discarded
         self._stop = threading.Event()
         self._master, self._slave = os.openpty()
         tty.setraw(self._slave, termios.TCSANOW)
@@ -505,6 +506,9 @@ class DynamixelPort:
             try:
                 data = os.read(self._master, 4096)
             except (BlockingIOError, InterruptedError):
+                continue
+            if self.drop:
+                self._rx.clear()
                 continue
             for n, sid, instr, params, ok in self.feed(data):
                 self._wire(

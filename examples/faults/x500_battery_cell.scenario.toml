@@ -1,0 +1,44 @@
+# napl program examples/faults/x500_battery_cell.scenario.toml     (needs PX4 SITL + napl-px4-bridge + mavsdk; see python/napl/px4.py)
+# X500 hovering under PX4; 3 s after HOLDING one cell of the 4S pack develops +60 mOhm (a weak / corroded cell: device attr
+# battery.r_fault, in series with the Thevenin r0). The pack voltage sags by I x 60 mOhm at the hover current (and the extra I^2 R
+# heats the cell, not modelled); PX4 sees it in BATTERY_STATUS (the bridge sends the pack voltage / 4 per cell), flight.py logs BATT.
+name = "x500-battery-cell"
+
+[interfaces.px4]
+bridge = "../../px4/bridge_x500.toml"
+
+[program]
+cmd = ["python", "{dir}/flight.py"]
+
+[limits]
+wall_s = 300
+cpu_s = 400
+
+[program.env]
+FAULT_HOLD_S = "15"
+
+[[faults]]
+name = "weak_cell"
+kind = "battery_cell_fault"
+target = "/devices/battery"
+params = { r_extra_ohm = 0.06 }
+after = "program+3"
+log_marker = "HOLDING"
+
+[[monitors]]
+name = "healthy_hover_voltage"                # trace batt_v (the pack, ground truth) in the 2 s before the fault
+column = "batt_v"
+phase = "fault:weak_cell"
+from = -2.0
+to = 0.0
+op = "always"
+lo = 16.2
+
+[[monitors]]
+name = "pack_voltage_sags"                    # then 0.5 V lower or more (I x 60 mOhm at the ~10 A hover current)
+column = "batt_v"
+phase = "fault:weak_cell"
+from = 2.0
+to = 10.0
+op = "always"
+hi = 16.0

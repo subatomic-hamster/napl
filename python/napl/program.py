@@ -19,6 +19,12 @@ Scenario (TOML; relative paths are relative to the scenario file):
     servos = { 1 = "/devices/servo1" }         #   "xl330-m288-t" | "xl330-m077-t" } per bus id (default xl430-w250-t), baud as above
     [interfaces.px4]             # PX4 SITL + napl-px4-bridge (own World); env NAPL_MAVLINK=udp://:14540. Exactly one interface per scenario.
     bridge = "../../px4/bridge_x500.toml"
+    # px4 from a DESIGN instead of a hand-written bridge file: [design] path = "my-quad.toml" (a saved napl.design design / assembly; optional
+    # parts = "dir") with a bare [interfaces.px4] (no `bridge`, no [model]). The world is built from the design and the bridge config
+    # (motor index <-> ESC <-> PX4 output from the fc.pwmN -> escK.signal wires, sensors, home) is generated into <run dir>/bridge.toml.
+    # A PWM wiring / prop direction that disagrees with the PX4 quad-X airframe (napl.design.px4cfg) is refused before PX4 starts.
+    # arm from a DESIGN: [design] path = "my-arm.toml" with a feetech / dynamixel interface (no `servos` / `baud` needed: they come from the
+    # design's servo_id / baud instance params); [model] script = "scene.py" then gets build(outdir, design=<path>, parts=<dir>).
     # px4 + feetech TOGETHER (the one allowed combination): one World, the bridge's, stepped in lockstep with PX4; the Feetech pty is
     # served from that World over the bridge's --ctl socket (napl.ctl). The programs run in order, each with NAPL_SERIAL and
     # NAPL_MAVLINK set: [[programs]] name = "arm"  cmd = [...]   then   name = "fly"  cmd = [...]   (optional wall_s / cpu_s each).
@@ -28,13 +34,41 @@ Scenario (TOML; relative paths are relative to the scenario file):
     path = "/devices/servo1"; attr = "torque_enable"; values = [0]
     [program]
     cmd = ["python", "{dir}/pick.py"]          # "python" = this interpreter, {dir} = scenario dir; cwd = a temp run dir
+    # env = { KEY = "value" }                  # optional extra environment variables of the program
     [limits]                     # all optional
     wall_s = 120  sim_s = 60  rate = 1.0  cpu_s = 300  address_space_mb = 4096  open_files = 256
     [[monitors]]                 # TestSpec-style: op "always" (every sample in [lo, hi]) | "eventually" | "final" (last sample)
     name = "cube_at_target"      # sim kinds: signal = path/paths + attr + (index | indices [+ ref] -> norm of the difference)
     path = "/world/cube"  attr = "pos"  indices = [0, 1]  ref = [0.2, 0.04]  op = "final"  hi = 0.01
-    # px4: column = a trace.csv column or the derived `alt` (z - z at start) / `dist_home` (horizontal m from the start)
+    # px4: column = a trace.csv column or the derived `alt` (z - z at start) / `dist_home` (horizontal m from the start) / `tilt` (deg)
     # optional from / to = seconds of sim time since the start (sim kinds: ticks x `dt`, default 0.001).
+    # phase = "<program name>" | "fault:<fault name>" (all kinds; a single [program] is "program"): from / to are then relative to
+    # that phase's start, `to` defaulting to its end (a fault: its duration, else the run's end) - "the quad recovers within 5 s
+    # of the outage": phase = "fault:gps_out", from = 5, op = "final", ...
+    [[faults]]                   # fault injection: scripted failures through the bus (SetAttr, logged, replayed; hash check holds)
+    name = "gps_out"             # unique; default "<kind><index>"
+    at = 40.0                    # sim s since the run's start (px4: since the bridge started, PX4 boot included) ...
+    # after = "program+12.5"     # ... or sim s after a program (a [[programs]] name, or "program") started
+    # log_marker = "HOLDING"     # optional with after: counts from when this text first shows in that program's log (it prints it)
+    kind = "gnss_outage"         # see below
+    target = "/devices/gnss"     # the device prim (not for comms_drop: the interface's serial bus)
+    params = { }                 # per kind, below; unknown keys are an error
+    duration = 10.0              # optional: the fault is undone after this many sim s (else it lasts to the end)
+    # Kinds and their physics (the device attr behind each is in src/mujoco/devices/devices.cpp):
+    #   motor_out          esc: output stage / winding open circuit (attr fault_open): no drive, the rotor coasts down on the prop's torque
+    #   motor_degraded     rotor: damaged prop (attr damage = thrust_loss, default 0.3): thrust and torque x (1 - thrust_loss)
+    #   battery_cell_fault battery: one weak / dead cell: r_extra_ohm (series resistance, attr r_fault), ocv_drop_v (EMF lost, attr
+    #                      ocv_offset); the pack voltage sag follows from the Thevenin model: V = OCV - drop - I (r0 + r_extra) - v_rc
+    #   gnss_outage        gnss: no fix (attr fix_lost): the output holds, the PX4 bridge sends HIL_GPS fix_type 0 / 0 satellites
+    #   gnss_jump          gnss: position step params east / north / up (m, default 0), added to the samples from then on
+    #   baro_drift         baro: pressure bias ramps at params rate_pa_s (default 1.0 Pa/s ~ 0.085 m/s of altitude); the bias stays
+    #   imu_bias_step      imu: params gyro = [x, y, z] rad/s and / or accel = [x, y, z] m/s^2 ADDED to the current bias (undone: restored)
+    #   servo_overload     servo: external torque params torque_nm (default 0.5) on the output joint (attr ext_torque)
+    #   servo_stall        servo: the output joint is seized (attr jam): stiff spring + damper at the angle it had
+    #   comms_drop         feetech / dynamixel: the pty discards every byte the host sends for `duration` (default 0.5 s): the real SDK
+    #                      sees timeouts. Bus-side only, so nothing about it is in the replay log (the commands that did arrive are).
+    # result.json["faults"]: per fault {name, kind, start_t, end_t, error}, times in sim s of the World; a fault that never fired
+    # (program ended first) or failed to apply is a failed monitor `fault_<name>_applied`.
 
 Env of the program: NAPL_SERIAL / NAPL_MAVLINK, NAPL_SCENARIO_DIR, plus the caller's environment. Run dir `<runs-dir>/<name>-<time>/`:
 result.json, program.log (stdout+stderr), replay.naplog (replay log), trace.csv (sampled monitor signals / bridge trace), and for
@@ -86,6 +120,27 @@ def load_scenario(path) -> dict:
     ifs = sc.get("interfaces", {})
     if not (set(ifs) <= {"feetech", "dynamixel", "px4"} and ifs):
         raise ScenarioError("[interfaces] needs one of feetech / dynamixel / px4")
+    _check_faults(sc, ifs)
+    if "design" in sc and "px4" not in ifs:
+        _arm_design(sc, ifs)
+    elif (
+        "design" in sc
+    ):  # a saved design: the world AND the bridge config come from it (_bridge_cfg)
+        if "bridge" in ifs["px4"] or "model" in sc:
+            raise ScenarioError(
+                "[design] goes with [interfaces.px4] only, without `bridge` and without [model]"
+            )
+        sc["model"] = {k: v for k, v in sc["design"].items() if k in ("parts",)} | {
+            "assembly": sc["design"].get("path", "")
+        }
+        if not sc["design"].get("path"):
+            raise ScenarioError(
+                "[design] path = <saved design / assembly toml> is required"
+            )
+    elif "px4" in ifs and "bridge" not in ifs["px4"]:
+        raise ScenarioError(
+            "[interfaces.px4] needs `bridge` (or a [design] to generate it from)"
+        )
     if set(ifs) == {
         "feetech",
         "px4",
@@ -106,6 +161,299 @@ def load_scenario(path) -> dict:
     if not sc.get("program", {}).get("cmd"):
         raise ScenarioError("[program] cmd is required")
     return sc
+
+
+def _arm_design(sc, ifs):
+    """[design] with a feetech / dynamixel interface: the saved design (path, optional parts) is the arm. Without [model] the
+    design is built as it is; with [model] script = "..." the script composes the scene around it and gets
+    build(outdir, design=<path>, parts=<dir>). An interface without `servos` takes {servo_id: "/devices/<servo>"} from the design's
+    servo devices (the instance's `servo_id` param) and, without `baud`, the bus baud (the instances' `baud` / baud_default)."""
+    from .design import DesignError, Library, load
+    from .design.assembly import Ctx
+
+    d = sc["design"]
+    if not d.get("path"):
+        raise ScenarioError(
+            "[design] path = <saved design / assembly toml> is required"
+        )
+    path, parts = sc["dir"] / d["path"], sc["dir"] / d.get("parts", REPO / "parts")
+    m = sc.setdefault("model", {})
+    if m and set(m) != {"script"}:
+        raise ScenarioError(
+            "[design] with feetech / dynamixel: [model] may only be a `script`"
+        )
+    if not m:
+        m.update(assembly=d["path"], **({"parts": d["parts"]} if "parts" in d else {}))
+    if all("servos" in ifs[k] for k in ifs):
+        return
+    try:
+        asm = load(path)
+        ctx = Ctx(asm, Library(parts))
+        devs = [b for b in asm.doc.get("devices", []) if b["type"] == "servo"]
+        ids = {b["name"]: ctx.insts[b["instance"]].value("servo_id") for b in devs}
+        bauds = {
+            ctx.insts[b["instance"]].value("baud")
+            or ctx.insts[b["instance"]].value("baud_default")
+            for b in devs
+        }
+    except (DesignError, KeyError, OSError) as e:
+        raise ScenarioError(f"[design] {path}: {e}") from None
+    if not devs or None in ids.values():
+        raise ScenarioError(
+            f"[design] {path}: every servo device needs a servo_id param to derive `servos` (missing: {[n for n, i in ids.items() if i is None]})"
+        )
+    for k in ifs:
+        ifs[k].setdefault("servos", {int(i): f"/devices/{n}" for n, i in ids.items()})
+        if len(bauds) == 1 and None not in bauds:
+            ifs[k].setdefault("baud", int(bauds.pop()))
+
+
+# ---- fault injection ([[faults]]) ----
+def _vec(p, key):
+    v = [float(x) for x in p[key]]
+    if len(v) != 3:
+        raise ScenarioError(f"fault param {key} needs 3 values, got {len(v)}")
+    return v
+
+
+def _imu_bias(t, p, get):
+    ap, rs = [], []
+    for key, attr in (("gyro", "gyro_bias"), ("accel", "accel_bias")):
+        if key in p:
+            cur = get(t, attr)
+            ap.append((t, attr, list(cur + _vec(p, key))))
+            rs.append((t, attr, list(cur)))
+    return ap, rs
+
+
+# kind -> (allowed params with defaults, ops(target, params, get) -> (apply, restore) lists of (path, attr, values)).
+# get(path, attr) -> ndarray (the current value, for steps that are relative). comms_drop has no ops: it flips the port's `drop`.
+FAULTS = {
+    "motor_out": (
+        {},
+        lambda t, p, g: ([(t, "fault_open", [1])], [(t, "fault_open", [0])]),
+    ),
+    "motor_degraded": (
+        {"thrust_loss": 0.3},
+        lambda t, p, g: ([(t, "damage", [p["thrust_loss"]])], [(t, "damage", [0])]),
+    ),
+    "battery_cell_fault": (
+        {"r_extra_ohm": 0.0, "ocv_drop_v": 0.0},
+        lambda t, p, g: (
+            [(t, "r_fault", [p["r_extra_ohm"]]), (t, "ocv_offset", [-p["ocv_drop_v"]])],
+            [(t, "r_fault", [0]), (t, "ocv_offset", [0])],
+        ),
+    ),
+    "gnss_outage": (
+        {},
+        lambda t, p, g: ([(t, "fix_lost", [1])], [(t, "fix_lost", [0])]),
+    ),
+    "gnss_jump": (
+        {"east": 0.0, "north": 0.0, "up": 0.0},
+        lambda t, p, g: (
+            [(t, "jump", [p["east"], p["north"], p["up"]])],
+            [(t, "jump", [0, 0, 0])],
+        ),
+    ),
+    "baro_drift": (
+        {"rate_pa_s": 1.0},
+        lambda t, p, g: (
+            [(t, "drift_rate", [p["rate_pa_s"]])],
+            [(t, "drift_rate", [0])],
+        ),
+    ),
+    "imu_bias_step": ({"gyro": None, "accel": None}, _imu_bias),
+    "servo_overload": (
+        {"torque_nm": 0.5},
+        lambda t, p, g: (
+            [(t, "ext_torque", [p["torque_nm"]])],
+            [(t, "ext_torque", [0])],
+        ),
+    ),
+    "servo_stall": ({}, lambda t, p, g: ([(t, "jam", [1])], [(t, "jam", [0])])),
+    "comms_drop": ({}, None),
+}
+
+
+def _check_faults(sc, ifs):
+    seen = set()
+    for i, f in enumerate(sc.get("faults", [])):
+        k = f.get("kind")
+        if k not in FAULTS:
+            raise ScenarioError(f"[[faults]] kind {k!r}: one of {sorted(FAULTS)}")
+        f.setdefault("name", f"{k}{i}")
+        if f["name"] in seen:
+            raise ScenarioError(f"[[faults]] duplicate name '{f['name']}'")
+        seen.add(f["name"])
+        if ("at" in f) == ("after" in f):
+            raise ScenarioError(f"fault '{f['name']}': exactly one of at / after")
+        if "after" in f and not re.fullmatch(r"[^+\s]+\+[0-9.]+", f["after"]):
+            raise ScenarioError(
+                f"fault '{f['name']}': after = \"<program>+<seconds>\", got {f['after']!r}"
+            )
+        if "log_marker" in f and "after" not in f:
+            raise ScenarioError(f"fault '{f['name']}': log_marker needs after")
+        if k == "comms_drop":
+            if not set(ifs) & {"feetech", "dynamixel"}:
+                raise ScenarioError(
+                    f"fault '{f['name']}': comms_drop needs a feetech / dynamixel interface"
+                )
+            if "duration" not in f:
+                f["duration"] = 0.5
+        elif not f.get("target"):
+            raise ScenarioError(
+                f"fault '{f['name']}': target (a /devices/... prim) is required"
+            )
+        allowed = FAULTS[k][0]
+        if bad := set(f.get("params", {})) - set(allowed):
+            raise ScenarioError(
+                f"fault '{f['name']}': unknown params {sorted(bad)} (kind {k}: {sorted(allowed)})"
+            )
+        f["params"] = {
+            **{a: v for a, v in allowed.items() if v is not None},
+            **f.get("params", {}),
+        }
+        if k == "imu_bias_step" and not ({"gyro", "accel"} & set(f["params"])):
+            raise ScenarioError(
+                f"fault '{f['name']}': imu_bias_step needs params gyro and / or accel"
+            )
+        if f.get("duration", 1) <= 0:
+            raise ScenarioError(f"fault '{f['name']}': duration must be > 0")
+
+
+class _Faults:
+    """Applies [[faults]] from a thread by polling the World's tick (~100 Hz), through sim.set (SetAttr: logged, replayed).
+    sim: Sim / RemoteSim (tick, set, query); origin: sim s that `at` counts from; port: Feetech / Dynamixel port (comms_drop);
+    logs: {program name: log path} (for log_marker); starts: {program name: sim s it started}, filled in by the runner."""
+
+    def __init__(self, faults, sim, dt, origin=0.0, port=None, logs=None):
+        self.f, self.sim, self.dt, self.origin, self.port, self.logs = (
+            faults,
+            sim,
+            dt,
+            origin,
+            port,
+            logs or {},
+        )
+        self.starts, self.undo, self.marker_t = {}, {}, {}
+        self.log = [dict(name=f["name"], kind=f["kind"], target=f.get("target"), params=f["params"], start_t=None,
+                         end_t=None, error=None) for f in faults]  # fmt: skip
+        self._stop = threading.Event()
+        self._th = threading.Thread(target=self._loop, daemon=True)
+
+    def start(self):
+        if self.f:
+            self._th.start()
+
+    def close(self, end_t):
+        self._stop.set()
+        if self.f:
+            self._th.join()
+        for r in self.log:
+            if r["start_t"] is not None and r["end_t"] is None:
+                r["end_t"] = end_t  # still active when the run ended
+
+    def _due(self, f, t):
+        if "at" in f:
+            return self.origin + float(f["at"])
+        prog, _, s = f["after"].rpartition("+")
+        if prog not in self.starts:
+            return None
+        base = self.starts[prog]
+        if "log_marker" in f:
+            if prog not in self.marker_t:
+                try:
+                    if f["log_marker"] in self.logs[prog].read_text(errors="replace"):
+                        self.marker_t[prog] = t
+                except (OSError, KeyError):
+                    pass
+            if prog not in self.marker_t:
+                return None
+            base = self.marker_t[prog]
+        return base + float(s)
+
+    def _apply(self, f, r):
+        try:
+            if f["kind"] == "comms_drop":
+                self.port.drop = True
+                self.undo[f["name"]] = lambda: setattr(self.port, "drop", False)
+            else:
+                ap, rs = FAULTS[f["kind"]][1](
+                    f["target"], f["params"], lambda p, a: self.sim.query(p, a)[0]
+                )
+                for op in ap:
+                    self.sim.set(*op)
+                self.undo[f["name"]] = lambda: [self.sim.set(*op) for op in rs]
+            r["start_t"] = self.sim.tick * self.dt
+        except (ValueError, KeyError, ScenarioError) as e:
+            r["error"] = str(e)
+
+    def _loop(self):
+        while not self._stop.wait(0.01):
+            try:
+                t = self.sim.tick * self.dt
+                for f, r in zip(self.f, self.log):
+                    if r["start_t"] is None and r["error"] is None:
+                        due = self._due(f, t)
+                        if due is not None and t >= due:
+                            self._apply(f, r)
+                    elif r["start_t"] is not None and r["end_t"] is None and "duration" in f \
+                            and t >= r["start_t"] + float(f["duration"]):  # fmt: skip
+                        self.undo[f["name"]]()
+                        r["end_t"] = self.sim.tick * self.dt
+            except (OSError, ValueError):  # the bridge / sim went away
+                return
+
+    def verdicts(self):
+        """Failed monitors for faults that never fired or could not be applied."""
+        return [{"name": f"fault_{r['name']}_applied", "pass": False,
+                 "error": r["error"] or "never triggered (the program ended first, or its phase / log_marker never came)"}
+                for r in self.log if r["start_t"] is None]  # fmt: skip
+
+    def spans(self):
+        return {
+            f"fault:{r['name']}": (r["start_t"], r["end_t"])
+            for r in self.log
+            if r["start_t"] is not None
+        }
+
+
+def _phase(m, spans, base=0.0):
+    """Monitor with phase = "<program>" | "fault:<name>" -> (monitor with absolute from / to in the series' time base, None), or
+    (None, failed result). spans: {phase: (start, end)} in World sim s; base: the series' time origin in World sim s."""
+    if "phase" not in m:
+        return m, None
+    sp = spans.get(m["phase"])
+    if sp is None:
+        return None, {
+            "name": m["name"],
+            "pass": False,
+            "error": f"phase '{m['phase']}' did not run",
+        }
+    s, e = sp[0] - base, (sp[1] if sp[1] is not None else spans["end"]) - base
+    return {
+        **m,
+        "from": s + m.get("from", 0),
+        "to": s + m["to"] if "to" in m else e,
+    }, None
+
+
+def _derive(tr):
+    """Derived px4 trace columns: alt (z - z at start), dist_home (horizontal m from the start), tilt (deg between the body z axis and
+    world z: 0 upright, 180 upside down)."""
+    tr["alt"] = tr["z"] - tr["z"][0]
+    tr["dist_home"] = np.hypot(tr["x"] - tr["x"][0], tr["y"] - tr["y"][0])
+    tr["tilt"] = np.degrees(
+        np.arccos(np.clip(1 - 2 * (tr["qx"] ** 2 + tr["qy"] ** 2), -1, 1))
+    )
+
+
+def _judge_all(mons, spans, base, series_of):
+    out = []
+    for m in mons:
+        w, err = _phase(m, spans, base)
+        out.append(err or judge(w, series_of(m)))
+    return out
 
 
 def _val(m, v):
@@ -254,7 +602,15 @@ def _build_model(sc, out: Path):
     mod = importlib.util.module_from_spec(spec)
     sys.path.insert(0, str((d / m["script"]).parent))  # the script's own siblings
     spec.loader.exec_module(mod)
-    return Path(mod.build(out))
+    kw = (
+        dict(  # [design] + script: the script composes its scene around the saved design
+            design=d / sc["design"]["path"],
+            parts=d / sc["design"].get("parts", REPO / "parts"),
+        )
+        if "design" in sc
+        else {}
+    )
+    return Path(mod.build(out, **kw))
 
 
 def run(scenario, runs_dir="runs") -> tuple:
@@ -272,7 +628,11 @@ def run(scenario, runs_dir="runs") -> tuple:
         for i, a in enumerate(cmd)
     ]
     argv = argvs(sc["program"]["cmd"]) if kind != "combo" else None
-    env = {**os.environ, "NAPL_SCENARIO_DIR": str(sc["dir"])}
+    env = {
+        **os.environ,
+        "NAPL_SCENARIO_DIR": str(sc["dir"]),
+        **sc.get("program", {}).get("env", {}),
+    }
     mons = _expand(sc.get("monitors", []), kind)
     res = dict(
         name=sc["name"],
@@ -339,6 +699,7 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
     )
     tick0 = sim.tick
     wall0 = time.monotonic()
+    F = _Faults(sc.get("faults", []), sim, dt, tick0 * dt, port, {"program": log})
 
     def sample():
         t, row = (
@@ -363,11 +724,14 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
             raise ScenarioError(r["message"])
         th.start()
         sim_s = lim.get("sim_s")
+        F.starts["program"] = sim.tick * dt
+        F.start()
         res["program"] = run_child(argv, env, cwd, log, lim,
                                    (lambda: "sim_time" if (sim.tick - tick0) * dt > sim_s else None) if sim_s else None)  # fmt: skip
     finally:
         stop.set()
         th.join()
+        F.close(sim.tick * dt)
         port.close()
         sim.call({"cmd_type": "Pause", "cmd": {}})
     sample()
@@ -375,7 +739,12 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
     (run_dir / "replay.naplog").write_bytes(sim.log())
     res["sim"] = dict(tick=sim.tick - tick0, sim_s=(sim.tick - tick0) * dt, state_hash=h, diverged=sim.diverged,
                       port_errors=list(port.errors))  # fmt: skip
-    res["monitors"] = [judge(m, series[m["name"]]) for m in mons]
+    end = sim.tick * dt
+    spans = {"program": (F.starts["program"], end), **F.spans(), "end": end}
+    res["monitors"] = (
+        _judge_all(mons, spans, tick0 * dt, lambda m: series[m["name"]]) + F.verdicts()
+    )
+    res["faults"] = F.log
     with open(run_dir / "trace.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["wall_s", "tick", "t", *[m["name"] for m in mons]])
@@ -392,35 +761,82 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
         res["monitors"].append({"name": "solver_diverged", "pass": False})
 
 
+def _bridge_cfg(sc, run_dir, model):
+    """The bridge config: the scenario's `bridge` file, or (with [design]) generated from the design into run_dir/bridge.toml, which
+    refuses a motor order / prop direction that does not match the PX4 airframe BEFORE PX4 is started (napl.design.px4cfg)."""
+    if "design" not in sc:
+        return sc["dir"] / sc["interfaces"]["px4"]["bridge"]
+    from .design import DesignError
+    from .design.px4cfg import bridge_config
+
+    d = sc["design"]
+    try:
+        return bridge_config(
+            sc["dir"] / d["path"],
+            model,
+            run_dir / "bridge.toml",
+            sc["dir"] / d.get("parts", REPO / "parts"),
+        )
+    except DesignError as e:
+        raise ScenarioError(str(e)) from None
+
+
 def _px4(sc, mons, run_dir, cwd, argv, env, log, res):
     from .px4 import Stack
 
-    cfg = sc["dir"] / sc["interfaces"]["px4"]["bridge"]
     model = _build_model(sc, run_dir / "model") if sc.get("model") else None
-    st = Stack(cfg, run_dir, model=model)
+    cfg = _bridge_cfg(sc, run_dir, model)
+    dt, faults = sc.get("dt", 0.001), sc.get("faults", [])
+    st = Stack(
+        cfg, run_dir, model=model, ctl=bool(faults)
+    )  # faults reach the bridge's World over its ctl socket
     env["NAPL_MAVLINK"] = st.mavlink
     try:
         st.start()
     except RuntimeError as e:
         raise ScenarioError(f"PX4 stack: {e}") from None
+    rs = F = None
     try:
+        if faults:
+            from .ctl import RemoteSim
+
+            rs = RemoteSim(st.ctl)
+        F = _Faults(faults, rs, dt, 0.0, None, {"program": log})
+        if faults:
+            F.starts["program"] = rs.tick * dt
+            F.start()
         res["program"] = run_child(argv, env, cwd, log, sc["limits"])
     finally:
+        if rs:
+            F.close(rs.tick * dt)
+            rs.close()
         final = st.stop()
     res["sim"] = dict(final or {}, bridge_log="bridge.log", px4_log="px4.log")
     with open(st.trace) as f:
         rows = list(csv.DictReader(f))
     tr = {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
-    tr["alt"] = tr["z"] - tr["z"][0]
-    tr["dist_home"] = np.hypot(tr["x"] - tr["x"][0], tr["y"] - tr["y"][0])
-    res["monitors"] = [
-        judge(m, list(zip(tr["t"] - tr["t"][0], tr[m["column"]])))
-        for m in mons
-        if m["column"] in tr
-    ]
+    _derive(tr)
     bad = [m["name"] for m in mons if m["column"] not in tr]
     if bad:
         raise ScenarioError(f"monitors {bad}: no such trace column (have {sorted(tr)})")
+    t_end = float(tr["t"][-1])
+    prog_start = F.starts.get(
+        "program", float(tr["t"][0])
+    )  # no faults: the program ran from ~ the first trace row on
+    res["program"]["start_t"] = (
+        prog_start  # World sim s: program.log's stamps + this = trace.csv's t (flight.py logs wall ~ sim s)
+    )
+    spans = {"program": (prog_start, t_end), **F.spans(), "end": t_end}
+    res["monitors"] = (
+        _judge_all(
+            mons,
+            spans,
+            float(tr["t"][0]),
+            lambda m: list(zip(tr["t"] - tr["t"][0], tr[m["column"]])),
+        )
+        + F.verdicts()
+    )
+    res["faults"] = F.log
     rp = replay_hash(st.log)
     res["replay"] = {"available": False} if rp is None else dict(
         available=True, tick=rp[0], state_hash=rp[1], match=bool(final) and rp == (final["tick"], final["state_hash"]))  # fmt: skip
@@ -437,9 +853,7 @@ def _combo(sc, mons, run_dir, cwd, argvs, env, log, res):
 
     lim, dt = sc["limits"], sc.get("dt", 0.001)
     model = _build_model(sc, run_dir / "model")
-    st = Stack(
-        sc["dir"] / sc["interfaces"]["px4"]["bridge"], run_dir, model=model, ctl=True
-    )
+    st = Stack(_bridge_cfg(sc, run_dir, model), run_dir, model=model, ctl=True)
     env["NAPL_MAVLINK"] = st.mavlink
     try:
         st.start()
@@ -450,7 +864,7 @@ def _combo(sc, mons, run_dir, cwd, argvs, env, log, res):
         m for m in mons if "column" not in m
     ]  # world signals, sampled over ctl at 10 Hz
     series, rows, stop, stages = {m["name"]: [] for m in sig}, [], threading.Event(), []
-    rs = port = th = None
+    rs = port = th = F = None
 
     def sample():
         row = []
@@ -481,11 +895,14 @@ def _combo(sc, mons, run_dir, cwd, argvs, env, log, res):
             realtime=True,
         )
         env["NAPL_SERIAL"] = port.device_path
+        F = _Faults(sc.get("faults", []), rs, dt, 0.0, port,
+                    {p["name"]: run_dir / f"program.{p['name']}.log" for p in sc["programs"]})  # fmt: skip
+        F.start()
         if sig:
             th = threading.Thread(target=sampler, daemon=True)
             th.start()
         for p, a in zip(sc["programs"], argvs):
-            t0 = rs.tick * dt
+            t0 = F.starts[p["name"]] = rs.tick * dt
             r = run_child(
                 a,
                 env,
@@ -504,6 +921,8 @@ def _combo(sc, mons, run_dir, cwd, argvs, env, log, res):
         stop.set()
         if th:
             th.join()
+        if F:
+            F.close(rs.tick * dt)
         if port:
             port.close()
         if rs:
@@ -533,40 +952,30 @@ def _combo(sc, mons, run_dir, cwd, argvs, env, log, res):
     with open(st.trace) as f:
         trows = list(csv.DictReader(f))
     tr = {k: np.array([float(r[k]) for r in trows]) for k in trows[0]}
-    tr["alt"] = tr["z"] - tr["z"][0]
-    tr["dist_home"] = np.hypot(tr["x"] - tr["x"][0], tr["y"] - tr["y"][0])
+    _derive(tr)
     bad = [m["name"] for m in mons if "column" in m and m["column"] not in tr]
     if bad:
         raise ScenarioError(f"monitors {bad}: no such trace column (have {sorted(tr)})")
-    out = []
-    for m in mons:
-        if (
-            "phase" in m
-        ):  # from / to relative to that program's start, `to` defaulting to its end
-            ph = next((s for s in stages if s["name"] == m["phase"]), None)
-            if ph is None:
-                out.append(
-                    {
-                        "name": m["name"],
-                        "pass": False,
-                        "error": f"program '{m['phase']}' did not run",
-                    }
-                )
-                continue
-            m = {
-                **m,
-                "from": ph["start_t"] + m.get("from", 0),
-                "to": ph["start_t"] + m["to"] if "to" in m else ph["end_t"],
-            }
-        out.append(
-            judge(
-                m,
+    # phase: from / to relative to that program's (or fault's) start, `to` defaulting to its end
+    spans = (
+        {s["name"]: (s["start_t"], s["end_t"]) for s in stages}
+        | F.spans()
+        | {"end": float(tr["t"][-1])}
+    )
+    res["monitors"] = (
+        _judge_all(
+            mons,
+            spans,
+            0.0,
+            lambda m: (
                 list(zip(tr["t"], tr[m["column"]]))
                 if "column" in m
-                else series[m["name"]],
-            )
+                else series[m["name"]]
+            ),
         )
-    res["monitors"] = out
+        + F.verdicts()
+    )
+    res["faults"] = F.log
     rp = replay_hash(st.log, Path(model).parent)
     res["replay"] = {"available": False} if rp is None else dict(
         available=True, tick=rp[0], state_hash=rp[1], match=bool(final) and rp == (final["tick"], final["state_hash"]))  # fmt: skip

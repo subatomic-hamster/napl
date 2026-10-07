@@ -97,7 +97,8 @@ void sample_sensors(const mjModel* m, mjData* d, Devices& dv) {
     const BaroCfg& c = dv.baro.cfg[i];
     BaroState& s = dv.baro.st[i];
     if (s.ticks++ % static_cast<std::uint64_t>(c.period) != 0) continue;
-    double p = pressure_at(dv, d->site_xpos[3 * c.sid + 2]) + c.bias;
+    s.bias_extra += s.drift_rate * m->opt.timestep * c.period;  // F3 baro drift: a slow bias ramp (Pa/s); 0 = none
+    double p = pressure_at(dv, d->site_xpos[3 * c.sid + 2]) + c.bias + s.bias_extra;
     if (c.noise_std > 0) p += c.noise_std * s.rng.gauss();
     s.pressure = quantise(p, c.resolution);
   }
@@ -135,13 +136,14 @@ void sample_sensors(const mjModel* m, mjData* d, Devices& dv) {
       }
     }
     double* slot = s.ring[s.samples % kGnssRing];
+    n[0] += s.jump[1]; n[1] += s.jump[0]; n[2] += s.jump[2];  // F3 gnss_jump: ENU step -> north, east, up error
     slot[0] = c.lat0 + (p[1] + n[0]) / r_mer * kDeg;
     slot[1] = c.lon0 + (p[0] + n[1]) / (r_pv * std::cos(c.lat0 / kDeg)) * kDeg;
     slot[2] = c.alt0 + p[2] + n[2];
     slot[3] = v[4] + n[3];
     slot[4] = v[3] + n[4];
     slot[5] = -v[5] + n[5];
-    if (s.samples >= static_cast<std::uint64_t>(c.delay)) {
+    if (s.samples >= static_cast<std::uint64_t>(c.delay) && !(s.fix_lost > 0.5)) {  // fix lost: the output holds
       const double* o = s.ring[(s.samples - static_cast<std::uint64_t>(c.delay)) % kGnssRing];
       s.lat = o[0];
       s.lon = o[1];

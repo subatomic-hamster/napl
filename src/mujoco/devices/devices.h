@@ -100,7 +100,9 @@ struct GnssCfg {
 
 // ---- state: every mutable quantity, doubles / uint64 only (no padding), saved and hashed byte-for-byte ----
 // "Outputs" (last solved values) live here too: they are cheap, deterministic, and make get() a plain field read.
-struct BatteryState { double soc, v_rc, v, i, ocv; Rng rng; };  // v, i, ocv: of the last solve (i > 0 = discharging)
+// v, i, ocv: of the last solve (i > 0 = discharging). Fault inputs (F3, 0 = healthy): r_fault = extra series resistance (ohm,
+// one weak cell: its R step adds to r0), ocv_offset = EMF added to the pack (V, negative: a dead / shorted cell).
+struct BatteryState { double soc, v_rc, v, i, ocv; Rng rng; double r_fault, ocv_offset; };
 struct PsuState { double enable, v, i, limited; };              // enable: input (0/1); limited: 1 while current-limited
 struct WireState { double i, v; };                              // a -> b current, voltage drop a - b
 struct LoadState { double v, i; };
@@ -110,6 +112,7 @@ struct EscState {
   double omega;     // shaft speed used by the last solve, rad/s
   double v, duty, i_m, i_bus, torque, b, drive, mode;  // mode: 0 normal, 1 phase open, 2 current-limited
   Rng rng;
+  double fault_open;  // fault input (F3): 1 = output stage / winding open circuit (like zero throttle: no drive, coasts)
 };
 
 struct ServoState {
@@ -125,13 +128,17 @@ struct ServoState {
   double min_voltage, max_voltage, max_temp, overload_load, overload_time, unload_mask;
   double alarm, ovl_t;                               // latched alarm bits (servo.cpp); seconds |duty| has been above overload_load
   double velocity;                                   // output shaft speed of the last tick start, rad/s
+  // Fault inputs (F3, 0 = healthy): ext_torque = external torque on the output joint, N m (a load the servo must fight);
+  // jam = 1 seizes the joint at the angle it had when set (stiff spring + damper in servo stall); jammed / q_lock: latch.
+  double ext_torque, jam, jammed, q_lock;
   std::uint64_t ticks;                               // ticks stepped; firmware runs when ticks % period == 0
 };
 // Phase open (no drive): torque off, or released by a latched alarm that is in the unload mask.
 inline bool servo_open(const ServoState& s) {
   return !(s.torque_enable > 0.5) || (static_cast<unsigned>(s.alarm) & static_cast<unsigned>(s.unload_mask)) != 0;
 }
-struct RotorState { double omega, thrust, torque, advance_ratio, ge_ratio, rho; };  // outputs of the last tick
+// Outputs of the last tick, plus the fault input damage (F3, 0 = healthy): fraction of thrust and torque lost (a chipped prop).
+struct RotorState { double omega, thrust, torque, advance_ratio, ge_ratio, rho; double damage; };
 struct EnvState {
   double wind[3];  // steady wind, world (input)
   double turb[3];  // Dryden turbulence, world, of the last tick
@@ -143,7 +150,8 @@ struct DragState { double force[3]; };
 // Sensor outputs are the held sample (see sensors.cpp for the timing); ticks counts ticks, a sample is taken when
 // ticks % period == 0 (the first tick samples).
 struct ImuState { double gyro[3], accel[3], gyro_bias[3], accel_bias[3]; Rng rng; std::uint64_t ticks; };
-struct BaroState { double pressure; Rng rng; std::uint64_t ticks; };
+// bias_extra (Pa) grows by drift_rate (Pa/s, fault input) per second of samples and stays when the drift stops.
+struct BaroState { double pressure; Rng rng; std::uint64_t ticks; double bias_extra, drift_rate; };
 struct MagState { double field[3]; Rng rng; std::uint64_t ticks; };
 struct GnssState {
   double lat, lon, alt, vel_ned[3];  // output: deg, deg, m, m/s (the sample taken `delay` samples ago)
@@ -151,6 +159,9 @@ struct GnssState {
   double gm[3];                      // Gauss-Markov position error north, east, up, m (corr_time_s > 0 only)
   Rng rng;
   std::uint64_t ticks, samples;      // samples: taken so far
+  // Fault inputs (F3, 0 = healthy): fix_lost = 1: no fix, the output holds its last value (consumers read fix_lost);
+  // jump = position step added to the samples taken from now on, ENU m (east, north, up).
+  double fix_lost, jump[3];
 };
 
 template <class C, class S> struct Group {

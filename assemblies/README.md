@@ -421,3 +421,44 @@ MCP tools: `design_open` (control; `path`, or `new` = a name for an empty design
 `design_save` (destructive: client elicitation or `--allow-destructive`). Paths are confined to the server root; arguments are
 validated against the advertised JSON schemas.
 CLI: `napl design suggest <asm> <inst.port|inst> [--limit N] [--json]`.
+
+## Driving an arm design (`napl program`, `[design]` with a feetech / dynamixel interface)
+```toml
+[design]
+path = "my-arm.toml"          # a saved design; optional parts = "dir"
+[model]                       # optional: script = "scene.py" composes a scene around the design: build(outdir, design=<path>, parts=<dir>)
+[interfaces.feetech]          # without `servos` / `baud` they come from the design: {servo_id: "/devices/<servo>"}, the bus baud
+```
+Without [model] the design is built as it is. `servos` needs a `servo_id` param on every servo device (else a `ScenarioError` naming them).
+`examples/so101/pick.scenario.toml` with this `[design]` (the SO-101 built from nothing, tests/python/test_design_scratch_arm.py) passes its
+monitors and its replay hash matches; `examples/so101/scene.py` uses the design's instance / joint names (`base`, `fixed_jaw`, `gripper`, ...).
+
+## Flying a design with PX4 (`napl program`, `[design]`)
+A design saved with `Design.save` (or any assembly) flies against real PX4 SITL with no hand-written bridge config:
+
+```toml
+[design]
+path = "my-quad.toml"          # optional: parts = "dir"
+[interfaces.px4]               # bare: no `bridge`, no [model]
+[program]
+cmd = ["python", "{dir}/hover.py"]   # see examples/x500/hover.design.scenario.toml
+```
+`napl.design.px4cfg` builds the world from the design and writes `<run dir>/bridge.toml`: PX4 motor N (`controls[N-1]`, PWM_MAIN_FUNCN =
+100 + N in `px4/airframes/4902_napl_x500v2`) is the ESC wired to `fc.pwmN` (`fc.pwmN -> escK.signal`), sensors / battery are the design's
+first imu / baro / mag / gnss / battery devices, home is the gnss `lat0 / lon0 / alt0`. Before PX4 starts the design is checked against
+PX4's quad-X airframe (4001_quad_x geometry; motor numbering and spin directions from the PX4 airframe reference,
+https://docs.px4.io/main/en/airframes/airframe_reference.html#quadrotor-x: 1 front-right CCW, 2 rear-left CCW, 3 front-left CW, 4 rear-right
+CW; `CA_ROTORn_KM` > 0 = CCW). Errors, each with its fix (the run is refused as a `ScenarioError`; `check_px4(asm, xml)` returns them as findings):
+
+| code | when |
+|---|---|
+| `PX4_MOTOR_ORDER` | the rotor behind `fc.pwmN` is not at motor N's corner (front/rear, left/right of the rotor centroid, +x forward); the fix lists the full correct `fc.pwmN -> escK` order |
+| `PX4_PROP_DIRECTION` | the rotor's spin (joint axis sign; a CW prop = `reverse` joint + rotor `dir = -1`) differs from motor N's CCW / CW |
+| `PX4_PROP_THRUST` | a rotor pushes down (`dir` x joint axis z <= 0) |
+| `PX4_PWM_UNWIRED` / `PWM_DUPLICATE` / `PWM_RANGE` | an ESC without a PWM wire, wired twice, or on an output outside 1..4 |
+| `PX4_MOTOR_COUNT` / `NO_ROTOR` / `GEOMETRY` | not four ESCs, an ESC without a rotor on its joint, rotors not on the corners of a square X |
+
+Only the quad-X airframe (4902) is supported; the PX4 parameters (rate gains, `BAT1_N_CELLS 4`) stay those of the airframe file.
+Measured (tests/python/test_px4_design.py, PX4 v1.17.0, 5 m / 20 s hold / land): the scratch-built quad and the stock X500 hover at throttle
+0.425 / 11.5 A; with the four motors swapped for the KDE 2315XF-965 (`swap(auto=True)`) 0.409 / 11.3 A, PX4's hover-thrust estimate 0.427 -> 0.410
+(the `hover_thrust_estimate` topic, polled with px4-listener, tracks the hover throttle; the airframe's `MPC_THR_HOVER` default 0.5 is only its initial value).

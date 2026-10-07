@@ -1,0 +1,51 @@
+# napl program examples/faults/x500_motor_out.scenario.toml     (needs PX4 SITL + napl-px4-bridge + mavsdk; see python/napl/px4.py)
+# X500 hovering under PX4; 3 s after HOLDING one ESC (esc0, front-right) goes open circuit for good: that rotor stops driving and
+# coasts down. A quad has no way to hold attitude with 3 of 4 rotors (yaw torque unbalanced, roll / pitch thrust moment), so it
+# must come down; PX4 SITL has no ESC telemetry here, so it only notices through the attitude / position it measures.
+# The monitors detect the crash from the trace (ground truth); what PX4 itself reported is in program.log.
+name = "x500-motor-out"
+
+[interfaces.px4]
+bridge = "../../px4/bridge_x500.toml"
+
+[program]
+cmd = ["python", "{dir}/flight.py"]
+
+[limits]
+wall_s = 300
+cpu_s = 400
+
+[[faults]]
+name = "esc0_out"
+kind = "motor_out"
+target = "/devices/esc0"
+after = "program+3"
+log_marker = "HOLDING"
+
+[program.env]
+FAULT_HOLD_S = "15"                            # flight.py: watch 15 s after HOLDING, then command a land if still armed and flying
+
+[[monitors]]
+name = "hovered_before_the_fault"              # the 2 s before the fault: at 5 m
+column = "alt"
+phase = "fault:esc0_out"
+from = -2.0
+to = 0.0
+op = "always"
+lo = 4.5
+
+[[monitors]]
+name = "crash_detected_altitude"               # the altitude falls below 0.5 m within 10 s of the fault
+column = "alt"
+phase = "fault:esc0_out"
+to = 10.0
+op = "eventually"
+hi = 0.5
+
+[[monitors]]
+name = "crash_detected_flipped"                # it tumbles: the body z axis goes more than 90 deg from vertical
+column = "tilt"
+phase = "fault:esc0_out"
+to = 10.0
+op = "eventually"
+lo = 90.0

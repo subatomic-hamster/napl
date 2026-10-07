@@ -1,0 +1,48 @@
+# napl program examples/x500/hover.design.scenario.toml     (needs PX4 SITL + napl-px4-bridge + mavsdk; see python/napl/px4.py)
+# Fly a saved DESIGN: no bridge file. The world is built from the design and the bridge config (motor order from the fc.pwmN -> escK.signal
+# wires, sensors, home) is generated into the run dir; a PWM order / prop direction that disagrees with the PX4 quad-X airframe is refused
+# before PX4 starts. Point `path` at any design saved with napl.design (Design.save / MCP design_edit) or at an assembly.
+name = "x500-hover-design"
+
+[design]
+path = "../../assemblies/x500v2.toml"
+
+[interfaces.px4]
+
+[program]
+cmd = ["python", "{dir}/hover.py"]
+
+[limits]
+wall_s = 240
+cpu_s = 400
+
+[[monitors]]
+name = "max_altitude"
+column = "alt"
+op = "always"
+hi = 6.5
+
+[[monitors]]
+name = "reached_5m"
+column = "alt"
+op = "eventually"
+lo = 4.5
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt"
+op = "always"
+hi = 30.0
+
+[[monitors]]
+name = "stays_near_home"
+column = "dist_home"
+op = "always"
+hi = 6.0
+
+[[monitors]]
+name = "landed_on_ground"
+column = "alt"
+op = "final"
+lo = -0.2
+hi = 0.2
