@@ -1,0 +1,27 @@
+<!-- Servo protection bench: like servo_stall.xml (hard stop at 0.3 rad, zero gravity) on a 7.4 V supply, with the
+     firmware protection switched on. Protection numbers: min_voltage 4.0 V (part feetech-sts3215-c001 v_operating_min /
+     reg_min_input_voltage_default), max_temp 70 degC (reg_max_temperature_default), overload_load 0.8 (reg_overload_torque_default
+     80 %), overload_time 2.0 s (reg_protection_time_default 200 x 10 ms). ESTIMATED (not published): max_voltage 8.0 V (the part
+     lists no default; 7.4 V nominal + margin), unload_mask 36 = temperature (4) + overload (32) (the part does not list the
+     unloading-condition default; voltage only alarms). The motor is the stall bench's test motor, not the part's. -->
+<mujoco model="servo_protect">
+  <compiler angle="radian"/>
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="link" pos="0 0 0.1">
+      <joint name="out" type="hinge" axis="0 0 1" limited="true" range="-0.3 0.3"/>
+      <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.01" mass="0.05" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "bench", "node": 1, "voltage": 7.4, "r_series": 0.05}],
+      "servos": [{"name": "s1", "node": 1, "joint": "out",
+                  "motor": {"kv": 2100, "r20": 4.4, "i0": 0.05, "rotor_inertia": 5e-8, "w_s": 50, "c_th": 10, "r_th": 15},
+                  "gear_ratio": 345, "efficiency": 0.7, "encoder_cpr": 4096, "firmware_hz": 100,
+                  "p": 32, "i": 2, "d": 32, "pid_scale": 8192, "deadband": 0, "max_torque": 1000,
+                  "min_voltage": 4.0, "max_voltage": 8.0, "max_temp": 70,
+                  "overload_load": 0.8, "overload_time": 2.0, "unload_mask": 36}]
+    }'/>
+  </custom>
+</mujoco>

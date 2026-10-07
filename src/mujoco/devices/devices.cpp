@@ -332,6 +332,13 @@ Devices parse(const std::string& json) {
       c.i_limit = sv->i_limit();
       need(c.i_limit >= 0 && std::isfinite(c.i_limit), n, "i_limit must be >= 0 (0 = none)");
       if (sv->backlash_joint()) c.backlash_joint = sv->backlash_joint()->str();
+      c.min_voltage = sv->min_voltage(); c.max_voltage = sv->max_voltage(); c.max_temp = sv->max_temp();
+      c.overload_load = sv->overload_load(); c.overload_time = sv->overload_time(); c.unload_mask = sv->unload_mask();
+      need(std::isfinite(c.min_voltage + c.max_voltage + c.max_temp + c.overload_time) && c.min_voltage >= 0 &&
+               c.max_voltage >= 0 && c.max_temp >= 0 && c.overload_time >= 0,
+           n, "min_voltage, max_voltage, max_temp, overload_time must be finite and >= 0 (0 = off)");
+      need(c.overload_load >= 0 && c.overload_load <= 1 && c.unload_mask >= 0 && c.unload_mask <= 255, n,
+           "overload_load must be in [0, 1], unload_mask in [0, 255]");
       use_node(c.node);
       slot(Devices::Slot::servo, static_cast<int>(dv.servo.cfg.size()));
       dv.servo.cfg.push_back(std::move(c));
@@ -432,6 +439,9 @@ Devices parse(const std::string& json) {
   for (const ServoCfg& c : dv.servo.cfg) {  // no RNG stream: servos draw no noise
     ServoState s{};
     s.temp = c.motor.t_amb;
+    s.p = c.p; s.i = c.i; s.d = c.d; s.deadband = c.deadband; s.max_torque = s.torque_limit = c.max_torque;
+    s.min_voltage = c.min_voltage; s.max_voltage = c.max_voltage; s.max_temp = c.max_temp;
+    s.overload_load = c.overload_load; s.overload_time = c.overload_time; s.unload_mask = c.unload_mask;
     dv.servo.st.push_back(s);
   }
   k += dv.servo.cfg.size();
@@ -617,7 +627,10 @@ void step(mjModel* m, mjData* d, Devices& dv) {
 
   // 3. electrical solve, with the shaft speeds of the current state (servo: motor side, N x output).
   for (std::size_t e = 0; e < dv.esc.cfg.size(); ++e) dv.esc.st[e].omega = d->qvel[dv.esc.cfg[e].dof];
-  for (std::size_t i = 0; i < dv.servo.cfg.size(); ++i) dv.servo.st[i].omega = dv.servo.cfg[i].n * d->qvel[dv.servo.cfg[i].dof];
+  for (std::size_t i = 0; i < dv.servo.cfg.size(); ++i) {
+    dv.servo.st[i].velocity = d->qvel[dv.servo.cfg[i].dof];
+    dv.servo.st[i].omega = dv.servo.cfg[i].n * dv.servo.st[i].velocity;
+  }
   solve_electrical(dv, dt);
 
   // 4. motors (drive_motor above).
@@ -625,7 +638,7 @@ void step(mjModel* m, mjData* d, Devices& dv) {
     drive_motor(dv.esc.cfg[e].motor, m, d, dv.esc.cfg[e].dof, 1.0, 1.0, dv.esc.st[e].mode == 1, dv.esc.st[e], dt);
   for (std::size_t i = 0; i < dv.servo.cfg.size(); ++i) {
     const ServoCfg& c = dv.servo.cfg[i];
-    drive_motor(c.motor, m, d, c.dof, c.n, c.eta, !(dv.servo.st[i].torque_enable > 0.5), dv.servo.st[i], dt);
+    drive_motor(c.motor, m, d, c.dof, c.n, c.eta, servo_open(dv.servo.st[i]), dv.servo.st[i], dt);
   }
 
   // 5. aero / forces: environment (turbulence), rotors, body drag.
@@ -712,7 +725,21 @@ constexpr Attr<ServoState> kServo[] = {
     {"setpoint", "rad", &ServoState::setpoint}, {"duty", "1", &ServoState::duty},
     {"current", "A", &ServoState::i_m}, {"bus_current", "A", &ServoState::i_bus}, {"voltage", "V", &ServoState::v},
     {"torque", "N*m", &ServoState::torque}, {"temperature", "degC", &ServoState::temp},
-    {"backlash", "rad", &ServoState::backlash}};
+    {"backlash", "rad", &ServoState::backlash},
+    // Runtime registers (settable; the Feetech port maps its register file onto them) and feedback. max_torque /
+    // torque_limit: 0.1 % of full duty, effective limit = the smaller. load: effective duty of the last solve (fraction
+    // of full duty, sign = direction, + = drive towards increasing joint angle), i.e. Present_Load / 1000.
+    {"p_gain", "1", &ServoState::p, true, false, 0, 1e4}, {"i_gain", "1", &ServoState::i, true, false, 0, 1e4},
+    {"d_gain", "1", &ServoState::d, true, false, 0, 1e4}, {"deadband", "counts", &ServoState::deadband, true, false, 0, 1e4},
+    {"max_torque", "0.1%", &ServoState::max_torque, true, false, 0, 1000},
+    {"torque_limit", "0.1%", &ServoState::torque_limit, true, false, 0, 1000},
+    {"min_voltage", "V", &ServoState::min_voltage, true, false, 0, 1e3},
+    {"max_voltage", "V", &ServoState::max_voltage, true, false, 0, 1e3},
+    {"max_temp", "degC", &ServoState::max_temp, true, false, 0, 1e3},
+    {"overload_load", "1", &ServoState::overload_load, true, false, 0, 1},
+    {"overload_time", "s", &ServoState::overload_time, true, false, 0, 1e4},
+    {"unload_mask", "1", &ServoState::unload_mask, true, false, 0, 255},  // integer bit mask; fraction truncated
+    {"velocity", "rad/s", &ServoState::velocity}, {"load", "1", &ServoState::duty}, {"alarm", "1", &ServoState::alarm}};
 constexpr Attr<EnvState> kEnv[] = {{"density", "kg/m^3", &EnvState::density}};
 // 3-vector attrs (same fields as Attr, member is a double[3]).
 template <class S> struct Attr3 {

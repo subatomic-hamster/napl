@@ -11,27 +11,39 @@ Sources of the register map: LeRobot `motors/feetech/tables.py` (STS_SMS_SERIES_
 baud table, sign-magnitude bits: Present_Load 10, Present_Position / Present_Velocity / Goal_Position / Goal_Velocity 15),
 the Feetech SDK `scservo_def.SCS_TOHOST(a, b)` (bit b = sign, value = -(a & ~(1 << b))), and parts/arm/feetech-sts3215-c001.toml.
 
-Register map. S = simulated (reads come from / writes go to the sim), P = stored in the port (RAM / EEPROM image: the
-port, not the sim, keeps it; it does not influence the physics), R = read-only.
+Register map. S = simulated (reads come from / writes go to the sim), P = stored in the port only (RAM / EEPROM image: it
+does not influence the physics), R = read-only. A write to an S register becomes a SetAttr on the servo device; at start-up
+the port reads the device attrs back into its register image, and a RESET instruction restores the defaults and pushes them.
   0 fw major, 1 fw minor, 3-4 model number 777 .................... P R   (fw version 0.0 is a placeholder)
   5 ID ............................................................ P     (re-keys the port's servo table)
   6 baud index, 7 return delay (x2 us), 8 status level ............ P     (7: wire delay; 8: 0 = no reply to writes; baud
                                                                            reg does not retune the pty: `baud=` does)
   9-12 min / max angle limit ...................................... P     (clamp the goal when max > 0)
-  13-15 max temp / max V / min V, 16-17 max torque, 18-20, 24-39 ... P     (max torque, P/D/I: stored only, see Gaps)
-  21 P, 22 D, 23 I ................................................ P
+  13 max temp (degC) .............................................. S     -> max_temp  (0 = check off)
+  14 / 15 max / min input voltage (0.1 V) ......................... S     -> max_voltage / min_voltage  (0 = check off)
+  16-17 max torque (0.1 %) ........................................ S     -> max_torque  (duty limit = min with 48-49)
+  19 unloading condition (status-bit mask) ........................ S     -> unload_mask (1 voltage, 4 temp, 32 overload)
+  21 P, 22 D, 23 I (register units, order as in the table) ........ S     -> p_gain, d_gain, i_gain
+  26 / 27 dead zone (counts) ...................................... S     -> deadband = max of the two (the sim's is symmetric)
+  35 protection time (10 ms), 36 overload torque (%) .............. S     -> overload_time, overload_load (fraction of FULL duty)
+  18, 20, 24-25, 28-34, 37-39 ..................................... P     (protection current, holding torque, ...: stored only)
   40 torque enable ................................................ S     -> torque_enable (any nonzero = 1)
   41 acceleration, 44-45 goal time ................................ P
   42-43 goal position (counts, bit 15 = sign) ..................... S     -> goal_position [rad]
   46-47 goal speed (steps/s, bit 15 = sign, magnitude used) ....... S     -> goal_speed [rad/s]  (0 = no profile)
-  48-49 torque limit, 55 lock (1 = EEPROM addr < 40 read-only) .... P
+  48-49 torque limit (0.1 %) ...................................... S     -> torque_limit
+  55 lock (1 = EEPROM addr < 40 read-only) ........................ P
   56-57 present position (0..cpr-1, wrapped) ...................... S R   counts mod cpr (the sim encoder is unwrapped)
-  58-59 present speed (steps/s, bit 15 sign) ...................... S R   finite difference of counts over >= 20 ticks
-  60-61 present load (0.1 % of stall torque, bit 10 sign) ......... S R   `torque` / stall_torque
+  58-59 present speed (steps/s, bit 15 sign) ...................... S R   `velocity` (output shaft, rad/s) x cpr / 2 pi
+  60-61 present load (0.1 % of full duty, bit 10 sign) ............ S R   `load` (effective duty, fraction) x 1000
   62 present voltage (0.1 V) ...................................... S R   `voltage` attr
-  63 present temperature (degC) ................................... S R   `temperature` attr (motor thermal state)
-  65 status, 66 moving ............................................. S R   moving = torque on and |goal - position| > 2 counts
+  63 present temperature (degC) ................................... S R   `temperature` attr (winding thermal state)
+  65 status ....................................................... S R   `alarm` bits: 1 voltage, 4 temperature, 32 overload
+  66 moving ....................................................... S R   moving = torque on and |goal - position| > 2 counts
   69-70 present current (6.5 mA) .................................. S R   |`current`| (motor current)
+The error byte of every status packet is the servo's `alarm` (bit meanings: the STS status byte of the Feetech memory table,
+part file source S4). The alarm latches and releases the torque per register 19; write torque enable 0 (the sim must step
+once) to clear it. Rules and limits: src/mujoco/devices/servo.cpp.
 Every SetAttr goes through the command bus with source "feetech", so a session with a Host log replays exactly (the log
 holds the writes and the Steps; the pty traffic itself and its wall-clock timing are not part of it).
 Timing: with `realtime=True` (the Sim running at Host rate 1) each byte of a request and of a reply takes 10 / baud s of
@@ -44,7 +56,6 @@ import termios
 import threading
 import time
 import tty
-from collections import deque
 from math import pi
 
 MODEL_NUMBER = 777  # sts3215 (LeRobot MODEL_NUMBER_TABLE)
@@ -71,6 +82,22 @@ PING, READ, WRITE, REG_WRITE, ACTION, RESET, SYNC_READ, SYNC_WRITE = (
 BROADCAST = 0xFE
 _RO = {0, 1, 3, 4, *range(56, 71)}  # fw version, model, present values
 _MEM = 128
+# Writable registers that drive the sim: (addr, bytes, device attr, register value -> attr, attr -> register value).
+# The dead zone is the word 26-27 (CW, CCW): the sim's deadband is symmetric, so the larger one is used.
+_REGS = [
+    (13, 1, "max_temp", float, round),
+    (14, 1, "max_voltage", lambda r: r / 10, lambda v: round(v * 10)),
+    (15, 1, "min_voltage", lambda r: r / 10, lambda v: round(v * 10)),
+    (16, 2, "max_torque", float, round),
+    (19, 1, "unload_mask", float, round),
+    (21, 1, "p_gain", float, round),
+    (22, 1, "d_gain", float, round),
+    (23, 1, "i_gain", float, round),
+    (26, 2, "deadband", lambda r: max(r & 255, r >> 8), lambda v: round(v) * 257),
+    (35, 1, "overload_time", lambda r: r * 0.01, lambda v: round(v * 100)),
+    (36, 1, "overload_load", lambda r: r / 100, lambda v: round(v * 100)),
+    (48, 2, "torque_limit", float, round),
+]
 
 
 def checksum(body: bytes) -> int:
@@ -96,8 +123,6 @@ class _Servo:
         self.mem = bytearray(_MEM)
         self.pending = None  # REG_WRITE buffer: (addr, data)
         self.goal_dirty = False
-        self.hist = deque(maxlen=64)  # (tick, counts) for the finite-difference speed
-        self.speed = 0
         self.reset(baud_index)
 
     def reset(self, baud_index=0):
@@ -124,6 +149,9 @@ class _Servo:
             80,
             200,
         )  # part: protection / overload defaults
+        m[19] = (
+            36  # unloading condition: temperature + overload (estimated, not published)
+        )
 
     def w(self, a):  # little-endian word
         return self.mem[a] | self.mem[a + 1] << 8
@@ -141,17 +169,18 @@ class FeetechPort:
         cpr: int = 4096,
         symlink=None,
         realtime: bool = True,
-        stall_torque: float = 1.9123,
-        dt: float = 0.001,
     ):
         """sim: a Sim loaded with host=True (thread-safe). servos: {bus id: "/devices/<servo name>"}. cpr: encoder counts
-        per revolution (the servo's `encoder_cpr`). stall_torque: N*m that reads as 100 % load (part: 1.9123 at 7.4 V).
-        dt: the model's timestep, only for the finite-difference speed. symlink: stable path to create for the pty."""
+        per revolution (the servo's `encoder_cpr`). symlink: stable path to create for the pty."""
         self.sim, self.baud, self.cpr, self.realtime = sim, baud, cpr, realtime
-        self.stall_torque, self.dt = stall_torque, dt
         bi = {v: k for k, v in BAUDS.items()}.get(baud, 0)
         self.servos = {i: _Servo(i, p, bi) for i, p in servos.items()}
         self.errors = []  # rejected SetAttr replies and dropped frames, for tests / diagnostics
+        for s in (
+            self.servos.values()
+        ):  # the register image starts as the device's actual values
+            for addr, n, attr, _, dec in _REGS:
+                s.put(addr, dec(self._q(s, attr)), n)
         self._rx = bytearray()
         self._stop = threading.Event()
         self._master, self._slave = os.openpty()
@@ -275,11 +304,10 @@ class FeetechPort:
         if s is None:
             return []
         if instr == PING:
-            return [packet(sid, 0)]
+            return [packet(sid, self._err(s))]
         if instr == READ and len(params) == 2:
             r = self._read_reply(s, params[0], params[1])
             return [r] if r else []
-        reply = [packet(sid, 0)] if s.mem[8] else []
         if instr == WRITE and len(params) >= 2:
             self._write(s, params[0], params[1:])
         elif instr == REG_WRITE and len(params) >= 2:
@@ -288,9 +316,15 @@ class FeetechPort:
             self._action(s)
         elif instr == RESET:
             s.reset(s.mem[6])
+            for addr, n, attr, enc, _ in _REGS:
+                self._set(s, attr, enc(s.w(addr) if n == 2 else s.mem[addr]))
         else:
             return []
-        return reply
+        return [packet(sid, self._err(s))] if s.mem[8] else []
+
+    def _err(self, s):
+        """The error byte of a status packet: the servo's alarm bits."""
+        return int(self._q(s, "alarm")) & 0xFF
 
     def _read_reply(self, s, addr, n):
         if n == 0 or addr + n > _MEM:
@@ -298,7 +332,7 @@ class FeetechPort:
             return None
         if addr < 71 and addr + n > 56:
             self._refresh(s)
-        return packet(s.id, 0, bytes(s.mem[addr : addr + n]))
+        return packet(s.id, self._err(s), bytes(s.mem[addr : addr + n]))
 
     def _action(self, s):
         if s.pending:
@@ -335,6 +369,9 @@ class FeetechPort:
             s.mem[a] = b
         n = len(data)
         hit = lambda a, w=1: addr < a + w and a < addr + n
+        for a, w, attr, enc, _ in _REGS:
+            if hit(a, w):
+                self._set(s, attr, enc(s.w(a) if w == 2 else s.mem[a]))
         if hit(40):
             on = s.mem[40] != 0
             if on and not s.goal_dirty:
@@ -367,19 +404,13 @@ class FeetechPort:
 
     def _refresh(self, s):
         counts = round(self._q(s, "counts"))
-        tick = self.sim.tick
-        s.hist.append((tick, counts))
-        old = next(
-            (h for h in s.hist if tick - h[0] >= 20), None
-        )  # oldest sample >= 20 ticks back
-        if old:
-            s.speed = round((counts - old[1]) / ((tick - old[0]) * self.dt))
-        torque = self._q(s, "torque")
-        load = min(round(abs(torque) / self.stall_torque * 1000), 1000)
+        speed = round(self._q(s, "velocity") * self.cpr / (2 * pi))
+        load = round(self._q(s, "load") * 1000)
         goal = self._q(s, "goal_position") * self.cpr / (2 * pi)
         s.put(56, counts % self.cpr)
-        s.put(58, _to_sm(s.speed, 15))
-        s.put(60, _to_sm(-load if torque < 0 else load, 10))
+        s.put(58, _to_sm(max(-32767, min(speed, 32767)), 15))
+        s.put(60, _to_sm(max(-1000, min(load, 1000)), 10))
+        s.put(65, int(self._q(s, "alarm")), 1)
         s.put(62, round(self._q(s, "voltage") * 10), 1)
         s.put(63, round(self._q(s, "temperature")), 1)
         s.put(66, int(s.mem[40] != 0 and abs(goal - counts) > 2), 1)

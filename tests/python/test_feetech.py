@@ -9,7 +9,7 @@ import select
 import subprocess
 import time
 import tty
-from math import pi
+from math import pi, tanh
 from pathlib import Path
 
 import napl
@@ -20,10 +20,12 @@ from napl.feetech import (
     PING,
     READ,
     REG_WRITE,
+    RESET,
     SYNC_READ,
     SYNC_WRITE,
     WRITE,
     FeetechPort,
+    _sm,
     checksum,
     packet,
 )
@@ -129,6 +131,10 @@ class SdkBus:
         self._ok(r, e)
         return v
 
+    def write(self, sid, addr, value, n=1):
+        f = self.pk.write1ByteTxRx if n == 1 else self.pk.write2ByteTxRx
+        self._ok(*f(self.ph, sid, addr, value))
+
 
 @pytest.fixture
 def sim():
@@ -181,7 +187,7 @@ def test_ping_and_model_number_and_unknown_id(bus):
     assert bus.recv(1, 0.2) == []  # nobody home
 
 
-def test_read_write_ram_register_persists_in_port_not_sim(port, bus, sim):
+def test_read_write_register_persists_and_lock(port, bus, sim):
     assert (
         bus.read(1, 21, 1) == 32
         and bus.read(1, 22, 1) == 32
@@ -361,6 +367,184 @@ def test_sim_sees_what_the_client_wrote(live):
     assert (
         sim.query("/devices/s3", "goal_position")[0][0] == 0.0 and c.read_pos(3) == 0
     )  # untouched servo stays
+
+
+# ---- 3b. registers drive the simulated behaviour (N6b) --------------------------------------------------------------------
+KT = 60 / (2 * pi * 2584)  # arm3.xml motor: Kt = Ke = 60 / (2 pi kv)
+
+
+def attr(sim, i, name):
+    return sim.query(f"/devices/s{i}", name)[0][0]
+
+
+def test_register_writes_drive_runtime_attrs_and_reset_restores(bus, sim):
+    # the register image starts as the device's configured values (arm3.xml = part defaults / estimates)
+    assert [bus.read(1, a, 1) for a in (13, 14, 15, 19, 21, 22, 23, 35, 36)] == [
+        70,
+        80,
+        40,
+        36,
+        32,
+        32,
+        0,
+        200,
+        80,
+    ]
+    writes = [  # addr, n, value, attr, expected attr value
+        (21, 1, 16, "p_gain", 16),
+        (22, 1, 40, "d_gain", 40),
+        (23, 1, 3, "i_gain", 3),
+        (16, 2, 700, "max_torque", 700),
+        (48, 2, 500, "torque_limit", 500),
+        (26, 1, 4, "deadband", 4),  # dead zones CW 4 / CCW 1: the larger
+        (13, 1, 60, "max_temp", 60),
+        (14, 1, 75, "max_voltage", 7.5),
+        (15, 1, 45, "min_voltage", 4.5),
+        (19, 1, 4, "unload_mask", 4),
+        (35, 1, 50, "overload_time", 0.5),
+        (36, 1, 50, "overload_load", 0.5),
+    ]
+    for addr, n, val, name, want in writes:
+        bus.write(1, addr, val, n)
+        assert attr(sim, 1, name) == pytest.approx(want), name
+        assert attr(sim, 2, name) != pytest.approx(want), name  # only servo 1
+    assert bus.txrx(1, RESET)[:2] == (1, 0)  # RESET: defaults restored and pushed
+    for addr, n, val, name, want in writes:
+        assert attr(sim, 1, name) != pytest.approx(want), name
+    assert [
+        attr(sim, 1, n)
+        for n in (
+            "p_gain",
+            "d_gain",
+            "i_gain",
+            "max_torque",
+            "torque_limit",
+            "deadband",
+        )
+    ] == [32, 32, 0, 1000, 1000, 1]
+    assert [
+        attr(sim, 1, n)
+        for n in (
+            "max_temp",
+            "max_voltage",
+            "min_voltage",
+            "overload_time",
+            "overload_load",
+        )
+    ] == pytest.approx([70, 8.0, 4.0, 2.0, 0.8])
+
+
+def _counts_after(p_reg, goal=60, ticks=40):
+    """Fresh sim, write P over the pty, enable, command `goal` counts, step `ticks`: the encoder reading."""
+    s = napl.Sim.load(MODEL, host=True)
+    with FeetechPort(s, SERVOS, realtime=False) as pt:
+        b = RawBus(pt.device_path)
+        b.write(1, 21, p_reg)
+        b.enable(1)
+        b.write_pos(1, goal)
+        s.step(ticks)
+        out = b.read_pos(1)
+        assert attr(s, 1, "p_gain") == p_reg
+        b.close()
+    return out
+
+
+def test_p_gain_written_through_the_pty_changes_the_step_response():
+    # 60-count step, saturation-free at P <= 32 (u = P e / 2048): a smaller P gives a slower rise
+    fast, slow = _counts_after(32), _counts_after(8)
+    print(f"[p gain] counts after 40 ms: P=32 -> {fast}, P=8 -> {slow}")
+    assert fast > 1.5 * slow > 0
+
+
+def stall_torque(sim, c, limit):
+    """Servo 3 against its stop (j3 +-0.3 rad) with torque limit `limit`, then paused: (|joint limit force|, (duty, V, R))."""
+    c.write(3, 48, limit, 2)
+    assert wait_for(lambda: sim.query(JOINTS[3], "qpos")[0][0], 0.3, tol=0.02)
+    time.sleep(0.4)
+    sim.call({"cmd_type": "Pause", "cmd": {}})
+    assert abs(attr(sim, 3, "velocity")) < 1e-3  # at rest
+    d, v, t = attr(sim, 3, "load"), attr(sim, 3, "voltage"), attr(sim, 3, "temperature")
+    assert d == pytest.approx(limit / 1000)
+    # Model (docs/models.md): w_m = N w_out, i_m = (d V - Ke w_m) / R, tau = N k Kt (i_m - i0 tanh(w_m / w_s)), with the
+    # loss factor k = eta driving, eta + (1 - eta)(-tanh) when back-driven (w_m slightly < 0 against a soft stop).
+    w_m = 345 * attr(sim, 3, "velocity")
+    g = tanh(w_m / 5.0)  # arm3.xml: w_s default 5 rad/s
+    k = 0.658 if g >= 0 else 0.658 + (1 - 0.658) * -g
+    r = 2.98 * (1 + 0.00393 * (t - 20))
+    pred = 345 * k * KT * ((d * v - KT * w_m) / r - 0.15 * g)
+    return abs(sim.query("/sensors/s3_stop", "value")[0][0]), pred
+
+
+def test_torque_limit_written_by_client_sets_the_stall_torque(live):
+    sim, port, c = live
+    c.enable(3)
+    c.write_pos(3, 1000)  # 0.77 rad: beyond the stop at 0.3 rad
+    measured = {}
+    for limit in (1000, 500):
+        measured[limit], want = stall_torque(sim, c, limit)
+        print(
+            f"[stall] limit {limit}: measured {measured[limit]:.4f} N m, model {want:.4f}"
+        )
+        assert measured[limit] == pytest.approx(want, rel=0.02)
+        sim.call({"cmd_type": "Run", "cmd": {"rate": 1.0}})
+    assert measured[500] == pytest.approx(
+        measured[1000] / 2, rel=0.05
+    )  # about half (friction / back-EMF terms differ)
+    assert port.errors == []
+
+
+def test_present_speed_load_and_alarm_registers_follow_the_sim(bus, sim):
+    bus.enable(1)
+    bus.write_pos(1, 3000)
+    sim.step(60)
+    sp, ld = _sm(bus.read(1, 58, 2), 15), _sm(bus.read(1, 60, 2), 10)
+    v, load = attr(sim, 1, "velocity"), attr(sim, 1, "load")
+    assert (
+        sp > 500 and abs(sp - round(v * CPR / (2 * pi))) <= 1
+    )  # steps/s from the output shaft speed
+    assert ld > 500 and ld == round(load * 1000)  # 0.1 % of full duty
+    bus.write_pos(1, 0)  # reversing: the signs follow
+    sim.step(100)
+    assert _sm(bus.read(1, 58, 2), 15) < -500  # moving back: negative, sign bit set
+    assert _sm(bus.read(1, 60, 2), 10) == round(attr(sim, 1, "load") * 1000)
+    assert bus.read(1, 65, 1) == 0
+
+
+def test_status_error_byte_reports_voltage_alarm(bus, sim):
+    assert bus.txrx(1, PING) == (1, 0, b"")
+    bus.write(1, 15, 80)  # min input voltage 8.0 V > the 7.4 V supply
+    sim.step(3)
+    assert bus.txrx(1, PING)[1] == 1  # bit 0: voltage
+    assert bus.txrx(1, READ, bytes([65, 1])) == (
+        1,
+        1,
+        bytes([1]),
+    )  # status register = the same bits
+    assert (
+        bus.txrx(2, PING)[1] == 0
+    )  # alarms are per servo ... (servo 2 still has min 4.0 V)
+
+
+def test_status_error_byte_reports_overload_when_stalled_and_clears(bus, sim):
+    bus.write(3, 35, 20)  # protection time 0.2 s
+    bus.enable(3)
+    bus.write_pos(3, 1000)  # stop at 0.3 rad = 195 counts: stalled at full duty
+    sim.step(100)
+    assert (
+        bus.txrx(3, PING)[1] == 0 and _sm(bus.read(3, 60, 2), 10) > 900
+    )  # loaded, timer running
+    sim.step(250)
+    i, err, _ = bus.txrx(3, PING)
+    assert (i, err) == (3, 32)  # bit 5: overload
+    assert attr(sim, 3, "alarm") == 32 and attr(sim, 3, "torque_enable") == 1
+    assert (
+        attr(sim, 3, "load") == 0
+    )  # torque released (unload mask 36 includes overload)
+    assert bus.txrx(3, READ, bytes([60, 2])) == (3, 32, bytes(2))  # present load 0
+    assert bus.txrx(3, WRITE, bytes([40, 0]))[:2] == (3, 32)  # torque off ...
+    sim.step(2)
+    assert bus.txrx(3, PING)[1] == 0  # ... clears the latch
+    assert attr(sim, 2, "alarm") == 0
 
 
 # ---- 4. replay ---------------------------------------------------------------------------------------------------------

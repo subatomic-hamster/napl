@@ -89,6 +89,12 @@ table Servo {
   max_torque: double;     // register 0..1000 (here (0, 1000]): |duty| limit = max_torque / 1000
   i_limit: double;        // > 0: motor-current limit, A (default 0 = none)
   backlash_joint: string; // default empty = no backlash: name of a limited hinge (range -b..+b) between gear output and load
+  // Firmware protection (initial values of runtime attrs; 0 = that protection off, so no default turns one on):
+  // alarm bits (STS status byte): 1 input voltage outside [min_voltage, max_voltage] (V), 4 winding temperature above
+  // max_temp (degC), 32 overload = |duty| > overload_load (fraction of full duty) for overload_time (s). Bits latch until
+  // the torque is switched off for a tick. unload_mask: alarm bits (same bit values) that release the torque (open phase).
+  min_voltage: double; max_voltage: double; max_temp: double;
+  overload_load: double; overload_time: double; unload_mask: int;
 }
 
 // Propeller aero on a rotor body (S2). `joint` is the hinge the rotor spins on (typically the one an Esc drives):

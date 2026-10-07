@@ -904,6 +904,207 @@ TEST(devices, servo_save_restore_bitwise) {
   EXPECT_GT(std::abs(get(*a, "/devices/sa", "position")) + std::abs(get(*a, "/devices/sb", "position")), 0.01);
 }
 
+// ---- servo runtime registers + firmware protection (N6b); fixtures servo_protect.xml (7.4 V, hard stop at 0.3 rad,
+// protection on) and servo_lowv.xml (3.5 V). Alarm bits (STS status byte): 1 voltage, 4 temperature, 32 overload.
+namespace {
+unsigned alarm_of(const Solver& s) { return static_cast<unsigned>(get(s, "/devices/s1", "alarm")); }
+// Steps (at most `max` ticks) until `bit` is set; returns the tick count stepped, or -1.
+int step_until_alarm(Solver& s, unsigned bit, int max) {
+  for (int t = 1; t <= max; ++t) {
+    if (s.step(1) != 1) return -1;
+    if (alarm_of(s) & bit) return t;
+  }
+  return -1;
+}
+}  // namespace
+
+// Runtime attrs: the duty limit is min(max_torque, torque_limit); at a stall the static output torque follows it (measured
+// against MuJoCo's constraint force, as in servo_stall_torque_vs_constraint_force); ranges are enforced; velocity / load
+// are read-only views (velocity = output shaft speed, load = duty).
+TEST(devices, servo_runtime_registers_set_limits_and_gains) {
+  struct Case { double max_torque, torque_limit, duty; };
+  for (const Case c : {Case{1000, 500, 0.5}, Case{300, 1000, 0.3}, Case{1000, 1000, 1.0}}) {
+    auto s = load("servo_protect.xml");
+    put_ok(*s, "/devices/s1", "overload_load", 0);  // protection off: this test measures the stall
+    put_ok(*s, "/devices/s1", "max_torque", c.max_torque);
+    put_ok(*s, "/devices/s1", "torque_limit", c.torque_limit);
+    enable(*s, "/devices/s1", 1.0);
+    ASSERT_EQ(s->step(2000), 2000);
+    const double t_pre = get(*s, "/devices/s1", "temperature");
+    ASSERT_EQ(s->step(1), 1);
+    const mjData& d = ms(*s).data();
+    const double w_m = ms(*s).devices()->servo.st[0].omega, v = get(*s, "/devices/s1", "voltage");
+    const double want = kN * kEta * (ske() * c.duty * v / sr_at(t_pre) - ske() * kSI0 * std::tanh(w_m / kSWs));
+    EXPECT_LT(rel(-d.qfrc_constraint[dofadr(*s, "out")], want), 0.02) << c.max_torque << "/" << c.torque_limit;
+    EXPECT_LT(rel(get(*s, "/devices/s1", "load"), c.duty), 1e-12);
+    EXPECT_EQ(alarm_of(*s), 0u);
+  }
+  auto s = load("servo_protect.xml");
+  EXPECT_EQ(get(*s, "/devices/s1", "p_gain"), 32.0);  // initial values come from the config
+  EXPECT_EQ(get(*s, "/devices/s1", "max_torque"), 1000.0);
+  EXPECT_EQ(get(*s, "/devices/s1", "torque_limit"), 1000.0);
+  EXPECT_EQ(put(*s, "/devices/s1", "torque_limit", 1001).code, Result::invalid_argument);
+  EXPECT_EQ(put(*s, "/devices/s1", "velocity", 1).code, Result::invalid_argument);
+  EXPECT_EQ(put(*s, "/devices/s1", "alarm", 0).code, Result::invalid_argument);
+  put_ok(*s, "/devices/s1", "p_gain", 0);
+  put_ok(*s, "/devices/s1", "i_gain", 0);
+  put_ok(*s, "/devices/s1", "d_gain", 0);
+  enable(*s, "/devices/s1", 0.2);
+  ASSERT_EQ(s->step(50), 50);
+  EXPECT_EQ(get(*s, "/devices/s1", "duty"), 0.0);  // zero gains: no drive
+  put_ok(*s, "/devices/s1", "p_gain", 32);
+  ASSERT_EQ(s->step(30), 30);
+  const double w = get(*s, "/devices/s1", "velocity");
+  EXPECT_GT(w, 0.1);  // rad/s at the output shaft
+  EXPECT_DOUBLE_EQ(w * kN, ms(*s).devices()->servo.st[0].omega);
+  EXPECT_EQ(s->unit("/devices/s1", "velocity"), "rad/s");
+  EXPECT_EQ(s->unit("/devices/s1", "max_torque"), "0.1%");
+}
+
+// Undervoltage: a 3.5 V supply is below min_voltage 4.0 V -> bit 1 within two ticks (the first tick has no solved voltage
+// yet). The bit is not in the unload mask: the servo keeps driving. It latches while torque is on, and a tick with
+// torque off clears it (and only a condition that no longer holds stays cleared).
+TEST(devices, servo_protect_undervoltage_alarm_latches_until_torque_cycled) {
+  auto s = load("servo_lowv.xml");
+  EXPECT_EQ(alarm_of(*s), 0u);
+  enable(*s, "/devices/s1", 1.0);
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 0u);  // nothing solved before tick 1
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 1u);
+  ASSERT_EQ(s->step(50), 50);
+  EXPECT_GT(std::abs(get(*s, "/devices/s1", "duty")), 0.5);  // alarm only, not released
+  EXPECT_LT(get(*s, "/devices/s1", "voltage"), 4.0);
+  put_ok(*s, "/devices/s1", "min_voltage", 3.0);  // condition gone ...
+  ASSERT_EQ(s->step(5), 5);
+  EXPECT_EQ(alarm_of(*s), 1u);  // ... still latched with torque on
+  put_ok(*s, "/devices/s1", "torque_enable", 0);
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 0u);  // cleared by a torque-off tick
+  put_ok(*s, "/devices/s1", "min_voltage", 4.0);  // condition back: live even with torque off
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 1u);
+  put_ok(*s, "/devices/s1", "max_voltage", 3.0);  // over-voltage side: v > max_voltage
+  put_ok(*s, "/devices/s1", "min_voltage", 0);
+  ASSERT_EQ(s->step(1), 1);
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 1u);
+  put_ok(*s, "/devices/s1", "max_voltage", 0);  // both off
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 0u);
+  EXPECT_FALSE(s->diverged());
+}
+
+// Overheat by sustained stall heating (overload off, max_temp lowered to 30 degC): bit 4 appears the tick the winding
+// passes 30 degC, the torque is released (4 is in the unload mask), and the latch outlives the condition until the torque
+// is cycled with the winding below max_temp.
+TEST(devices, servo_protect_overheat_by_stall_heating) {
+  auto s = load("servo_protect.xml");
+  put_ok(*s, "/devices/s1", "overload_load", 0);
+  put_ok(*s, "/devices/s1", "max_temp", 30);
+  enable(*s, "/devices/s1", 1.0);
+  const int t = step_until_alarm(*s, 4, 30000);
+  ASSERT_GT(t, 0);
+  std::printf("[servo protect] overheat alarm at %d ms, T %.2f degC\n", t, get(*s, "/devices/s1", "temperature"));
+  EXPECT_EQ(alarm_of(*s), 4u);
+  EXPECT_GT(get(*s, "/devices/s1", "temperature"), 30.0);
+  EXPECT_GT(t, 1000);  // heating takes seconds (about 1 K/s at stall)
+  ASSERT_EQ(s->step(2), 2);
+  EXPECT_EQ(get(*s, "/devices/s1", "duty"), 0.0);  // released
+  EXPECT_EQ(get(*s, "/devices/s1", "current"), 0.0);
+  EXPECT_EQ(get(*s, "/devices/s1", "torque_enable"), 1.0);
+  const double t_hot = get(*s, "/devices/s1", "temperature");
+  ASSERT_EQ(s->step(1000), 1000);
+  EXPECT_LT(get(*s, "/devices/s1", "temperature"), t_hot);  // cooling, still latched and released
+  EXPECT_EQ(alarm_of(*s), 4u);
+  EXPECT_EQ(get(*s, "/devices/s1", "duty"), 0.0);
+  put_ok(*s, "/devices/s1", "max_temp", 20);  // below the (ambient 25 degC) winding: the condition holds
+  put_ok(*s, "/devices/s1", "torque_enable", 0);  // torque-off tick: the alarm is raised again at once
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 4u);
+  put_ok(*s, "/devices/s1", "max_temp", 70);  // threshold above the winding temperature: a torque-off tick clears
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 0u);
+  put_ok(*s, "/devices/s1", "torque_enable", 1);
+  ASSERT_EQ(s->step(30), 30);
+  EXPECT_GT(get(*s, "/devices/s1", "duty"), 0.5);  // driving again
+}
+
+// Overload: stalled against the stop at full duty (> overload_load 0.8) for overload_time (shortened to 0.5 s) -> bit 32
+// and release. With unload_mask 0 the alarm is reported and the servo keeps pushing.
+TEST(devices, servo_protect_overload_releases_after_protection_time) {
+  auto s = load("servo_protect.xml");
+  put_ok(*s, "/devices/s1", "overload_time", 0.5);
+  enable(*s, "/devices/s1", 1.0);
+  const int t = step_until_alarm(*s, 32, 3000);
+  ASSERT_GT(t, 0);
+  std::printf("[servo protect] overload alarm at %d ms (protection time 500 ms)\n", t);
+  EXPECT_GE(t, 500);
+  EXPECT_LE(t, 520);  // the duty is above 0.8 from the first firmware step on; the timer counts ticks
+  EXPECT_EQ(alarm_of(*s), 32u);
+  ASSERT_EQ(s->step(2), 2);
+  EXPECT_EQ(get(*s, "/devices/s1", "load"), 0.0);
+  EXPECT_EQ(get(*s, "/devices/s1", "current"), 0.0);  // torque released (open phase)
+  ASSERT_EQ(s->step(500), 500);
+  EXPECT_EQ(alarm_of(*s), 32u);  // latched
+  EXPECT_EQ(get(*s, "/devices/s1", "load"), 0.0);
+  put_ok(*s, "/devices/s1", "torque_enable", 0);
+  ASSERT_EQ(s->step(1), 1);
+  EXPECT_EQ(alarm_of(*s), 0u);
+  put_ok(*s, "/devices/s1", "torque_enable", 1);
+  ASSERT_EQ(s->step(300), 300);
+  EXPECT_EQ(alarm_of(*s), 0u);  // timer restarted
+  EXPECT_GT(get(*s, "/devices/s1", "load"), 0.8);
+  EXPECT_FALSE(s->diverged());
+
+  auto n = load("servo_protect.xml");  // reported only
+  put_ok(*n, "/devices/s1", "overload_time", 0.5);
+  put_ok(*n, "/devices/s1", "unload_mask", 0);
+  enable(*n, "/devices/s1", 1.0);
+  ASSERT_GT(step_until_alarm(*n, 32, 3000), 0);
+  ASSERT_EQ(n->step(100), 100);
+  EXPECT_GT(get(*n, "/devices/s1", "load"), 0.8);
+
+  auto q = load("servo_protect.xml");  // a lower torque limit keeps the duty under the threshold: no overload
+  put_ok(*q, "/devices/s1", "overload_time", 0.5);
+  put_ok(*q, "/devices/s1", "torque_limit", 700);
+  enable(*q, "/devices/s1", 1.0);
+  ASSERT_EQ(q->step(1500), 1500);
+  EXPECT_EQ(alarm_of(*q), 0u);
+}
+
+// Mid-overload save / restore / clone continue bitwise (timer and latches are in the saved state).
+TEST(devices, servo_protect_save_restore_mid_overload_bitwise) {
+  auto go = [](Solver& s, int t0, int t1) {
+    for (int t = t0; t < t1; ++t) {
+      if (t == 0) {
+        put_ok(s, "/devices/s1", "overload_time", 0.5);
+        enable(s, "/devices/s1", 1.0);
+      }
+      ASSERT_EQ(s.step(1), 1);
+    }
+  };
+  auto a = load("servo_protect.xml"), b = load("servo_protect.xml");
+  go(*a, 0, 900);
+  go(*b, 0, 303);
+  EXPECT_EQ(alarm_of(*b), 0u);
+  EXPECT_GT(ms(*b).devices()->servo.st[0].ovl_t, 0.2);  // timer running
+  const std::vector<std::byte> snap = b->save();
+  const std::uint64_t h_mid = b->state_hash();
+  go(*b, 303, 700);
+  EXPECT_EQ(alarm_of(*b), 32u);
+  ASSERT_NE(b->state_hash(), h_mid);
+  b->restore(snap);
+  EXPECT_EQ(b->state_hash(), h_mid);
+  auto c = b->clone();
+  go(*b, 303, 900);
+  go(*c, 303, 900);
+  EXPECT_EQ(alarm_of(*a), 32u);
+  EXPECT_EQ(a->state_hash(), b->state_hash());
+  EXPECT_EQ(a->state_hash(), c->state_hash());
+  EXPECT_EQ(a->save(), b->save());
+}
+
 TEST(devices, servo_bad_firmware_rate_fails_load) {
   try {
     load("bad_servo_rate.xml");

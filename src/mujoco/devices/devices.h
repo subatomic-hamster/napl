@@ -53,6 +53,7 @@ struct EscCfg {
 struct ServoCfg {
   Meta meta; int node; std::string joint; MotorCfg motor; double n, eta, rate_hz, p, i, d, pid_scale, deadband, max_torque;
   double i_limit; int cpr; std::string backlash_joint;
+  double min_voltage, max_voltage, max_temp, overload_load, overload_time; int unload_mask;  // protection, initial values
   int jnt = -1, dof = -1, qadr = -1, period = 0;  // resolved by bind(): firmware period in ticks
 };
 struct RotorCfg {
@@ -106,8 +107,18 @@ struct ServoState {
   double temp, omega;                                // winding degC; motor shaft speed (N x output) of the last solve
   double v, duty, i_m, i_bus, torque, b, drive;      // as EscState; duty: effective (after current limit)
   double backlash;                                   // half-range of the backlash joint, rad (0: none); set by bind()
+  // Runtime settable (initial values from the config): firmware gains (register units), deadband (counts), duty limits
+  // (0..1000, effective limit min(max_torque, torque_limit) / 1000), protection thresholds (0 = off, see servo.cpp).
+  double p, i, d, deadband, max_torque, torque_limit;
+  double min_voltage, max_voltage, max_temp, overload_load, overload_time, unload_mask;
+  double alarm, ovl_t;                               // latched alarm bits (servo.cpp); seconds |duty| has been above overload_load
+  double velocity;                                   // output shaft speed of the last tick start, rad/s
   std::uint64_t ticks;                               // ticks stepped; firmware runs when ticks % period == 0
 };
+// Phase open (no drive): torque off, or released by a latched alarm that is in the unload mask.
+inline bool servo_open(const ServoState& s) {
+  return !(s.torque_enable > 0.5) || (static_cast<unsigned>(s.alarm) & static_cast<unsigned>(s.unload_mask)) != 0;
+}
 struct RotorState { double omega, thrust, torque, advance_ratio, ge_ratio, rho; };  // outputs of the last tick
 struct EnvState {
   double wind[3];  // steady wind, world (input)

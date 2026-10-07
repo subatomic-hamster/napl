@@ -70,7 +70,7 @@ Drv drv_of(const EscCfg& c, const EscState& s) {
   return {c.node, &c.motor, s.throttle, s.omega, s.temp, c.i_limit, c.complementary, !(s.throttle > 0)};
 }
 Drv drv_of(const ServoCfg& c, const ServoState& s) {
-  return {c.node, &c.motor, s.cmd, s.omega, s.temp, c.i_limit, true, !(s.torque_enable > 0.5)};
+  return {c.node, &c.motor, s.cmd, s.omega, s.temp, c.i_limit, true, servo_open(s)};
 }
 
 // mode 0 normal, 1 phase open, 2 current-limited; ic: constant bus current in mode 2
