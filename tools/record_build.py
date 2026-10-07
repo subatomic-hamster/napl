@@ -1,4 +1,4 @@
-"""Recording harness for docs/showcase/car_from_scratch.mp4: a design grown edit by edit in the viewer's Design window, then the finished car driven.
+"""Recording harness for the car-from-scratch video (media is never committed; it stays on the host): a design grown edit by edit in the viewer's Design window, then the finished car driven.
 One entry point, four subcommands (the video itself is made in a THROWAWAY venv that has `av` + Pillow; neither is a project dependency):
 
     oplog   SESSION.jsonl OUT.json        turn an exploration session's request log into the committed op log (adds nothing, reorders nothing)
@@ -10,15 +10,15 @@ One entry point, four subcommands (the video itself is made in a THROWAWAY venv 
     drive   RUN_DIR OUT_DIR               Part 2. RUN_DIR = a `napl program` run dir (replay.naplog, model/, result.json); the log is replayed into a
                                           fresh World (tools/screenshots.py Replay: same state hash, checked) and rendered offscreen with a follow camera
                                           + an overhead inset -> OUT_DIR/f*.png, hud.json (sim time, speed, wheel currents, pose). GPU.
-    encode  PART1_DIR PART2_DIR OUT.mp4   needs `av` + Pillow (run it with the throwaway venv's python): caption strip + DRC / mass banner on Part 1,
-                                          HUD on Part 2, title cards, H.264 (else VP9) 1280x720.
+    encode  PART1_DIR PART2_DIR OUT.webm  needs `av` + Pillow (run it with the throwaway venv's python): caption strip + DRC / mass banner on Part 1,
+                                          HUD on Part 2, title cards, 1280x720. OpenH264 or VP9 by default; libx264 (GPL) only with --gpl.
 
 Whose decisions are in the video: see docs/showcase/car/README.md. Typical run (hfbox):
 
     tools/remote.sh run --gpu '.venv/bin/python tools/record_build.py build docs/showcase/car/oplog.json /workspace/wt/napl/scratch/p1 --expect assemblies/car4.toml'
     tools/remote.sh run '.venv/bin/napl program examples/car4/square.scenario.toml --runs-dir /workspace/wt/napl/scratch/runs'
     tools/remote.sh run --gpu '.venv/bin/python tools/record_build.py drive <run dir> /workspace/wt/napl/scratch/p2'
-    <vidvenv>/bin/python tools/record_build.py encode /workspace/wt/napl/scratch/p1 /workspace/wt/napl/scratch/p2 docs/showcase/car_from_scratch.mp4
+    <vidvenv>/bin/python tools/record_build.py encode /workspace/wt/napl/scratch/p1 /workspace/wt/napl/scratch/p2 /workspace/wt/napl/scratch/car_from_scratch.webm
 """
 
 import argparse
@@ -459,7 +459,7 @@ def cmd_encode(a):
     ]
     print("encoders available among h264 / vp9:", codecs)
     out = Path(a.out)
-    codec = next(c for c in codecs if c != "libx264" or not a.no_gpl)
+    codec = next(c for c in codecs if c != "libx264" or a.gpl)
     if codec.startswith("libvpx") and out.suffix != ".webm":
         out = out.with_suffix(".webm")
     cont = av.open(str(out), "w")
@@ -710,9 +710,9 @@ def main():
     s.add_argument("part2")
     s.add_argument("out")
     s.add_argument(
-        "--no-gpl",
+        "--gpl",
         action="store_true",
-        help="never use libx264 (GPL): fall back to openh264 / VP9",
+        help="allow libx264 (GPL); default is openh264 / VP9 only",
     )
     a = ap.parse_args()
     if a.cmd == "_build":
