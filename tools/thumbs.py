@@ -34,8 +34,10 @@ def _pose(pos, R):
     return pose_attrs(T)
 
 
-def part_scene(lib, part, cache):
-    """-> (mjcf geoms text, assets text, (lo, hi) bounds) or None when the part has nothing to draw."""
+def part_scene(lib, part, cache, k=1.0):
+    """-> (mjcf geoms text, assets text, (lo, hi) bounds) or None when the part has nothing to draw. Everything is scaled
+    by `k` (small parts are enlarged: the renderer clips closer than its near plane)."""
+    sc = f'scale="{k} {k} {k}"'
     geoms, assets, lo, hi = [], [], np.full(3, np.inf), np.full(3, -np.inf)
 
     def grow(pts):
@@ -43,14 +45,14 @@ def part_scene(lib, part, cache):
         lo, hi = np.minimum(lo, pts.min(0)), np.maximum(hi, pts.max(0))
 
     seen = set()
-    for k, p in enumerate(
-        visuals.pieces(part, cache, lib.root) if visuals.has_visual(part) else []
-    ):
+    for p in visuals.pieces(part, cache, lib.root) if visuals.has_visual(part) else []:
         m = read_stl(p.path)
-        grow(m.v @ p.R.T + p.pos)
+        grow(k * (m.v @ p.R.T + p.pos))
         if p.name not in seen:
             seen.add(p.name)
-            assets.append(f'<mesh name="v_{p.name}" file="{p.path}" inertia="convex"/>')
+            assets.append(
+                f'<mesh name="v_{p.name}" file="{p.path}" {sc} inertia="convex"/>'
+            )
         mat = p.material
         mn = f"m_{mat['name']}"
         if mn not in seen:
@@ -60,21 +62,21 @@ def part_scene(lib, part, cache):
                 f' metallic="{mat["metallic"]}" roughness="{mat["roughness"]}"/>'
             )
         geoms.append(
-            f'<geom type="mesh" mesh="v_{p.name}" material="{mn}" rgba="{vec(mat["rgba"])}"{_pose(p.pos, p.R)} contype="0" conaffinity="0" mass="0"/>'
+            f'<geom type="mesh" mesh="v_{p.name}" material="{mn}" rgba="{vec(mat["rgba"])}"{_pose(k * p.pos, p.R)} contype="0" conaffinity="0" mass="0"/>'
         )
     if not geoms:  # primitive from [geometry]
         g = part.geometry
         rgba = vec(appearance_rgba(lib, part))
-        for k, s in enumerate(g.get("shapes") or ([g] if "shape" in g else [])):
+        for i, s in enumerate(g.get("shapes") or ([g] if "shape" in g else [])):
             kind, sz = s.get("shape"), s.get("size")
             pos, R = shape_frame(s, part.id)
             if kind == "mesh":
                 f = lib.root / s["mesh"]
                 m = read_stl(f)
-                grow(m.v @ R.T + pos)
-                assets.append(f'<mesh name="g{k}" file="{f}" inertia="convex"/>')
+                grow(k * (m.v @ R.T + pos))
+                assets.append(f'<mesh name="g{i}" file="{f}" {sc} inertia="convex"/>')
                 geoms.append(
-                    f'<geom type="mesh" mesh="g{k}" rgba="{rgba}"{_pose(pos, R)} contype="0" conaffinity="0" mass="0"/>'
+                    f'<geom type="mesh" mesh="g{i}" rgba="{rgba}"{_pose(k * pos, R)} contype="0" conaffinity="0" mass="0"/>'
                 )
             elif kind in ("box", "cylinder", "sphere", "capsule"):
                 ext = {
@@ -89,9 +91,9 @@ def part_scene(lib, part, cache):
                     )
                     * ext
                 )
-                grow(c @ R.T + pos)
+                grow(k * (c @ R.T + pos))
                 geoms.append(
-                    f'<geom type="{kind}" size="{vec(sz)}" rgba="{rgba}"{_pose(pos, R)} contype="0" conaffinity="0" mass="0"/>'
+                    f'<geom type="{kind}" size="{vec(k * np.array(sz))}" rgba="{rgba}"{_pose(k * pos, R)} contype="0" conaffinity="0" mass="0"/>'
                 )
     if not geoms:
         return None
@@ -134,6 +136,12 @@ def main():
         part = lib.get(pid)
         try:
             sc = part_scene(lib, part, cache)
+            if sc is not None:
+                diag = float(np.linalg.norm(sc[2][1] - sc[2][0]))
+                if (
+                    diag < 0.12
+                ):  # near plane: enlarge so the camera stays >= ~0.3 m away
+                    sc = part_scene(lib, part, cache, 0.12 / max(diag, 1e-4))
         except (
             Exception
         ) as e:  # a generator bug must not stop the sweep; it is reported at the end
