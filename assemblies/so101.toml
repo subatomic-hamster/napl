@@ -380,7 +380,7 @@ instance = "servo1"
 port = "port_a"
 joint = "shoulder_pan"
 map = "sts3215"
-set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Calibration knob (register units -> duty): the true Feetech register scaling is not public (docs/models.md, servo.cpp). Only evidence: the N2 servo tests (tests/data/devices/servo_*.xml) use 8192 with p = 32; the N6a arm3 bench uses 2048 with p = 32, tuned for a gravity-free step. 8192 taken as asked; with p = 16 (LeRobot) the stiffness is half the N2 one, so gravity sag is large (reported by the holding-pose test)." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "No published winding thermal capacity for the STS3215. 10 J/K is the test value of tests/data/feetech/arm3.xml for this servo (also unsourced); only the temperature readout depends on it (no protection is configured here)." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "No published winding-to-ambient thermal resistance. 15 K/W is the test value of tests/data/feetech/arm3.xml for this servo (unsourced); only the temperature readout depends on it." } }
+set = { pid_scale = { value = 4000, unit = "1", fidelity = "derived", derivation = "Register units -> duty, from two routes that need no torque assumption (docs/research/sts3215-calibration.md, Summary, 1.2, 1.4). (1) Official Feetech memory table (ftservo-wiki memory-sts.md): addr 21 position-loop P is 'Proportional coefficient controlling the motor (1/4)', output / load unit is 0.1 % duty (addr 16 max torque 0..1000, addr 60 present load 0.1 %) -> output = (P/4) e_counts in 0.1 % units -> duty = (P/4) e_counts / 1000 -> pid_scale = 4 * 1000 = 4000. (2) Cross-checks: Rhoban BAM STS3215Actuator error_gain = 0.166 ('determined using an oscilloscope', error in rad, duty = kp * gain * e) -> pid_scale = 4096 / (2 pi 0.166) = 3927; Feetech's fork ftservo-bam 0.163 -> 3999. Rejected: the SO-ARM100 MJCF kp 998.22 (Gregory119 derivation: error in degrees, unsourced R = 1 ohm) -> pid_scale 14-31. Not modelled: the same table scales D by 1/8 (vs P 1/4), so with a shared pid_scale the effective sim d would be D/2; servo.cpp has ONE pid_scale for P, I and D, so the D term here is 2x the table's (a separate D scale needs a config / schema field: not done). The per-cycle time base of the D term is unpublished, so that is an inference anyway. The 4000 is best supported, not pinned: plausible range 2100-4000 (BAM torque level 2123 is the lower edge), a hold-torque-vs-error measurement on hardware would pin it." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "No published winding thermal capacity for the STS3215. 10 J/K is the test value of tests/data/feetech/arm3.xml for this servo (also unsourced); only the temperature readout depends on it (no protection is configured here)." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "No published winding-to-ambient thermal resistance. 15 K/W is the test value of tests/data/feetech/arm3.xml for this servo (unsourced); only the temperature readout depends on it." } }
 
 [[devices]]
 type = "servo"
@@ -389,7 +389,7 @@ instance = "servo2"
 port = "port_a"
 joint = "shoulder_lift"
 map = "sts3215"
-set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+set = { pid_scale = { value = 4000, unit = "1", fidelity = "derived", derivation = "Same as servo1 (official table P 1/4 with 0.1 % duty unit = 4000; BAM oscilloscope 3927; docs/research/sts3215-calibration.md)." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
 
 [[devices]]
 type = "servo"
@@ -398,7 +398,7 @@ instance = "servo3"
 port = "port_a"
 joint = "elbow_flex"
 map = "sts3215"
-set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+set = { pid_scale = { value = 4000, unit = "1", fidelity = "derived", derivation = "Same as servo1 (official table P 1/4 with 0.1 % duty unit = 4000; BAM oscilloscope 3927; docs/research/sts3215-calibration.md)." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
 
 [[devices]]
 type = "servo"
@@ -407,7 +407,7 @@ instance = "servo4"
 port = "port_a"
 joint = "wrist_flex"
 map = "sts3215"
-set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+set = { pid_scale = { value = 4000, unit = "1", fidelity = "derived", derivation = "Same as servo1 (official table P 1/4 with 0.1 % duty unit = 4000; BAM oscilloscope 3927; docs/research/sts3215-calibration.md)." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
 
 [[devices]]
 type = "servo"
@@ -416,7 +416,7 @@ instance = "servo5"
 port = "port_a"
 joint = "wrist_roll"
 map = "sts3215"
-set = { pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+set = { pid_scale = { value = 4000, unit = "1", fidelity = "derived", derivation = "Same as servo1 (official table P 1/4 with 0.1 % duty unit = 4000; BAM oscilloscope 3927; docs/research/sts3215-calibration.md)." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
 
 # Gripper: LeRobot writes Max_Torque_Limit = 500 (50 %) on the gripper servo only.
 [[devices]]
@@ -426,7 +426,7 @@ instance = "servo6"
 port = "port_a"
 joint = "gripper"
 map = "sts3215"
-set = { max_torque = "servo6.lerobot_gripper_max_torque_limit", pid_scale = { value = 8192, unit = "1", fidelity = "estimated", rationale = "Same calibration knob and evidence as servo1 (N2 tests 8192 with p = 32; N6a arm3 2048); not tuned for the arm." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
+set = { max_torque = "servo6.lerobot_gripper_max_torque_limit", pid_scale = { value = 4000, unit = "1", fidelity = "derived", derivation = "Same as servo1 (official table P 1/4 with 0.1 % duty unit = 4000; BAM oscilloscope 3927; docs/research/sts3215-calibration.md)." }, "motor.c_th" = { value = 10.0, unit = "J/K", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." }, "motor.r_th" = { value = 15.0, unit = "K/W", fidelity = "estimated", rationale = "As servo1: arm3.xml test value, unsourced." } }
 
 # ---- target ----------------------------------------------------------------------------------------------------------------------------
 [[targets]]

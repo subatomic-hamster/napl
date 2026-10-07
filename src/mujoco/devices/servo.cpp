@@ -8,10 +8,11 @@
 //  - Firmware runs on its own period (firmware_hz); the duty it computes is held between steps (zero-order hold).
 //    Order of one step: ramp the setpoint, error in integer counts, deadband, PID, saturation. Anti-windup: the sum is
 //    not accumulated while the output is saturated and the error pushes further into saturation.
-//  - pid_scale (register units -> duty) is a calibration knob: duty = (p e + i sum(e) + d de) / pid_scale with e in
-//    counts and sum(e), de per firmware step. The true Feetech register scaling is not public as far as we know; do not
-//    read the p / i / d numbers as the vendor's. Likewise the vendor's actual firmware structure (loop rate, integral
-//    limit, speed profile shape) is not modelled beyond what is listed here.
+//  - pid_scale (register units -> duty): duty = (p e + i sum(e) + d de) / pid_scale with e in counts and sum(e), de per
+//    firmware step. Calibrated for the STS3215 per docs/research/sts3215-calibration.md: official table P "(1/4)" with the
+//    0.1 % duty unit -> 4000, Rhoban BAM oscilloscope gain 0.166 -> 3927. The table scales D by 1/8, not modelled
+//    separately (one pid_scale for p, i, d). The vendor's firmware structure (loop rate, integral limit, speed profile
+//    shape) is not modelled beyond what is listed here.
 //  - torque_enable = 0: open phase, integrator reset, the setpoint follows the measured position (so enabling with a
 //    goal speed ramps from where the servo is; without one the setpoint jumps to the goal). Disabling acts on the next
 //    tick, enabling takes effect at the next firmware step. Power-up state is torque off, goal 0.

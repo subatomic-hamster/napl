@@ -100,6 +100,9 @@ class RawBus:
     def read_pos(self, sid):
         return self.read(sid, 56, 2)
 
+    def read_speed(self, sid):
+        return _sm(self.read(sid, 58, 2), 15)
+
 
 class SdkBus:
     """The same operations through the unmodified Feetech SDK."""
@@ -130,6 +133,11 @@ class SdkBus:
         v, r, e = self.pk.read2ByteTxRx(self.ph, sid, 56)
         self._ok(r, e)
         return v
+
+    def read_speed(self, sid):
+        v, r, e = self.pk.read2ByteTxRx(self.ph, sid, 58)
+        self._ok(r, e)
+        return _sm(v, 15)
 
     def write(self, sid, addr, value, n=1):
         f = self.pk.write1ByteTxRx if n == 1 else self.pk.write2ByteTxRx
@@ -328,6 +336,16 @@ def wait_for(read, goal, tol=2, timeout=5.0):
     return False
 
 
+def settled(c, sid, goal, tol=2, timeout=5.0):
+    """Within tol counts AND present speed 0: a first in-tolerance sample may be a pass through the goal."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        if abs(c.read_pos(sid) - goal) <= tol and c.read_speed(sid) == 0:
+            return True
+        time.sleep(0.01)
+    return False
+
+
 def test_client_drives_sim_joint_to_goal_in_physical_time(live):
     sim, port, c = live
     t0 = sim.tick
@@ -338,6 +356,7 @@ def test_client_drives_sim_joint_to_goal_in_physical_time(live):
     # cannot beat the no-load speed (part file: 5.454 rad/s); a 1000-count move at P = 32 settles within a few seconds
     assert sim_time >= goal_rad(GOAL[1]) / NO_LOAD_SPEED
     assert sim_time < 3.0
+    assert settled(c, 1, GOAL[1])  # arrival above; the precise check waits for rest
     err = abs(c.read_pos(1) - GOAL[1])
     assert (
         err <= 2
@@ -351,7 +370,7 @@ def test_sim_sees_what_the_client_wrote(live):
         c.enable(sid)
         c.write_pos(sid, GOAL[sid])
     for sid in (1, 2):
-        assert wait_for(lambda: c.read_pos(sid), GOAL[sid])
+        assert settled(c, sid, GOAL[sid])
     sim.call(
         {"cmd_type": "Pause", "cmd": {}}
     )  # freeze: protocol and sim see the same tick

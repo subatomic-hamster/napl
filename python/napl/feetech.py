@@ -29,7 +29,10 @@ the port reads the device attrs back into its register image, and a RESET instru
   18, 20, 24-25, 28-34, 37-39 ..................................... P     (protection current, holding torque, ...: stored only)
   40 torque enable ................................................ S     -> torque_enable (any nonzero = 1)
   41 acceleration, 44-45 goal time ................................ P
-  42-43 goal position (counts, bit 15 = sign) ..................... S     -> goal_position [rad]
+  42-43 goal position (counts, bit 15 = sign) ..................... S     -> goal_position [rad]  (0..cpr-1 = that many counts
+                                                                           from the zero pose in the present turn, turn 0 for
+                                                                           |counts| < cpr; a negative angle is a bit-15 goal, and
+                                                                           needs max angle limit 0 (9-12: limits clamp when max > 0))
   46-47 goal speed (steps/s, bit 15 = sign, magnitude used) ....... S     -> goal_speed [rad/s]  (0 = no profile)
   48-49 torque limit (0.1 %) ...................................... S     -> torque_limit
   55 lock (1 = EEPROM addr < 40 read-only) ........................ P
@@ -392,8 +395,10 @@ class FeetechPort:
                 g = min(max(g, lo), hi)
             if (
                 0 <= g < self.cpr
-            ):  # single-turn target, reached without wrapping: stay in the current turn
-                g += int(self._q(s, "counts") // self.cpr) * self.cpr
+            ):  # single-turn target, reached without wrapping: stay in the current turn. The turn is counts / cpr
+                # truncated towards zero (turn 0 for |counts| < cpr, also for negative angles: a floor would put a joint
+                # at -65 counts in turn -1 and turn a goal of +100 into -3996, so no joint could cross the zero pose)
+                g += int(self._q(s, "counts") / self.cpr) * self.cpr
             s.goal_dirty = True
             self._set(s, "goal_position", g * 2 * pi / self.cpr)
         if hit(5):
