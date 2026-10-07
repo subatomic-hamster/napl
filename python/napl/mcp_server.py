@@ -193,6 +193,7 @@ EDIT_OPS = [
             "to": _S,
             "port": _S,
             "k": {"type": "integer", "minimum": 0},
+            "root": {"type": "boolean"},
             "group": _S,
             "offboard": {"type": "boolean"},
             "strict": {"type": "boolean"},
@@ -252,10 +253,17 @@ EDIT_OPS = [
             "kind": {"enum": ["power", "signal"]},
             "part": _S,
             "length": {"anyOf": [_S, PROVENANCE]},
+            "included_in": _S,
         },
         ["a"],
     ),
-    _op("autowire_all", {"kind": {"enum": ["power", "signal"]}}),
+    _op(
+        "autowire_all",
+        {
+            "kind": {"enum": ["power", "signal"]},
+            "included_in": {"type": "object", "additionalProperties": _S},
+        },
+    ),
     _op(
         "device_map",
         {"name": _S, "map": {"type": "object", "additionalProperties": _S}},
@@ -292,10 +300,11 @@ EDIT_OPS = [
 DESIGN_TOOLS = {
     "design_open": (
         "control",
-        "Open an assembly TOML (path under the server root) as the working design (replaces the current one). Optional "
-        "`parts` = a parts directory under the root (default: <root>/parts, else the repo's). Returns instance counts "
-        "and the design-rule findings.",
-        _obj({"path": _S, "parts": _S}, ["path"]),
+        "Open an assembly TOML (path under the server root) as the working design (replaces the current one), or start "
+        "an EMPTY design with `new` = a name (no path): then design_edit add {part, root = true} places the frame and "
+        "everything else snaps to it. Optional `parts` = a parts directory under the root (default: <root>/parts, else "
+        "the repo's). Returns instance counts and the design-rule findings.",
+        _obj({"path": _S, "parts": _S, "new": _S}),
     ),
     "design_edit": (
         "control",
@@ -333,7 +342,11 @@ DESIGN_TOOLS = {
         "ratings checked on power ports; 'inst' = replacement candidates for a swap, ranked by fit (mates / wires kept, "
         "references resolved, ratings, mass delta).",
         _obj(
-            {"target": _S, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+            {
+                "target": _S,
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "category": _S,
+            },
             ["target"],
         ),
     ),
@@ -752,10 +765,13 @@ class NaplServer:
             self.root / "parts" if (self.root / "parts").is_dir() else _default_parts()
         )
 
-    async def _design_open(self, ctx, path, parts=None):
-        p, pd = self._confine(path), self._parts_dir(parts)
+    async def _design_open(self, ctx, path=None, parts=None, new=None):
+        if (path is None) == (new is None):
+            raise ToolError("design_open: give exactly one of `path` or `new`")
+        pd = self._parts_dir(parts)
+        p = self._confine(path) if path else None
         try:
-            d = Design.open(p, pd)
+            d = Design.open(p, pd) if p else Design.new(new, pd)
             findings = d.check()
         except DesignError as e:
             raise ToolError(str(e)) from None
@@ -763,7 +779,7 @@ class NaplServer:
         doc = d.doc
         return {
             "name": d.asm.name,
-            "path": str(p.relative_to(self.root)),
+            "path": str(p.relative_to(self.root)) if p else None,
             "parts_dir": str(pd),
             "library_parts": len(d.lib.parts),
             "instances": [{"id": i["id"], "part": i["part"]} for i in doc["instances"]],
@@ -783,11 +799,11 @@ class NaplServer:
             ) from None
         return {**r.as_dict(), "undo_depth": len(d._undo)}
 
-    async def _design_suggest(self, ctx, target, limit=10):
+    async def _design_suggest(self, ctx, target, limit=10, category=None):
         try:
             return {
                 "target": target,
-                "suggestions": self._need_design().suggest(target, limit),
+                "suggestions": self._need_design().suggest(target, limit, category),
             }
         except DesignError as e:
             raise ToolError(str(e)) from None

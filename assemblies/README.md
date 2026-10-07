@@ -278,6 +278,9 @@ d = Design.open("assemblies/x500v2.toml")          # + Library; d.save(path) wri
 r = d.swap("mot1", "other-motor")                  # also add / remove / mate / unmate / wire / unwire / set; d.edit([ops]) = atomic batch
 r.changes, r.new, r.resolved, r.changed            # what changed + DRC delta (matched on code + where); d.undo() / d.redo()
 d.suggest("con1.motor"); d.suggest("mot1")         # ranked parts for an open port / ranked swap candidates (what swap keeps / loses)
+d.suggest("tube1.esc", category="esc")             # only that dotted category, filtered before `limit` (a flat seat fits every board)
+d = Design.new("quad")                             # an EMPTY design (also MCP design_open {new}); d.add(frame, root=True) first, then snap
+                                                   # everything to named open ports (`add ... to="bottom.arm4"`): no poses, no TOML
 d.snap("holybro-m8n-gps", to="mast")               # add + mate to the best open compatible port pair; ambiguity -> snap.alternatives
 d.check(); d.build(out); d.simulate("hover" | "hold")   # simulate needs the kernel
 ```
@@ -303,9 +306,9 @@ and `why` says so.
 
 **Auto-wiring (`autowire(a, b=None, kind=None, part=None, length=None)`, op `autowire`; `autowire_all()`, op `autowire_all`).** An open
 port = a power / signal port no `[[wires]]` entry names. Target: same kind and connector family (`types_ok`; a wire carries its own
-connectors, genders need not complement), power roles must complement (no source-source / sink-sink / passthrough-passthrough), sink
+connectors, genders need not complement), power roles must complement (no source-source / sink-sink; passthrough-passthrough only when one side is fed), sink
 `v_max` not below the source's; power tier 0 = exactly one of the two nets is fed (the DRC's notion: a battery / psu / source-role port
-reaches it) = the unfed side needs the other; signal ports of the same part never pair (an ESC does not signal an ESC). One target:
+reaches it) = the unfed side needs the other (two pass-through ports, a PM02 and a PDB, pair only here: the fed one supplies); signal ports of the same part never pair (an ESC does not signal an ESC). One target:
 taken. Several: identical outlets of one part (a PDB's `out1..4`) -> the first; anything else (e.g. `fc.pwm1..4` for an ESC: which motor
 is which channel is the user's call) -> `autowire` raises, `autowire_all` reports it under `ambiguous`; nothing is guessed. Direction:
 the fed / supplying end is `from`. **Wire part** = the lightest library wire (`mass_per_m`, else `mass_per_m_copper`) whose `i_max` >=
@@ -321,9 +324,22 @@ another instance of the same part in this design, (2) the one pinned most often 
 default). `conductors` = 2 for power (supply + return), 3 for `motor-3phase`, 1 for signal. The record has `wire` (the `[[wires]]` entry
 written) and `reasons` (part, length, connector_from / connector_to, current_A, target, warning when a port's own `i_max` is below the
 need); the DRC delta is the edit's, as always. `autowire_all` initiators: every open signal port, any port with `required = true`, and
-power ports the DRC would call floating (not source-role, no wire on their node); it returns `wired`, `ambiguous`, `unmatched`.
+power ports the DRC would call floating (not source-role, no wire on their node); it then sweeps again, while it wires something,
+over unfed non-source power ports with no wire of their own, taking tier-0 targets only (the PM02 the battery just reached now feeds the
+PDB). It returns `wired`, `ambiguous`, `unmatched`. `ambiguous` has ONE entry per decision, `{ports, candidates, why}`: reports that
+share a port or a candidate are the same choice seen from both sides (4 ESC signal ports x 4 PWM channels is one entry, not eight). A
+lead that a datasheet mass already contains (the pack's XT60 lead, a motor's phase leads) must not weigh twice: `autowire(..., included_in
+= "inst")` or `autowire_all(included_in = {"bat.power_out": "bat", ...})` (a wire ending on that port) sets the wire's `included_in`.
 Limits: no typed (connector-terminated) cable parts are chosen, only `wire-lead` wires; wiring into a net with no source yet sizes for the
-floor (the reason says so, re-run after the source is wired); `included_in` is not set.
+floor (the reason says so; bind the esc / battery devices first, the DRC current model then sizes every wire); `included_in` is only
+set when the caller says so (no part file marks its own leads machine-readably).
+
+**From an empty design (`tests/python/test_design_scratch.py`).** `Design.new(name, parts=None, base="free")` has no instances and
+nothing to check; `add(part, root=True)` places the frame (one root, never `to`, never offboard) and every other `add` before it is
+refused ("no root yet"). `fasteners=None` on an `add` / `mate` writes no `fasteners` (a plate clamped by bolts that another mate
+already counts, e.g. the X500 top plate on the M3x38 clamp bolts); the default `"auto"` adds them wherever a port has a thread.
+Test result: a complete X500 (frame by snapping to named ports, 4 motors / props / ESCs, PDB, PM02, Pixhawk 6C, M8N GPS, SiK radio,
+pack, sensors, wires) built this way has 0 DRC errors, hovers, and agrees with `x500v2.toml` to 0.1 % in mass and hover current.
 
 `suggest("inst.port")` rows and the `add ... to` change record carry `needs`: up to four hints from the part's other ports (a male /
 female mech port: parts that take it; a power / signal port: open compatible ports in this design to wire to, else library parts that
@@ -336,7 +352,7 @@ fork of the sim, inertia approximated from instance masses (controller scaling o
 `hold_s`), altitude error, hover throttle, battery / motor currents, SoC slope and endurance (time to the DRC's 20 % reserve at
 that slope). `simulate("hold")`: servos torque-on at `pose` (default zero), reports sag (|joint - goal|) and currents.
 
-MCP tools: `design_open` (control), `design_edit` (control, list of ops, atomic), `design_suggest` (read), `design_check` (read),
+MCP tools: `design_open` (control; `path`, or `new` = a name for an empty design), `design_edit` (control, list of ops, atomic), `design_suggest` (read), `design_check` (read),
 `design_build` (control, writes `<root>/build/design`), `design_simulate` (control), `design_undo` (control; `redo = true`),
 `design_save` (destructive: client elicitation or `--allow-destructive`). Paths are confined to the server root; arguments are
 validated against the advertised JSON schemas.

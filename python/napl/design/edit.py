@@ -132,6 +132,16 @@ class Design:
         lib = Library(parts if parts is not None else _default_parts())
         return cls(A.load(path), lib, Path(path))
 
+    @classmethod
+    def new(cls, name, parts=None, base="free", description="") -> "Design":
+        """An empty design (no instances): the first `add(part, root=True)` is the frame everything else mates to. `base` =
+        'free' (a vehicle) or 'fixed' (welded to the world). Nothing is checked until the root exists."""
+        lib = Library(parts if parts is not None else _default_parts())
+        a = {"name": name, "base": base}
+        if description:
+            a["description"] = description
+        return cls(A.Assembly({"assembly": a, "instances": []}), lib)
+
     @property
     def doc(self) -> dict:
         return self.asm.doc
@@ -155,7 +165,12 @@ class Design:
 
     # ---- checks / build / simulate -----------------------------------------------------------------------------------
     def check(self) -> list:
-        self._findings = _check(self.asm, self.lib)
+        # an empty design (Design.new, no root yet) has nothing to check
+        self._findings = (
+            _check(self.asm, self.lib)
+            if any(i.get("root") for i in self.doc["instances"])
+            else []
+        )
         return self._findings
 
     def findings(self) -> list:
@@ -544,6 +559,20 @@ class Design:
             if s.get(k) is not None:
                 inst[k] = s[k]
         ch = {"op": "add", "id": iid, "part": part.id}
+        has_root = any(d.get("root") for d in doc["instances"])
+        if s.get("root"):
+            if has_root or s.get("to") or s.get("offboard"):
+                raise DesignError(
+                    "add root: the design already has a root, or `to` / offboard was given (the root is mated to nothing and is on board)"
+                )
+            inst["root"] = True
+            doc["instances"].append(inst)
+            ch["note"] = "root instance: everything else mates to it"
+            return ch
+        if not has_root:
+            raise DesignError(
+                f"add {part.id}: the design has no root yet; add the frame first with root=true"
+            )
         if s.get("to"):
             tid, tport = _split(s["to"])
 
@@ -1391,11 +1420,15 @@ class Design:
             ]
         )
 
-    def autowire(self, a, b=None, kind=None, part=None, length=None) -> EditResult:
+    def autowire(
+        self, a, b=None, kind=None, part=None, length=None, included_in=None
+    ) -> EditResult:
         """Wire the open power / signal port `a` ('inst.port') to the open port that needs it (or to `b`): wire part = the
         lightest library wire rated for the worst-case current x WIRE_MARGIN, length = port distance x ROUTING_FACTOR
         (rounded up to a stocked length), mating connectors pinned. The change record has wire + reasons. Several equally
-        good targets (not interchangeable outlets of one part) raise; name `b`. `part` / `length` override the choice."""
+        good targets (not interchangeable outlets of one part) raise; name `b`. `part` / `length` override the choice.
+        `included_in` = the instance whose datasheet mass already contains this lead (a motor's own 150 mm leads): the wire
+        keeps its electrical model but adds no mass."""
         return self.edit(
             [
                 {
@@ -1405,14 +1438,19 @@ class Design:
                     "kind": kind,
                     "part": part,
                     "length": length,
+                    "included_in": included_in,
                 }
             ]
         )
 
-    def autowire_all(self, kind=None) -> EditResult:
+    def autowire_all(self, kind=None, included_in=None) -> EditResult:
         """Auto-wire every open power / signal port that has one sensible target; the change record lists `wired`,
-        `ambiguous` (several equally good targets: not guessed) and `unmatched` (a floating power port with no target)."""
-        return self.edit([{"op": "autowire_all", "kind": kind}])
+        `ambiguous` (one entry per decision: {ports, candidates}, several equally good targets, not guessed) and
+        `unmatched` (a floating power port with no target). `included_in` = {"inst.port": instance}: a wire that ends on that
+        port is a lead already inside the instance's datasheet mass (the pack's 120 mm XT60 lead): no mass counted twice."""
+        return self.edit(
+            [{"op": "autowire_all", "kind": kind, "included_in": included_in}]
+        )
 
     def undo(self) -> EditResult:
         return self._travel(self._undo, self._redo, "undo")
@@ -1429,19 +1467,21 @@ class Design:
         return self._result([{"op": what}], before)
 
     # ---- suggestions -------------------------------------------------------------------------------------------------
-    def suggest(self, target: str, limit: int = 10) -> list:
+    def suggest(self, target: str, limit: int = 10, category=None) -> list:
         """target = 'inst.port': library parts (with the port they would use) that mate / connect that port, best first.
-        target = 'inst': replacement candidates for that instance, best fit first (what swap would keep / lose)."""
+        target = 'inst': replacement candidates for that instance, best fit first (what swap would keep / lose).
+        category = a dotted category prefix ('esc', 'motor.bldc', 'pcb'): only parts of that category, applied before `limit`
+        (a flat-mount seat is offered every board in the library; the filter is how a caller asks for "an ESC for this seat")."""
         iid, pn = _split(target)
         inst = self._inst(self.doc, iid)
         part = self._part(inst["part"])
         return (
-            self._suggest_port(iid, part, part.port(pn), limit)
+            self._suggest_port(iid, part, part.port(pn), limit, category)
             if pn
             else self._suggest_swap(inst, part, limit)
         )
 
-    def _suggest_port(self, iid, part: Part, port: dict, limit) -> list:
+    def _suggest_port(self, iid, part: Part, port: dict, limit, category=None) -> list:
         by_id = {d["id"]: d for d in self.doc["instances"]}
         kind = port.get("kind")
         # categories / parts seen on ports of this type in the assembly (the occupant of this very port is the stock part)
@@ -1469,6 +1509,10 @@ class Design:
         top = {c.split(".")[0] for c in cats}
         rows = []
         for pid, cand in sorted(self.lib.parts.items()):
+            if category and not (
+                cand.category == category or cand.category.startswith(category + ".")
+            ):
+                continue
             for q in cand.ports:
                 if q.get("kind") != kind:
                     continue

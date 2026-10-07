@@ -268,12 +268,11 @@ def test_autowire_all_wires_the_unique_and_reports_the_ambiguous(x500):
     assert [x["wire"]["to"] for x in ch["wired"]] == [
         "esc1.power_in"
     ]  # the one with a single sensible target
-    amb = {x["port"]: x for x in ch["ambiguous"]}
-    assert {"esc1.signal", "esc2.signal"} <= set(amb)
-    assert set(amb["esc1.signal"]["candidates"]) == {
-        "fc.pwm1",
-        "fc.pwm2",
-    }  # which PWM channel is the user's call
+    # a 2 x 2 ambiguity is ONE decision (not four reports seen from both sides): which PWM channel is the user's call
+    assert len(ch["ambiguous"]) == 1
+    (dec,) = ch["ambiguous"]
+    assert dec["ports"] == ["esc1.signal", "esc2.signal"]
+    assert dec["candidates"] == ["fc.pwm1", "fc.pwm2"]
     assert len(x500.doc["wires"]) == n - 2  # nothing was guessed
     with pytest.raises(DesignError, match="equally good"):
         x500.autowire("esc1.signal")

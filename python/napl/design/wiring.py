@@ -81,7 +81,8 @@ def _candidates(d, st, ia, pa):
     """Open ports that `ia.pa` could be wired to, best tier first -> (candidates, rejected reasons).
     Same kind and same connector family (types_ok; a wire carries its own connectors, so genders need not complement).
     Power: tier 0 = exactly one of the two nets is fed (a source reaches it) and the roles complement (one side can supply,
-    the other can load; passthrough-passthrough does not count) = the unfed side "needs" the other; tier 1 = neither is fed yet.
+    the other can load; passthrough-passthrough counts only here, when one side is fed: a PM02 feeding a PDB) = the unfed side
+    "needs" the other; tier 1 = neither is fed yet.
     Signal: any port of another part (an ESC does not signal an ESC)."""
     kind, out, why = pa["kind"], [], []
     for iid, inst in st.ctx.insts.items():
@@ -95,13 +96,15 @@ def _candidates(d, st, ia, pa):
             tier = 0
             if kind == POWER:
                 ra, rq = pa.get("role"), q.get("role")
-                if not _roles_ok(ra, rq) or (ra == rq == "passthrough"):
+                if not _roles_ok(ra, rq):
                     continue
                 if not ((_supplier(ra) and _load(rq)) or (_load(ra) and _supplier(rq))):
                     continue
                 fa, fq = st.fed(ia, pa["name"]), st.fed(iid, q["name"])
                 if fa and fq:
                     continue
+                if ra == rq == "passthrough" and fa == fq:
+                    continue  # a pass-through pair says nothing about direction unless one side is already fed (PM02 -> PDB)
                 tier = 0 if fa != fq else 1
                 src, snk = (pa, q) if (ra == "source" or rq == "sink") else (q, pa)
                 hi, lo = _num(src.get("v_max")), _num(snk.get("v_max"))
@@ -127,9 +130,12 @@ def _signature(d, st, iid, q):
     )
 
 
-def resolve(d, st, ia, pa, ib=None):
-    """-> ("ok", (iid, port), note) | ("ambiguous", [candidate refs], note) | ("none", None, reason)."""
+def resolve(d, st, ia, pa, ib=None, fed_only=False):
+    """-> ("ok", (iid, port), note) | ("ambiguous", [candidate refs], note) | ("none", None, reason).
+    fed_only: only tier-0 targets (a fed net that needs this port's unfed net); a tier-1 pairing is "none"."""
     cands, why, tier = _candidates(d, st, ia, pa)
+    if fed_only and tier != 0:
+        return "none", None, "no fed net needs it"
     if ib is not None:
         hit = [(i, q) for i, q in cands if (i, q["name"]) == ib]
         return (
@@ -422,7 +428,7 @@ def _finish(d, doc, st, rec, current, forced_part, forced_len):
 
 
 def autowire(d, doc, s) -> dict:
-    """Op `autowire` {a, b?, kind?, part?, length?}: wire the open port `a` to the port that needs it (or to `b`)."""
+    """Op `autowire` {a, b?, kind?, part?, length?, included_in?}: wire the open port `a` to the port that needs it (or to `b`)."""
     return _run(
         d,
         doc,
@@ -431,15 +437,58 @@ def autowire(d, doc, s) -> dict:
         s.get("part"),
         s.get("length"),
         many=False,
+        included_in=s.get("included_in"),
     )
 
 
 def autowire_all(d, doc, s) -> dict:
     """Op `autowire_all`: every open power / signal port that has exactly one sensible target; ambiguous ones are reported."""
-    return _run(d, doc, None, s.get("kind"), None, None, many=True)
+    return _run(
+        d,
+        doc,
+        None,
+        s.get("kind"),
+        None,
+        None,
+        many=True,
+        included_in=s.get("included_in"),
+    )
 
 
-def _run(d, doc, pairs, kind, forced_part, forced_len, many):
+def _decisions(ambiguous):
+    """One entry per decision: reports that share a port or a candidate are the same choice seen from both sides (a 2 x 2
+    ESC-signal / PWM-channel ambiguity is one decision, not four) -> [{"ports": [...], "candidates": [...], "why"}]."""
+    adj = {}  # a wire joins a port and a candidate: the two ends of a decision are the two sides of this graph
+    for e in ambiguous:
+        for c in e["candidates"]:
+            adj.setdefault(e["port"], set()).add(c)
+            adj.setdefault(c, set()).add(e["port"])
+    side, out = {}, []
+    for root in sorted(adj):
+        if root in side:
+            continue
+        side[root], todo, comp = 0, [root], [root]
+        while todo:
+            x = todo.pop()
+            for y in adj[x]:
+                if y not in side:
+                    side[y] = 1 - side[x]
+                    todo.append(y)
+                    comp.append(y)
+        p = sorted(x for x in comp if side[x] == 0)
+        c = sorted(x for x in comp if side[x] == 1)
+        out.append(
+            {
+                "ports": p,
+                "candidates": c,
+                "why": f"{len(p)} open port(s) x {len(c)} equally good target(s): which goes to which is the caller's call "
+                "(autowire a, b)",
+            }
+        )
+    return out
+
+
+def _run(d, doc, pairs, kind, forced_part, forced_len, many, included_in=None):
     world = _world(d, doc)
     st = _State(d, doc)
     done, ambiguous, unmatched, recs = set(), [], [], []
@@ -458,7 +507,32 @@ def _run(d, doc, pairs, kind, forced_part, forced_len, many):
                     or (p.get("role") != "source" and st.loose(iid, p["name"]))
                 ):
                     pairs.append((f"{iid}.{p['name']}", None))
-    for a, b in pairs:
+    work = [(a, b, False) for a, b in pairs] + [(None, None, False)]
+    mark = -1
+    for (
+        a,
+        b,
+        fed_only,
+    ) in work:  # grows: the sentinel (a is None) appends the next sweep
+        if a is None:
+            # end of a sweep: a power port still unfed, with no wire of its own, that a fed net can now supply (the PM02 that
+            # the battery just reached feeds the PDB) is a further sweep, repeated while it wires something
+            if many and len(recs) != mark:
+                mark = len(recs)
+                more = [
+                    (f"{i}.{p['name']}", None, True)
+                    for i, inst in st.ctx.insts.items()
+                    for p in inst.part.ports
+                    if p.get("kind") == POWER
+                    and kind in (None, POWER)
+                    and p.get("role") != "source"
+                    and (i, p["name"]) not in st.direct
+                    and (i, p["name"]) not in done
+                    and not st.fed(i, p["name"])
+                ]
+                if more:
+                    work += more + [(None, None, False)]
+            continue
         ia, pn = _split(a)
         if pn is None:
             raise DesignError(f"autowire '{a}': name the port as 'inst.port'")
@@ -467,6 +541,7 @@ def _run(d, doc, pairs, kind, forced_part, forced_len, many):
         pa = d._part(d._inst(doc, ia)["part"]).port(pn)
         if (
             many
+            and not fed_only
             and pa["kind"] == POWER
             and not pa.get("required")
             and not st.loose(ia, pn)
@@ -486,7 +561,7 @@ def _run(d, doc, pairs, kind, forced_part, forced_len, many):
         if ib:
             d._inst(doc, ib[0])
             d._part(d._inst(doc, ib[0])["part"]).port(ib[1])
-        status, tgt, note = resolve(d, st, ia, pa, ib)
+        status, tgt, note = resolve(d, st, ia, pa, ib, fed_only)
         if status == "ambiguous":
             if many:
                 ambiguous.append({"port": a, "candidates": tgt, "why": note})
@@ -496,7 +571,7 @@ def _run(d, doc, pairs, kind, forced_part, forced_len, many):
             )
         if status == "none":
             if many:
-                if pa["kind"] == POWER or pa.get("required"):
+                if not fed_only and (pa["kind"] == POWER or pa.get("required")):
                     unmatched.append({"port": a, "why": note})
                 continue
             raise DesignError(f"autowire '{a}': {note}")
@@ -504,6 +579,21 @@ def _run(d, doc, pairs, kind, forced_part, forced_len, many):
         pb = st.ctx.insts[ti].part.port(tn)
         f, t = _direction(st, ia, pa, ti, pb)
         spec, dist = _probe(d, doc, st, world, f, t, pa["kind"], forced_len)
+        inc = (  # one instance for `autowire`; {"inst.port": instance} for `autowire_all`, matched on either end of the wire
+            included_in
+            if isinstance(included_in, str)
+            else next(
+                (
+                    v
+                    for k, v in (included_in or {}).items()
+                    if k in (spec["from"], spec["to"])
+                ),
+                None,
+            )
+        )
+        if inc:
+            d._inst(doc, inc)
+            spec["included_in"] = inc
         ch = d._op_wire(doc, spec)
         recs.append(
             {
@@ -534,15 +624,20 @@ def _run(d, doc, pairs, kind, forced_part, forced_len, many):
         )
         reasons["target"] = r["note"]
         out.append({"wire": r["wire"], "reasons": reasons})
-    # a port reported ambiguous that a later pair wired anyway is no longer open
-    ambiguous = [x for x in ambiguous if _split(x["port"]) not in done]
     if not many:
         return {"op": "autowire", **out[0]}
+    # a port reported ambiguous / unmatched that a later pair wired anyway is no longer open; one entry per decision
+    open_ = lambda r: _split(r) not in done
+    ambiguous = [
+        {**x, "candidates": [c for c in x["candidates"] if open_(c)]}
+        for x in ambiguous
+        if open_(x["port"])
+    ]
     return {
         "op": "autowire_all",
         "wired": out,
-        "ambiguous": ambiguous,
-        "unmatched": unmatched,
+        "ambiguous": _decisions([x for x in ambiguous if x["candidates"]]),
+        "unmatched": [x for x in unmatched if open_(x["port"])],
     }
 
 
