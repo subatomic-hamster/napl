@@ -1,0 +1,32 @@
+[build-system]
+requires = ["scikit-build-core==1.1.1"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "napl"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["numpy==2.5.3", "mcp==2.3.0"]
+
+# gymnasium / matplotlib join in their milestones (M11 / M6). Never depend on PyPI `mujoco`
+# (a second libmujoco in the process; plan Risk 7).
+[project.scripts]
+napl = "napl.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.25"
+cmake.build-type = "RelWithDebInfo"
+cmake.define.NAPL_PYTHON = "ON"
+# Reuse the dev preset's tree (build/): MuJoCo+FlatBuffers sources and objects (~700 MB) exist exactly once.
+build-dir = "build"
+wheel.py-api = "cp312"
+wheel.packages = ["python/napl"]
+install.components = ["napl_python"]  # only _napl + libmujoco.so, not MuJoCo's own headers/cmake files
+editable.mode = "redirect"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]

@@ -1,0 +1,17 @@
+<mujoco model="pendulum">
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+  <worldbody>
+    <body name="pole" pos="0 0 1">
+      <joint name="hinge" type="hinge" axis="0 1 0" damping="0.05"/>
+      <geom name="rod" type="capsule" fromto="0 0 0 0 0 -0.5" size="0.02" mass="1"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="torque" joint="hinge" gear="1" ctrlrange="-5 5"/>
+    <!-- Position servo, inert until a spec/SetAttr sets kp/kv (ctrl = target angle, rad). -->
+    <position name="servo" joint="hinge" kp="0" kv="0"/>
+  </actuator>
+  <sensor>
+    <jointpos name="angle" joint="hinge"/>
+  </sensor>
+</mujoco>

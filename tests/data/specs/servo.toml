@@ -1,0 +1,45 @@
+# Pendulum position-servo step response. Run: napl test tests/data/specs/servo.toml [--set /actuators/servo.kp=0.5]
+# `model` is a CLI-level key (relative to this file; --model overrides), not part of TestSpec.
+model = "../pendulum.xml"
+name = "servo_step"
+duration = 3.0   # seconds
+trace_every = 10
+
+# Gains and the target are plain model attributes, applied in order before the run.
+[[settings]]
+path = "/actuators/servo"
+attr = "kp"
+values = [50.0]    # N*m/rad
+
+[[settings]]
+path = "/actuators/servo"
+attr = "kv"
+values = [2.0]     # N*m*s/rad
+
+[[settings]]
+path = "/actuators/servo"
+attr = "ctrl"
+values = [0.5]     # target angle, rad
+
+# Reaches the +-0.1 rad band around the target within 1 s ...
+[[monitors]]
+name = "reaches_target"
+op = "eventually"
+lo = 0.4
+hi = 0.6
+to = 1.0
+[monitors.signal]
+path = "/world/pole/hinge"
+attr = "qpos"
+
+# ... and then stays in it (no overshoot/ringing out of band, gravity sag within band).
+[[monitors]]
+name = "holds_target"
+op = "always"
+lo = 0.4
+hi = 0.6
+from = 1.0
+to = 3.0
+[monitors.signal]
+path = "/world/pole/hinge"
+attr = "qpos"

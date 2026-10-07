@@ -1,0 +1,1 @@
+A collection of code written for the Neegy Applied Physics Lab, including proprietary simulation software, embedded systems, high frequency trading algorithms, and more, all run through old reliable hfbox.

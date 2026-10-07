@@ -1,0 +1,10 @@
+build/
+runs/
+.cache/
+compile_commands.json
+CMakeUserPresets.json
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+remote-out/
