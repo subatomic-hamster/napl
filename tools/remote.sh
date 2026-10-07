@@ -15,6 +15,7 @@
 #
 # Host-agnostic: today hfbox, later an AWS EC2 Ubuntu 24.04 instance. Point at another host with
 #   NAPL_REMOTE=<ssh alias>  NAPL_REMOTE_DIR=<abs dir>  NAPL_GPU_LOCK=  (empty = dedicated host, no shared GPU lock)
+# Parallel git worktrees: one NAPL_REMOTE_DIR each, all with NAPL_CPU_LOCK=/workspace/wt/napl/.cpu.lock.
 # Baseline the code must build on: Ubuntu 24.04, GCC 13, Python 3.12.
 set -euo pipefail
 
@@ -22,6 +23,7 @@ REMOTE=${NAPL_REMOTE:-hfbox}
 DIR=${NAPL_REMOTE_DIR:-/workspace/wt/napl}
 JOBS=${NAPL_JOBS:-6}  # hfbox house rule: heavy CPU at most 6 threads
 GPU_LOCK=${NAPL_GPU_LOCK-/workspace/airtools/.gpu.lock}
+CPU_LOCK=${NAPL_CPU_LOCK:-$DIR/.cpu.lock}  # share one lock across remote dirs (parallel worktrees) so the thread cap holds
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
 # ssh exit 255 = connection failure (hfbox funnel outages last ~15 min); retry with backoff.
@@ -52,7 +54,7 @@ sync_tree() {
 # lock: 1 = take the CPU lock (default), 0 = --nolock (light commands, long-lived servers).
 prefix() {
   local gpu=$1 lock=${2:-1} p="cd $DIR/src && export PATH=$DIR/env/bin:\$PATH CMAKE_BUILD_PARALLEL_LEVEL=$JOBS CTEST_PARALLEL_LEVEL=$JOBS &&"
-  [[ $lock == 1 ]] && p+=" flock $DIR/.cpu.lock"
+  [[ $lock == 1 ]] && p+=" flock $CPU_LOCK"
   [[ $gpu == 1 && -n $GPU_LOCK ]] && p+=" flock $GPU_LOCK"
   printf '%s' "$p"
 }
