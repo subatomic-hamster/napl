@@ -1,0 +1,15 @@
+<!-- Same as env_turb.xml with another seed. -->
+<mujoco model="env_turb_seed6">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="blob" pos="0 0 5">
+      <freejoint name="fj"/>
+      <geom type="sphere" size="0.05" mass="1" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "environments": [{"name": "air", "wind": [20, 0, 0], "w20": 10, "seed": 6, "ref_height": 3.048}]
+    }'/>
+  </custom>
+</mujoco>

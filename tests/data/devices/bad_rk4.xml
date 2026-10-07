@@ -1,0 +1,10 @@
+<!-- Error path: devices need mj_step1/mj_step2, which RK4 does not support. -->
+<mujoco model="bad_rk4">
+  <option integrator="RK4"/>
+  <worldbody>
+    <body name="dummy"><joint name="j" type="hinge"/><geom type="sphere" size="0.01"/></body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{"loads": [{"name": "l", "node": 1, "g": 1}]}'/>
+  </custom>
+</mujoco>

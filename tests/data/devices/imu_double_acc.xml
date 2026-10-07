@@ -1,0 +1,24 @@
+<!-- imu_double.xml plus a MuJoCo accelerometer and gyro at the IMU site (reference values computed by mj_step2 itself). -->
+<mujoco model="imu_double_acc">
+  <option timestep="0.001"/>
+  <worldbody>
+    <body name="arm1" pos="0 0 2">
+      <joint name="h1" type="hinge" axis="0 1 0"/>
+      <geom type="sphere" size="0.02" pos="0 0 -0.5" mass="0.2" contype="0" conaffinity="0"/>
+      <body name="arm2" pos="0 0 -0.5">
+        <joint name="h2" type="hinge" axis="0 1 0"/>
+        <geom type="sphere" size="0.02" pos="0.1 0 -0.4" mass="0.1" contype="0" conaffinity="0"/>
+        <site name="s" pos="0.1 0 -0.4" euler="0 20 0"/>
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+    <accelerometer name="acc" site="s"/>
+    <gyro name="gyro" site="s"/>
+  </sensor>
+  <custom>
+    <text name="napl.devices" data='{
+      "imus": [{"name": "imu", "site": "s", "rate_hz": 1000, "gyro": {}, "accel": {}}]
+    }'/>
+  </custom>
+</mujoco>

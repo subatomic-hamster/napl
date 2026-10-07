@@ -1,0 +1,22 @@
+<!-- Battery -> wire -> ESC/BLDC (40 A motor current limit) plus an avionics constant-current load on the battery node.
+     4S-ish pack with an RC pair (tau = 5 s). Used for determinism / replay / clone tests. -->
+<mujoco model="motor_batt">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="rotor" pos="0 0 0.1">
+      <joint name="shaft" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.001"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "seed": 7,
+      "batteries": [{"name": "pack", "node": 1, "ocv_soc": [0, 0.1, 0.5, 1], "ocv_v": [12.8, 14.4, 15.2, 16.8],
+                     "capacity_ah": 5, "r0": 0.02, "r1": 0.01, "c1": 500, "soc0": 0.8, "parts": ["test-pack"]}],
+      "wires": [{"name": "harness", "a": 1, "b": 2, "resistance": 0.005}],
+      "loads": [{"name": "avionics", "node": 1, "g": 0, "i0": -0.5}],
+      "escs": [{"name": "m1", "node": 2, "joint": "shaft", "i_limit": 40,
+                "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 20, "r_th": 3}}]
+    }'/>
+  </custom>
+</mujoco>

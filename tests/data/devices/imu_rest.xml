@@ -1,0 +1,34 @@
+<!-- IMUs on a plate welded to the world (a static body: MuJoCo's own acceleration of it omits gravity; the IMU reads +g).
+     Site "s" is level (z up), site "st" is tilted 30 deg about x: g in the site frame is (0, g sin 30, g cos 30).
+     imu_a / imu_b / imu_c: noise only (a, b seed 5, c seed 6), 1 kHz. The others have noise off, to check one error term each:
+     imu_q 8-bit quantisation over +-16 m/s^2 (LSB 0.125), imu_s saturation at 6 m/s^2, imu_bs bias + scale factor,
+     imu_rw bias random walk (its output is the bias, nothing else moves). -->
+<mujoco model="imu_rest">
+  <option timestep="0.001"/>
+  <worldbody>
+    <body name="plate" pos="0 0 1">
+      <geom type="box" size="0.05 0.05 0.01" mass="0.1" contype="0" conaffinity="0"/>
+      <site name="s" pos="0 0 0"/>
+      <site name="st" pos="0 0 0" euler="30 0 0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "imus": [
+        {"name": "imu_a", "site": "s", "rate_hz": 1000, "seed": 5,
+         "gyro": {"noise_density": 1e-3}, "accel": {"noise_density": 4e-3}},
+        {"name": "imu_b", "site": "s", "rate_hz": 1000, "seed": 5,
+         "gyro": {"noise_density": 1e-3}, "accel": {"noise_density": 4e-3}},
+        {"name": "imu_c", "site": "s", "rate_hz": 1000, "seed": 6,
+         "gyro": {"noise_density": 1e-3}, "accel": {"noise_density": 4e-3}},
+        {"name": "imu_q", "site": "st", "rate_hz": 1000, "gyro": {}, "accel": {"full_scale": 16, "bits": 8}},
+        {"name": "imu_s", "site": "st", "rate_hz": 1000, "gyro": {}, "accel": {"full_scale": 6}},
+        {"name": "imu_bs", "site": "st", "rate_hz": 1000,
+         "gyro": {"bias": [0.01, 0.02, 0.03], "scale": [0.05, 0, -0.1]},
+         "accel": {"bias": [0.1, -0.2, 0.3], "scale": [0.01, 0, -0.02]}},
+        {"name": "imu_rw", "site": "s", "rate_hz": 1000, "seed": 9,
+         "gyro": {"rw_density": 0.01}, "accel": {"rw_density": 0.02}}
+      ]
+    }'/>
+  </custom>
+</mujoco>

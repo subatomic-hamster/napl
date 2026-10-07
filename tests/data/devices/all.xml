@@ -1,0 +1,84 @@
+<!-- Every device type in one model: a free-floating quadrotor 20 m up. 3S pack -> PDB wires -> 4 ESC / BLDC motors -> 4
+     rotors (diagonal pairs spin opposite ways: the two clockwise ones have a -z hinge axis and dir = -1, so every rotor
+     thrusts along +z and the reaction torques cancel), a camera-gimbal pan servo on the same battery, environment (wind +
+     Dryden turbulence referenced to the airframe), body drag, and IMU / barometer / magnetometer / GNSS. Airframe 1.27 kg:
+     hover is ~3.1 N per rotor. Balanced on purpose: rotors in the plane of the CoM (the H-force has no moment), the gimbal
+     centred under the CoM (an offset of 2 mm already gives a few rad/s^2 of pitch with 12 N of thrust). Used by the determinism, replay and Python tests. Vehicle geoms in group 4 (ground-effect rays
+     skip them). Numbers are test values, not part claims. -->
+<mujoco model="all">
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="500 500 0.1" contype="0" conaffinity="0"/>
+    <body name="quad" pos="0 0 20">
+      <freejoint name="fj"/>
+      <geom type="box" size="0.12 0.12 0.03" mass="1.2" group="4" contype="0" conaffinity="0"/>
+      <site name="imu_site" pos="0 0 0.04"/>
+      <site name="gps_site" pos="0 0 0.08"/>
+      <body name="rotor1" pos="0.2 0.2 0">
+        <joint name="shaft1" type="hinge" axis="0 0 1"/>
+        <geom type="sphere" size="0.01" mass="0.01" group="4" contype="0" conaffinity="0"/>
+      </body>
+      <body name="rotor2" pos="-0.2 0.2 0">
+        <joint name="shaft2" type="hinge" axis="0 0 -1"/>
+        <geom type="sphere" size="0.01" mass="0.01" group="4" contype="0" conaffinity="0"/>
+      </body>
+      <body name="rotor3" pos="-0.2 -0.2 0">
+        <joint name="shaft3" type="hinge" axis="0 0 1"/>
+        <geom type="sphere" size="0.01" mass="0.01" group="4" contype="0" conaffinity="0"/>
+      </body>
+      <body name="rotor4" pos="0.2 -0.2 0">
+        <joint name="shaft4" type="hinge" axis="0 0 -1"/>
+        <geom type="sphere" size="0.01" mass="0.01" group="4" contype="0" conaffinity="0"/>
+      </body>
+      <body name="gimbal" pos="0 0 -0.05">
+        <joint name="pan" type="hinge" axis="0 0 1"/>
+        <geom type="capsule" fromto="-0.03 0 0 0.03 0 0" size="0.01" mass="0.03" group="4" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "seed": 3,
+      "batteries": [{"name": "pack", "node": 1, "ocv_soc": [0, 0.1, 0.5, 1], "ocv_v": [9.6, 10.8, 11.4, 12.6],
+                     "capacity_ah": 5, "r0": 0.02, "r1": 0.01, "c1": 500, "soc0": 0.9, "parts": ["test-pack"]}],
+      "wires": [{"name": "pdb1", "a": 1, "b": 2, "resistance": 0.004}, {"name": "pdb2", "a": 1, "b": 3, "resistance": 0.004},
+                {"name": "pdb3", "a": 1, "b": 4, "resistance": 0.004}, {"name": "pdb4", "a": 1, "b": 5, "resistance": 0.004},
+                {"name": "pdb_servo", "a": 1, "b": 6, "awg": 24, "length_m": 0.2, "conductors": 2}],
+      "loads": [{"name": "avionics", "node": 1, "g": 0, "i0": -0.5}],
+      "escs": [
+        {"name": "esc1", "node": 2, "joint": "shaft1", "i_limit": 40,
+         "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 20, "r_th": 3}},
+        {"name": "esc2", "node": 3, "joint": "shaft2", "i_limit": 40,
+         "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 20, "r_th": 3}},
+        {"name": "esc3", "node": 4, "joint": "shaft3", "i_limit": 40,
+         "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 20, "r_th": 3}},
+        {"name": "esc4", "node": 5, "joint": "shaft4", "i_limit": 40,
+         "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 20, "r_th": 3}}],
+      "rotors": [
+        {"name": "prop1", "body": "rotor1", "joint": "shaft1", "dir": 1, "diameter": 0.254, "k_h": 5e-5,
+         "ground_effect": true, "ray_groups": 47, "j": [0, 0.4, 0.8], "ct": [0.12, 0.08, 0.02], "cq": [0.006, 0.005, 0.002]},
+        {"name": "prop2", "body": "rotor2", "joint": "shaft2", "dir": -1, "diameter": 0.254, "k_h": 5e-5,
+         "ground_effect": true, "ray_groups": 47, "j": [0, 0.4, 0.8], "ct": [0.12, 0.08, 0.02], "cq": [0.006, 0.005, 0.002]},
+        {"name": "prop3", "body": "rotor3", "joint": "shaft3", "dir": 1, "diameter": 0.254, "k_h": 5e-5,
+         "ground_effect": true, "ray_groups": 47, "j": [0, 0.4, 0.8], "ct": [0.12, 0.08, 0.02], "cq": [0.006, 0.005, 0.002]},
+        {"name": "prop4", "body": "rotor4", "joint": "shaft4", "dir": -1, "diameter": 0.254, "k_h": 5e-5,
+         "ground_effect": true, "ray_groups": 47, "j": [0, 0.4, 0.8], "ct": [0.12, 0.08, 0.02], "cq": [0.006, 0.005, 0.002]}],
+      "environments": [{"name": "air", "origin_alt": 300, "wind": [2, 1, 0], "w20": 5, "ref_body": "quad"}],
+      "body_drags": [{"name": "drag", "body": "quad", "cd": 1.0, "area": 0.04}],
+      "servos": [{"name": "gimbal_pan", "node": 6, "joint": "pan",
+                  "motor": {"kv": 2100, "r20": 4.4, "i0": 0.05, "rotor_inertia": 5e-8, "w_s": 50, "c_th": 10, "r_th": 15},
+                  "gear_ratio": 345, "efficiency": 0.7, "encoder_cpr": 4096, "firmware_hz": 100,
+                  "p": 32, "i": 2, "d": 32, "pid_scale": 8192, "deadband": 0, "max_torque": 500}],
+      "imus": [{"name": "imu", "site": "imu_site", "rate_hz": 500,
+                "gyro": {"bias": [0.002, -0.001, 0.003], "scale": [0.001, 0, -0.002], "noise_density": 1e-3,
+                         "rw_density": 1e-4, "full_scale": 35, "bits": 16},
+                "accel": {"bias": [0.05, -0.03, 0.08], "scale": [0.002, 0.001, 0], "noise_density": 4e-3,
+                          "rw_density": 1e-4, "full_scale": 157, "bits": 16}}],
+      "baros": [{"name": "baro", "site": "imu_site", "rate_hz": 50, "bias": 5, "noise_std": 2, "resolution": 0.5}],
+      "mags": [{"name": "mag", "site": "imu_site", "rate_hz": 125, "earth_field": [2.1e-5, 0.4e-5, -4.3e-5],
+                "bias": [1e-7, 0, -1e-7], "noise_std": 1e-7}],
+      "gnss_receivers": [{"name": "gnss", "site": "gps_site", "rate_hz": 10, "lat0": 47.3769, "lon0": 8.5417, "alt0": 408,
+                          "horiz_std": 0.5, "vert_std": 1.0, "vel_std": 0.05, "latency_s": 0.2}]
+    }'/>
+  </custom>
+</mujoco>

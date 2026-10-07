@@ -1,0 +1,41 @@
+<!-- Ground effect. Rotor "hi" hovers 0.3 m above a plane; a blocker plate (geom group 4) sits 0.14 m below it. Two devices
+     share the body: "ge_all" ray sees every group (hits the plate), "ge_no4" masks group 4 out (hits the plane).
+     Rotor "low" is 0.05 m above the plane (< R/2 = 0.0635 m: the ratio clamps). "ge_off" has the ray disabled. -->
+<mujoco model="rotor_ge">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="20 20 0.1"/>
+    <geom name="plate" type="box" pos="0 0 0.15" size="0.5 0.5 0.01" group="4"/>
+    <body name="hi" pos="0 0 0.3">
+      <joint name="shaft_hi" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+    </body>
+    <body name="low" pos="3 0 0.05">
+      <joint name="shaft_low" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+    </body>
+    <!-- "neg": 0.2 m over the plane, joint axis -z, dir = -1: spinning w > 0 gives s = -1, thrust along -axis = up.
+         "neg_down": same axis, dir = +1: s = +1, thrust along -axis = down (toward the plane), downwash up: no hit. -->
+    <body name="neg" pos="6 0 0.2">
+      <joint name="shaft_neg" type="hinge" axis="0 0 -1"/>
+      <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "rotors": [
+        {"name": "ge_all", "body": "hi", "joint": "shaft_hi", "diameter": 0.254, "ground_effect": true,
+         "j": [0], "ct": [0.12], "cq": [0.006]},
+        {"name": "ge_no4", "body": "hi", "joint": "shaft_hi", "diameter": 0.254, "ground_effect": true, "ray_groups": 47,
+         "j": [0], "ct": [0.12], "cq": [0.006]},
+        {"name": "ge_off", "body": "hi", "joint": "shaft_hi", "diameter": 0.254,
+         "j": [0], "ct": [0.12], "cq": [0.006]},
+        {"name": "ge_low", "body": "low", "joint": "shaft_low", "diameter": 0.254, "ground_effect": true,
+         "j": [0], "ct": [0.12], "cq": [0.006]},
+        {"name": "ge_neg", "body": "neg", "joint": "shaft_neg", "diameter": 0.254, "dir": -1, "ground_effect": true,
+         "j": [0], "ct": [0.12], "cq": [0.006]},
+        {"name": "ge_neg_down", "body": "neg", "joint": "shaft_neg", "diameter": 0.254, "dir": 1, "ground_effect": true,
+         "j": [0], "ct": [0.12], "cq": [0.006]}]
+    }'/>
+  </custom>
+</mujoco>

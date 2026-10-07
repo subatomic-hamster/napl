@@ -1,0 +1,15 @@
+<!-- Environment with world z = 0 at 1000 m MSL (ISA density check). -->
+<mujoco model="env_alt">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="blob" pos="0 0 0">
+      <freejoint name="fj"/>
+      <geom type="sphere" size="0.05" mass="1" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "environments": [{"name": "air", "origin_alt": 1000}]
+    }'/>
+  </custom>
+</mujoco>

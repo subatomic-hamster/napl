@@ -1,0 +1,25 @@
+<!-- Star (PDB) topology: PSU (node 1) -> trunk wire (AWG 12, 0.5 m, round trip) -> PDB node 2 -> 4 branch wires -> 4 loads
+     (3 resistive, one with a 3 A constant-current component). Closed form in test_devices.cpp. -->
+<mujoco model="star">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="dummy" pos="0 0 0.1">
+      <joint name="j" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.001"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "src", "node": 1, "voltage": 24, "r_series": 0.05}],
+      "wires": [{"name": "trunk", "a": 1, "b": 2, "awg": 12, "length_m": 0.5, "conductors": 2},
+                {"name": "br1", "a": 2, "b": 3, "resistance": 0.02},
+                {"name": "br2", "a": 2, "b": 4, "resistance": 0.03},
+                {"name": "br3", "a": 2, "b": 5, "awg": 16, "length_m": 0.4, "conductors": 2},
+                {"name": "br4", "a": 2, "b": 6, "resistance": 0.05}],
+      "loads": [{"name": "l1", "node": 3, "g": 0.5},
+                {"name": "l2", "node": 4, "g": 0.25},
+                {"name": "l3", "node": 5, "g": 1.0},
+                {"name": "l4", "node": 6, "g": 0.1, "i0": -3}]
+    }'/>
+  </custom>
+</mujoco>

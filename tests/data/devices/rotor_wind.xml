@@ -1,0 +1,17 @@
+<!-- Rotor held in place (hinge only) in a steady wind (3, -4, 2) m/s, calm turbulence: H-force and wind sign. -->
+<mujoco model="rotor_wind">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="rotor" pos="0 0 2">
+      <joint name="shaft" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "rotors": [{"name": "prop", "body": "rotor", "joint": "shaft", "diameter": 0.254, "k_h": 0.02,
+                  "j": [0, 0.4, 0.8], "ct": [0.12, 0.08, 0.02], "cq": [0.006, 0.005, 0.002]}],
+      "environments": [{"name": "air", "wind": [3, -4, 2]}]
+    }'/>
+  </custom>
+</mujoco>

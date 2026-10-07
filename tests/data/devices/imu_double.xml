@@ -1,0 +1,23 @@
+<!-- Double pendulum (both hinges about y) with an IMU on the second bob. The second link hangs from a MOVING link, so its
+     com-based acceleration has a cdof_dot * qvel term: the IMU has to use the qvel of the start of the tick, not the
+     integrated one. imu_double_acc.xml adds a MuJoCo accelerometer at the same site, which makes mj_step2 compute the
+     acceleration data itself, before integration: the reference for this model. -->
+<mujoco model="imu_double">
+  <option timestep="0.001"/>
+  <worldbody>
+    <body name="arm1" pos="0 0 2">
+      <joint name="h1" type="hinge" axis="0 1 0"/>
+      <geom type="sphere" size="0.02" pos="0 0 -0.5" mass="0.2" contype="0" conaffinity="0"/>
+      <body name="arm2" pos="0 0 -0.5">
+        <joint name="h2" type="hinge" axis="0 1 0"/>
+        <geom type="sphere" size="0.02" pos="0.1 0 -0.4" mass="0.1" contype="0" conaffinity="0"/>
+        <site name="s" pos="0.1 0 -0.4" euler="0 20 0"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "imus": [{"name": "imu", "site": "s", "rate_hz": 1000, "gyro": {}, "accel": {}}]
+    }'/>
+  </custom>
+</mujoco>

@@ -1,0 +1,12 @@
+<!-- The barometer names a site the model does not have. -->
+<mujoco model="bad_site">
+  <option timestep="0.001"/>
+  <worldbody>
+    <body name="b" pos="0 0 1"><geom type="sphere" size="0.01" mass="0.1"/><site name="s"/></body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "baros": [{"name": "baro_bad", "site": "no_such_site", "rate_hz": 100}]
+    }'/>
+  </custom>
+</mujoco>

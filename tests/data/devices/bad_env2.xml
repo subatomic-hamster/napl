@@ -1,0 +1,14 @@
+<!-- Rejected: the environment is a singleton. -->
+<mujoco model="bad_env2">
+  <worldbody>
+    <body name="b" pos="0 0 1">
+      <freejoint/>
+      <geom type="sphere" size="0.01" mass="0.01"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "environments": [{"name": "air1"}, {"name": "air2"}]
+    }'/>
+  </custom>
+</mujoco>

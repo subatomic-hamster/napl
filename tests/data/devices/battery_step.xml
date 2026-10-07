@@ -1,0 +1,17 @@
+<!-- Battery with a flat OCV (12 V) and RC pair (r1 0.03, c1 100 => tau 3 s) into a constant-current sink (10 A). -->
+<mujoco model="battery_step">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="dummy" pos="0 0 0.1">
+      <joint name="j" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.001"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "batteries": [{"name": "pack", "node": 1, "ocv_soc": [0, 1], "ocv_v": [12, 12],
+                     "capacity_ah": 2, "r0": 0.05, "r1": 0.03, "c1": 100}],
+      "loads": [{"name": "sink", "node": 1, "g": 0, "i0": -10}]
+    }'/>
+  </custom>
+</mujoco>

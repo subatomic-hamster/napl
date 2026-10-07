@@ -1,0 +1,28 @@
+<!-- Daisy chain: PSU (node 1) -> w1 -> load a (node 2) -> w2 -> load b (node 3) -> ... -> load f (node 7). Six loads, mixed
+     conductance / constant-current. Closed form (ladder recursion from the far end) in test_devices.cpp. -->
+<mujoco model="chain">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="dummy" pos="0 0 0.1">
+      <joint name="j" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.001"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "src", "node": 1, "voltage": 12, "r_series": 0.1}],
+      "wires": [{"name": "w1", "a": 1, "b": 2, "resistance": 0.1},
+                {"name": "w2", "a": 2, "b": 3, "resistance": 0.2},
+                {"name": "w3", "a": 3, "b": 4, "resistance": 0.15},
+                {"name": "w4", "a": 4, "b": 5, "resistance": 0.1},
+                {"name": "w5", "a": 5, "b": 6, "resistance": 0.3},
+                {"name": "w6", "a": 6, "b": 7, "resistance": 0.25}],
+      "loads": [{"name": "a", "node": 2, "g": 0.2},
+                {"name": "b", "node": 3, "g": 0.1, "i0": -0.5},
+                {"name": "c", "node": 4, "g": 0.4},
+                {"name": "d", "node": 5, "g": 0, "i0": -1.5},
+                {"name": "e", "node": 6, "g": 0.3, "i0": -0.2},
+                {"name": "f", "node": 7, "g": 0.6}]
+    }'/>
+  </custom>
+</mujoco>

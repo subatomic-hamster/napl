@@ -1,0 +1,193 @@
+// Device configuration (milestone N2): C++ physics models stepped inside MujocoSolver::step. Declared in the MJCF as
+//   <custom><text name="napl.devices" data='{ ...this schema as JSON... }'/></custom>
+// mj_saveModel keeps custom text, so replay headers / load_mujoco_bytes / clone carry it. Parsed with flatbuffers::Parser
+// (strict_json: quoted names, unknown field = error) in src/mujoco/devices/devices.cpp, then copied into plain structs.
+// Kept apart from napl.fbs on purpose: napl.fbs's hash is in replay logs, and this file is solver-private.
+//
+// Units: SI everywhere except where a field name says otherwise (kv: rpm/V, capacity_ah, awg, temperatures degC).
+// Every device table has `name` (unique over ALL devices; becomes prim /devices/<name>) and `parts` (part ids from the
+// parts DB: provenance for the fidelity report, stored only). Electrical nodes are small ints: 0 = ground (implicit),
+// 1..32 = network nodes.
+//
+namespace napl.dev;
+
+// DC motor behind an averaged ESC / H-bridge (shared by `Esc` here and the servo of S3).
+// Kt = Ke = 60/(2 pi kv). R(T) = r20 (1 + alpha (T - 20)). Friction torque = Kt i0 tanh(w / w_s).
+table MotorParams {
+  kv: double;             // rpm/V
+  r20: double;            // winding resistance at 20 degC, ohm (line-to-line, as the datasheet gives it)
+  i0: double;             // no-load current, A (drives the friction torque)
+  rotor_inertia: double;  // kg m^2, about the shaft; SET as the joint's dof_armature (times N^2 for geared servos)
+  w_s: double = 5.0;      // friction smoothing speed, rad/s (explicit-integration stability: dt < 2 J w_s / (Kt i0))
+  c_th: double;           // winding thermal capacity, J/K
+  r_th: double;           // winding-to-ambient thermal resistance, K/W
+  t_amb: double = 25.0;   // ambient = initial temperature, degC
+  alpha: double = 0.00393;  // copper temperature coefficient, 1/K
+}
+
+// Thevenin battery: E = OCV(SoC) - v_rc behind r0; one RC pair (r1, c1). ocv_soc strictly increasing in [0,1].
+table Battery {
+  name: string (required); parts: [string];
+  node: int; ocv_soc: [double]; ocv_v: [double];
+  capacity_ah: double; r0: double; r1: double; c1: double;
+  soc0: double = 1.0;
+  seed: uint64;           // 0 = derived from Devices.seed + device index
+}
+
+// Ideal voltage behind r_series. i_limit > 0: constant-current limit. `enabled` is the initial value of the input.
+table Psu {
+  name: string (required); parts: [string];
+  node: int; voltage: double; r_series: double; i_limit: double; enabled: bool = true;
+}
+
+// Resistive edge between two nodes (either may be 0 = ground). Either `resistance` (connectors, shunts), or
+// awg + length_m (round trip: conductors = 2 for a two-wire run).
+table Wire {
+  name: string (required); parts: [string];
+  a: int; b: int;
+  resistance: double;
+  awg: int; length_m: double; conductors: int = 1;
+}
+
+// Static load from a node to ground: I = g V - i0 (i0 < 0: constant-current sink of |i0| amps).
+table Load {
+  name: string (required); parts: [string];
+  node: int; g: double; i0: double;
+}
+
+// Averaged ESC + BLDC motor on a hinge joint (the rotor; its parent body is the stator).
+table Esc {
+  name: string (required); parts: [string];
+  node: int; joint: string (required);
+  motor: MotorParams (required);
+  complementary: bool;    // true: phase current may go negative (braking / regen); false: diode freewheel, I_m >= 0
+  i_limit: double;        // > 0: motor-current limit, A
+  seed: uint64;
+}
+
+// STS3215-like bus servo (S3): DC motor + gearbox + output encoder + firmware position loop, on the gear OUTPUT
+// hinge `joint` (its parent body is the housing). Motor numbers as for the Esc; rotor_inertia is reflected: SET as
+// the dof's armature J N^2. No default for any physical parameter: a missing (0) gear_ratio / efficiency /
+// encoder_cpr / firmware_hz / pid_scale / max_torque fails the load. firmware_hz must give an integer number of
+// simulation ticks per firmware step (1 / (firmware_hz dt) integral), checked at bind.
+// Firmware (every firmware step; calibration notes in servo.cpp):
+//   e = round(setpoint * cpr / 2 pi) - counts, |e| <= deadband -> 0;
+//   u = (p e + i sum(e) + d (e - e_prev)) / pid_scale;
+//   duty = clamp(u, -max_torque / 1000, +max_torque / 1000), held until the next firmware step.
+// Runtime inputs (set): goal_position (rad), goal_speed (rad/s, 0 = no profile), torque_enable (0 / 1, power-up 0).
+table Servo {
+  name: string (required); parts: [string];
+  node: int; joint: string (required);
+  motor: MotorParams (required);
+  gear_ratio: double;     // N > 0, motor turns per output turn
+  efficiency: double;     // eta in (0, 1], applied to the output torque in the drive direction only
+  encoder_cpr: int;       // counts per output revolution
+  firmware_hz: double;
+  p: double; i: double; d: double;  // register units (>= 0)
+  pid_scale: double;      // > 0: register units -> duty; a calibration knob (the true Feetech scaling is not public)
+  deadband: double;       // counts, >= 0 (default 0 = none)
+  max_torque: double;     // register 0..1000 (here (0, 1000]): |duty| limit = max_torque / 1000
+  i_limit: double;        // > 0: motor-current limit, A (default 0 = none)
+  backlash_joint: string; // default empty = no backlash: name of a limited hinge (range -b..+b) between gear output and load
+}
+
+// Propeller aero on a rotor body (S2). `joint` is the hinge the rotor spins on (typically the one an Esc drives):
+// its world axis a is the thrust axis. dir = +1: design spin is positive about a, dir = -1: negative; spinning in the
+// design direction pushes along +a, reverse spin pushes along -a. j / ct / cq: equal-length tables (>= 1 point, j
+// strictly increasing), linear interpolation, clamped at the ends; j = V_axial / (|n| D), n in rev/s. Static values at j = 0.
+// Forces are applied at the rotor body's CoM (xfrc_applied). Ground effect: ray from the CoM along -a, ignoring the
+// rotor body and every geom whose group is not set in `ray_groups` (bit g = geom group g, g = 0..5; default = all):
+// put the vehicle's own geoms in a group outside the mask so the ray does not hit them.
+table Rotor {
+  name: string (required); parts: [string];
+  body: string (required); joint: string (required);
+  diameter: double; dir: int = 1;
+  j: [double]; ct: [double]; cq: [double];
+  k_h: double;            // H-force: F = -k_h |w| v_perp (units kg), v_perp = in-plane air-relative CoM velocity
+  ground_effect: bool;
+  ray_groups: uint = 63;
+}
+
+// At most one. World frame, z up; world z = 0 is ground level (AGL for turbulence) and origin_alt metres MSL (ISA).
+// Turbulence = Dryden (MIL-F-8785C low altitude) of reference height h: z of `ref_body` if given, else `ref_height`
+// (m above world z = 0). One frozen turbulence vector for the whole scene. w20 = wind speed at 6.1 m (20 ft), 0 = off.
+table Environment {
+  name: string (required); parts: [string];
+  origin_alt: double;     // m MSL of world z = 0
+  wind: [double];         // steady wind, 3 values (m/s, world), empty = calm; settable at run time
+  w20: double;
+  seed: uint64;           // 0 = derived from Devices.seed + device index
+  ref_body: string;       // empty: use ref_height
+  ref_height: double = 10.0;
+}
+
+// Quadratic body drag at the body CoM: F = -1/2 rho(z) Cd A |v_rel| v_rel, v_rel = CoM velocity - wind.
+table BodyDrag {
+  name: string (required); parts: [string];
+  body: string (required); cd: double; area: double;
+}
+
+// Error model of one triad (gyro or accel) of an Imu, per axis i:
+//   out_i = clamp(round_lsb((1 + scale_i) truth_i + bias_i + sigma g), +-full_scale),
+//   sigma = noise_density sqrt(rate / 2),
+// bias_i += rw_density sqrt(1 / rate) g' at every sample (g, g' ~ N(0,1)); round_lsb: nearest multiple of
+// lsb = 2 full_scale / 2^bits. Zero = off: noise_density 0 no noise, rw_density 0 no walk, bits 0 no quantisation
+// (bits > 0 needs full_scale > 0), full_scale 0 no saturation. bias / scale: 3 values each, or empty (= 0).
+// Units (gyro | accel): bias rad/s | m/s^2, noise_density rad/s/sqrt(Hz) | m/s^2/sqrt(Hz),
+// rw_density rad/s/sqrt(s) | m/s^2/sqrt(s), full_scale rad/s | m/s^2.
+table InertialErr {
+  bias: [double]; scale: [double];
+  noise_density: double; rw_density: double; full_scale: double; bits: int;
+}
+
+// The sensors of S4 sit on a named MJCF <site> and sample at rate_hz (1 / (rate_hz dt) must be an integer >= 1),
+// holding the sample between sample ticks. Timing and fidelity notes: src/mujoco/devices/sensors.cpp. seed: 0 =
+// derived.
+// IMU: gyro = angular velocity of the site frame in the site frame, accel = specific force in the site frame.
+table Imu {
+  name: string (required); parts: [string];
+  site: string (required); rate_hz: double;
+  gyro: InertialErr (required); accel: InertialErr (required);
+  seed: uint64;
+}
+
+// Barometer: ISA pressure at origin_alt (of the environment device, else 0) + site z, plus bias, noise, quantisation.
+table Baro {
+  name: string (required); parts: [string];
+  site: string (required); rate_hz: double;
+  bias: double;           // Pa
+  noise_std: double;      // Pa, white
+  resolution: double;     // Pa, 0 = none
+  seed: uint64;
+}
+
+// Magnetometer: earth field (3 values, world frame, tesla) rotated into the site frame, plus bias (3, or empty) and
+// noise.
+table Mag {
+  name: string (required); parts: [string];
+  site: string (required); rate_hz: double;
+  earth_field: [double]; bias: [double];
+  noise_std: double;      // T, white, per axis
+  seed: uint64;
+}
+
+// GNSS: local frame world x = East, y = North, z = Up; the world origin is (lat0 deg, lon0 deg, alt0 m). Flat-earth
+// conversion with the WGS84 radii at lat0. horiz_std: per north / east coordinate, vert_std: altitude, vel_std: each
+// NED velocity component. latency_s: outputs lag by round(latency_s rate_hz) samples (at most 63).
+table Gnss {
+  name: string (required); parts: [string];
+  site: string (required); rate_hz: double;
+  lat0: double; lon0: double; alt0: double;
+  horiz_std: double; vert_std: double; vel_std: double;  // m, m, m/s
+  latency_s: double;
+  seed: uint64;
+}
+
+table Devices {
+  seed: uint64;           // top-level seed for per-device RNG streams
+  batteries: [Battery]; psus: [Psu]; wires: [Wire]; loads: [Load]; escs: [Esc];
+  rotors: [Rotor]; environments: [Environment]; body_drags: [BodyDrag]; servos: [Servo];
+  imus: [Imu]; baros: [Baro]; mags: [Mag]; gnss_receivers: [Gnss];
+}
+
+root_type Devices;

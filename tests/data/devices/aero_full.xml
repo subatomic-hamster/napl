@@ -1,0 +1,32 @@
+<!-- Whole stack on an airframe that translates freely but cannot rotate (3 slides): battery -> ESC/BLDC -> rotor (ground effect on a plane), environment with wind and
+     turbulence, body drag on the frame. Used for the determinism test. Rotor axis +z, frame geoms in group 4. -->
+<mujoco model="aero_full">
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="50 50 0.1" contype="0" conaffinity="0"/>
+    <body name="frame" pos="0 0 0.6">
+      <joint name="sx" type="slide" axis="1 0 0"/>
+      <joint name="sy" type="slide" axis="0 1 0"/>
+      <joint name="sz" type="slide" axis="0 0 1"/>
+      <geom type="box" size="0.05 0.05 0.02" mass="0.4" group="4" contype="0" conaffinity="0"/>
+      <body name="rotor" pos="0 0 0.03">
+        <joint name="shaft" type="hinge" axis="0 0 1"/>
+        <geom type="sphere" size="0.001" mass="0.002" group="4" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "seed": 11,
+      "batteries": [{"name": "pack", "node": 1, "ocv_soc": [0, 0.1, 0.5, 1], "ocv_v": [12.8, 14.4, 15.2, 16.8],
+                     "capacity_ah": 5, "r0": 0.02, "r1": 0.01, "c1": 500, "soc0": 0.8}],
+      "escs": [{"name": "m1", "node": 1, "joint": "shaft", "i_limit": 40,
+                "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 20, "r_th": 3}}],
+      "rotors": [{"name": "prop", "body": "rotor", "joint": "shaft", "diameter": 0.254, "k_h": 0.01,
+                  "ground_effect": true, "ray_groups": 47,
+                  "j": [0, 0.4, 0.8], "ct": [0.12, 0.08, 0.02], "cq": [0.006, 0.005, 0.002]}],
+      "environments": [{"name": "air", "origin_alt": 300, "wind": [3, 1, 0], "w20": 6, "ref_body": "frame"}],
+      "body_drags": [{"name": "drag", "body": "frame", "cd": 1.0, "area": 0.03}]
+    }'/>
+  </custom>
+</mujoco>

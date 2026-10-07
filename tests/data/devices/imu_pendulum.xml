@@ -1,0 +1,17 @@
+<!-- Pendulum (hinge about y at the origin, 0.2 kg sphere bob 0.5 m below it, bob inertia included) with an IMU at the bob:
+     tangential + centripetal + gravity acceleration of a body that really accelerates. -->
+<mujoco model="imu_pendulum">
+  <option timestep="0.001"/>
+  <worldbody>
+    <body name="arm" pos="0 0 2">
+      <joint name="hinge" type="hinge" axis="0 1 0"/>
+      <geom type="sphere" size="0.02" pos="0 0 -0.5" mass="0.2" contype="0" conaffinity="0"/>
+      <site name="s" pos="0 0 -0.5"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "imus": [{"name": "imu", "site": "s", "rate_hz": 1000, "gyro": {}, "accel": {}}]
+    }'/>
+  </custom>
+</mujoco>

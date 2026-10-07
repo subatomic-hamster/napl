@@ -1,0 +1,10 @@
+<!-- Error path: a nonpositive battery resistance. -->
+<mujoco model="bad_r0">
+  <worldbody>
+    <body name="dummy"><joint name="j" type="hinge"/><geom type="sphere" size="0.01"/></body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "batteries": [{"name": "pack_bad", "node": 1, "ocv_soc": [0, 1], "ocv_v": [11, 12.6], "capacity_ah": 2, "r0": -0.01}]}'/>
+  </custom>
+</mujoco>

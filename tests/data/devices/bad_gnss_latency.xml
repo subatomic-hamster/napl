@@ -1,0 +1,12 @@
+<!-- 0.64 s at 100 Hz is 64 samples: one more than the 63 the ring can delay by. -->
+<mujoco model="bad_gnss_latency">
+  <option timestep="0.001"/>
+  <worldbody>
+    <body name="b" pos="0 0 1"><geom type="sphere" size="0.01" mass="0.1"/><site name="s"/></body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "gnss_receivers": [{"name": "gnss_bad", "site": "s", "rate_hz": 100, "lat0": 47, "lon0": 8, "latency_s": 0.64}]
+    }'/>
+  </custom>
+</mujoco>

@@ -1,0 +1,11 @@
+<!-- Error path: an ESC naming a joint that does not exist. -->
+<mujoco model="bad_joint">
+  <worldbody>
+    <body name="dummy"><joint name="j" type="hinge"/><geom type="sphere" size="0.01"/></body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "escs": [{"name": "m_bad", "node": 1, "joint": "no_such_joint",
+                "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 20, "r_th": 3}}]}'/>
+  </custom>
+</mujoco>

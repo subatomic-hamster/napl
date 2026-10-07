@@ -1,0 +1,19 @@
+<!-- firmware_hz 300 at dt = 1 ms is 3.33 ticks per firmware step: not an integer, load error. -->
+<mujoco model="bad_servo_rate">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="link" pos="0 0 0.1">
+      <joint name="out" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.01" mass="0.05"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "bench", "node": 1, "voltage": 12, "r_series": 0.05}],
+      "servos": [{"name": "servo_bad", "node": 1, "joint": "out",
+                  "motor": {"kv": 2100, "r20": 4.4, "i0": 0.05, "rotor_inertia": 5e-8, "w_s": 50, "c_th": 10, "r_th": 15},
+                  "gear_ratio": 345, "efficiency": 0.7, "encoder_cpr": 4096, "firmware_hz": 300,
+                  "p": 32, "i": 2, "d": 32, "pid_scale": 8192, "deadband": 0, "max_torque": 1000}]
+    }'/>
+  </custom>
+</mujoco>

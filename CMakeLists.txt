@@ -31,7 +31,13 @@ add_custom_command(
   COMMAND flatc --cpp --scoped-enums --bfbs-gen-embed --jsonschema -o ${NAPL_GEN_DIR} ${CMAKE_SOURCE_DIR}/schema/napl.fbs
   DEPENDS flatc ${CMAKE_SOURCE_DIR}/schema/napl.fbs
   COMMENT "flatc: napl.fbs")
-add_custom_target(napl_schema_gen DEPENDS ${NAPL_GEN_DIR}/napl_generated.h)
+# devices.fbs (N2): device config for MujocoSolver, separate from napl.fbs (whose hash is in replay logs).
+add_custom_command(
+  OUTPUT ${NAPL_GEN_DIR}/devices_generated.h ${NAPL_GEN_DIR}/devices_bfbs_generated.h
+  COMMAND flatc --cpp --scoped-enums --bfbs-gen-embed -o ${NAPL_GEN_DIR} ${CMAKE_SOURCE_DIR}/schema/devices.fbs
+  DEPENDS flatc ${CMAKE_SOURCE_DIR}/schema/devices.fbs
+  COMMENT "flatc: devices.fbs")
+add_custom_target(napl_schema_gen DEPENDS ${NAPL_GEN_DIR}/napl_generated.h ${NAPL_GEN_DIR}/devices_generated.h)
 add_library(napl_schema INTERFACE)
 add_dependencies(napl_schema napl_schema_gen)
 target_include_directories(napl_schema INTERFACE ${NAPL_GEN_DIR})
@@ -44,7 +50,9 @@ add_library(napl_core STATIC src/core/world.cpp src/core/bus.cpp src/core/replay
 target_include_directories(napl_core PUBLIC src include)  # include/: napl/shm_client.hpp, the dependency-free shm client
 target_link_libraries(napl_core PUBLIC napl_schema Threads::Threads)
 
-add_library(napl_mujoco STATIC src/mujoco/mujoco_solver.cpp)
+add_library(napl_mujoco STATIC src/mujoco/mujoco_solver.cpp src/mujoco/devices/devices.cpp
+  src/mujoco/devices/electrical.cpp src/mujoco/devices/aero.cpp src/mujoco/devices/servo.cpp
+  src/mujoco/devices/sensors.cpp)
 target_link_libraries(napl_mujoco PUBLIC napl_core mujoco)
 
 # Static libs end up inside the _napl shared module: they need -fPIC.
@@ -114,7 +122,7 @@ add_executable(napl_shm_test_client tests/cpp/shm_test_client.cpp)
 target_include_directories(napl_shm_test_client PRIVATE include tests/cpp)
 
 add_executable(napl_tests tests/cpp/test_smoke.cpp tests/cpp/test_determinism.cpp tests/cpp/test_bus.cpp
-  tests/cpp/test_replay.cpp tests/cpp/test_host.cpp tests/cpp/test_shm.cpp)
+  tests/cpp/test_replay.cpp tests/cpp/test_host.cpp tests/cpp/test_shm.cpp tests/cpp/test_devices.cpp)
 add_dependencies(napl_tests napl_cli napl_shm_test_client)  # test_replay / test_shm run these executables
 target_include_directories(napl_tests PRIVATE tests/cpp)
 target_link_libraries(napl_tests PRIVATE napl_core napl_mujoco mujoco GTest::gtest_main)

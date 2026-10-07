@@ -1,0 +1,27 @@
+<!-- Rotor on an ESC / BLDC motor, stator welded to the world with a torque sensor at the shaft. Stator geom in group 4
+     (ground-effect ray mask). Large winding thermal capacity so the temperature is constant over the run. -->
+<mujoco model="rotor_motor">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="stator" pos="0 0 0.5">
+      <geom type="box" size="0.02 0.02 0.02" mass="0.1" group="4" contype="0" conaffinity="0"/>
+      <site name="ss" pos="0 0 0"/>
+      <body name="rotor">
+        <joint name="shaft" type="hinge" axis="0 0 1"/>
+        <geom type="sphere" size="0.001" mass="0.001" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+    <torque name="reaction" site="ss"/>
+  </sensor>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "bench", "node": 1, "voltage": 16, "r_series": 0.001}],
+      "escs": [{"name": "m1", "node": 1, "joint": "shaft",
+                "motor": {"kv": 920, "r20": 0.117, "i0": 0.5, "rotor_inertia": 3e-5, "c_th": 2000, "r_th": 3}}],
+      "rotors": [{"name": "prop", "body": "rotor", "joint": "shaft", "diameter": 0.254,
+                  "j": [0, 0.4, 0.8], "ct": [0.12, 0.08, 0.02], "cq": [0.006, 0.005, 0.002]}]
+    }'/>
+  </custom>
+</mujoco>

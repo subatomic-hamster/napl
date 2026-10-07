@@ -156,6 +156,21 @@ Result MujocoSolver::restructure(const std::function<Result(mjSpec*)>& edit) {
   // survives. On failure it has already freed both (so they are not freed here).
   if (mj_recompile(cand.get(), nullptr, m2, d2) != 0)
     return {Result::invalid_argument, std::string("the edited model does not compile: ") + mjs_getError(cand.get())};
+  // Devices keep their state; names are re-resolved against the new layout (a spawned model's own napl.devices text is
+  // ignored: only the root model's text, exact name "napl.devices", configures devices). If a device's joint is gone the
+  // edit fails here, with the live model, data and devices untouched.
+  std::unique_ptr<devs::Devices> dv;
+  if (dev_) {
+    dv = std::make_unique<devs::Devices>(*dev_);
+    try {
+      devs::bind(m2, *dv);
+    } catch (const std::exception& e) {
+      mj_deleteData(d2);
+      mj_deleteModel(m2);
+      return {Result::invalid_argument, std::string("the edit breaks a device: ") + e.what()};
+    }
+  }
+  dev_ = std::move(dv);
   mj_deleteData(d_);
   mj_deleteModel(m_);
   m_ = m2;
@@ -222,7 +237,8 @@ Result MujocoSolver::remove(const std::string& prim) {
 int MujocoSolver::step(int n) {
   int done = 0;
   while (done < n && !diverged_) {
-    mj_step(m_, d_);
+    if (dev_) devs::step(m_, d_, *dev_);  // step1 / device phases / step2
+    else mj_step(m_, d_);                 // no devices: bit-identical to the pre-N2 behaviour
     ++done;
     if (d_->warning[mjWARN_BADQACC].number > 0 || d_->warning[mjWARN_BADQPOS].number > 0 ||
         d_->warning[mjWARN_BADQVEL].number > 0) {
@@ -243,6 +259,16 @@ bool is_world(const std::string& f) { return f.empty() || f == "world"; }
 
 MujocoSolver::MujocoSolver(mjModel* m, mjData* d, std::shared_ptr<mjSpec> spec, std::string spec_xml)
     : m_(m), d_(d), spec_(std::move(spec)), spec_xml_(std::move(spec_xml)) {
+  try {  // every load path (file, bytes, clone) ends here; a bad device config fails the load with its message
+    if (const auto js = devs::config_text(m_)) {
+      dev_ = std::make_unique<devs::Devices>(devs::parse(*js));
+      devs::bind(m_, *dev_);
+    }
+  } catch (...) {  // the caller handed us ownership of m and d: a throwing constructor never runs the destructor
+    mj_deleteData(d_);
+    mj_deleteModel(m_);
+    throw;
+  }
   build_index();
 }
 
@@ -274,6 +300,8 @@ void MujocoSolver::build_index() {
     add("/actuators/" + elem_name(m_, mjOBJ_ACTUATOR, a, "actuator"), "actuator", Ref::actuator, a);
   for (int s = 0; s < m_->nsensor; ++s)
     add("/sensors/" + elem_name(m_, mjOBJ_SENSOR, s, "sensor"), "sensor", Ref::sensor, s);
+  if (dev_)
+    for (int i = 0; i < static_cast<int>(dev_->slots.size()); ++i) add("/devices/" + dev_->name(i), "device", Ref::device, i);
   structure_ = h ^ (static_cast<std::uint64_t>(m_->nq) << 40 | static_cast<std::uint64_t>(m_->nv) << 20 | static_cast<std::uint64_t>(m_->na));
 }
 
@@ -363,6 +391,7 @@ Result MujocoSolver::get(const std::string& prim, const std::string& attr, const
     return {};
   }
   if (!is_world(frame)) return {Result::invalid_argument, "frame only applies to body attributes"};
+  if (r.kind == Ref::device) return devs::get(*dev_, r.id, attr, out);
   Loc loc;
   if (!locate(r, attr, loc)) return {Result::not_found, "unknown attr '" + attr + "' on " + prim};
   out.assign(loc.p, loc.p + loc.n);
@@ -379,6 +408,7 @@ Result MujocoSolver::set(const std::string& prim, const std::string& attr, const
     return {Result::not_found, "unknown attr '" + attr + "' on body"};
   }
   if (!is_world(frame)) return {Result::invalid_argument, "frame only applies to body attributes"};
+  if (r.kind == Ref::device) return devs::set(*dev_, r.id, attr, values);
   if (r.kind == Ref::actuator && (attr == "kp" || attr == "kv")) {
     if (!is_servo(r.id)) return {Result::invalid_argument, prim + " is not a position servo (no kp/kv)"};
     if (values.size() != 1 || !std::isfinite(values[0]) || values[0] < 0)
@@ -412,6 +442,8 @@ std::string MujocoSolver::unit(const std::string& prim, const std::string& attr)
   if (it == index_.end()) return "";
   const Ref r = it->second;
   switch (r.kind) {
+    case Ref::device:
+      return devs::unit(*dev_, r.id, attr);
     case Ref::body:
       return attr == "pos" ? "m" : attr == "quat" ? "1" : "";
     case Ref::joint: {
@@ -452,25 +484,29 @@ std::string MujocoSolver::unit(const std::string& prim, const std::string& attr)
 // Snapshot = mjSTATE_INTEGRATION followed by every model parameter a SetAttr can change (today: the actuator
 // gain/bias arrays holding kp/kv). Model parameters are not in mjSTATE_INTEGRATION, so without this block
 // restore() would silently keep a later kp. Add any new settable model attribute here too. state_hash() covers it.
+// Then the device state block (devs::save_state; empty without devices), then the structure id. dof_damping of driven
+// dofs is NOT saved: step() zeroes it before every use, so it never carries state between ticks.
 std::vector<std::byte> MujocoSolver::save() const {
   const int ns = mj_stateSize(m_, kStateSig), np = m_->nu * (mjNGAIN + mjNBIAS);
   std::vector<mjtNum> s(static_cast<std::size_t>(ns + np));
   mj_getState(m_, d_, s.data(), kStateSig);
   mju_copy(s.data() + ns, m_->actuator_gainprm, m_->nu * mjNGAIN);
   mju_copy(s.data() + ns + m_->nu * mjNGAIN, m_->actuator_biasprm, m_->nu * mjNBIAS);
-  const std::size_t body = s.size() * sizeof(mjtNum);
-  std::vector<std::byte> out(body + sizeof structure_);  // + the structure id: Spawn / Delete change the layout
+  const std::size_t body = s.size() * sizeof(mjtNum), nd = dev_ ? devs::state_bytes(*dev_) : 0;
+  std::vector<std::byte> out(body + nd + sizeof structure_);  // + device state block + the structure id (Spawn / Delete)
   std::memcpy(out.data(), s.data(), body);
-  std::memcpy(out.data() + body, &structure_, sizeof structure_);
+  if (dev_) devs::save_state(*dev_, out.data() + body);
+  std::memcpy(out.data() + body + nd, &structure_, sizeof structure_);
   return out;
 }
 
 void MujocoSolver::restore(std::span<const std::byte> bytes) {
   const int ns = mj_stateSize(m_, kStateSig);
   const std::size_t body = sizeof(mjtNum) * static_cast<std::size_t>(ns + m_->nu * (mjNGAIN + mjNBIAS));
+  const std::size_t nd = dev_ ? devs::state_bytes(*dev_) : 0;
   std::uint64_t structure = 0;
-  if (bytes.size() == body + sizeof structure) std::memcpy(&structure, bytes.data() + body, sizeof structure);
-  if (bytes.size() != body + sizeof structure || structure != structure_)
+  if (bytes.size() == body + nd + sizeof structure) std::memcpy(&structure, bytes.data() + body + nd, sizeof structure);
+  if (bytes.size() != body + nd + sizeof structure || structure != structure_)
     throw std::runtime_error(
         "MujocoSolver::restore: snapshot does not fit the current model structure (taken on another model, or before a "
         "Spawn / Delete)");
@@ -478,6 +514,7 @@ void MujocoSolver::restore(std::span<const std::byte> bytes) {
   std::memcpy(s.data(), bytes.data(), body);
   mju_copy(m_->actuator_gainprm, s.data() + ns, m_->nu * mjNGAIN);
   mju_copy(m_->actuator_biasprm, s.data() + ns + m_->nu * mjNGAIN, m_->nu * mjNBIAS);
+  if (dev_) devs::load_state(*dev_, bytes.data() + body);
   mj_setState(m_, d_, s.data(), kStateSig);
   mj_forward(m_, d_);
   // step() reads these sticky counters: a restored healthy state must not inherit the divergence it replaced.
@@ -565,6 +602,7 @@ std::unique_ptr<Solver> MujocoSolver::clone() const {
   mjData* d = mj_copyData(nullptr, m, d_);
   auto c = std::make_unique<MujocoSolver>(m, d, spec_, spec_xml_);  // the spec is shared: edits copy it
   c->diverged_ = diverged_;
+  if (dev_) c->dev_ = std::make_unique<devs::Devices>(*dev_);  // the ctor re-parsed the config; this carries the live state
   return c;
 }
 

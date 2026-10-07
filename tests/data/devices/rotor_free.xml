@@ -1,0 +1,21 @@
+<!-- Rotor bench, no ESC: a hinge rotor on a vertical slide carrier (set the hinge / slide qvel by hand), no gravity, no
+     environment device (ISA at origin altitude 0). Prop numbers are test values (10 inch), not a part claim. -->
+<mujoco model="rotor_free">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="carrier" pos="0 0 1">
+      <joint name="lift" type="slide" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+      <body name="rotor">
+        <joint name="shaft" type="hinge" axis="0 0 1"/>
+        <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "rotors": [{"name": "prop", "body": "rotor", "joint": "shaft", "diameter": 0.254, "dir": 1,
+                  "j": [0, 0.4, 0.8], "ct": [0.12, 0.08, 0.02], "cq": [0.006, 0.005, 0.002], "parts": ["test-prop"]}]
+    }'/>
+  </custom>
+</mujoco>

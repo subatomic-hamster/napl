@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "core/solver.h"
+#include "mujoco/devices/devices.h"
 
 class MujocoSolver final : public Solver {
  public:
@@ -39,9 +40,10 @@ class MujocoSolver final : public Solver {
 
   const mjModel& model() const { return *m_; }
   const mjData& data() const { return *d_; }
+  const devs::Devices* devices() const { return dev_.get(); }  // null: the model declares no napl.devices (tests)
 
  private:
-  struct Ref { enum Kind { body, joint, actuator, sensor } kind; int id; };
+  struct Ref { enum Kind { body, joint, actuator, sensor, device } kind; int id; };  // device: id = slot in dev_->slots
   struct Loc { double* p; int n; bool read_only; };
   bool locate(const Ref& r, const std::string& attr, Loc& loc) const;
   bool is_servo(int a) const;  // actuator a is a position servo: kp/kv are settable
@@ -55,6 +57,7 @@ class MujocoSolver final : public Solver {
   mjData* d_;
   std::shared_ptr<mjSpec> spec_;  // null until needed in a solver rebuilt from a replay-log blob
   std::string spec_xml_;
+  std::unique_ptr<devs::Devices> dev_;  // from the model's "napl.devices" custom text; null = plain mj_step
   bool diverged_ = false;
   std::uint64_t structure_ = 0;  // hash of the prim registry + sizes: a snapshot only restores onto the same structure
   std::vector<Prim> prims_;

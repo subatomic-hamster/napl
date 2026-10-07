@@ -1,0 +1,26 @@
+<!-- Servo with gear backlash: the gear output joint "out" (encoder + motor) carries the link through the intermediate hinge
+     "play" (limited +-0.05 rad = the backlash b). The link is a 0.05 kg point mass 0.5 m from the horizontal axis, so
+     gravity (0.245 N m) pushes it against the +b stop; the servo holds the gear output at 0. -->
+<mujoco model="servo_backlash">
+  <compiler angle="radian"/>
+  <option timestep="0.001"/>
+  <worldbody>
+    <body name="gear" pos="0 0 1">
+      <joint name="out" type="hinge" axis="0 1 0"/>
+      <geom type="sphere" size="0.005" mass="0.01" contype="0" conaffinity="0"/>
+      <body name="link">
+        <joint name="play" type="hinge" axis="0 1 0" limited="true" range="-0.05 0.05"/>
+        <geom type="sphere" size="0.01" pos="0.5 0 0" mass="0.05" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "bench", "node": 1, "voltage": 12, "r_series": 0.05}],
+      "servos": [{"name": "s1", "node": 1, "joint": "out", "backlash_joint": "play",
+                  "motor": {"kv": 2100, "r20": 4.4, "i0": 0.05, "rotor_inertia": 5e-8, "w_s": 50, "c_th": 10, "r_th": 15},
+                  "gear_ratio": 345, "efficiency": 0.7, "encoder_cpr": 4096, "firmware_hz": 100,
+                  "p": 32, "i": 2, "d": 32, "pid_scale": 8192, "deadband": 0, "max_torque": 1000}]
+    }'/>
+  </custom>
+</mujoco>

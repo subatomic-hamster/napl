@@ -1,0 +1,12 @@
+<!-- 300 Hz at dt = 1 ms is 3.33 ticks per sample: a load error. -->
+<mujoco model="bad_sensor_rate">
+  <option timestep="0.001"/>
+  <worldbody>
+    <body name="b" pos="0 0 1"><geom type="sphere" size="0.01" mass="0.1"/><site name="s"/></body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "imus": [{"name": "imu_bad", "site": "s", "rate_hz": 300, "gyro": {}, "accel": {}}]
+    }'/>
+  </custom>
+</mujoco>

@@ -1,0 +1,34 @@
+<!-- Barometer / magnetometer / GNSS on known geometry, zero gravity, noise off unless said.
+     "post" is welded to the world at (30, -20, 100) m, yaw 40 deg, its site 0.5 m up (site z = 100.5 m). Environment:
+     origin altitude 300 m, so the barometer sits at ISA altitude 400.5 m. GNSS origin lat0 47.3769, lon0 8.5417, alt0 408.
+     "mover" is a free body at (0, 0, 50) moving at (3, 4, 5) m/s with a yaw rate of 2 rad/s (set qvel by hand); its site
+     is 0.5 m ahead on the body x axis, so the site velocity is (3, 5, 5) m/s. Two receivers on it: g0 without latency,
+     g5 at 100 Hz with 0.05 s latency (5 samples). -->
+<mujoco model="sens_static">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="post" pos="30 -20 100" euler="0 0 40">
+      <geom type="box" size="0.05 0.05 0.05" mass="0.1" contype="0" conaffinity="0"/>
+      <site name="sp" pos="0 0 0.5"/>
+    </body>
+    <body name="mover" pos="0 0 50">
+      <freejoint name="fj"/>
+      <geom type="sphere" size="0.05" mass="1" contype="0" conaffinity="0"/>
+      <site name="sm" pos="0.5 0 0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "environments": [{"name": "air", "origin_alt": 300}],
+      "baros": [{"name": "baro", "site": "sp", "rate_hz": 100},
+                {"name": "baro_q", "site": "sp", "rate_hz": 100, "bias": 12.5, "resolution": 10}],
+      "mags": [{"name": "mag", "site": "sp", "rate_hz": 100, "earth_field": [2.1e-5, 0.4e-5, -4.3e-5]},
+                {"name": "mag_b", "site": "sp", "rate_hz": 100, "earth_field": [2.1e-5, 0.4e-5, -4.3e-5],
+                 "bias": [1e-6, -2e-6, 3e-6]}],
+      "gnss_receivers": [
+        {"name": "g_post", "site": "sp", "rate_hz": 100, "lat0": 47.3769, "lon0": 8.5417, "alt0": 408},
+        {"name": "g0", "site": "sm", "rate_hz": 100, "lat0": 47.3769, "lon0": 8.5417, "alt0": 408},
+        {"name": "g5", "site": "sm", "rate_hz": 100, "lat0": 47.3769, "lon0": 8.5417, "alt0": 408, "latency_s": 0.05}]
+    }'/>
+  </custom>
+</mujoco>
