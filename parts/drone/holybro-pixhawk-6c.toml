@@ -101,6 +101,46 @@ unit = "1"
 src = "S2"
 fidelity = "datasheet"
 
+# ---- Supply current. Holybro publishes NO power consumption for the Pixhawk 6C (technical-specification and overview pages list only
+# the 6 V maximum input and the 1.5 A output-port current limiters). A DERIVED sum of the component datasheet currents is recorded
+# instead (sources S4-S6 are the chip datasheets). Not included: the IMU heater resistors (power unpublished), LEDs, buzzer / RC / servo
+# rail circuitry, regulator quiescent current, and any peripheral the firmware leaves unused.
+[params.h743_idd_run_480mhz_all_peripherals]
+value = 0.226
+unit = "A"
+src = "S4"
+fidelity = "datasheet"
+
+[params.icm42688_idd_6axis_ln]
+value = 0.00088
+unit = "A"
+src = "S5"
+fidelity = "datasheet"
+
+[params.bmi088_idd_gyro_accel_normal]
+value = 0.00515
+unit = "A"
+src = "S6"
+fidelity = "datasheet"
+
+[params.f103_io_mcu_idd]
+value = 0.030
+unit = "A"
+fidelity = "estimated"
+rationale = "IO co-processor STM32F103 at 72 MHz (Holybro spec: 'IO Processor: STM32F103 ... 72MHz'). The ST datasheet DS5319 could not be fetched in this session (st.com blocks the fetch tool); a search-engine summary of its 'Run mode, code from Flash' table gave about 30 mA at 72 MHz with all peripherals disabled and 45 mA with all enabled (maximum values at 85 degC, not typical). 30 mA is used: an unverified second-hand figure, hence estimated."
+
+[params.supply_current_typ]
+value = 0.26203
+unit = "A"
+fidelity = "derived"
+derivation = "Sum at the 3.3 V rail: STM32H743 Run mode at 480 MHz, VOS0, all peripherals enabled, typ 226 mA (h743_idd_run_480mhz_all_peripherals; DS12110 Table 129, a CoreMark workload, supply voltage not printed in the table row, 3.3 V assumed) + F103 30 mA (estimated) + ICM-42688-P 0.88 mA + BMI088 5.15 mA (5 mA gyro + 0.15 mA accel) = 262.0 mA. Taken as the 5 V input current by assuming the 5 V to 3.3 V conversion is a linear regulator (same current in and out; a buck would draw about 3.3/5/eta of it, i.e. 0.7-0.8x): the regulator type of the 6C is not published, so this is the high-side assumption."
+
+[params.supply_current_typ_tol]
+value = 0.08
+unit = "A"
+fidelity = "estimated"
+rationale = "Spread of the derivation: the 'all peripherals disabled' typ is 148 mA vs 226 mA enabled (DS12110 Table 129), PX4 workload is not CoreMark, the regulator may be a buck (0.7-0.8x), and unmodelled heater / LED / port loads add. About +-30 %."
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/autopilot/pixhawk-6c/technical-specification.md"
@@ -121,3 +161,24 @@ url = "https://docs.holybro.com/autopilot/pixhawk-6c/overview.md"
 title = "Pixhawk 6C Overview (Holybro docs)"
 accessed = "2026-10-06"
 quote = "Newly designed integrated vibration isolation system to filter out high frequency vibration and reduce noise to ensure accurate readings"
+
+[[sources]]
+id = "S4"
+url = "https://xdevs.com/doc/STM/stm32h743bi.pdf"
+title = "STM32H742xI/G STM32H743xI/G datasheet DS12110 Rev 7 (xdevs.com mirror of the ST datasheet; st.com blocks the fetch)"
+accessed = "2026-10-07"
+quote = "Table 129. Typical and maximum current consumption in Run mode, code with data processing running from ITCM, LDO regulator ON ... All peripherals enabled ... VOS0 480 226 348 439 550 ... IDD Supply current in Run mode mA (columns: fHCLK MHz, Typ, Max Tj = 25/85/105/125 degC)"
+
+[[sources]]
+id = "S5"
+url = "https://pcbsync.com/wp-content/uploads/2026/07/ICM-42688-P-Datasheet-TDK.pdf"
+title = "ICM-42688-P datasheet DS-000347 Rev 1.6 (third-party mirror of the TDK datasheet)"
+accessed = "2026-10-07"
+quote = "SUPPLY CURRENTS | Low-Noise Mode 6-Axis Gyroscope + Accelerometer 0.88 mA (VDD = 1.8 V, TA = 25 C)"
+
+[[sources]]
+id = "S6"
+url = "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi088-ds001.pdf"
+title = "BMI088 data sheet Rev 1.9 (Bosch Sensortec), Tables 2 and 3"
+accessed = "2026-10-07"
+quote = "Total Supply Current in Normal mode IDD VDD = VDDIO =3.0V, 25C, gFS4g 150 uA (accelerometer) ... Supply Current in Normal Mode IDD VDD = VDDIO = 3.0V, 25C, ODR =1kHz 5 mA (gyroscope)"

@@ -7,15 +7,20 @@
 #   m1 = front-right (arm4), CCW     m2 = rear-left (arm2), CCW     m3 = front-left (arm1), CW     m4 = rear-right (arm3), CW
 # (CCW/CW seen from above). Instances: conK / tubeK / motK / propK / escK all belong to motor K.
 #
-# Groups (for mass budgets / the published-weight target): frame = plates, arm connectors, arm tubes, landing gear, rail rods and the
-# arm-clamp bolts; propulsion = motors, props, ESCs and the motor screws; power = battery, PM02, PDB (+ their screws, wires);
-# avionics = Pixhawk 6C, GPS, SiK radio.
+# Groups (for mass budgets / the published-weight target): frame = plates, arm connectors, arm tubes, landing gear (legs incl. tee
+# connectors, foam grips, end caps), rail rods, hangers, platform board, battery mount (board, clips, pad, straps), GPS mast, the arm-clamp
+# and landing-gear bolts and the lumped leftover-screw kit; propulsion = motors, props, ESCs and the motor screws; power = battery, PM02,
+# PDB (+ their screws, wires); avionics = Pixhawk 6C, GPS, SiK radio.
 #
-# NOT modelled (no part / no mass / no geometry in the library): platform board (#31109), battery mounting board (#31108) + 2 battery
-# straps, 8 rail hangers + rubber ring gaskets, slide-bar clips, landing-gear tee connectors + foam grips, XT60 holder, the 4 nylon
-# standoffs M3x5 under the PDB (their 5 mm is folded into the bottom-plate 'pdb' port), GPS mast + its 4 x M3x10 + locknut, M2.5 screws
-# (iso4762-m2.5x6 x24, x10 x8, x12 x8, iso10642-m2.5x6 x12: the research doc does not tie them to a mate), M3x8 x8 (step 4), prop
-# retainers, zip ties / heat shrink, XT60/XT30 connector contact resistance, the receiver (not in the kit).
+# Frame-kit items modelled as mass-only seats (STEP positions, see the bottom-plate ports): 8 hangers (clamp + rubber ring), platform
+# board (#31109), battery mount (#31108 board + 2 slide-bar clips + pad + 2 straps), GPS mast, and the kit screws the guide counts
+# but this file does not tie to a mate (M2.5 x52 in several lengths, GPS-mount M3x10 + locknut, the 4 nylon standoffs under the PDB:
+# part holybro-x500v2-hardware-kit, one lumped mass).
+# NOT modelled: XT60 holder (guide part 22: no part file, STEP solids X500-TAO-XT60 / TOU-XT60H-M-14AWG exist), the optional
+# depth-camera mount, prop retainers, zip ties / heat shrink, XT60/XT30 connector contact resistance, the receiver (not in the kit),
+# the IMU heater power.
+# GPS: the real mast stands on the platform board 99 mm AFT of the plate centre (STEP), so the GPS now sits at x = -0.099 m (was an
+# estimated -0.040 m on the top-plate 'gps_mast' port, which is no longer used).
 
 [assembly]
 name = "x500v2"
@@ -95,6 +100,67 @@ group = "frame"
 [[instances]]
 id = "rod_r"
 part = "holybro-x500v2-rail-rod"
+group = "frame"
+
+# Rest of the frame kit (mass-only seats on the bottom plate, positions from the STEP, see the bottom-plate ports)
+[[instances]]
+id = "hanger1"
+part = "holybro-x500v2-hanger"
+group = "frame"
+
+[[instances]]
+id = "hanger2"
+part = "holybro-x500v2-hanger"
+group = "frame"
+
+[[instances]]
+id = "hanger3"
+part = "holybro-x500v2-hanger"
+group = "frame"
+
+[[instances]]
+id = "hanger4"
+part = "holybro-x500v2-hanger"
+group = "frame"
+
+[[instances]]
+id = "hanger5"
+part = "holybro-x500v2-hanger"
+group = "frame"
+
+[[instances]]
+id = "hanger6"
+part = "holybro-x500v2-hanger"
+group = "frame"
+
+[[instances]]
+id = "hanger7"
+part = "holybro-x500v2-hanger"
+group = "frame"
+
+[[instances]]
+id = "hanger8"
+part = "holybro-x500v2-hanger"
+group = "frame"
+
+[[instances]]
+id = "platform"
+part = "holybro-x500v2-platform-board"
+group = "frame"
+
+[[instances]]
+id = "batmount"
+part = "holybro-x500v2-battery-mount"
+group = "frame"
+
+[[instances]]
+id = "mast"
+part = "holybro-x500v2-gps-mast"
+group = "frame"
+
+[[instances]]
+id = "hw"
+part = "holybro-x500v2-hardware-kit"
 group = "frame"
 
 # Propulsion
@@ -428,7 +494,7 @@ b = "fc.base"
 
 [[mates]]
 name = "gps-seat"
-a = "top.gps_mast"
+a = "mast.tray"
 b = "gps.base"
 
 [[mates]]
@@ -436,16 +502,81 @@ name = "sik-seat"
 a = "top.sik"
 b = "sik.base"
 
-# Landing gear (the tee connectors / clamps are not modelled: placeholder interface).
+# Landing gear: pole top end 6.5 mm below the plate underside inside the upper clamp, 4 x M3x8 per leg (guide step 4 'Socket Cap Screw
+# M3*8 8pcs') screwed up through the plate into the clamp (tapped); the tee connectors, foam grips and end caps are in the leg part.
 [[mates]]
 name = "leg-front"
 a = "bottom.leg_front"
 b = "leg_f.plate"
+fasteners = { part = "iso4762-m3x8", count = 4 }
 
 [[mates]]
 name = "leg-rear"
 a = "bottom.leg_rear"
 b = "leg_r.plate"
+fasteners = { part = "iso4762-m3x8", count = 4 }
+
+# Hangers (guide parts 13 + 14, x8), platform board (#31109), battery mount (#31108 board + clips + pad + straps), GPS mast, leftover
+# screws: mass-only seats at their STEP positions; their fasteners are in the hardware kit.
+[[mates]]
+name = "hanger1-seat"
+a = "bottom.hanger1"
+b = "hanger1.seat"
+
+[[mates]]
+name = "hanger2-seat"
+a = "bottom.hanger2"
+b = "hanger2.seat"
+
+[[mates]]
+name = "hanger3-seat"
+a = "bottom.hanger3"
+b = "hanger3.seat"
+
+[[mates]]
+name = "hanger4-seat"
+a = "bottom.hanger4"
+b = "hanger4.seat"
+
+[[mates]]
+name = "hanger5-seat"
+a = "bottom.hanger5"
+b = "hanger5.seat"
+
+[[mates]]
+name = "hanger6-seat"
+a = "bottom.hanger6"
+b = "hanger6.seat"
+
+[[mates]]
+name = "hanger7-seat"
+a = "bottom.hanger7"
+b = "hanger7.seat"
+
+[[mates]]
+name = "hanger8-seat"
+a = "bottom.hanger8"
+b = "hanger8.seat"
+
+[[mates]]
+name = "platform-seat"
+a = "bottom.platform"
+b = "platform.seat"
+
+[[mates]]
+name = "mast-seat"
+a = "platform.mast"
+b = "mast.base"
+
+[[mates]]
+name = "batmount-seat"
+a = "bottom.battery_mount"
+b = "batmount.seat"
+
+[[mates]]
+name = "hardware-seat"
+a = "bottom.hardware"
+b = "hw.seat"
 
 # Rail rods under the bottom plate; the battery hangs on both rods (left rod places it, right rod is a closure).
 [[mates]]
@@ -728,6 +859,37 @@ a = "power_in"
 b = "out4"
 map = "pdb_path"
 
+# Avionics load, seen by the battery through the PM02 5.2 V BEC. The schema's Load is I = g V - i0 (constant conductance and/or constant
+# current); there is no constant-power or BEC-converter device, and the 5 V rail is not a node of this model (pm02.fc_power is a source port
+# no battery path reaches). So each avionics item is a CONSTANT-CURRENT sink on the battery side of the PM02 (node pm02.power_in, i.e. the
+# pack voltage minus the XT60 lead drop), of the value I_bat = 5.2 V x I_5V / (eta x V_nom): rail voltage x the item's 5 V current (part
+# params) over the BEC efficiency (pm02 bec_efficiency 0.85, estimated) and the pack nominal voltage (tattu v_nominal 14.8 V). Error
+# introduced: a real regulated load is constant POWER, so its battery current rises as the pack sags (+/- 10 % at 16.4 V full / 14.8 V
+# nominal, +23 % at 12 V empty); with the load only ~0.15 A against 15-20 A of motor current at hover this is a < 0.03 A effect.
+# NOT included: IMU heater resistors (power unpublished), the PM02's own quiescent current, signal-rail currents of the ESC PWM outputs.
+# The three terms (Pixhawk 6C derived from chip datasheets, M8N from the u-blox datasheet, SiK 50 % TX duty) are in the part params
+# supply_current_typ / supply_current_typ / supply_current_avg; each `set` below spells the arithmetic.
+[[devices]]
+type = "load"
+name = "load_fc"
+instance = "pm02"
+port = "power_in"
+set = { i0 = { value = -0.1083, unit = "A", fidelity = "derived", derivation = "Pixhawk 6C: 5.2 V (pm02 bec_voltage) x 0.26203 A (fc supply_current_typ: STM32H743 226 mA + F103 30 mA + ICM-42688-P 0.88 mA + BMI088 5.15 mA, chip datasheets) / (0.85 (pm02 bec_efficiency, estimated) x 14.8 V (tattu v_nominal)) = 0.10831 A out of the battery. Negative i0 = a constant-current sink of that size." } }
+
+[[devices]]
+type = "load"
+name = "load_gps"
+instance = "pm02"
+port = "power_in"
+set = { i0 = { value = -0.0124, unit = "A", fidelity = "derived", derivation = "M8N GPS: 5.2 V x 0.030 A (gps supply_current_typ: u-blox NEO-M8N tracking, continuous, GPS + GLONASS, 30 mA @ 3 V) / (0.85 x 14.8 V) = 0.01240 A out of the battery. Holybro's ceiling 'Less than 200mA @ 5V' would give 0.0827 A." } }
+
+[[devices]]
+type = "load"
+name = "load_sik"
+instance = "pm02"
+port = "power_in"
+set = { i0 = { value = -0.0258, unit = "A", fidelity = "derived", derivation = "SiK radio V3: 5.2 V x 0.0625 A (sik supply_current_avg = (25 mA receive + 100 mA transmit at 20 dBm) / 2, 50 % TX duty assumed) / (0.85 x 14.8 V) = 0.02583 A out of the battery." } }
+
 # ESCs. Thermal: c_th / r_th are unpublished. Only data: the vendor thrust table note "Motor temperature is motor surface temperature
 # @100% throttle running 10mins" = 80 degC (holybro-2216-kv920 [tables.thrust_test]); at that row the motor draws 16.37 A through
 # 0.115 ohm = 30.8 W of copper loss, so (80 - 25) K / 30.8 W = 1.8 K/W surface-to-ambient (ambient not stated; 25 degC = the model's
@@ -878,10 +1040,21 @@ set ={ origin_alt = { value = 408.0, unit = "m", fidelity = "estimated", rationa
 #    the specification (wheelbase, plates, gear height, plate spacing, motor pattern) describes the frame.
 #  * shop page: the same list appears after "X500 V2 ARF Kit (SKU30125): X500 V2 Frame Kit With Preinstalled Items: Motors, ESCs, 1045
 #    Propellers, Power Distribution Board" and after "X500 V2 Frame Kit Details (SKU30120)". Neither page states what the 610 g covers.
-# Scope chosen from that evidence: the FRAME KIT contents (plates, arms, landing gear, rail rods; group "frame"), not the preinstalled
-# motors / ESCs / props / PDB, which the kit pages list separately as "Preinstalled Items" of the ARF kit. This is an interpretation: the
-# vendor never says "frame kit weight". The modelled frame group omits the platform board, battery mounting board and straps, hangers,
-# tee connectors, foam grips and most hardware (see the header), so a model BELOW the target is expected; the gap is reported, not tuned.
+# Scope chosen from that evidence: the FRAME KIT contents (plates, arms, landing gear, rail rods, hangers, platform and battery boards,
+# mast, hardware; group "frame"), not the preinstalled motors / ESCs / props / PDB, which the kit pages list separately as "Preinstalled
+# Items" of the ARF kit. The vendor never says "frame kit weight" (an aggregator, air-rc.com, even prints 'Weight: 610 g' for the ARF kit
+# from the same copied text), so the scope is decided by a mass check against the CAD (P1e, 2026-10-07), not by wording:
+#  * frame-kit content, CAD volumes x estimated densities (this file's frame group): 0.553 kg +- 0.106 (all estimates, nothing weighed);
+#  * the same plus 4 motors (4 x 64 g datasheet, holybro-2216-kv920): 0.809 kg = 33 % ABOVE 610 g, the ESCs (4 x 21 g) and the PDB would
+#    add 0.10 kg more. With the frame group at 0.379 kg (the N3' state, missing ~0.17 kg of hardware) the 'frame + motors' sum was
+#    0.635 kg, which only looked like a match because the frame was incomplete.
+#  * the kit's shipping weights (Shopify variant weights on the shop page: frame kit 800 g, ARF kit 1500 g) leave 190 g for packaging,
+#    tools and manual on top of 610 g for the frame kit, and the ARF's 1500 g minus its 800 g frame kit shipping weight is the
+#    ~700 g of motors, ESCs, props and PDB (+ packaging) added on top.
+# So 610 g is consistent with the frame kit (modelled 0.553 kg, gap -57 g = -9.3 %, inside the model's own tolerance) and not with a
+# scope that includes the motors. The gap is reported, not tuned: the largest remaining uncertainties are the foam grips (density
+# unknown: 14.6 g carried at 200 kg/m3, +-100 %), the battery straps (not in the STEP, 12 g estimated) and the unknown density / material of the platform and battery
+# boards and the plastics.
 [[targets]]
 name = "frame kit published weight (Holybro 'Weight: 610g')"
 groups = ["frame"]

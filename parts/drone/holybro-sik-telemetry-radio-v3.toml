@@ -22,6 +22,12 @@ unit = "kg"
 src = "S1"
 fidelity = "datasheet"       # same as mass_with_antenna ("Weight 23.5g w/ antenna"); the builder reads 'mass'
 
+[params.supply_current_avg]
+value = 0.0625
+unit = "A"
+fidelity = "derived"
+derivation = "Average of the published receive current 25 mA and transmit current 100 mA at 20 dBm (receive_current, transmit_current_20dbm; Holybro S1, @5 V), i.e. a 50 % transmit duty: (25 + 100) / 2 = 62.5 mA. The 50 % duty is an unsourced assumption (a two-way link that splits airtime evenly between the two radios); the radio ships in 100 mW (20 dBm) and 500 mW variants and the kit's variant is not stated, so the 100 mW figures are used."
+
 [geometry]
 # Part frame: origin at the centre of the underside, x along the 53 mm length, z up. Antenna not included.
 shape = "box"

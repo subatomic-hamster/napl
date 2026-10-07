@@ -130,7 +130,7 @@ ref = [1.0, 0.0, 0.0]
 symmetry = 1
 thickness = 0.0
 fidelity = "estimated"
-rationale = "GPS seat at the top of an UNMODELLED mast (no mast part exists; gap). x = -0.040 m (aft of the plate centre; the 0.26 m GPS cable, holybro-m8n-gps cable_length, easily reaches the FC), y = 0. Height 0.080 m above the plate top face (0.001) is an assumption: no published mast length (a web search for the Holybro X500 V2 GPS mount pole length found nothing, 2026-10-07; the GPS file's 'height' excludes the mount pole). Resolve with the STEP / guide GPS-mount drawing. The 4 x M3x10 + locknut GPS mount hardware (iso7045-m3x10, din985-m3-locknut) is not mated."
+rationale = "SUPERSEDED (P1e): x500v2.toml now seats the GPS on holybro-x500v2-gps-mast, which stands on the platform board 99 mm aft of the plate centre (STEP); this port is unused. Original estimate: GPS seat at the top of an UNMODELLED mast (no mast part existed then). x = -0.040 m (aft of the plate centre; the 0.26 m GPS cable, holybro-m8n-gps cable_length, easily reaches the FC), y = 0. Height 0.080 m above the plate top face (0.001) is an assumption: no published mast length (a web search for the Holybro X500 V2 GPS mount pole length found nothing, 2026-10-07; the GPS file's 'height' excludes the mount pole). Resolve with the STEP / guide GPS-mount drawing. The 4 x M3x10 + locknut GPS mount hardware (iso7045-m3x10, din985-m3-locknut) is not mated."
 
 [[ports]]
 name = "sik"

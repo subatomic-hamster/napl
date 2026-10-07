@@ -22,6 +22,7 @@ current_burst      = { value = 100.0, unit = "A", src = "S1", fidelity = "datash
 current_sense_max  = { value = 120.0, unit = "A", src = "S1", fidelity = "datasheet" }
 bec_voltage        = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
 bec_current_max    = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+bec_efficiency     = { value = 0.85, unit = "1", fidelity = "estimated", rationale = "Efficiency of the 5.2 V / 3 A BEC is not published on the Holybro pages (S1, S2). 0.85 is a typical figure for a small step-down regulator converting ~15 V to 5 V at a fraction of its rated current; the real value at the ~0.35 A avionics load could be 0.7-0.9 (a linear regulator would be 5.2/15 = 0.35)." }
 mass               = { value = 0.020, unit = "kg", src = "S1", fidelity = "datasheet" }     # listed "Weight: 20g"
 preinstalled_wire  = { value = "12 AWG", unit = "text", src = "S2", fidelity = "datasheet" }
 preinstalled_connector = { value = "XT60", unit = "text", src = "S2", fidelity = "datasheet" }

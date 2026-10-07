@@ -76,9 +76,28 @@ title = "Standard M10/M9N/M8N GPS Overview (Holybro docs), specification table"
 accessed = "2026-10-06"
 quote = "Input Voltage 4.7-5.2V ... Antenna 25 x 25 x 4 mm ceramic patch antenna ... Power consumption Less than 200mA @ 5V ... Dimension (V1) φ50 x14.4 mm ... Weight (V1) 32g ... Cable Length 26cm (42cm cable purchase separately) ... Default Baud Rate 115200"
 
+[params.receiver_icc_tracking_continuous]
+value = 0.030
+unit = "A"
+src = "S3"
+fidelity = "datasheet"
+
+[params.supply_current_typ]
+value = 0.030
+unit = "A"
+fidelity = "derived"
+derivation = "u-blox NEO-M8N tracking, continuous mode, GPS + GLONASS: ICC 30 mA typical, 'Estimated at 3 V' (receiver_icc_tracking_continuous, S3 Table 11), taken as the 5 V input current by assuming the module's 5 V to ~3 V regulator is linear (a buck would draw about 0.6x). The Holybro compass chip (IST8310, sub-mA) and any LED are not added. Holybro's own bound 'Less than 200mA @ 5V' (supply_current_max) is a ceiling, not a typical figure: using it would put the battery-side load about 6x higher."
+
 [[sources]]
 id = "S2"
 url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
 title = "PX4 Development Kit - X500v2 (Holybro docs), kit contents"
 accessed = "2026-10-06"
 quote = "M8N GPS Module"
+
+[[sources]]
+id = "S3"
+url = "https://content.u-blox.com/sites/default/files/NEO-M8-FW3_DataSheet_UBX-15031086.pdf"
+title = "NEO-M8 u-blox M8 concurrent GNSS modules Data sheet UBX-15031086 R14, Table 11 Indicative power requirements at 3.0 V"
+accessed = "2026-10-07"
+quote = "ICC Tracking (continuous mode) NEO-M8N 30 (Typical GPS & GLONASS) 23 (Typical GPS) mA Estimated at 3 V"

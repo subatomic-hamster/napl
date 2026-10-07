@@ -16,6 +16,18 @@ mating_cycles       = { value = 100, unit = "1", src = "S1", fidelity = "datashe
 temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
 temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
 
+[params.mass]
+value = 0.0007
+unit = "kg"
+fidelity = "estimated"
+rationale = "Amass publishes no mass on the XT30APW-M page (fetched 2026-10-07: electrical and mechanical SPEC table has no weight). The only figure found is a retailer listing of 'Original AMASS XT30' wire-solder connectors (vetco.net VUPN645, S2): 0.7 g male. That is the XT30 plug/receptacle family, not the exact APW-M variant (a right-angle PCB-style part), so it is tagged estimated; XT30 connectors are all about 1 g."
+
+[params.mass_tol]
+value = 0.0003
+unit = "kg"
+fidelity = "estimated"
+rationale = "0.3 g (~+-40 %): the retailer figure is for a different XT30 variant, and the listing's own numbers do not add up exactly (0.7 g male + 0.9 g female against '1.7g (complete set)')."
+
 [[ports]]
 name = "male"
 kind = "power"
@@ -32,3 +44,10 @@ url = "https://www.china-amass.net/xt30apw-m-product/"
 title = "AMASS XT30APW-M product page (Amass), electrical and mechanical SPEC"
 accessed = "2026-10-07"
 quote = "Rated Current 20A MAX（△≤85K） Rated Voltage ≤80V DC Insulation Resistance ≥2000MΩ Contact Resistance ≤1.2mΩ Mech. Char. Service Life 100 cycles Envi. Perf. Operating Temperature -20℃ to 120℃"
+
+[[sources]]
+id = "S2"
+url = "https://vetco.net/products/vupn645_xt30_connector_male-female_pair"
+title = "XT30 connector male/female pair, 'Original AMASS XT30 design' (Vetco retailer listing VUPN645)"
+accessed = "2026-10-07"
+quote = "Weight: | 0.7g (male), 0.9g (female), 1.7g (complete set)"

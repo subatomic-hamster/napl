@@ -19,6 +19,18 @@ temp_max            = { value = 378.15, unit = "K", src = "S1", fidelity = "data
 wire_awg_min        = { value = 30, unit = "AWG", src = "S1", fidelity = "datasheet" }
 wire_awg_max        = { value = 26, unit = "AWG", src = "S1", fidelity = "datasheet" }
 
+[params.mass]
+value = 0.00015
+unit = "kg"
+fidelity = "estimated"
+rationale = "JST publishes no mass (eGH.pdf has none; distributor pages found list none). Cable-side plug = housing GHR-06V-S + 6 crimp contacts SSHL-002T-P0.2. Estimate from the JST drawing: housing envelope 8.75 (B, 'GHR-06V-S 6.25 8.75') x 4.15 x 5.7 mm = 207 mm3, assumed ~35 % solid (latch, walls) PA (heat-resistant polyamide per the datasheet, 1140 kg/m3 as PA66) = 0.083 g, plus six tin-plated copper-alloy contacts of about 9 mg each (assumed ~4.8 mm x 1 mm x 0.2 mm of 8900 kg/m3) = 0.05 g: 0.14 g, rounded to 0.15 g. The solid fraction and contact size are assumptions."
+
+[params.mass_tol]
+value = 0.0001
+unit = "kg"
+fidelity = "estimated"
+rationale = "+-0.1 g (about +-65 %): the solid fraction of the housing and the contact volume are assumptions; the mass is negligible against any airframe or arm budget."
+
 [[ports]]
 name = "housing"
 kind = "power"

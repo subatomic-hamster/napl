@@ -109,7 +109,7 @@ def test_rests_on_landing_gear_at_zero_throttle(built):
     p2 = s.query("/world/bottom", "pos")[0]
     speed = np.linalg.norm(p2 - p1) / 0.010
     # The builder places the lowest collision point exactly on the floor, so the only motion is the sinking into the soft
-    # contact (MuJoCo default solref 0.02 s: settled within ~0.1 s) under 1.4 kg. Measured on hfbox: 0.23 mm of sinking and
+    # contact (MuJoCo default solref 0.02 s: settled within ~0.1 s) under 1.55 kg. Measured on hfbox (1.4 kg build): 0.23 mm and
     # a speed of ~1e-16 m/s after 1 s. Bounds: 1 mm (4x the measured sinking, 4900x below the 4.9 m of a free fall) and 1 mm/s.
     assert abs(p1[2] - z0) < 1e-3, (z0, p1[2])
     assert np.linalg.norm(p1[:2]) < 1e-3
@@ -117,13 +117,18 @@ def test_rests_on_landing_gear_at_zero_throttle(built):
     for k in range(1, 5):  # unpowered, no airflow: props at rest
         assert abs(s.query(f"/devices/rotor{k}", "omega")[0][0]) < 1e-3
         assert abs(s.query(f"/devices/esc{k}", "omega")[0][0]) < 1e-3
-    # no load on the pack (ESCs at zero throttle are open phase; no avionics Load is modelled: the parts publish no
-    # Pixhawk current draw): terminal voltage = OCV(soc0 = 1) x 4 cells
+    # Only the avionics load is on the pack (ESCs at zero throttle are open phase): three constant-current Loads (Pixhawk 6C, M8N,
+    # SiK, seen through the PM02 BEC, 0.1465 A in total, see assemblies/x500v2.toml). Terminal voltage = OCV(soc0 = 1) x 4 cells minus
+    # the drop of that current over the pack: after 1 s the RC branch is 26 % charged (tau 3.3 s), so I r0 < drop < I (r0 + r1 + 5 mOhm)
+    # (the 5 mOhm covers the XT60 lead and PM02 board). Measured on hfbox: 3.27 mV (it was < 1 mV when no avionics load existed).
     dev = json.loads(ET.parse(xml_path).getroot().find("custom/text").get("data"))
     ocv_full = dev["batteries"][0]["ocv_v"][-1]
     assert dev["batteries"][0]["ocv_soc"][-1] == 1.0
+    i_av = -sum(ld["i0"] for ld in dev["loads"])
+    assert abs(i_av - 0.1465) < 1e-3, i_av
+    r0, r1 = dev["batteries"][0]["r0"], dev["batteries"][0]["r1"]
     v = s.query("/devices/battery", "voltage")[0][0]
-    assert abs(v - ocv_full) < 1e-3, (v, ocv_full)
+    assert i_av * r0 < ocv_full - v < i_av * (r0 + r1 + 0.005), (v, ocv_full, i_av)
     # expected from the referenced OCV table (Chen 2006 cells charged to 4.1 V: 4 x 4.103 = 16.412 V), not a hard-coded 16.8
     lib = Library(PARTS)
     doc = design.load(ASM).doc
@@ -155,7 +160,9 @@ def test_all_four_rotors_push_up_and_yaw_cancels(built):
         ups.append(
             s.query(f"/devices/rotor{k}", "thrust")[0][0] * axis_z
         )  # thrust is signed along the joint axis
-    assert min(ups) > 4.0, ups  # N each: vehicle weight is ~13.5 N, so 4 x 5 N lifts it
+    assert min(ups) > 4.0, (
+        ups
+    )  # N each: vehicle weight is ~15.2 N (1.547 kg), so 4 x 4 N just lifts it
     assert max(ups) - min(ups) < 0.05 * np.mean(ups), ups
     assert s.query("/world/bottom", "pos")[0][2] > z0 + 1e-3  # it lifts off the gear
     qw, qx, qy, qz = s.query("/world/bottom", "quat")[0]
@@ -190,15 +197,58 @@ def test_mass_budget_and_published_weight_comparison(built):
     assert t["within"] == (abs(t["gap"]) <= t["tolerance"])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="real modelling gap: the modelled frame group (plates, arm connectors, arm tubes, landing gear, rail rods, arm bolts) "
-    "is 0.379 kg vs Holybro's 0.610 kg; the frame kit's platform board, battery mounting board + 2 straps, hangers, tee "
-    "connectors, foam grips and remaining hardware have no part files yet. Not tuned to fit.",
-)
 def test_frame_group_within_published_weight_tolerance(built):
+    """P1e: the frame group now holds the whole kit (platform board, battery mount, hangers, tee connectors, foam grips, GPS mast,
+    leftover screws): 0.553 kg vs Holybro's 0.610 kg, gap -57 g (-9.3 %). It passes on the model's own stated tolerance
+    (+-106 g, dominated by the foam grips and battery straps), so the nominal gap is asserted too: it must stay under the
+    sum-of-tolerances and under 15 % so the test cannot pass only because tolerances grow. Scope (frame kit, not motors) is argued
+    in the assembly's target comment."""
     _, report = built
-    assert _frame_target(report)["within"]
+    t = _frame_target(report)
+    assert t["within"]
+    assert -0.15 < t["gap_pct"] / 100 < 0, t["gap_pct"]
+    assert 0.5 < t["model"] < 0.61, t["model"]
+
+
+def test_landing_gear_height_matches_published(built):
+    """Plate underside to the lowest point of the legs: 216.1 mm in the STEP (foot tee bottom 215.0 mm) vs Holybro's 215 mm. It was
+    193.3 mm when the pole top sat on the plate, the cross bar on the pole end and the grips were not modelled."""
+    xml_path, _ = built
+    b = ET.parse(xml_path).getroot().find("worldbody").find("body[@name='bottom']")
+    z_plate_centre = float(
+        b.get("pos").split()[2]
+    )  # the builder puts the lowest collision point on z = 0
+    height = z_plate_centre - 0.001  # plate half-thickness
+    assert abs(height - 0.215) < 2e-3, height
+    assert abs(height - 0.2161) < 1e-4, height
+
+
+def test_avionics_load_follows_part_currents(built):
+    """The three BEC-side loads are 5.2 V x the part supply currents / (BEC efficiency 0.85 x 14.8 V nominal)."""
+    xml_path, report = built
+    lib = Library(PARTS)
+    doc = design.load(ASM).doc
+    part_of = {i["id"]: lib.get(i["part"]) for i in doc["instances"]}
+    v_bec = part_of["pm02"].value("bec_voltage")
+    eta = part_of["pm02"].value("bec_efficiency")
+    v_nom = part_of["bat"].value("v_nominal")
+    amps = {
+        "load_fc": part_of["fc"].value("supply_current_typ"),
+        "load_gps": part_of["gps"].value("supply_current_typ"),
+        "load_sik": part_of["sik"].value("supply_current_avg"),
+    }
+    dev = json.loads(ET.parse(xml_path).getroot().find("custom/text").get("data"))
+    loads = {ld["name"]: ld for ld in dev["loads"]}
+    assert set(loads) == set(amps)
+    for name, i5 in amps.items():
+        expect = v_bec * i5 / (eta * v_nom)
+        assert abs(-loads[name]["i0"] - expect) < 5e-5, (
+            name,
+            loads[name]["i0"],
+            expect,
+        )  # inputs rounded to 4 digits
+        assert loads[name].get("g", 0.0) == 0.0  # zero fields are omitted from the JSON
+    assert not report["unresolved"], report["unresolved"]
 
 
 # ---- 4. every geom maps to a real part -------------------------------------------------------------------------------------

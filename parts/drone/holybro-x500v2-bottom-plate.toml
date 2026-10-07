@@ -145,26 +145,32 @@ name = "leg_front"
 kind = "mech"
 type = "mount.x500v2-landing-gear"
 gender = "neutral"
-pos = [0.0, 0.060, -0.001]
+pos = [0.0, 0.057, -0.001]
 axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 thickness = 0.002
-fidelity = "estimated"
-rationale = "No document or recorded STEP value gives where the landing-gear poles attach (the real kit attaches them through nylon tee connectors and hardware not modelled here, see airframe doc 'Not modelled yet'). Assumed under the plate on the y axis at 60 mm from the centre (plate half-size 72 mm, leaves 12 mm margin to the edge; with the 59.4 mm outward lean of the pole the foot lands at y = 119 mm). z = -0.001 is the plate underside. Resolve with the STEP pole-top coordinates."
+holes = 4
+thread = "m3"
+hole_pos = [[0.0135, 0.014], [-0.0135, 0.014], [0.0135, -0.011], [-0.0135, -0.011]]
+fidelity = "derived"
+derivation = "STEP (x500v2-frame.step, OpenCascade): the pole top end centre is at z_STEP = +-57.0 mm (pole bbox z 49.2..124.3 mm, lean 17.5 deg, see holybro-x500v2-landing-gear), under the plate on the STEP z axis = this model's y axis, so y = 0.057 m (was an estimated 0.060). z = -0.001 is the plate underside. The 4 M3x8 screws per leg (guide step 4) are at x = +-13.5 mm and y = 14 mm inboard / 11 mm outboard of this point in the plate frame (hole_pos is in this port's frame: y' = -y here since ref = +x, axis = -z)."
 
 [[ports]]
 name = "leg_rear"
 kind = "mech"
 type = "mount.x500v2-landing-gear"
 gender = "neutral"
-pos = [0.0, -0.060, -0.001]
+pos = [0.0, -0.057, -0.001]
 axis = [0.0, 0.0, -1.0]
 ref = [-1.0, 0.0, 0.0]
 symmetry = 1
 thickness = 0.002
-fidelity = "estimated"
-rationale = "Mirror of leg_front (see there)."
+holes = 4
+thread = "m3"
+hole_pos = [[0.0135, 0.014], [-0.0135, 0.014], [0.0135, -0.011], [-0.0135, -0.011]]
+fidelity = "derived"
+derivation = "Mirror of leg_front (see there): the STEP legs are symmetric about the plate (pole top ends at z_STEP = +-57.0 mm)."
 
 # Rail-rod hanger seats: the port position is the rod axis (hangers and rubber ring gaskets are not modelled).
 [[ports]]
@@ -172,26 +178,174 @@ name = "rail_l"
 kind = "mech"
 type = "tube.10"
 gender = "female"
-pos = [0.0, 0.030, -0.021]
+pos = [0.0, 0.030, -0.014]
 axis = [1.0, 0.0, 0.0]
 ref = [0.0, 0.0, 1.0]
 symmetry = 360
 thickness = 0.0
-fidelity = "estimated"
-rationale = "Rods run fore-aft (x; STEP rod bbox 248 x 10 x 10 mm and the landing-gear cross bar also run along STEP x). 60 mm rod spacing (y = +-30 mm) leaves room for the 45 mm wide battery (tattu-4s-5200mah-35c) plus its board between the rods' hangers; z = -0.021 puts the rod axis 20 mm below the plate underside (assumed hanger height, hangers x8 are in the guide but unmodelled). None of the three is recorded in the STEP notes. Resolve with the STEP rod centre coordinates."
+fidelity = "derived"
+derivation = "STEP (x500v2-frame.step, OpenCascade): the rail rods (CARBON-FIBER-TUBE300, bbox 250 x 9.4 x 9.4 mm) run along STEP x at z_STEP = +-30.0 mm and y_STEP = -13.0 mm, i.e. 60 mm apart (y = +-0.030 here) and 13 mm below the plate underside (y_STEP = 0): z = -0.001 - 0.013 = -0.014 (was an estimated -0.021). The rod centre is 5 mm off the plate centre along x (x_STEP -120..+130 mm); ignored (x = 0)."
 
 [[ports]]
 name = "rail_r"
 kind = "mech"
 type = "tube.10"
 gender = "female"
-pos = [0.0, -0.030, -0.021]
+pos = [0.0, -0.030, -0.014]
 axis = [1.0, 0.0, 0.0]
 ref = [0.0, 0.0, 1.0]
 symmetry = 360
 thickness = 0.0
+fidelity = "derived"
+derivation = "Mirror of rail_l (see there)."
+
+# ---- Mass-only seats for the rest of the frame kit. Frame mapping from the Y-up STEP (x_s, y_s, z_s; plate underside y_s = 0) to this
+# model: x = -x_s, y = z_s, z = y_s - 0.001. The sign of x is an INFERENCE: the STEP puts the Intel depth-camera mount (an optional
+# front-facing item) at x_s = -104.8 mm and the GPS mast at x_s = +99 mm, so STEP -x is taken as vehicle forward (GPS aft, as on
+# the real X500 V2); the existing top-plate 'gps_mast' estimate was also aft. All seats are flat mounts (the real support path goes
+# through the rails and hangers; the airframe is rigid, so only the pose matters). Axis -z, ref +x, plate underside z = -0.001.
+[[ports]]
+name = "hanger1"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.050, 0.030, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "STEP hanger solids (HANGER-ZHU_ASM JIA-GUAN / HUAN-GUIJIAO) at x_s = -50 mm, z_s = +-30 mm; guide part 14 'Hanger 8pcs' (4 here at x = +-50 mm, 4 at x = -81 and -117 mm)."
+
+[[ports]]
+name = "hanger2"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.050, -0.030, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "As hanger1, other rail."
+
+[[ports]]
+name = "hanger3"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [-0.050, 0.030, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "STEP hanger at x_s = +50 mm, z_s = +-30 mm."
+
+[[ports]]
+name = "hanger4"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [-0.050, -0.030, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "As hanger3, other rail."
+
+[[ports]]
+name = "hanger5"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [-0.081, 0.030, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "STEP hanger (HANGER_ASM) at x_s = +81 mm, z_s = +-29.5 mm (rounded to the 30 mm rail); these four hold the platform board. The STEP clamp of these four hangs 3 mm below the plate underside; ignored."
+
+[[ports]]
+name = "hanger6"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [-0.081, -0.030, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "As hanger5, other rail."
+
+[[ports]]
+name = "hanger7"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [-0.117, 0.030, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "STEP hanger (HANGER_ASM) at x_s = +117 mm, z_s = +-29.5 mm."
+
+[[ports]]
+name = "hanger8"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [-0.117, -0.030, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "As hanger7, other rail."
+
+[[ports]]
+name = "platform"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [-0.099, 0.0, -0.027]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "STEP PLATFORM-PLAT-X500 (65 x 2 x 93 mm, centre x_s = +99.0 mm, z_s = 0, top face y_s = -26.0 mm): below the bottom plate, aft, held by the four rear hangers. Top face z = -0.026 - 0.001 = -0.027."
+
+[[ports]]
+name = "battery_mount"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, -0.001]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "Plate-underside datum for the battery mount (slide-bar clips, board, pad, straps): the STEP clips/board/pad are centred on x_s = 0, z_s = 0 and hang from the rails. The part's shapes carry the heights."
+
+[[ports]]
+name = "hardware"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.001]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
 fidelity = "estimated"
-rationale = "Mirror of rail_l (see there)."
+rationale = "Mass carrier for the leftover kit screws (holybro-x500v2-hardware-kit) at the plate centre; where the individual screws sit is not modelled (they are spread over the arms, hangers, battery clips and GPS mast)."
 
 [[sources]]
 id = "S1"
