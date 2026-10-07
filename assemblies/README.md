@@ -8,6 +8,7 @@ a `napl.devices` block) and `<name>.report.json` (mass budget, BOM, provenance, 
 ```
 napl design build assemblies/x500v2.toml [--parts DIR] [--out DIR]   # default parts: <repo>/parts, out: build/assemblies
 napl design info  assemblies/x500v2.toml [--parts DIR]               # mass budget table, writes nothing
+napl design check assemblies/x500v2.toml [--parts DIR] [--json]      # design-rule check, see "Design rules"; exit 1 on an error
 ```
 Exit code 2 on any assembly error, with a message naming the key, mate or part.
 
@@ -198,4 +199,66 @@ unit, rationale), `unresolved`, `warnings` ({code, message}), `closures`, `mass`
 `napl.design`: `Library(parts_dir)` (`.get`, `.by_category(prefix)`, `.by_port_type`, `.compatible(type, gender)`, `.errors`; a
 part file that fails to parse is only an error when an assembly uses it), `load` / `loads` / `save` / `dumps` (a minimal TOML
 writer; `load(save(load(x))) == load(x)`), `port_frame`, `mate_transform`, `find_compatible_ports`, `solve_tree` (+ `MateSpec`),
-`select_fasteners`, `compute` (in memory), `build`, `format_budget`; all failures raise `DesignError`.
+`select_fasteners`, `compute` (in memory), `build`, `format_budget`, `check`, `Finding`; all failures raise `DesignError`.
+
+## Design rules (DRC / ERC)
+
+```
+napl design check assemblies/x500v2.toml [--parts DIR] [--json]    # exit 1 if any finding has severity error
+```
+`napl.design.check(asm, lib=None) -> [Finding]` (`asm` = path or `Assembly`; mutate `asm.doc` in memory to try an edit).
+`Finding` = `code` (stable UPPER_SNAKE), `severity` (`error` | `warning` | `info`), `message`, `where` (instance / port / wire /
+mate ids), `fix` (a concrete suggestion: a library part id, a fastener id, a mate). `napl design build` runs the same check and
+puts the list in the report as `findings`; findings never fail a build. A rule that crashes becomes `DRC_INTERNAL_ERROR`; a
+model that cannot be built skips the geometry / mass rules (`CHECKS_SKIPPED`) or is itself a finding (`BUILD_FAILED`).
+
+Everything is computed from part data (ports, params, `thrust_test` and stall tables) and from the built MJCF. A threshold is
+either a fact in a part file or one of the named constants of `python/napl/design/drc.py`, listed here as a **design margin**
+(a choice, not a standard) or with its source.
+
+**Electrical model.** Nodes: the passthrough power ports of an instance and the two ports of an internal `wire` device binding
+are one node; explicit `[[wires]]` join nodes into nets. A net's source is its battery / psu device, else its `role = "source"`
+ports. Loads: an `esc` device with a `motor` draws the motor's worst-case current; a `servo` draws its stall current at the bus
+voltage. Current flows from the source along a spanning tree (a net with several sources is split by its first). **Worst case
+(peak)** = every ESC at full throttle with the largest `current_A` of the motor's `thrust_test` table, scaled by (V_pack_max /
+V_table)^2 when the pack is fuller than the table voltage (rpm ~ V, P ~ rpm^3, I = P / V; first-order); every servo stalled.
+**Sustained** = hover current (ESCs) or holding current `idle_current + tau_gravity / kt_output_datasheet` (servos). A rating is
+exceeded as an **error** when sustained > continuous rating, or peak > the port's `i_burst` (when it declares one); peak above
+the continuous rating alone is a **warning** (`i_max` is a continuous rating, full throttle on all motors is transient).
+Ports that declare `i_peak` (servo sockets) state the device's own draw, not a through rating, and are not used for chain currents.
+
+| code | severity | what it checks | threshold and its source |
+|---|---|---|---|
+| `BUILD_FAILED` | error | the assembly does not build and no other rule explains it (unknown part, missing mass, ...) | `napl design build` error text |
+| `CHECKS_SKIPPED` | info | geometry / mass / performance rules were skipped because the model cannot be built (an error above says why) | - |
+| `DRC_INTERNAL_ERROR` | warning | a rule group crashed (bug); the other rules ran | - |
+| `MATE_INVALID` | error | a mate that cannot be formed: unknown / offboard instance, unknown port, non-mech port, port type or gender mismatch (`snap.incompatible`), ambiguous port pair | snapping rules above; fix lists library parts that mate the port |
+| `FLOATING_INSTANCE` | error | an on-board instance not connected to the root by any mate (invalid mates still count as edges, they have their own finding) | graph reachability; fix lists free compatible port pairs |
+| `PORT_UNMATED_REQUIRED` | error | a mech port whose part file says `required = true` and that no mate uses | declared per port in the part file (no part sets it yet) |
+| `FASTENER_THREAD` | error | thread of the two ports differs (`snap.thread_of`), or the explicit fastener is not a screw of that thread | thread tags of the ports; fix = what `fasteners = "auto"` selects |
+| `FASTENER_SHORT` | warning | explicit fastener shorter than L_min = stack + engagement | the builder's own rule (1.5 d tapped, nut height + 2 pitches through); fix = shortest library screw that fits |
+| `FASTENER_UNAVAILABLE` | error | no screw / nut / pitch for the mate, count above the number of holes, unknown fastener part | the builder's `select_fasteners` error text |
+| `INTERFERENCE` | error | collision geometry of two instances that are not mated to each other overlaps at rest by more than 1 mm | **1 mm = design margin** (STL / print tolerance). Box-box: separating-axis test. Anything with a mesh, cylinder, sphere or capsule: up to 60 surface points of each shape (mesh vertices, primitive corners / rims / centre) tested inside the other (mesh: ray parity, needs a watertight STL; depth = nearest of the 6 axis rays), so a thin sliver between sample points is missed |
+| `PROP_OVERLAP` | error | two rotor discs (prop `diameter`, centre on the spin joint) overlap in the disc plane: centre distance < R1 + R2 and axial gap < blade sweep thickness (prop `geom_thickness`) | geometry from the MJCF |
+| `PROP_FRAME_CLASH` | error | a disc (radius D/2, thickness `geom_thickness`, sampled at 3 layers x 4 radii x 16 angles) lies inside the collision box of another instance (not its own prop / motor) | box approximation of other shapes |
+| `CG_OFFSET` | warning / error | horizontal offset of the centre of gravity (all geom masses, mesh centroids) from the thrust centre; the least-norm change of the equal-throttle thrusts that zeroes the moment about the CG; warning when it uses > 20 % of the per-motor thrust headroom, error when hover needs a thrust above max or below 0 | **20 % = design margin** |
+| `WIRE_INVALID` | error | a wire whose end instance / port / part is unknown, or whose ends are not both power or both signal | - |
+| `WIRE_CONNECTOR_MISMATCH` | error | connector part wire: ends not compatible (type + gender) or the part has no port of the end's type; cable part: a non-`wire-lead` cable end that does not mate the port | `types_ok` / `genders_ok`; fix lists wire / connector parts that mate the port |
+| `WIRE_RATING_UNKNOWN` | info | a wire part with no `i_max` on its ports (awg 10, 14, 16, 18 today): that wire cannot be checked | add `i_max` (AWG ampacity table) to the part |
+| `VOLTAGE_OVER_MAX` | error | net maximum voltage (source port `v_max`, battery full voltage) above `v_max` of a sink / passthrough port on it | `v_max` in the part files; fix lists same-category parts with that port rated high enough |
+| `VOLTAGE_BELOW_MIN` | warning | net nominal voltage (`v_nominal` / `v_out_nominal`) below a port's `v_min` | `v_min` in the part files |
+| `CURRENT_OVER_RATING` | error | sustained current above a wire's / port's continuous rating, or peak above its `i_burst` | the limiting element is the lowest `i_max` over the wire's two ports and its wire part's ports |
+| `CURRENT_PEAK_OVER_RATING` | warning | worst-case (peak) current above the continuous rating | see electrical model |
+| `BATTERY_C_RATING` | warning / error | total load of the battery net vs `c_rating_cont x capacity_ah` (burst: `c_rating_burst x capacity_ah`) | datasheet C ratings; same warning / error rule as currents |
+| `PSU_OVERLOAD` | warning / error | total load of a supply net vs `i_out_rated` | datasheet; same rule |
+| `FLOATING_PORT` | warning / error | an on-board power port (not a source) whose node has no wire; error when its instance has no powered port at all | topology |
+| `NET_NO_SOURCE` | error | a wired net with no battery / psu device and no source-role port | topology |
+| `THRUST_TO_WEIGHT` | info / warning / error | sum of max thrust of the motor tables, each scaled by (V_pack_nominal / V_row)^2 per table row (thrust ~ rpm^2 ~ V^2), over all-up weight (`report.mass.total` x g) | warning < 2.0: community rule of thumb (ArduPilot forum "Minimum Thrust to Weight Ratio", https://discuss.ardupilot.org/t/minimum-thrust-to-weight-ratio/50980); error < 1.3: **design margin** (hover then needs 77 % of max thrust) |
+| `HOVER_THROTTLE` | info | throttle and current per motor at equal thrust fraction f = W / sum(Tmax), interpolated in the thrust table (linear from the origin below the first row; current x (V_pack / V_row)^2) | - |
+| `FLIGHT_TIME` | info | capacity x 0.8 / hover current, propulsion only | **0.8 usable = design margin** ("land with 20 % left") |
+| `SERVO_TORQUE` | warning / error / info | gravity torque about each driven hinge, maximised over a pose grid (n samples per joint between the joint limits, n^joints <= 20000), subtree masses and centres from the MJCF; error when stall torque at the bus voltage < torque, warning when above the rated (continuous) torque, info (tightest servo) otherwise | stall / rated torque from the servo's `stall_torque_<V>v` / `rated_torque_<V>v` params: linear between table voltages, proportional to V below the lowest, clamped above the highest |
+| `PAYLOAD_LIMIT` | info / warning | extra mass at the end-effector point (farthest collision-geometry point of the deepest driven body, from the first joint) such that every servo stays within stall torque at every sampled pose; warning when it is 0 | same as `SERVO_TORQUE` |
+
+Limits of the checks, not hidden: a motor without a `thrust_test` table has no thrust / current model (`HOVER_THROTTLE` info);
+avionics current is not in the hover current; the pose grid is a lower bound of the true worst case; interference of meshes is
+sampled, not exact; an `estimated` placeholder envelope (e.g. the Waveshare board box) interferes like a real shape.

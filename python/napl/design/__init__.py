@@ -3,6 +3,7 @@ need the C++ kernel (assemblies are only simulated by loading the generated MJCF
 
 from .assembly import Assembly, dumps, load, loads, save
 from .build import build, compute, format_budget
+from .drc import Finding, check
 from .library import DesignError, Library, Part
 from .snap import (
     MateSpec,
@@ -20,11 +21,13 @@ from .snap import (
 __all__ = [
     "Assembly",
     "DesignError",
+    "Finding",
     "Library",
     "MateSpec",
     "Part",
     "Tree",
     "build",
+    "check",
     "compute",
     "dumps",
     "find_compatible_ports",

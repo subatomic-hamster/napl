@@ -346,11 +346,11 @@ def _range(ctx: Ctx, r, jtype: str, where: str):
 
 
 # ---- the whole computation ----------------------------------------------------------------------------------------
-def compute(asm, parts_dir, out_dir):
-    """-> (mjcf text, report dict). `asm` is an Assembly or a path."""
+def compute(asm, parts_dir, out_dir, lib=None):
+    """-> (mjcf text, report dict). `asm` is an Assembly or a path; `lib` = an already loaded Library of `parts_dir`."""
     if not isinstance(asm, Assembly):
         asm = load(asm)
-    lib = Library(parts_dir)
+    lib = lib or Library(parts_dir)
     ctx = Ctx(asm, lib)
     doc = ctx.doc
     a = doc["assembly"]
@@ -795,8 +795,17 @@ def compute(asm, parts_dir, out_dir):
 
 
 def build(assembly_path, parts_dir, out_dir) -> dict:
-    """Write <out_dir>/<name>.xml and <out_dir>/<name>.report.json. Returns {"xml", "report_path", "report"}."""
-    xml, report = compute(assembly_path, parts_dir, out_dir)
+    """Write <out_dir>/<name>.xml and <out_dir>/<name>.report.json. Returns {"xml", "report_path", "report"}.
+    The report gets `findings`: the design-rule check (drc.py) of the same assembly; findings never make the build fail."""
+    from .drc import check
+
+    asm = assembly_path if isinstance(assembly_path, Assembly) else load(assembly_path)
+    lib = Library(parts_dir)
+    xml, report = compute(asm, parts_dir, out_dir, lib)
+    report["findings"] = [
+        f.as_dict()
+        for f in check(asm, lib, model=(xml, report), mesh_base=Path(out_dir))
+    ]
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     name = report["assembly"]
