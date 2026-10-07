@@ -52,6 +52,8 @@ part = "awg-10-silicone-wire"   # a wire-category part, or a connector part for 
 length = "pack.discharge_wire_length"    # reference string or provenance table (m)
 conductors = 2             # int, default 1 (2 = round trip)
 included_in = "pack"       # optional: mass already inside that instance's datasheet mass (electrical only)
+connectors = { from = "amass-xt60", to = "amass-xt60" }   # optional: pin the implied mating connector per end; an
+                           # unpinned end with several fitting library connectors warns CONNECTOR_AMBIGUOUS
 
 [device_maps.motor_esc]    # dotted device-JSON field -> "<param>" (of the binding's instance)
 "motor.kv" = "motor:kv"    #                           or "<field>:<param>" (of the instance named by the binding's <field>)

@@ -29,7 +29,16 @@ ALLOWED = {
     },
     "instances": {"id", "part", "root", "group", "offboard", "params"},
     "mates": {"name", "a", "b", "rotation", "fasteners", "nut", "joint", "closure"},
-    "wires": {"name", "from", "to", "part", "length", "conductors", "included_in"},
+    "wires": {
+        "name",
+        "from",
+        "to",
+        "part",
+        "length",
+        "conductors",
+        "included_in",
+        "connectors",
+    },
     "targets": {"name", "groups", "all", "value"},
 }
 JOINT_KEYS = {"type", "range", "reverse", "spin"}

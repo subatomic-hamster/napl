@@ -1,0 +1,61 @@
+id = "hobbywing-xrotor-pro-50a-esc"
+name = "Hobbywing XRotor Pro 50A single ESC 4-6S (no BEC)"
+category = "esc"
+vendor = "Hobbywing"
+part_number = "XRotor-Pro-50A"
+url = "https://rcdrone.top/products/2pcs-hobbywing-xrotor-pro-50a-esc"
+
+# Single-motor multirotor ESC. Part frame: origin at the body centre, x along the 48 mm length. The listing is a 2 pcs/box; one ESC is modelled.
+# Wire gauge/connector not published; no mounting holes. The listing says the base has LED turn signals selectable by DIP switch.
+
+[params]
+mass            = { value = 0.056, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.048, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.030, unit = "m", src = "S1", fidelity = "datasheet" }
+height          = { value = 0.0155, unit = "m", src = "S1", fidelity = "datasheet" }
+cells_min       = { value = 4, unit = "S", src = "S1", fidelity = "datasheet" }
+cells_max       = { value = 6, unit = "S", src = "S1", fidelity = "datasheet" }
+v_max           = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V (S1 '4-6S')." }
+i_cont_per_ch   = { value = 50.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst_per_ch  = { value = 70.0, unit = "A", src = "S1", fidelity = "datasheet" }
+burst_duration  = { value = 10.0, unit = "s", src = "S1", fidelity = "datasheet" }
+channels        = { value = 1, unit = "1", fidelity = "derived", derivation = "Single ESC: one motor channel." }
+bec             = { value = "none", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[geometry]
+shape = "box"
+size = [0.024, 0.015, 0.00775]
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "sink"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V." }
+i_max = { value = 50.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 70.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Battery leads; wire gauge and connector not stated in S1"
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V." }
+i_max = { value = 50.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 70.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://rcdrone.top/products/2pcs-hobbywing-xrotor-pro-50a-esc"
+title = "rcdrone.top (Hobbywing distributor) - 2pcs Hobbywing XRotor Pro 50A ESC 4-6S"
+accessed = "2026-10-07"
+quote = "Weight : 56g | Size : 48 x 30 x 15.5 mm | Model Number : XRotor Pro 50A 4-6S ESC | Instant Current(10s) : 70A | Con.Current : 50A | BEC : No"

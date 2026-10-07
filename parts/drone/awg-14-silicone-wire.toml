@@ -17,19 +17,23 @@ mass_per_m         = { value = 0.0260, unit = "kg/m", fidelity = "estimated", ra
 
 # Two end ports of family wire-lead (the family the other wire files in parts/connectors use; solder cups and pads join them).
 # Per-instance mass = mass_per_m * length, resistance = resistance_per_m * length; the part has no fixed length or geometry.
-# No i_max: the ampacity columns of the AWG table are not in the recorded S1 quote for 14 AWG.
+# i_max: vendor chart "max continuous amp rating for silicone cable" (S3), stated as a rule of thumb for 200 C silicone insulation, no
+# bundling / temperature-rise condition given. The recorded Wikipedia S1 quote has no ampacity columns, S3 is the source of the rating.
 [[ports]]
 name = "end_a"
 kind = "power"
 type = "wire-lead"
 gender = "neutral"
+i_max = { value = 32, unit = "A", src = "S3", fidelity = "datasheet" }
 role = "passthrough"
+note = "Flying Tech chart: 14 AWG up to 32 A max continuous; the vendor does not state a temperature rise."
 
 [[ports]]
 name = "end_b"
 kind = "power"
 type = "wire-lead"
 gender = "neutral"
+i_max = { value = 32, unit = "A", src = "S3", fidelity = "datasheet" }
 role = "passthrough"
 
 [[sources]]
@@ -45,3 +49,10 @@ url = "https://en.wikipedia.org/wiki/Copper"
 title = "Copper (Wikipedia) - density"
 accessed = "2026-10-06"
 quote = "Density (at 20° C) 8.935 g/cm3"
+
+[[sources]]
+id = "S3"
+url = "https://www.flyingtech.co.uk/product/silicone-wire-1mtr/"
+title = "Flying Tech - Silicone Wire (1mtr), selecting-the-correct-cable chart"
+accessed = "2026-10-07"
+quote = "as a rule of thumb only, the following chart indicates the max continuous amp rating for silicone cable 20 – 8 AWG. Note that the cable is capable of withstanding short surges of several times these values. AWG Area Diameter Current 20 0.52mm² 0.812mm up to 11A 18 0.82mm² 1.02mm up to 16A 16 1.31mm² 1.29mm up to 22A 14 2.08mm² 1.63mm up to 32A 12 3.31mm² 2.05mm up to 45A 10 5.26mm² 2.59mm up to 65A 8 8.37mm² 3.26mm up to 95A"

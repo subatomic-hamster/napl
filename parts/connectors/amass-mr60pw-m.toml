@@ -1,0 +1,42 @@
+id = "amass-mr60pw-m"
+name = "Amass MR60PW-M connector (3-pole motor connector, male, PCB)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "MR60PW-M"
+url = "https://www.china-amass.net/mr60pw-m-product/"
+
+# PCB version for ESC boards (compare amass-mr30pw-m). Ratings per pole; the page gives no wire gauge. No mass published.
+[params]
+current_rated       = { value = 35, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance_max = { value = 0.0012, unit = "ohm", src = "S1", fidelity = "datasheet" }
+insulation_resistance_min = { value = 2e9, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 100, unit = "1", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "male"
+kind = "power"
+type = "mr60"
+gender = "male"
+v_max = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 35, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "35 A per contact at a temperature rise <= 85 K"
+
+[[ports]]
+name = "pcb"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+i_max = { value = 35, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Through-hole pins; board copper limits current, not modelled"
+
+[[sources]]
+id = "S1"
+url = "https://www.china-amass.net/mr60pw-m-product/"
+title = "AMASS MR60PW-M product page (Amass), electrical SPEC"
+accessed = "2026-10-07"
+quote = "Electrical specifications | Current rating | 35A (△≤85K) | Rated voltage | 80V DC | Insulation Resistance | ≥2000MΩ | Contact Resistance | ≤1.2mΩ | Mechanical characteristics | Plug Life. | 100 times | Environmental resistance | Work Temperature | -20℃ to 120℃"

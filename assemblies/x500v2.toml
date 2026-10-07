@@ -611,6 +611,7 @@ part = "awg-10-silicone-wire"
 length = "bat.discharge_wire_length"
 conductors = 2
 included_in = "bat"
+connectors = { from = "amass-xt60", to = "amass-xt60" }
 
 [[wires]]
 name = "pm02-to-pdb"
@@ -620,9 +621,11 @@ part = "awg-12-silicone-wire"
 length = "pm02.out_lead_length"
 conductors = 2
 included_in = "pm02"
+connectors = { from = "amass-xt60", to = "amass-xt60" }
 
 # ESC input pigtails: gauge is NOT published. ESTIMATED 16 AWG (awg-16-silicone-wire): a 20 A continuous ESC (30 A peak, XT30 plug
 # rated for it) is normally wired with 16-18 AWG; 16 is the heavier of the two, i.e. the lower-resistance estimate.
+# Plug variants are not published; pinned to the first XT30 parts the library had so the build doesn't drift as it grows.
 [[wires]]
 name = "pdb-to-esc1"
 from = "pdb.out1"
@@ -631,6 +634,7 @@ part = "awg-16-silicone-wire"
 length = "pdb.esc_lead_length"
 conductors = 2
 included_in = "esc1"
+connectors = { from = "amass-xt30apw-m", to = "amass-xt30u-f" }
 
 [[wires]]
 name = "pdb-to-esc2"
@@ -640,6 +644,7 @@ part = "awg-16-silicone-wire"
 length = "pdb.esc_lead_length"
 conductors = 2
 included_in = "esc2"
+connectors = { from = "amass-xt30apw-m", to = "amass-xt30u-f" }
 
 [[wires]]
 name = "pdb-to-esc3"
@@ -649,6 +654,7 @@ part = "awg-16-silicone-wire"
 length = "pdb.esc_lead_length"
 conductors = 2
 included_in = "esc3"
+connectors = { from = "amass-xt30apw-m", to = "amass-xt30u-f" }
 
 [[wires]]
 name = "pdb-to-esc4"
@@ -658,6 +664,7 @@ part = "awg-16-silicone-wire"
 length = "pdb.esc_lead_length"
 conductors = 2
 included_in = "esc4"
+connectors = { from = "amass-xt30apw-m", to = "amass-xt30u-f" }
 
 # Motor phase leads: length = the motor's 150 mm datasheet cable; gauge NOT published, ESTIMATED 18 AWG (awg-18-silicone-wire; typical
 # for a 17 A peak 920 kV 2216 motor). conductors = 3 phase leads. NOTE: the Esc device models the motor internally (r20 is the

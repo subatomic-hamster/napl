@@ -91,7 +91,7 @@ def test_x500_reference_has_no_errors(x500_findings):
     )
     ft = next(f for f in x500_findings if f.code == "FLIGHT_TIME")
     assert 10 < float(re.search(r"= ([\d.]+) min", ft.message).group(1)) < 40
-    assert {"HOVER_THROTTLE", "WIRE_RATING_UNKNOWN"} <= codes(x500_findings, "info")
+    assert "HOVER_THROTTLE" in codes(x500_findings, "info")
     # worst case (all four ESCs at full throttle, 72 A) is above the continuous XT60 / 12 AWG ratings: warnings, not errors
     assert "CURRENT_PEAK_OVER_RATING" in codes(x500_findings, "warning")
 
@@ -414,9 +414,14 @@ def test_net_no_source_when_the_battery_is_unplugged(x500, lib):
     assert "pm02.power_in" in f[0].message
 
 
-def test_wire_rating_unknown_is_info(x500_findings):
-    f = [x for x in x500_findings if x.code == "WIRE_RATING_UNKNOWN"]
+def test_wire_rating_unknown_is_info(x500, lib):
+    # every wire in the library is rated now: seed the fault by dropping the battery lead's ampacity
+    lib2 = lib_copy(lib)
+    for p in lib2.get("awg-10-silicone-wire").ports:
+        p.pop("i_max", None)
+    f = [x for x in check(x500, lib2) if x.code == "WIRE_RATING_UNKNOWN"]
     assert f and all(x.severity == "info" for x in f)
+    assert any("bat-to-pm02" in x.where for x in f)
 
 
 # ---- performance ----------------------------------------------------------------------------------------------------------------

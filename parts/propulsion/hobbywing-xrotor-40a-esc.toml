@@ -1,0 +1,63 @@
+id = "hobbywing-xrotor-40a-esc"
+name = "Hobbywing XRotor 40A single ESC 2-6S (no BEC)"
+category = "esc"
+vendor = "Hobbywing"
+part_number = "XRotor-40A"
+url = "https://rcdrone.top/products/hobbywing-xrotor-40a-esc"
+
+# Single-motor multicopter ESC. Part frame: origin at the body centre, x along length (68 mm), z up. No mounting holes (zip-tie / adhesive fitted on an
+# arm), so no mech port. Listing is the APAC version, resold on AliExpress via rcdrone.top; specs below are the manufacturer lines on that page.
+# Motor connector: three 3.5 mm bullets. Battery input is bare wires on the listing ("long cable").
+
+[params]
+mass            = { value = 0.026, unit = "kg", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.068, unit = "m", src = "S1", fidelity = "datasheet" }
+width           = { value = 0.025, unit = "m", src = "S1", fidelity = "datasheet" }
+height          = { value = 0.0087, unit = "m", src = "S1", fidelity = "datasheet" }
+cells_min       = { value = 2, unit = "S", src = "S1", fidelity = "datasheet" }
+cells_max       = { value = 6, unit = "S", src = "S1", fidelity = "datasheet" }
+v_max           = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V (S1 'Lipo 2-6S')." }
+i_cont_per_ch   = { value = 40.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst_per_ch  = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+burst_duration  = { value = 10.0, unit = "s", src = "S1", fidelity = "datasheet" }
+channels        = { value = 1, unit = "1", fidelity = "derived", derivation = "Single ESC: one motor channel." }
+bec             = { value = "none", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[geometry]
+shape = "box"
+size = [0.034, 0.0125, 0.00435]
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "sink"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V." }
+i_max = { value = 40.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Bare battery leads; wire gauge not stated in S1"
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V." }
+i_max = { value = 40.0, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "3 x 3.5 mm bullet plugs per S1 'Plug'"
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://rcdrone.top/products/hobbywing-xrotor-40a-esc"
+title = "rcdrone.top (Hobbywing distributor) - Hobbywing XRotor 40A APAC brushless ESC 2-6S"
+accessed = "2026-10-07"
+quote = "Model Number:XRotor-40A | Cont.Current:40A | Burst Current(10sec):60A | BEC:None | Lipo:2-6S | Weight:26g | Size:68x25x8.7mm | Plug:Φ3.5mmx3"

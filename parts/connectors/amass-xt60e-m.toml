@@ -1,0 +1,44 @@
+id = "amass-xt60e-m"
+name = "Amass XT60E-M connector (XT60 family, male, chassis / panel mount)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "XT60E-M"
+url = "https://www.china-amass.net/xt60e-m-product/"
+
+# Panel-mount male XT60 (flange). No mounting hole pattern recorded here: the page spec table does not give the footprint, so only the electrical
+# ports exist. No mass published.
+[params]
+current_rated       = { value = 35, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance_max = { value = 0.0012, unit = "ohm", src = "S1", fidelity = "datasheet" }
+insulation_resistance_min = { value = 2e9, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 100, unit = "1", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
+recommended_wire    = { value = "12 AWG", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "male"
+kind = "power"
+type = "xt60"
+gender = "male"
+v_max = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 35, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "35 A on 12 AWG at a temperature rise <= 85 K"
+
+[[ports]]
+name = "wire"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+i_max = { value = 35, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Solder cup, 12 AWG"
+
+[[sources]]
+id = "S1"
+url = "https://www.china-amass.net/xt60e-m-product/"
+title = "AMASS XT60E-M product page (Amass), electrical SPEC"
+accessed = "2026-10-07"
+quote = "Electrical specifications | Current rating | 35A   (12AWG△≤85K) | Rated voltage | 80V DC | Insulation Resistance | ≥2000MΩ | Contact Resistance | ≤1.2mΩ | Mechanical characteristics | Plug Life. | 100 times | Environmental resistance | Work Temperature | -20℃ to 120℃"

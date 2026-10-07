@@ -1,0 +1,48 @@
+id = "amass-xt90h-f"
+name = "Amass XT90H-F connector (XT90 family, female, wire-solder)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "XT90H-F"
+url = "https://www.electrokit.com/en/stromkontakt-2-pol-xt90-40a-hona"
+
+# Plain (non anti-spark) XT90 female; the electrokit title reads '45(90)A'. Mass is not given on the page. Contact resistance is the page value
+# (0.3 mOhm), well below the 1.2 mOhm maximum on the Amass pages of the same family (amass-xt90s-f, amass-xt90h-m): typical vs maximum.
+[params]
+current_rated       = { value = 45, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 500, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance  = { value = 0.0003, unit = "ohm", src = "S1", fidelity = "datasheet" }
+current_burst_family = { value = 90, unit = "A", src = "S2", fidelity = "datasheet" }
+
+[[ports]]
+name = "female"
+kind = "power"
+type = "xt90"
+gender = "female"
+v_max = { value = 500, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 45, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 90, unit = "A", src = "S2", fidelity = "datasheet" }
+role = "passthrough"
+note = "45 A max current (page), 90 A burst (Holybro XT90 table)"
+
+[[ports]]
+name = "wire"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+i_max = { value = 45, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Solder cup, 10 AWG class"
+
+[[sources]]
+id = "S1"
+url = "https://www.electrokit.com/en/stromkontakt-2-pol-xt90-40a-hona"
+title = "Electrokit - XT90 power connector 2-pin 45(90)A female"
+accessed = "2026-10-07"
+quote = "Max voltage: 500V | * Max current: 45A | * Contact resistance: 0.3mOhm"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/power-module-and-pdb/power-module/connector-and-wire-rating.md"
+title = "Connector & Wire Rating (Holybro docs), genuine AMASS connector rating"
+accessed = "2026-10-07"
+quote = "XT90 10 AWG 45A 90A (columns: plug, wire size, cont. current 4 hours temperature rise < 60 C, burst current 1 minute)"

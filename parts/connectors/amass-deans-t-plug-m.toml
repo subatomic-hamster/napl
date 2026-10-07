@@ -1,0 +1,46 @@
+id = "amass-deans-t-plug-m"
+name = "Amass AM1015SE-M T-plug connector (Deans-type, male, wire-solder)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics); RS-PRO relabel"
+part_number = "AM1015SE-M"
+url = "https://www.electrokit.com/batterikontakt-t-plug-hane-typ-deans-25a"
+
+# Mating half of amass-deans-t-plug-f; the electrokit male page is the Swedish-language one (quote kept in Swedish). See the female file for the
+# 25 A (Amass / electrokit) versus 15 A (DigiKey forum) rating note.
+[params]
+current_rated       = { value = 25, unit = "A", src = "S1", fidelity = "datasheet" }
+current_burst       = { value = 50, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 500, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance  = { value = 0.00045, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 1000, unit = "1", src = "S1", fidelity = "datasheet" }
+mass                = { value = 0.0028, unit = "kg", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
+recommended_wire    = { value = "12 AWG", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "male"
+kind = "power"
+type = "deans"
+gender = "male"
+v_max = { value = 500, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 25, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 50, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "25 A continuous, 50 A momentary (electrokit listing of the Amass part)"
+
+[[ports]]
+name = "wire"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+i_max = { value = 25, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Solder cup, up to 12 AWG"
+
+[[sources]]
+id = "S1"
+url = "https://www.electrokit.com/batterikontakt-t-plug-hane-typ-deans-25a"
+title = "Electrokit - Batterikontakt T-plug hane typ Deans 25A (Amass / RS-PRO), Swedish page"
+accessed = "2026-10-07"
+quote = "Specifikationer: | Märkspänning: 500 VDC | Märkström: 25A kontinuerligt (50A kortare perioder) | Max kabelarea: 12AWG | Kontaktresistans: 0.45 mOhm | Vikt: 2.8g | Arbetstemperatur -20 till 120°C | Kontakt: Guldpläterad | In och urkopplingar, livslängd: 1000 cykler | Tillverkare: Amass / RS-PRO"

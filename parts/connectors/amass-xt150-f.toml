@@ -1,0 +1,45 @@
+id = "amass-xt150-f"
+name = "Amass XT150-F connector (XT150 family, female, wire-solder)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "XT150-F"
+url = "https://www.china-amass.net/xt150-f-2-product/"
+
+# The page gives two ratings for 8 AWG: 57 A at a 30 K temperature rise and 75 A at 55 K. i_max uses the 57 A (smaller rise), 75 A is kept as a param.
+# No mass published.
+[params]
+current_rated       = { value = 57, unit = "A", src = "S1", fidelity = "datasheet" }
+current_rated_55k_rise = { value = 75, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 150, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance_max = { value = 0.0012, unit = "ohm", src = "S1", fidelity = "datasheet" }
+insulation_resistance_min = { value = 2e9, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 100, unit = "1", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
+recommended_wire    = { value = "8 AWG", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "female"
+kind = "power"
+type = "xt150"
+gender = "female"
+v_max = { value = 150, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 57, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "57 A on 8 AWG at a temperature rise <= 30 K (75 A at <= 55 K)"
+
+[[ports]]
+name = "wire"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+i_max = { value = 57, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Solder cup, 8 AWG"
+
+[[sources]]
+id = "S1"
+url = "https://www.china-amass.net/xt150-f-2-product/"
+title = "AMASS XT150-F product page (Amass), electrical SPEC"
+accessed = "2026-10-07"
+quote = "Electrical specifications | Current rating | 57A（8AWG△≤30K） | 75A（8AWG△≤55K） | Rated voltage | 150V DC | Insulation Resistance | ≥2000MΩ | Contact Resistance | ≤1.2mΩ | Mechanical characteristics | Plug Life. | 100 times | Environmental resistance | Work Temperature | -20℃ to 120℃"

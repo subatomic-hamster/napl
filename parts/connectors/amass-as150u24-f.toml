@@ -1,0 +1,45 @@
+id = "amass-as150u24-f"
+name = "Amass AS150U(2+4)-F connector (AS150 power pins + 4 signal pins, female)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "AS150U(2+4)-F"
+url = "https://www.china-amass.net/as150u24-f-product/"
+
+# Page lists 75 A at 8 AWG (85 K rise) for the 2 power pins and 1 A at 24 AWG for the signal pins; rated voltage 80 V DC (not 150 V as on the
+# plain AS150 page). The 4 signal pins are not modelled as ports (no signal-pin assignment on the page). No mass published.
+[params]
+current_rated       = { value = 75, unit = "A", src = "S1", fidelity = "datasheet" }
+signal_pin_current  = { value = 1, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance_max = { value = 0.0008, unit = "ohm", src = "S1", fidelity = "datasheet" }
+insulation_resistance_min = { value = 2e9, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 100, unit = "1", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
+recommended_wire    = { value = "8 AWG", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "female"
+kind = "power"
+type = "as150u24"
+gender = "female"
+v_max = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 75, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "75 A on 8 AWG at a temperature rise <= 85 K, power pins only"
+
+[[ports]]
+name = "wire"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+i_max = { value = 75, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Solder cup of a power pin, 8 AWG"
+
+[[sources]]
+id = "S1"
+url = "https://www.china-amass.net/as150u24-f-product/"
+title = "AMASS AS150U(2+4)-F product page (Amass), electrical SPEC"
+accessed = "2026-10-07"
+quote = "Electrical specifications | Current rating | 75A (8AWG△≤85K) | Signa pin 24AWG 1A | Rated voltage | 80V DC | Insulation Resistance | ≥2000MΩ | Contact Resistance | ≤0.8mΩ | Mechanical characteristics | Plug Life. | 100 times | Environmental resistance | Work Temperature | -20℃ to 120℃"

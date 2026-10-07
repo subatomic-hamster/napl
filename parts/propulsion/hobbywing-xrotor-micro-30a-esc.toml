@@ -1,0 +1,50 @@
+id = "hobbywing-xrotor-micro-30a-esc"
+name = "Hobbywing XRotor Micro 30A single ESC (BLHeli-S)"
+category = "esc"
+vendor = "Hobbywing"
+part_number = "XRotor Micro BLHeli-S 30A"
+url = "https://rcdrone.top/products/hobbywing-xrotor-micro-blheli-s-30a-esc"
+
+# Tiny single ESC for racing quads. The reseller listing publishes only the model name (30 A), the mass "6g (with line)" and the signal modes; it gives no
+# voltage range, no burst current and no dimensions, so none are set (cell range / v_max are left to the user's frame choice and must be checked against
+# the Hobbywing datasheet). The 30 A figure comes from the model name/title, hence only a continuous current is recorded. Part frame: origin at the body centre.
+
+[params]
+mass            = { value = 0.006, unit = "kg", src = "S1", fidelity = "datasheet" }          # "Weight: 6g (with line)"
+i_cont_per_ch   = { value = 30.0, unit = "A", src = "S1", fidelity = "datasheet" }
+channels        = { value = 1, unit = "1", fidelity = "derived", derivation = "Single ESC: one motor channel." }
+firmware        = { value = "BLHeli-S", unit = "text", src = "S1", fidelity = "datasheet" }
+
+[geometry]
+shape = "box"
+size = [0.010, 0.008, 0.002]
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "sink"
+i_max = { value = 30.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Battery leads; wire gauge and voltage range not stated in S1"
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+i_max = { value = 30.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "dshot"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://rcdrone.top/products/hobbywing-xrotor-micro-blheli-s-30a-esc"
+title = "rcdrone.top (Hobbywing distributor) - 4pcs/lot Hobbywing XRotor Micro BLHeli-s 30A ESC"
+accessed = "2026-10-07"
+quote = "Hobbywing XRotor Micro BLHeli-s 30A ESC Brushless Speed Controller for RC Racer Drone FPV Racing Quadcopter | Weight: 6g (with line) | Native support BLHeli-S firmware | PWM throttle signal mode (1000μs-2000μs), Oneshot125 (125-250μs), Oneshot42 (42-8μs) and Multishot (2-25μs)"

@@ -1,0 +1,52 @@
+id = "servo-extension-22awg-30cm"
+name = "Servo extension cable 30 cm, 3 x 22 AWG (60-strand), male Futaba J to female JR"
+category = "wire"
+vendor = "Kitronik"
+part_number = "4157"
+url = "https://kitronik.co.uk/products/4157-30cm-male-to-female-servo-extension-cable"
+
+# 3-conductor servo lead (signal / +V / GND), 0.1 in (2.54 mm) connector spacing. Kitronik publishes gauge, strand count and length only: no mass, no
+# current rating, no voltage rating. The per-conductor ampacity is taken from the 22 AWG table value (parts/connectors/awg-22-silicone-wire.toml, Wikipedia
+# AWG table 60 C column: 3 A) as a conservative literature figure; it is not a Kitronik rating.
+
+[params]
+awg             = { value = 22, unit = "AWG", src = "S1", fidelity = "datasheet" }
+conductors      = { value = 3, unit = "1", src = "S1", fidelity = "datasheet" }
+strands_per_conductor = { value = 60, unit = "1", src = "S1", fidelity = "datasheet" }
+length          = { value = 0.30, unit = "m", src = "S1", fidelity = "datasheet" }
+pitch           = { value = 2.54e-3, unit = "m", src = "S1", fidelity = "datasheet" }        # "0.1 inch spacing"
+resistance_per_m = { value = 0.05296, unit = "ohm/m", src = "S2", fidelity = "literature" }   # 22 AWG solid copper, per conductor
+ampacity_per_conductor = { value = 3, unit = "A", src = "S2", fidelity = "literature" }       # Wikipedia 60 C column for 22 AWG
+resistance_loop = { value = 0.0318, unit = "ohm", fidelity = "derived", derivation = "Supply + return conductor, 2 x 0.30 m x 0.05296 ohm/m (S2) = 0.0318 ohm; stranded 60-strand wire is a few percent higher." }
+
+[[ports]]
+name = "plug"
+kind = "power"
+type = "servo-3pin"
+gender = "male"
+i_max = { value = 3, unit = "A", src = "S2", fidelity = "literature" }
+role = "passthrough"
+note = "Male Futaba J connector end (S1); power and signal share the 3-pin connector"
+
+[[ports]]
+name = "socket"
+kind = "power"
+type = "servo-3pin"
+gender = "female"
+i_max = { value = 3, unit = "A", src = "S2", fidelity = "literature" }
+role = "passthrough"
+note = "Female JR connector end (S1)"
+
+[[sources]]
+id = "S1"
+url = "https://kitronik.co.uk/products/4157-30cm-male-to-female-servo-extension-cable"
+title = "Kitronik - 30cm male to female servo extension cable (4157)"
+accessed = "2026-10-07"
+quote = "three 22-AWG wires | each wire is comprised of 60 strands | 30cm | male Futaba J connector and a female JR connector | 0.1″ spacing"
+
+[[sources]]
+id = "S2"
+url = "https://en.wikipedia.org/wiki/American_wire_gauge"
+title = "American wire gauge (Wikipedia) - table, solid copper at 68 F"
+accessed = "2026-10-07"
+quote = "22 | 0.0253 | 0.644 | 39.5 | 15.5 | 0.642 | 0.326 | 52.96 | 16.14 | 3 | 7 | — | 41 A | 99 A | 551 A (columns: in, mm, per in, per cm, kcmil, mm2, mOhm/m, mOhm/ft, ampacity 60C/75C/90C, fusing current Preece 10 s / 1 s / Onderdonk 32 ms)"

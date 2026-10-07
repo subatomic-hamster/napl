@@ -1,0 +1,53 @@
+id = "amass-xt90h-m"
+name = "Amass XT90H-M connector (XT90 family, male, wire-solder)"
+category = "connector"
+vendor = "Amass (Changzhou Amass Electronics)"
+part_number = "XT90H-M"
+url = "https://www.china-amass.net/xt90h-m-product/"
+
+# Plain XT90 (no anti-spark resistor, unlike amass-xt90s-f). Burst 90 A on 10 AWG is the XT90 family figure of the Holybro connector table
+# already used in amass-xt90s-f (1 min, < 60 K rise); the Amass product page itself states only the continuous 45 A. No mass published.
+[params]
+current_rated       = { value = 45, unit = "A", src = "S1", fidelity = "datasheet" }
+voltage_rated       = { value = 1500, unit = "V", src = "S1", fidelity = "datasheet" }
+contact_resistance_max = { value = 0.0012, unit = "ohm", src = "S1", fidelity = "datasheet" }
+insulation_resistance_min = { value = 2e9, unit = "ohm", src = "S1", fidelity = "datasheet" }
+mating_cycles       = { value = 100, unit = "1", src = "S1", fidelity = "datasheet" }
+temp_min            = { value = 253.15, unit = "K", src = "S1", fidelity = "datasheet" }
+temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "datasheet" }
+recommended_wire    = { value = "10 AWG", unit = "text", src = "S1", fidelity = "datasheet" }
+current_burst_family = { value = 90, unit = "A", src = "S2", fidelity = "datasheet" }
+
+[[ports]]
+name = "male"
+kind = "power"
+type = "xt90"
+gender = "male"
+v_max = { value = 1500, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 45, unit = "A", src = "S1", fidelity = "datasheet" }
+i_burst = { value = 90, unit = "A", src = "S2", fidelity = "datasheet" }
+role = "passthrough"
+note = "45 A on 10 AWG at a temperature rise <= 85 K; 90 A burst is the Holybro table figure for the XT90 family"
+
+[[ports]]
+name = "wire"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+i_max = { value = 45, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "passthrough"
+note = "Solder cup, 10 AWG"
+
+[[sources]]
+id = "S1"
+url = "https://www.china-amass.net/xt90h-m-product/"
+title = "AMASS XT90H-M product page (Amass), electrical SPEC"
+accessed = "2026-10-07"
+quote = "Electrical specifications | Current rating | 45A (10AWG△≤85K) | Rated voltage | 1500V DC | Insulation Resistance | ≥2000MΩ | Contact Resistance | ≤1.2mΩ | Mechanical characteristics | Plug Life. | 100 times | Environmental resistance | Work Temperature | -20℃ to 120℃"
+
+[[sources]]
+id = "S2"
+url = "https://docs.holybro.com/power-module-and-pdb/power-module/connector-and-wire-rating.md"
+title = "Connector & Wire Rating (Holybro docs), genuine AMASS connector rating"
+accessed = "2026-10-07"
+quote = "XT90 10 AWG 45A 90A (columns: plug, wire size, cont. current 4 hours temperature rise < 60 C, burst current 1 minute)"

@@ -239,7 +239,20 @@ def resolve_wires(ctx: Ctx) -> list:
                     if c["mass_fidelity"] == "estimated":
                         c["mass_tol"] = 0.5 * c["mass"]
                 elif cands:
-                    cp = ctx.lib.get(cands[0][1])
+                    pin = w.get("connectors", {}).get(end)
+                    if pin is not None and pin not in {cid for _, cid in cands}:
+                        raise DesignError(
+                            f"{where}: connectors.{end} = {pin!r} has no {opp} {port['type']} port "
+                            f"(candidates: {', '.join(cid for _, cid in cands)})"
+                        )
+                    if pin is None and len(cands) > 1:
+                        # an unpinned choice would change silently as the library grows
+                        ctx.warn(
+                            "CONNECTOR_AMBIGUOUS",
+                            f"{where} {end} end: {len(cands)} library connectors fit, using {cands[0][1]}; "
+                            f'pin one with connectors = {{ {end} = "..." }}',
+                        )
+                    cp = ctx.lib.get(pin or cands[0][1])
                     c["part"] = cp.id
                     if cp.value("mass") is not None:
                         c["mass"], c["mass_fidelity"] = (
