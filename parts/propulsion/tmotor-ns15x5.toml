@@ -33,6 +33,8 @@ size = [0.19055, 0.0059]       # disc envelope: radius D/2, half of the 11.8 mm 
 [[ports]]
 name = "hub"
 kind = "mech"
+ref = [1.0, 0.0, 0.0]  # along a blade (+x), as holybro-1045-prop
+symmetry = 1  # a blade direction, but the prop spins freely about z (builder uses a hinge, not k), as holybro-1045-prop
 type = "bore.6"
 gender = "female"
 pos = [0.0, 0.0, 0.0]

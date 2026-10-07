@@ -686,18 +686,88 @@ def _scaled(u, vnom):
     return out
 
 
+def _motor_curve(kt, r, i0, kq, kT):
+    """Static-thrust motor model, T = kT w^2, shaft torque Q = kq T (C_Q / C_T x D, same for every speed), constant friction I0,
+    ideal ESC. Returns f(T, V) -> (pack current A, duty = motor voltage / V)."""
+
+    def f(T, V):
+        im = kq * T / kt + i0  # Q = Kt (Im - I0)
+        vm = kt * np.sqrt(T / kT) + im * r  # w = sqrt(T / kT), Vm = Ke w + Im R
+        return vm * im / V, vm / V
+
+    return f
+
+
+@cache
+def _fit_motor(kv, r, i0, rows):
+    """Fit (kq, kT) of `_motor_curve` to table rows ((T, I, V, throttle) tuples) by least squares on log current plus a 0.25-weight
+    log duty term (duty ~ throttle: current alone cannot separate shaft power from friction; the vendor throttle is not exactly
+    duty, hence the low weight), log grid refined 5x. Returns (curve, rms log-current error). ponytail: a 2-parameter grid fit, not a solver; fine for <= ~10 rows."""
+    kt = 60.0 / (2 * math.pi * kv)
+    T, I, V, thr = (np.array(c, dtype=float) for c in zip(*rows))
+
+    def cost(a, b):
+        mi, d = _motor_curve(kt, r, i0, math.exp(a), math.exp(b))(T, V)
+        return float(
+            np.mean(np.log(mi / I) ** 2) + 0.25 * np.mean(np.log(d / thr) ** 2)
+        )
+
+    ca, cb, sa, sb = math.log(3e-3), math.log(1e-6), 3.5, 5.0
+    for _ in range(5):
+        best = min(
+            (cost(a, b), a, b)
+            for a in np.linspace(ca - sa, ca + sa, 25)
+            for b in np.linspace(cb - sb, cb + sb, 25)
+        )
+        _, ca, cb = best
+        sa, sb = sa / 5, sb / 5
+    curve = _motor_curve(kt, r, i0, math.exp(ca), math.exp(cb))
+    return curve, float(np.sqrt(np.mean(np.log(curve(T, V)[0] / I) ** 2)))
+
+
+def _below_table(u, rows, t_req, vnom):
+    """(throttle or None, current A, how) at a thrust below the lowest table row (rows scaled to vnom). Never a linear
+    extrapolation: the physics fitted to the table rows (motor kv / R / I0 + T ~ n^2, Q ~ n^2, anchored to the lowest row), or,
+    when the part lacks kv / R / row voltages or the fit is poor (> 15 % rms), the scaling law T ~ n^2, P ~ n^3 from the lowest row."""
+    m, r0 = u["motor"], rows[0]
+    kv, rw, i0 = m.value("kv"), m.value("r_winding"), m.value("i0") or 0.0
+    fit = None
+    if kv and rw and vnom and all(x["V"] and x["thr"] for x in u["rows"]):
+        fit = _fit_motor(
+            kv,
+            rw,
+            i0,
+            tuple((x["T"], x["I"], x["V"], x["thr"]) for x in u["rows"][:3]),
+        )  # the 3 lowest rows: the ones nearest the extrapolation (the model is not exact up to full throttle)
+    if fit and fit[1] < 0.15:
+        curve = fit[0]
+        i_m, d = curve(np.array([t_req, r0["T"]]), vnom)
+        cur = float(
+            r0["I"] * i_m[0] / i_m[1]
+        )  # anchored: continuous with the lowest row
+        thr = None if r0["thr"] is None else float(r0["thr"] * d[0] / d[1])
+        return thr, cur, "motor model fitted to the table (kv, R, I0, T ~ n^2, Q ~ n^2)"
+    s = t_req / r0["T"]
+    thr = (
+        None if r0["thr"] is None else r0["thr"] * math.sqrt(s)
+    )  # n ~ sqrt(T), throttle ~ n
+    return thr, r0["I"] * s**1.5, "scaling law T ~ n^2, P ~ n^3 from the lowest row"
+
+
 def _hover(u, t_req, vnom):
-    """(throttle or None, current A) at thrust t_req [N] from the scaled table (linear from the origin below the first row), or None."""
+    """(throttle or None, current A, extrapolation note or "") at thrust t_req [N]: linear between the scaled table rows,
+    the fitted physics below the first row (`_below_table`), None above the last."""
     rows = _scaled(u, vnom)
-    i0 = u["motor"].value("i0") or 0.0
-    ts = [0.0] + [r["T"] for r in rows]
-    if t_req > ts[-1]:
+    if t_req > rows[-1]["T"]:
         return None
-    cur = float(np.interp(t_req, ts, [i0] + [r["I"] for r in rows]))
+    if t_req < rows[0]["T"]:
+        return _below_table(u, rows, t_req, vnom)
+    ts = [r["T"] for r in rows]
+    cur = float(np.interp(t_req, ts, [r["I"] for r in rows]))
     thr = None
     if all(r["thr"] is not None for r in rows):
-        thr = float(np.interp(t_req, ts, [0.0] + [r["thr"] for r in rows]))
-    return thr, cur
+        thr = float(np.interp(t_req, ts, [r["thr"] for r in rows]))
+    return thr, cur, ""
 
 
 def _performance(ctx, net, units, mass, F):
@@ -751,7 +821,7 @@ def _performance(ctx, net, units, mass, F):
         _add(F, "THRUST_TO_WEIGHT", "info", msg, names)
     # hover: equal throttle fraction f = W / sum(Tmax); each motor makes f x its max thrust
     f = w_n / tmax
-    tot_i, thrs, parts = 0.0, [], []
+    tot_i, thrs, parts, extrap = 0.0, [], [], set()
     for u in ok:
         h = _hover(u, f * u["Tmax"], u["vnom"])
         if h is None:
@@ -761,6 +831,15 @@ def _performance(ctx, net, units, mass, F):
         if h[0] is not None:
             thrs.append(h[0])
         parts.append(f"{u['motor'].id} {f * u['Tmax']:.2f} N {h[1]:.2f} A")
+        if h[2]:
+            extrap.add(h[2])
+    note = (
+        " [extrapolated: hover thrust is below the motor table's lowest row; "
+        + "; ".join(sorted(extrap))
+        + "]"
+        if extrap
+        else ""
+    )
     if parts and tw >= 1.0:
         _add(
             F,
@@ -779,7 +858,8 @@ def _performance(ctx, net, units, mass, F):
             + f"total {tot_i:.2f} A ("
             + "; ".join(parts[:4])
             + (" ..." if len(parts) > 4 else "")
-            + ")",
+            + ")"
+            + note,
             names,
         )
         for k in {u["key"] for u in ok if "Ihover" in u}:
@@ -800,7 +880,8 @@ def _performance(ctx, net, units, mass, F):
                             "FLIGHT_TIME",
                             "info",
                             f"{cap:g} Ah x {USABLE_FRACTION:g} usable / {cur:.2f} A hover = {cap * USABLE_FRACTION / cur * 60:.1f} min "
-                            "(propulsion current only; avionics and wiring losses not included)",
+                            "(propulsion current only; avionics and wiring losses not included)"
+                            + note,
                             [b["instance"]],
                         )
             break

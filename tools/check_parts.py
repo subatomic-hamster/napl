@@ -87,6 +87,18 @@ def check(path: pathlib.Path, problems: list[str], tally: collections.Counter) -
                 and abs(sum(a * a for a in axis) - 1) > 1e-6
             ):
                 bad(f"{label}: axis not unit length")
+            # every mech port needs ref (unit, perpendicular to axis) and symmetry, or snapping to it fails
+            ref = p.get("ref")
+            if not (isinstance(ref, list) and len(ref) == 3):
+                bad(f"{label}: 'ref' must be 3 numbers")
+            elif isinstance(axis, list) and len(axis) == 3:
+                if abs(sum(r * r for r in ref) - 1) > 1e-6:
+                    bad(f"{label}: ref not unit length")
+                elif abs(sum(r * a for r, a in zip(ref, axis))) > 1e-6:
+                    bad(f"{label}: ref not perpendicular to axis")
+            sym = p.get("symmetry")
+            if isinstance(sym, bool) or not isinstance(sym, int) or sym < 1:
+                bad(f"{label}: 'symmetry' must be an integer >= 1")
         for key, e in p.items():
             if isinstance(e, dict):
                 check_entry(f"{label}.{key}", e, need_unit=True)

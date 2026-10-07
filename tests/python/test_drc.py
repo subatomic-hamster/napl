@@ -598,3 +598,44 @@ def test_cli_check_exit_codes_and_json(tmp_path, capsys, x500, so101):
     )
     assert main(["design", "check", str(bad)]) == 1
     assert main(["design", "check", str(tmp_path / "missing.toml")]) == 2
+
+
+# ---- hover estimate below the motor table (D2) ------------------------------------------------------------------------------
+class _Motor:  # no kv / R: forces the pure scaling-law fallback
+    def value(self, k):
+        return None
+
+
+def test_below_table_scaling_law_without_motor_data():
+    rows = [{"T": 8.0, "I": 8.0, "V": 24.0, "thr": 0.5}]
+    u = {"motor": _Motor(), "rows": rows}
+    thr, cur, how = drc._hover(u, 2.0, 24.0)  # T / 4: n / 2, P / 8
+    assert cur == pytest.approx(8.0 * 0.25**1.5)
+    assert thr == pytest.approx(0.25) and "n^3" in how
+    assert (
+        drc._hover(u, 8.0, 24.0)[2] == ""
+    )  # at the first row: the table, not an extrapolation
+
+
+def test_below_table_physics_is_not_linear_and_is_flagged(lib):
+    asm = design.load(REPO / "assemblies" / "aos5.toml")
+    fs = {
+        f.code: f.message
+        for f in check(asm, lib)
+        if f.code in ("HOVER_THROTTLE", "FLIGHT_TIME")
+    }
+    assert (
+        "extrapolated" in fs["HOVER_THROTTLE"] and "extrapolated" in fs["FLIGHT_TIME"]
+    )
+    tot = float(re.search(r"total ([\d.]+) A", fs["HOVER_THROTTLE"]).group(1))
+    # hover thrust 1.22 N is 14 % of the lowest row (8.47 N, 8.23 A): P ~ T^1.5 alone gives 4 x 0.45 A, the old linear
+    # interpolation 11.7 A; friction (I0) lifts the physics above the pure law, never near the linear value
+    assert 4 * 8.23 * (1.22 / 8.47) ** 1.5 < tot < 6.0
+    thr = float(re.search(r"throttle (\d+) %", fs["HOVER_THROTTLE"]).group(1))
+    assert 10 < thr < 30
+
+
+def test_hover_inside_the_table_is_not_extrapolated(x500_findings):
+    h = next(f for f in x500_findings if f.code == "HOVER_THROTTLE").message
+    assert "extrapolated" not in h
+    assert "total 12.50 A" in h  # regression guard: unchanged by the below-table model

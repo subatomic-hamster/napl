@@ -67,6 +67,8 @@ symmetry = 4
 [[ports]]
 name = "shaft"
 kind = "mech"
+ref = [1.0, 0.0, 0.0]  # any unit vector perpendicular to the axis (+z)
+symmetry = 360  # round shaft: axisymmetric, as holybro-2216-kv920
 type = "shaft.4"
 gender = "male"
 pos = [0.0, 0.0, 0.030]

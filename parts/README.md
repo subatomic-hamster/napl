@@ -88,6 +88,10 @@ gender = "female"
 level = { value = 5.0, unit = "V", src = "S1", fidelity = "datasheet" }
 ```
 
+Every `mech` port must have `ref` (unit vector perpendicular to `axis`) and `symmetry` (integer >= 1); `tools/check_parts.py`
+enforces it, because snapping needs both. Round shafts (`shaft.<d>`, `prop_adapter`) are axisymmetric: `symmetry = 360`, any
+`ref`. Prop hubs (`bore.<d>`): `ref` along a blade, `symmetry = 1` (the prop spins freely, the builder uses a hinge).
+
 Mate compatibility: same `type` (or the paired families `shaft.<d>` / `bore.<d>` and `tube.<od>` / `tube-clamp.<od>` of
 the same size), and genders male+female or either neutral. Two mated mech
 ports coincide in position, have opposite axes, and their `ref`s align up to the `symmetry`
