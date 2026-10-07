@@ -1,0 +1,91 @@
+{
+ "x500-hover-px4": {
+  "what": "X500 V2 (parts-built design) hovering at 5 m under PX4 SITL",
+  "scenario": "x500-hover",
+  "sim_s": 23.104,
+  "tick": 23104,
+  "state_hash": "a1a6b2e058fc6ff8",
+  "run_final_hash": "c17c42587ce1e823",
+  "replay_matches_run": true
+ },
+ "x500-motor-out": {
+  "what": "motor-out fault: esc0 open circuit 0.5 s ago, the quad tumbling",
+  "scenario": "x500-motor-out",
+  "sim_s": 29.04,
+  "tick": 29040,
+  "state_hash": "729b6a9e55189fa3",
+  "run_final_hash": "cb2a2473ee7a113f",
+  "replay_matches_run": true
+ },
+ "so101-pick": {
+  "what": "SO-101 mid-pick: the cube lifted in the gripper",
+  "scenario": "so101-pick",
+  "sim_s": 29.084,
+  "tick": 29084,
+  "state_hash": "229a148d8e5f418e",
+  "run_final_hash": "94c4bd173d5cf167",
+  "replay_matches_run": true
+ },
+ "koch-pick": {
+  "what": "Koch arm mid-move with the cube in the gripper",
+  "scenario": "koch-pick",
+  "sim_s": 12.281,
+  "tick": 12281,
+  "state_hash": "e73f22b6b7069e70",
+  "run_final_hash": "c3fd8badfb74a50e",
+  "replay_matches_run": true
+ },
+ "showcase-handoff": {
+  "what": "arm-loads-drone: the SO-101 puts the cube on the drone's top plate",
+  "scenario": "showcase",
+  "sim_s": 33.5,
+  "tick": 33500,
+  "state_hash": "ad957b133bd5379b",
+  "run_final_hash": "e37663d15a33ebd2",
+  "replay_matches_run": true
+ },
+ "showcase-flight": {
+  "what": "arm-loads-drone: the loaded drone in flight at its 4 m top",
+  "scenario": "showcase",
+  "sim_s": 65.804,
+  "tick": 65804,
+  "state_hash": "7f495212b11f9307",
+  "run_final_hash": "e37663d15a33ebd2",
+  "replay_matches_run": true
+ },
+ "rover-square": {
+  "what": "rover driving its 1 m square, mid-leg",
+  "scenario": "rover-square",
+  "sim_s": 5.531,
+  "tick": 5531,
+  "state_hash": "f6be873f761e053e",
+  "run_final_hash": "309bf0e7fa026c4e",
+  "replay_matches_run": true
+ },
+ "so101-scratch-pick": {
+  "what": "scratch-built SO-101 mid-pick",
+  "scenario": "so101-scratch-pick",
+  "sim_s": 29.231,
+  "tick": 29231,
+  "state_hash": "de2a14232034d93e",
+  "run_final_hash": "7edad47976cc64f3",
+  "replay_matches_run": true
+ },
+ "scratch-quad-hover": {
+  "what": "the quad built from an empty design, built-in hover",
+  "sim_s": 5.0,
+  "tick": 2500,
+  "state_hash": "f66566d8e7e65c0a",
+  "pos": [
+   0.003,
+   -0.0,
+   2.148
+  ],
+  "hover_result": {
+   "pass": true,
+   "altitude_mean_m": 2.0487568198579194,
+   "hover_throttle": 0.4243994106841565,
+   "hover_current_A": 11.570757409533499
+  }
+ }
+}
