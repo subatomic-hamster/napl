@@ -109,6 +109,14 @@ ref = [1.0, 0.0, 0.0]
 symmetry = 2
 thickness = 0.003
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "S1"
+note = "Bare brushed 6061 aluminium plate (the material source); rounded corners from the geometry box."
+
+[[visual.elements]]
+gen = "plate_outline"
+colors = { plate = "alu-brushed" }
+
 [[sources]]
 id = "S1"
 url = "https://quickparts.com/wp-content/uploads/2024/05/Aluminum-6061.pdf"

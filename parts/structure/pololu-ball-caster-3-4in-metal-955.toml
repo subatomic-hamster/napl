@@ -32,6 +32,14 @@ symmetry = 4
 thickness = 0.0
 note = "Screws to the chassis with #2-56 screws (the 3/8 inch variants share the pattern; the hole spacing is not in the retrieved text), so no bolt pattern is recorded."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "S1"
+note = "Metal ball (source: 'Ball material: metal'), drawn as a polished steel sphere."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "steel" }
+
 [[sources]]
 id = "S1"
 url = "https://www.pololu.com/product/955/specs"

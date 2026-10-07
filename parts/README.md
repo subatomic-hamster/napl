@@ -137,3 +137,45 @@ Fidelity tags:
 Rules: no value without `src` unless `derived`/`estimated`; quotes are verbatim so a verifier can
 re-fetch the page and find them; never invent a URL. Unit conversions from the source (g to kg,
 kg*cm to N*m) are fine under the original fidelity tag and should be noted in the quote context.
+
+## Visual layer (`[visual]`, cosmetic only)
+
+`[geometry]` stays the physics shape (collision, mass, inertia). `[visual]` says what the part *looks like* in the viewer,
+renders, thumbnails and videos; it never feeds physics and its values carry no fidelity tag (they are excluded from the
+fidelity tally: `tools/check_parts.py` counts only params / tables / ports). The builder (`napl.design.build`) emits every
+visual element as a zero-density, non-colliding mesh geom (`mass="0" contype="0" conaffinity="0"`, same geom group as the plain
+shape) with a MuJoCo `<material>`, and makes the plain `[geometry]` shape fully transparent (alpha 0; it still collides and
+carries the mass). Meshes are generated at build time into `<out_dir>/visuals/` (content-addressed STL, never committed).
+`build(..., visual=False)` / `compute(..., visual=False)` skips the layer; assemblies simulate bit-identically either way.
+
+```toml
+[visual]
+src = "V1"                          # [[sources]] id of the appearance reference (product page / photo), or `rationale = "..."`
+note = "black anodised bell, blue base ring (product photo)"   # free text: what was copied from the photo
+
+[[visual.elements]]                 # one element = one generator or one mesh file; several elements stack
+gen = "bldc_outrunner"              # family generator (python/napl/design/visuals/gens_*.py), or: mesh = "meshes/x.stl"
+params = { vents = false }          # generator arguments; "param:NAME" takes the part's own params.NAME.value. Dimensions
+                                    # (diameter, length_body, length / width / height ...) are read from [params] / [geometry]
+pos = [0.0, 0.0, 0.0]               # optional placement in the part frame (default per generator, see below)
+zaxis = [0.0, 0.0, 1.0]             # optional: shortest-arc rotation taking +z to this axis (or rpy = [r, p, y], radians)
+colors = { bell = "alu-anodised-black", base = [0.05, 0.5, 0.85] }   # slot -> material name or [r, g, b] (0..1)
+```
+
+A generator returns one mesh per **slot** (motor: `base bell stator copper magnet shaft adapter`); each slot has a default
+finish and `colors` overrides it. A material is `(rgb, specular, shininess, metallic, roughness)` = the MuJoCo `<material>`
+attributes (all 0..1; `metallic` / `roughness` exist in MuJoCo 3.7); the named finishes are in
+`python/napl/design/visuals/materials.py`. A part without `[visual]` still gets its category's default family
+(`visuals.DEFAULTS`, e.g. `motor.bldc` -> `bldc_outrunner`) when it has `[geometry]`; a part with neither draws nothing in a
+build (the thumbnail tool draws the family default anyway).
+
+Generator frames (an element `pos` is only needed when a part deviates): motor mounting face at z = 0, shaft +z; propeller hub
+underside at z = 0; gearmotor / stepper / actuator output face at z = 0, body towards -z; boards, packs, pucks, camera / sensor
+modules sit with their underside on the underside of the `[geometry]` bounds, centred in x, y; plates, tubes and the `shapes`
+fallback are drawn in the part frame from `[geometry]`. Families: `bldc_outrunner propeller lipo_pack cell_18650 cf_tube
+board_generic board_esc board_fc board_power board_sbc gnss_puck camera_module sensor_module box_device connector servo_case
+gearmotor wheel_tyre stepper_nema qdd_actuator bearing standoff screw pulley shaft_collar plate_outline shapes`.
+
+Vendor CAD as a visual: `mesh = "meshes/..."` (binary or ASCII STL, one slot `body`, finish from `colors.body`). Only files whose
+licence allows redistribution in a proprietary product belong in the repo (record it in the source's `license`); today that is
+only the SO-101 and Koch STLs (Apache-2.0, `meshes/*/LICENSE`). Every other shape is generated.

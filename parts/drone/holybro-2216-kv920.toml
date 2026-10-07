@@ -138,6 +138,21 @@ v_max = { value = 16.8, unit = "V", src = "S2", fidelity = "derived", derivation
 i_max = { value = 17.0, unit = "A", src = "S2", fidelity = "datasheet" }
 note = "i_max is the 180 s peak current (spec 'Peak Current(180s) 17A'); the cable (150 mm) is part of the motor, three bullet/solder leads to the ESC motor_out"
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "V1"
+note = "Vented outrunner bell, cross mount base, M6 prop shaft; dark anodised finish as in the kit photo."
+
+[[visual.elements]]
+gen = "bldc_outrunner"
+colors = { bell = "alu-anodised-black", base = "alu-anodised-black", adapter = "alu-anodised-red" }
+
+[[sources]]
+id = "V1"
+url = "https://holybro.com/products/spare-parts-x500-v2-kit"
+title = "Holybro spare parts, X500 V2 kit (product photo of the 2216 motor, appearance only)"
+accessed = "2026-10-07"
+quote = "Spare Parts-X500 V2 Kit"
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"

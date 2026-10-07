@@ -32,6 +32,14 @@ symmetry = 360
 thickness = 0.0
 note = "The wheel is 'compatible with several of our universal mounting hubs' (S1); the screw circle is not given in the retrieved text, so the seat is a plain flat mount on the wheel's axis (the hub's six #4-40 holes are not mated)."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "S1"
+note = "Red six-spoke plastic hub, black silicone tyre with fine tread (source: 'Color: red'; product photo)."
+
+[[visual.elements]]
+gen = "wheel_tyre"
+colors = { hub = "plastic-red", tyre = "rubber", rib = "rubber" }
+
 [[sources]]
 id = "S1"
 url = "https://www.pololu.com/product/1436/specs"
