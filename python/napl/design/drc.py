@@ -22,7 +22,13 @@ from .assembly import Assembly, Ctx, load
 from .build import _mate_spec, compute
 from .library import DesignError, Library, genders_ok, types_ok
 from .mass import _STL, mesh_props
-from .snap import incompatible, select_fasteners, thread_of
+from .snap import (
+    ENGAGEMENT_FACTOR,
+    EPS_LEN,
+    incompatible,
+    select_fasteners,
+    thread_of,
+)
 
 G = 9.80665  # m/s^2, standard gravity
 # ---- design margins (not facts about a part) -------------------------------------------------------------------------
@@ -32,6 +38,22 @@ TW_ERROR = 1.3  # below this: error. DESIGN MARGIN: hover then needs 1 / 1.3 = 7
 USABLE_FRACTION = 0.8  # flight time uses 80 % of the pack capacity. DESIGN MARGIN: the usual "land with 20 % left" LiPo practice
 TRIM_WARN = 0.2  # CG offset warning when trimming it takes more than 20 % of the per-motor thrust headroom (DESIGN MARGIN)
 INTERFERENCE_TOL = 1e-3  # m: overlaps shallower than 1 mm are contact, not interference (DESIGN MARGIN: STL / print tolerance)
+CG_DIFF_WARN = 0.15  # CG offset warning when the hover thrusts must differ from the equal-throttle ones by more than 15 % of hover
+#                      thrust at some motor (DESIGN MARGIN; datum: a 50 mm CG shift on an X quad needs a 16-17 % motor speed difference,
+#                      E-MASS, https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12736611/ -- speed, i.e. ~2x that in thrust)
+PROP_GAP_FRAC = 0.05  # prop tip clearance (to another disc / any collision geometry) below 5 % of the prop diameter: warning. DESIGN
+#                       MARGIN (no standard: builders quote 3 mm to 35 mm, ardupilot forum "Recommended minimum prop tip clearance")
+GROUND_GAP_FRAC = 0.05  # lowest disc point above the lowest collision point of the airframe below 5 % of the prop diameter: warning
+#                         (DESIGN MARGIN: a prop strike on a slightly tilted landing). Ground effect info: Cheeseman & Bennett 1955,
+#                         thrust ratio 1 / (1 - (R / 4 z)^2), z = height of the disc above the ground
+GROUND_EFFECT_INFO = 0.05  # report the Cheeseman-Bennett thrust gain at rest height when it is above 5 % (z < 1.15 R)
+COPPER_LOSS_INFO = 0.20  # copper loss above 20 % of the electrical input at hover: THERMAL says so (DESIGN MARGIN: leaves < 80 %
+#                          efficiency before iron, friction and ESC losses)
+T_AMB = 25.0  # degC ambient for the winding estimate: the convention of assemblies/*.toml (their r_th derivations) and the kernel t_amb
+ALPHA_CU = 0.00393  # 1/K, copper resistance temperature coefficient at 20 degC (R(T) = R20 (1 + a (T - 20)); same value as the r_th derivations)
+SERVO_MARGIN = 2.0  # stall / worst static holding torque below 2: warning. Servo sizing guidance for vertical (gravity) loads: safety
+#                     factor 1.5-2 on the static torque (Kpower servo-selection notes, https://www.kpower.com/insight_servo/7642.html);
+#                     DESIGN MARGIN: the top of that range, because a servo holding near stall overheats and the pose grid is a lower bound
 MAX_POSES = 20000  # torque pose grid: n samples per joint with n ** joints <= MAX_POSES (n between 2 and 7)
 
 RULES = {  # code -> (default severity, what it checks); the long form is the README table
@@ -61,6 +83,10 @@ RULES = {  # code -> (default severity, what it checks); the long form is the RE
         "warning",
         "fastener shorter than stack + engagement (the builder's own code)",
     ),
+    "FASTENER_GRIP": (
+        "warning",
+        "screw longer than stack + tapped depth: it bottoms out before it clamps",
+    ),
     "FASTENER_UNAVAILABLE": ("error", "no fastener / nut can be selected for the mate"),
     "INTERFERENCE": (
         "error",
@@ -68,9 +94,21 @@ RULES = {  # code -> (default severity, what it checks); the long form is the RE
     ),
     "PROP_OVERLAP": ("error", "two rotor discs overlap in the plane of rotation"),
     "PROP_FRAME_CLASH": ("error", "a rotor disc sweeps through other geometry"),
+    "PROP_CLEARANCE": (
+        "warning",
+        "prop tip within 5 % of D of another disc / geometry, or the disc too near the ground (info: ground-effect gain)",
+    ),
     "CG_OFFSET": (
         "warning",
         "centre of gravity is off the thrust centre (needs trim thrust)",
+    ),
+    "THERMAL": (
+        "info",
+        "motor copper loss at hover (and winding temperature when a device gives r_th)",
+    ),
+    "SERVO_TORQUE_MARGIN": (
+        "warning",
+        "servo stall torque less than 2x the worst static holding torque",
     ),
     "WIRE_INVALID": (
         "error",
@@ -323,6 +361,25 @@ def _mechanical(ctx, F):
                 [name, rec["part"]],
                 f"use a screw of length >= {rec['L_min']:.4g} m: {auto or 'none in the library'}",
             )
+        # too long: a blind tapped hole of known depth. The screw must reach L_min (FASTENER_SHORT) and stop before the hole bottom,
+        # otherwise it bottoms out and leaves the stack unclamped. Through-bolts: the tip position is not modelled, so no check.
+        tapped = [p for p in (spec.pa, spec.pb) if p.get("tapped")]
+        depth = tapped[0].get("thread_depth") if tapped else None
+        if depth is not None:
+            room = rec["stack"] + float(depth)
+            if rec["length"] > room + EPS_LEN:
+                d = float(rec["thread"][1:]) / 1000.0
+                _add(
+                    F,
+                    "FASTENER_GRIP",
+                    "warning",
+                    f"mate '{name}': {rec['part']} length {rec['length'] * 1000:.1f} mm > clamped stack {rec['stack'] * 1000:.1f} mm + tapped depth "
+                    f"{float(depth) * 1000:.1f} mm = {room * 1000:.1f} mm: it bottoms out {1000 * (rec['length'] - room):.1f} mm before the head clamps "
+                    f"(the hole offers {float(depth) / d:.1f} x d of thread; rule of thumb >= 1 x d in steel, 2 x d in aluminium, Nord-Lock "
+                    f"'Thread engagement in a tapped hole'; the builder's L_min uses {ENGAGEMENT_FACTOR} x d)",
+                    [name, rec["part"]],
+                    f"use a screw of length {rec['L_min'] * 1000:.1f} to {room * 1000:.1f} mm, or a deeper tapped hole",
+                )
     return specs
 
 
@@ -826,7 +883,7 @@ def _performance(ctx, net, units, mass, F):
         h = _hover(u, f * u["Tmax"], u["vnom"])
         if h is None:
             continue
-        u["Ihover"] = h[1]
+        u["Ihover"], u["Hthr"] = h[1], h[0]
         tot_i += h[1]
         if h[0] is not None:
             thrs.append(h[0])
@@ -1325,6 +1382,16 @@ def _prop_rules(ctx, world, discs, F):
                     [a["prop"], b["prop"]],
                     f"use props with D1 + D2 <= {2 * xy * 1000:.0f} mm, or move the motors apart / to different heights",
                 )
+            elif gap < PROP_GAP_FRAC * 2 * max(a["R"], b["R"]) and h < a["t"] + b["t"]:
+                _add(
+                    F,
+                    "PROP_CLEARANCE",
+                    "warning",
+                    f"tip-to-tip gap of {a['prop']} and {b['prop']} is {gap * 1000:.1f} mm, under {PROP_GAP_FRAC * 100:.0f} % of the larger diameter "
+                    f"({PROP_GAP_FRAC * 2 * max(a['R'], b['R']) * 1000:.1f} mm); the wakes interact and a flexed blade can touch",
+                    [a["prop"], b["prop"]],
+                    f"use props with D1 + D2 <= {(xy - PROP_GAP_FRAC * 2 * max(a['R'], b['R'])) * 2 * 1000:.0f} mm, or move the motors apart",
+                )
     ang = np.linspace(0, 2 * np.pi, 16, endpoint=False)
     for a in discs:
         n = a["n"]
@@ -1343,27 +1410,52 @@ def _prop_rules(ctx, world, discs, F):
         while p is not None and len(own) < 3:
             own.add(world.bodies[p]["name"])
             p = None
-        hit = {}
-        for gi, g in enumerate(world.geoms):
-            nm = world.bodies[g["body"]]["name"]
-            if (
-                not g["collide"]
-                or nm in own
-                or world.bodies[g["body"]]["parent"] == world.idx[a["prop"]]
-            ):
-                continue
-            c, R, h = world.obb(gi)
-            loc = (pts - c) @ R
-            if (
-                g["kind"] == "cylinder"
-            ):  # exact: the bounding box of a yawed prop disc pokes into its neighbour
-                inside = (np.hypot(loc[:, 0], loc[:, 1]) <= h[0]) & (
-                    np.abs(loc[:, 2]) <= h[2]
-                )
-            else:
-                inside = (np.abs(loc) - h <= 0).all(axis=1)
-            if inside.any():
-                hit[nm] = None
+        # tip ring a margin outside the disc (PROP_CLEARANCE): the same sampling at r = R (1 + PROP_GAP_FRAC) x 3 layers x 16 angles
+        ring = np.array(
+            [
+                a["c"]
+                + n * dz
+                + a["R"] * (1 + PROP_GAP_FRAC) * (np.cos(t) * e1 + np.sin(t) * e2)
+                for dz in (-a["t"] / 2, 0.0, a["t"] / 2)
+                for t in ang
+            ]
+        )
+
+        def hits(P):
+            out = set()
+            for gi, g in enumerate(world.geoms):
+                nm = world.bodies[g["body"]]["name"]
+                if (
+                    not g["collide"]
+                    or nm in own
+                    or world.bodies[g["body"]]["parent"] == world.idx[a["prop"]]
+                ):
+                    continue
+                c, R, h = world.obb(gi)
+                loc = (P - c) @ R
+                if (
+                    g["kind"] == "cylinder"
+                ):  # exact: the bounding box of a yawed prop disc pokes into its neighbour
+                    inside = (np.hypot(loc[:, 0], loc[:, 1]) <= h[0]) & (
+                        np.abs(loc[:, 2]) <= h[2]
+                    )
+                else:
+                    inside = (np.abs(loc) - h <= 0).all(axis=1)
+                if inside.any():
+                    out.add(nm)
+            return out
+
+        hit = hits(pts)
+        for nm in sorted(hits(ring) - hit):
+            _add(
+                F,
+                "PROP_CLEARANCE",
+                "warning",
+                f"{nm} is within {PROP_GAP_FRAC * 100:.0f} % of the diameter ({PROP_GAP_FRAC * 2 * a['R'] * 1000:.1f} mm) of the tip of {a['prop']} "
+                f"(D {2 * a['R'] * 1000:.0f} mm); sampled at 16 angles",
+                [a["prop"], nm],
+                "move it out of the disc by a margin, or use a smaller prop (a tip near structure loses thrust and is noisy)",
+            )
         for nm in sorted(hit):
             _add(
                 F,
@@ -1372,6 +1464,52 @@ def _prop_rules(ctx, world, discs, F):
                 f"the disc of {a['prop']} (D {2 * a['R'] * 1000:.0f} mm) sweeps through {nm}",
                 [a["prop"], nm],
                 "use a smaller prop, a taller motor mount, or move the part out of the disc",
+            )
+    # ground: a free-base vehicle is placed with its lowest collision point on z = 0, so that plane is where it rests
+    if ctx.doc.get("assembly", {}).get("base", "free") != "free":
+        return
+    low = [
+        (
+            a["c"][2]
+            - a["R"] * math.sqrt(max(0.0, 1 - a["n"][2] ** 2))
+            - a["t"] / 2 * abs(a["n"][2]),
+            a,
+        )
+        for a in discs
+    ]
+    if not low:
+        return
+    z, a = min(low, key=lambda x: x[0])
+    D = 2 * a["R"]
+    if z < GROUND_GAP_FRAC * D:
+        _add(
+            F,
+            "PROP_CLEARANCE",
+            "error" if z < 0 else "warning",
+            f"the lowest point of the disc of {a['prop']} (D {D * 1000:.0f} mm) is {z * 1000:.0f} mm above the lowest collision point of the airframe, "
+            f"under {GROUND_GAP_FRAC * 100:.0f} % of D ({GROUND_GAP_FRAC * D * 1000:.0f} mm): the blades touch the ground on a slightly tilted landing"
+            + (" (below it at rest)" if z < 0 else ""),
+            [a["prop"]],
+            "lengthen the landing gear / skids or fit a smaller prop",
+        )
+    if z >= GROUND_GAP_FRAC * D:
+        zr = z / a["R"]
+        gain = (
+            1 / (1 - (1 / (4 * zr)) ** 2) - 1 if zr >= 0.6 else None
+        )  # Cheeseman-Bennett, only valid for z / R > ~0.6
+        if gain is None or gain > GROUND_EFFECT_INFO:
+            _add(
+                F,
+                "PROP_CLEARANCE",
+                "info",
+                f"at rest the lowest disc ({a['prop']}) is {z * 1000:.0f} mm = {zr:.2f} R above the ground: "
+                + (
+                    f"ground effect adds ~{gain * 100:.0f} % thrust (Cheeseman & Bennett 1 / (1 - (R / 4 z)^2))"
+                    if gain is not None
+                    else "below z / R = 0.6, where the Cheeseman-Bennett model stops being valid; ground effect is strong, not estimated"
+                )
+                + " at take-off / landing: a thrust step as the vehicle leaves the ground",
+                [a["prop"]],
             )
 
 
@@ -1392,7 +1530,13 @@ def _cg_rule(ctx, world, discs, mass, F):
     f0 = w / t.sum()
     used = (T / t).max()
     headroom = (used - f0) / (1 - f0) if f0 < 1 else math.inf
-    msg = f"CG is {off * 1000:.1f} mm from the thrust centre (horizontal); trimming it takes {headroom * 100:.0f} % of the per-motor thrust headroom"
+    diff = float(
+        np.max(np.abs(T - T0) / T0)
+    )  # extra differential thrust at the worst motor, as a fraction of its hover thrust
+    msg = (
+        f"CG is {off * 1000:.1f} mm from the thrust centre (horizontal); hover needs up to {diff * 100:.0f} % extra differential thrust "
+        f"at one motor, which takes {headroom * 100:.0f} % of the per-motor thrust headroom"
+    )
     where = [d["prop"] for d in ok]
     if used > 1 or T.min() < 0:
         _add(
@@ -1403,15 +1547,60 @@ def _cg_rule(ctx, world, discs, mass, F):
             where,
             "move the battery / payload toward the thrust centre",
         )
-    elif headroom > TRIM_WARN:
+    elif headroom > TRIM_WARN or diff > CG_DIFF_WARN:
         _add(
             F,
             "CG_OFFSET",
             "warning",
-            msg + f" (> {TRIM_WARN * 100:.0f} %)",
+            msg
+            + (
+                f" (> {TRIM_WARN * 100:.0f} % headroom)"
+                if headroom > TRIM_WARN
+                else f" (> {CG_DIFF_WARN * 100:.0f} % of hover thrust)"
+            ),
             where,
             "move the battery / payload toward the thrust centre",
         )
+
+
+# ---- motor losses at hover --------------------------------------------------------------------------------------------------------
+def _thermal(ctx, units, F):
+    """Copper loss per motor at hover: winding current I_m = I_pack / throttle (ideal ESC: V_pack I_pack = duty V_pack I_m, throttle ~ duty;
+    ESC and iron losses are not split out), P_cu = I_m^2 R_winding(T). With a thermal resistance from the device binding
+    (`motor.r_th`, K/W, winding to ambient; no part publishes one) the winding temperature solves T = T_AMB + r_th P_cu(T),
+    R(T) = R20 (1 + ALPHA_CU (T - 20)). Never invents r_th or a temperature limit: no part states a winding limit, so this is info."""
+    rows = []
+    for u in units:
+        r = u["motor"].value("r_winding")
+        if not (r and u.get("Ihover") and u.get("Hthr") and u.get("vnom")):
+            continue
+        im = u["Ihover"] / u["Hthr"]
+        pin = u["Ihover"] * u["vnom"]
+        pcu = im * im * r
+        rth = _n(u["dev"].get("set", {}).get("motor.r_th"))
+        tw = None
+        if rth is not None:
+            k = rth * im * im * r * ALPHA_CU
+            tw = (
+                (T_AMB + rth * im * im * r * (1 - 20 * ALPHA_CU)) / (1 - k)
+                if k < 1
+                else math.inf
+            )
+        rows.append((pcu / pin, pcu, im, pin, tw, rth, u))
+    if not rows:
+        return
+    frac, pcu, im, pin, tw, rth, u = max(rows, key=lambda x: x[0])
+    msg = (
+        f"hover copper loss {pcu:.1f} W = {frac * 100:.0f} % of the {pin:.0f} W electrical input at the worst motor {u['motor'].id} "
+        f"(winding current {im:.1f} A = pack current / throttle, R_winding {u['motor'].value('r_winding') * 1000:.0f} mOhm)"
+    )
+    if tw is not None:
+        msg += f"; winding ~{tw:.0f} degC at {T_AMB:g} degC ambient with the device's r_th {rth:g} K/W"
+    else:
+        msg += "; no r_th in the device binding, so no temperature"
+    if frac > COPPER_LOSS_INFO:
+        msg += f"; above {COPPER_LOSS_INFO * 100:.0f} %: a lighter prop / lower kv / larger motor loses less"
+    _add(F, "THERMAL", "info", msg, [u["motor"].id])
 
 
 # ---- servo torque ---------------------------------------------------------------------------------------------------------------
@@ -1615,6 +1804,16 @@ def _servo_rules(ctx, net, world, F):
                 + f"; above the rated (continuous) torque {rated:.3f} N*m, it will overheat when holding",
                 [d["name"], d["joint"]],
                 "use a stronger servo or reduce the lever arm / mass",
+            )
+        if 1 <= margin < SERVO_MARGIN:
+            _add(
+                F,
+                "SERVO_TORQUE_MARGIN",
+                "warning",
+                msg
+                + f" < {SERVO_MARGIN:g}: no reserve for acceleration, payload or a voltage sag (the static torque is the arm's own weight; a payload adds to it, see PAYLOAD_LIMIT)",
+                [d["name"], d["joint"]],
+                f"use a servo with stall torque >= {SERVO_MARGIN * tmax:.2f} N*m at {vb:g} V, or lighten / shorten the arm",
             )
     if worst and worst_margin >= 1 and not any(f.code == "SERVO_TORQUE" for f in F):
         _add(
@@ -1909,6 +2108,7 @@ def check(asm, lib=None, *, model=None, mesh_base=None, diag=None) -> list:
         _guard(F, "cg", _cg_rule, ctx, world, discs, mass, F)
         if net:
             servo_info = _guard(F, "servo", _servo_rules, ctx, net, world, F) or {}
+    _guard(F, "thermal", _thermal, ctx, units, F)
     if net:
         _guard(F, "currents", _current_rules, ctx, net, units, servo_info, F, diag)
     F.sort(key=lambda f: (_RANK[f.severity], f.code, f.where))

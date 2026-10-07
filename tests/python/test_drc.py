@@ -527,6 +527,122 @@ def test_payload_limit_is_what_the_servos_can_still_hold(so101, lib, so101_findi
 
 
 # ---- build failure and interface -------------------------------------------------------------------------------------------------------
+# ---- D3: grip, prop clearance, CG differential thrust, motor losses, servo margin ----------------------------------------------------
+def test_fastener_grip_screw_bottoms_out_in_a_blind_hole(x500, lib, x500_findings):
+    # the motor mount has 4 mm of tapped depth under a 2 mm plate (L_min 6 mm); a 12 mm screw bottoms out 6 mm early
+    fs = check(
+        mutated(
+            x500,
+            lambda d: by(d, "mates", "name", "motor1").update(
+                fasteners={"part": "iso4762-m3x12", "count": 4}
+            ),
+        ),
+        lib,
+    )
+    f = [x for x in fs if x.code == "FASTENER_GRIP" and "motor1" in x.where]
+    assert f and f[0].severity == "warning"
+    assert "bottoms out 6.0 mm" in f[0].message and "6.0 to 6.0 mm" in f[0].fix
+    # the reference motor mates (screw = stack + depth exactly) do not fire
+    assert not any(
+        "motor" in w
+        for x in x500_findings
+        if x.code == "FASTENER_GRIP"
+        for w in x.where
+    )
+
+
+def test_cg_offset_message_gives_the_differential_thrust(x500, lib):
+    fs = check(
+        mutated(
+            x500,
+            lambda d: by(d, "instances", "id", "gps").update(
+                params={"mass": prov(1.0, "kg")}
+            ),
+        ),
+        lib,
+    )
+    f = fires(fs, "CG_OFFSET", also=("CURRENT_OVER_RATING",))
+    pct = float(
+        re.search(r"up to (\d+) % extra differential thrust", f[0].message).group(1)
+    )
+    assert pct > drc.CG_DIFF_WARN * 100
+
+
+def test_prop_clearance_tip_to_tip(x500, lib):
+    # 0.354 m between neighbouring motors: a 0.45 m prop next to the 0.254 m ones leaves 2 mm (< 5 % of 450 mm)
+    fs = check(
+        mutated(
+            x500,
+            lambda d: by(d, "instances", "id", "prop1").update(
+                params={"diameter": prov(0.45, "m")}
+            ),
+        ),
+        lib,
+    )
+    f = fires(fs, "PROP_CLEARANCE", also=("PROP_FRAME_CLASH",))
+    assert all(x.severity == "warning" and "tip-to-tip gap" in x.message for x in f)
+    assert {w for x in f for w in x.where} == {"prop1", "prop3", "prop4"}
+
+
+def test_prop_clearance_to_ground_and_ground_effect_info(x500, lib):
+    fs = check(
+        mutated(
+            x500,
+            lambda d: by(d, "instances", "id", "prop1").update(
+                params={"diameter": prov(6.0, "m")}
+            ),
+        ),
+        lib,
+    )
+    # the discs lie flat 0.286 m above the ground (leg height): a 6 m prop (5 % = 0.3 m) is the way under the margin
+    f = fires(fs, "PROP_CLEARANCE", also=("PROP_OVERLAP", "PROP_FRAME_CLASH"))
+    assert any(x.severity == "warning" and "touch the ground" in x.message for x in f)
+    # 0.5 m prop: 1.14 R above the ground, Cheeseman-Bennett thrust gain ~5 %
+    fs = check(
+        mutated(
+            x500,
+            lambda d: by(d, "instances", "id", "prop1").update(
+                params={"diameter": prov(0.5, "m")}
+            ),
+        ),
+        lib,
+    )
+    assert any(
+        x.code == "PROP_CLEARANCE"
+        and x.severity == "info"
+        and "ground effect adds" in x.message
+        for x in fs
+    )
+
+
+def test_thermal_reports_copper_loss_and_winding_temperature(x500, lib, x500_findings):
+    f = next(x for x in x500_findings if x.code == "THERMAL")
+    assert f.severity == "info" and "r_th 0.962 K/W" in f.message
+    t = float(re.search(r"winding ~(\d+) degC", f.message).group(1))
+    assert 25 < t < 60
+
+    # no r_th in the device bindings: copper loss only, no temperature (nothing is invented)
+    def drop(d):
+        for b in d["devices"]:
+            if b["type"] == "esc":
+                b.get("set", {}).pop("motor.r_th", None)
+
+    f = next(x for x in check(mutated(x500, drop), lib) if x.code == "THERMAL")
+    assert "no r_th" in f.message and "degC" not in f.message
+    # a 0.5 ohm winding: the copper loss is above 20 % of the input
+    lib2 = lib_copy(lib)
+    lib2.get("holybro-2216-kv920").params["r_winding"] = prov(0.5, "ohm")
+    f = next(x for x in check(x500, lib2) if x.code == "THERMAL")
+    assert "above 20 %" in f.message
+
+
+def test_servo_torque_margin_below_2(so101_findings):
+    f = [x for x in so101_findings if x.code == "SERVO_TORQUE_MARGIN"]
+    assert f and all(x.severity == "warning" for x in f)
+    assert any("shoulder_lift" in x.where and "margin 1.59" in x.message for x in f)
+    assert not any("servo3" in x.where for x in f)  # margin 2.97 at the elbow
+
+
 def test_unknown_part_is_a_build_failed_finding(x500, lib):
     fs = check(
         mutated(
