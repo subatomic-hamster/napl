@@ -15,3 +15,10 @@ SIM_BAT_ENABLE 0
 COM_RC_IN_MODE 4
 # No data-link-loss failsafe (0 = disabled; already the default, pinned so a PX4 default change cannot affect the test).
 NAV_DLL_ACT 0
+# Height reference = barometer (0). The v1.17.0 default is GPS, whose vertical noise in the parts-built model is the M8N datasheet
+# accuracy (vert_std 3.2 m, 5 Hz) against the 0.5 m the EKF assumes by default: with the GPS reference the truth altitude wanders
+# +-1 m over 30 s from run to run (observed on the assembly: hold at 4.3-5.1 m, then 5.9-6.5 m, for a 5 m target). The MS5611 model
+# (1.2 Pa = 0.1 m) is the better height sensor, as on a real X500 flown with the baro reference.
+EKF2_HGT_REF 0
+# GNSS fusion bits: 1 horizontal position + 4 3-D velocity (default 7 also fuses the 3 m-noise vertical position).
+EKF2_GPS_CTRL 5

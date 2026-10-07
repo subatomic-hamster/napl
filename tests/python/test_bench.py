@@ -104,12 +104,48 @@ def test_baseline_model_is_the_n4_stand():
     assert bench.rotor_re(case) == {} and case["t_amb"] == 20.0
 
 
-def test_hover_x500():
-    h = bench.hover_bench(auw=1.65)
+def test_hover_x500_from_assembly():
+    """N5b: AUW / battery / avionics come from the built assemblies/x500v2.toml (not the parts-DB sum)."""
+    rep, adev = bench.built_assembly()
+    h = bench.hover_bench()
     s = h["start"]
-    assert abs(s["thrust_N"] - 1.65 * 9.80665 / 4) < 0.02
-    assert 0.1 < s["throttle_duty"] < 0.8
-    assert 5 < h["endurance_min"] < 40, h[
-        "endurance_min"
-    ]  # sanity band, not a validation
+    # AUW = the report's total (1.547 kg, avionics included): the mass key is a dict {total, by_group, by_instance}
+    assert h["auw_kg"] == rep["mass"]["total"] and abs(h["auw_kg"] - 1.547) < 0.005
+    assert "build report mass.total" in h["auw_source"]
+    assert bench.auw_estimate(rep)[0] == h["auw_kg"]
+    assert abs(s["thrust_N"] - h["auw_kg"] * 9.80665 / 4) < 0.02
+    assert 0.35 < s["throttle_duty"] < 0.5, s["throttle_duty"]
+    # per-motor current: the model at the hover thrust vs the 2216 vendor table (16 V): 2.82 A vs 2.99 A, within 10 %
+    assert abs(s["motor_i_bus_A"] - h["table_current_A"]) < 0.1 * h["table_current_A"]
+    # avionics loads present (three constant-current sinks of the assembly, 0.1465 A) and Chen OCV x 4 cells
+    assert (
+        abs(h["avionics_battery_A"] - 0.1465) < 1e-3 and len(h["avionics_loads"]) == 3
+    )
+    assert h["ocv_part"] == "lipo-cell-ocv-chen2006"
+    assert abs(adev["batteries"][0]["ocv_v"][-1] - 4 * 4.103) < 0.01
+    # sanity band, not a validation: 23.6 min to the 3.5 V/cell loaded cutoff, 20.4 min to 80 % DoD (Holybro ~18 min)
+    assert 18 < h["endurance_min"] < 28, h["endurance_min"]
+    assert 15 < h["endurance_80pct_dod_min"] < 25, h["endurance_80pct_dod_min"]
     assert "terminal voltage" in h["cutoff"]
+
+
+def test_assembly_rotor_and_motor_thermal_match_the_bench(suite):
+    """The builder's devices carry the validated N4b models: Reynolds tables = the bench's shape, ct / cq re-referenced
+    to x_ref, and the 2216 r_th = the bench's calibration (the assembly's `set` is a derived number, checked here)."""
+    _, adev = bench.built_assembly()
+    shape = bench.reynolds_shape()
+    for r in adev["rotors"]:
+        assert (
+            r["re_x"] == shape["x"]
+            and r["re_ft"] == shape["ft"]
+            and r["re_fq"] == shape["fq"]
+        )
+    r = adev["rotors"][0]
+    # least-squares C_ref of the prop's own static table against f(x): ct 0.0908 (stand fit C_T0 = 0.0898), cq 0.00526
+    assert abs(r["ct"][0] - 0.0908) < 2e-4 and abs(r["cq"][0] - 0.00526) < 2e-5
+    (b,) = suite["holybro-2216-kv920"]["tables"]
+    for e in adev["escs"]:
+        assert abs(e["motor"]["r_th"] - b["thermal"]["r_th_K_per_W"]) < 5e-4, (
+            e["motor"]["r_th"],
+            b["thermal"]["r_th_K_per_W"],
+        )

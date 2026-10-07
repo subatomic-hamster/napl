@@ -4,6 +4,7 @@ import numpy as np
 
 from .assembly import UNITS, Ctx
 from .library import DesignError
+from .reynolds import ref_scale, reynolds_shape
 from .snap import incompatible, port_frame
 
 OHM, AMP = {"ohm": 1.0}, {"A": 1.0}
@@ -41,6 +42,7 @@ FIELD_UNITS = {
     "noise_std": {"Pa": 1.0, "T": 1.0},  # baro | mag
     "vel_std": {"m/s": 1.0},
     "rate_hz": {"Hz": 1.0},
+    "latency_s": {"s": 1.0},
     "alt0": UNITS["m"],
     "origin_alt": UNITS["m"],
     "w20": {"m/s": 1.0},
@@ -87,6 +89,7 @@ RESERVED = {
     "site_port",
     "ocv",
     "cells",
+    "reynolds",
 }
 MAX_NODES = 32
 VEHICLE_GROUP = 4  # MJCF geom group of every vehicle geom; the floor stays in group 0
@@ -554,6 +557,8 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
             _battery_ocv(ctx, b, d, where, parts)
         if typ == "rotor":
             d.setdefault("ray_groups", RAY_GROUPS)
+            if b.get("reynolds"):
+                _rotor_reynolds(ctx, inst, d, where, parts)
         add(typ, d, parts)
 
     if not dev:
@@ -561,6 +566,41 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
     if "seed" in doc["assembly"]:
         dev["seed"] = doc["assembly"]["seed"]
     return dev, report, sites
+
+
+def _rotor_reynolds(ctx: Ctx, inst, d: dict, where: str, parts: set):
+    """Binding flag `reynolds = true`: emit the pooled UIUC Reynolds factor tables (re_x / re_ft / re_fq) and re-reference
+    the mapped ct / cq lists to x_ref. The prop part's ct / cq are means over its own static table, whose rows sit at
+    higher x, so with f(x) switched on they must be the values AT x_ref (else the factor is applied twice): the lists are
+    scaled by k / ct_static (k = least-squares C_ref of the part's [tables.ct_cq_static_derived] against f(x)), which
+    keeps the J shape. Needs that table (columns rpm, C_T, C_Q) and the params ct_static / cq_static / diameter."""
+    t = inst.part.raw.get("tables", {}).get("ct_cq_static_derived")
+    if not t or not {"rpm", "C_T", "C_Q"} <= set(t.get("columns", [])):
+        raise DesignError(
+            f"{where}: reynolds needs part {inst.part.id} to have a table ct_cq_static_derived (rpm, C_T, C_Q)"
+        )
+    ct0, cq0, dia = (inst.value(k) for k in ("ct_static", "cq_static", "diameter"))
+    if None in (ct0, cq0, dia) or "ct" not in d:
+        raise DesignError(
+            f"{where}: reynolds needs ct_static, cq_static, diameter on {inst.part.id} and a ct / cq map"
+        )
+    sh = reynolds_shape(ctx.lib)
+    col = {c: [float(r[i]) for r in t["rows"]] for i, c in enumerate(t["columns"])}
+    kt = ref_scale(sh, dia, col["rpm"], col["C_T"], "ft") / ct0
+    kq = ref_scale(sh, dia, col["rpm"], col["C_Q"], "fq") / cq0
+    d["ct"], d["cq"] = [v * kt for v in d["ct"]], [v * kq for v in d["cq"]]
+    d["re_x"], d["re_ft"], d["re_fq"] = sh["x"], sh["ft"], sh["fq"]
+    parts.update(sh["props"])
+    ctx.note(
+        where,
+        "reynolds",
+        {
+            "fidelity": "derived",
+            "value": "table",
+            "unit": "",
+            "rationale": "f_T, f_Q pooled from 7 UIUC APC static tables (napl.design.reynolds); ct / cq re-referenced to x = 4.5 m^2/s",
+        },
+    )
 
 
 def _battery_ocv(ctx: Ctx, b: dict, d: dict, where: str, parts: set):

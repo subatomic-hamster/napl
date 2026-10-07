@@ -1,5 +1,10 @@
 """Real PX4 v1.17.0 SITL flies the simulated X500 V2 through napl-px4-bridge (N5), driven by MAVSDK (BSD-3).
 
+Two models, same flight: "asm" = the parts-built design (assemblies/x500v2.toml, built by this test with `napl.design.build` into
+build/assemblies, flown through px4/bridge_x500v2_asm.toml) and "fixture" = the hand-written tests/data/px4/x500_fixture.xml
+(px4/bridge_x500.toml), kept as the independent reference model (cheap: ~70 s). The asm run writes build/px4/x500v2_flight.json,
+the input of docs/validation/x500-hover.md.
+
 Skipped unless the PX4 build, the bridge exe and mavsdk are present. Everything binds 127.0.0.1.
 Env: NAPL_PX4_DIR (PX4 checkout, default hfbox), NAPL_PX4_INSTANCE (default 0), NAPL_BRIDGE_EXE, NAPL_REPLAY_EXE.
 Run: .venv/bin/python -m pytest tests/python/test_px4_flight.py -m px4 -v -s
@@ -33,7 +38,13 @@ PX4_BIN = B / "bin" / "px4"
 BRIDGE = Path(os.environ.get("NAPL_BRIDGE_EXE", REPO / "build" / "napl-px4-bridge"))
 REPLAY = Path(os.environ.get("NAPL_REPLAY_EXE", REPO / "build" / "napl-replay"))
 N = int(os.environ.get("NAPL_PX4_INSTANCE", "0"))
-CFG = REPO / "px4" / "bridge_x500.toml"
+CFGS = {
+    "asm": REPO / "px4" / "bridge_x500v2_asm.toml",
+    "fixture": REPO / "px4" / "bridge_x500.toml",
+}
+ASM = REPO / "assemblies" / "x500v2.toml"
+ASM_OUT = REPO / "build" / "assemblies"
+FLIGHT_JSON = REPO / "build" / "px4" / "x500v2_flight.json"
 PARAMS = REPO / "px4" / "params" / "napl_sitl.params"
 MOTOR_TOML = REPO / "parts" / "drone" / "holybro-2216-kv920.toml"
 PORTS_TCP = [4560 + N]
@@ -243,7 +254,7 @@ async def fly(bridge, tmp, ev):
         await asyncio.sleep(5)
         z0 = ev["z0"]
         bridge.p.stdin.write(
-            f"monitor alt_hold /world/base pos 2 {z0 + 4.5} {z0 + 5.5} 30\n"
+            f"monitor alt_hold {ev['base']} pos 2 {z0 + 4.5} {z0 + 5.5} 30\n"
         )
         bridge.p.stdin.flush()
         ev["t_mon"] = time.time()
@@ -275,8 +286,20 @@ async def fly(bridge, tmp, ev):
         mv.destroy()
 
 
+def model_info(model):
+    """-> (bridge config, base prim, mass kg). asm: builds the assembly first (deterministic, no kernel needed)."""
+    if model == "fixture":
+        return CFGS[model], "/world/base", fixture_mass()
+    from napl.design import build
+
+    r = build(ASM, REPO / "parts", ASM_OUT)
+    assert (ASM_OUT / "x500v2.xml").exists()
+    return CFGS[model], "/world/bottom", r["report"]["mass"]["total"]
+
+
 @pytest.mark.skipif(SKIP is not None, reason=SKIP or "")
-def test_px4_flight():
+@pytest.mark.parametrize("model", ["asm", "fixture"])
+def test_px4_flight(model):
     assert not (set(PORTS_TCP + PORTS_UDP) & FORBIDDEN), (
         "instance maps onto a forbidden port"
     )
@@ -291,7 +314,8 @@ def test_px4_flight():
     run = tmp / "px4run"
     run.mkdir()
     trace, rlog = tmp / "trace.csv", tmp / "replay.log"
-    ev = {"t0": time.time()}
+    cfg, base, mass = model_info(model)
+    ev = {"t0": time.time(), "base": base, "mass": mass, "model": model}
     bridge = px4 = None
     keep = os.environ.get("NAPL_PX4_KEEP")
     try:
@@ -299,7 +323,7 @@ def test_px4_flight():
             [
                 str(BRIDGE),
                 "--config",
-                str(CFG),
+                str(cfg),
                 "--port",
                 str(4560 + N),
                 "--px4-udp",
@@ -446,7 +470,7 @@ def check(tmp, trace, rlog, final, ev):
     with open(MOTOR_TOML, "rb") as f:
         tab = tomllib.load(f)["tables"]["thrust_test"]
     col = {c: [r[k] for r in tab["rows"]] for k, c in enumerate(tab["columns"])}
-    mass = fixture_mass()
+    mass = ev["mass"]
     thrust = mass * G / 4
     i_tab = float(np.interp(thrust, col["thrust_N"], col["current_A"]))
     bus = [float(np.mean(tr[f"bus_current{k}"][hold])) for k in range(4)]
@@ -470,7 +494,9 @@ def check(tmp, trace, rlog, final, ev):
     slope = float(np.polyfit(tt, tr["batt_soc"][hold], 1)[0])
     soc0 = float(tr["batt_soc"][i0])
     full, to20 = soc0 / abs(slope), (soc0 - 0.2) / abs(slope)
-    print("\n================ PX4 SITL flight results ================")
+    print(
+        f"\n================ PX4 SITL flight results ({ev['model']}) ================"
+    )
     rows = [
         ("hover throttle (mean of 4)", f"{thr:.4f}"),
         ("hover battery current", f"{cur:.2f} A"),
@@ -504,4 +530,33 @@ def check(tmp, trace, rlog, final, ev):
     ]
     for k, vtxt in rows:
         print(f"  {k:<58} {vtxt}")
+    if ev["model"] == "asm":
+        FLIGHT_JSON.parent.mkdir(parents=True, exist_ok=True)
+        FLIGHT_JSON.write_text(
+            json.dumps(
+                {
+                    "mass_kg": mass,
+                    "thrust_per_motor_N": thrust,
+                    "hover_throttle_mean": thr,
+                    "hover_throttle_per_motor": [
+                        float(np.mean(tr[f"throttle{k}"][hold])) for k in range(4)
+                    ],
+                    "bus_current_per_motor_A": bus,
+                    "table_current_A": i_tab,
+                    "battery_current_A": cur,
+                    "battery_v_hold_mean": float(np.mean(tr["batt_v"][hold])),
+                    "px4_v_idle": idle_v,
+                    "px4_v_hover": hover_v,
+                    "soc_at_hold_start": soc0,
+                    "soc_slope_per_s": slope,
+                    "flight_min_to_0": full / 60,
+                    "flight_min_to_20pct_reserve": to20 / 60,
+                    "alt_min_max_rms": [mon["min"], mon["max"], mon["rms"]],
+                    "hold_samples": mon["samples"],
+                    "replay": final,
+                },
+                indent=1,
+            )
+            + "\n"
+        )
     print("=========================================================", flush=True)

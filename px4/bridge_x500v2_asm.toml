@@ -1,0 +1,28 @@
+# napl-px4-bridge config for the parts-built X500 V2: build/assemblies/x500v2.xml, produced by
+#   napl design build assemblies/x500v2.toml --out build/assemblies      (tests/python/test_px4_flight.py builds it first)
+# Same keys as px4/bridge_x500.toml (the hand-written fixture); only the model path, the base prim, the device names and the home
+# differ. Paths relative to this file.
+model = "../build/assemblies/x500v2.xml"
+base = "/world/bottom"                 # root instance of assemblies/x500v2.toml (free joint bottom:free); FLU, +x forward
+imu = "imu"                            # 500 Hz in the model (>= the 250 Hz HIL step rate the bridge needs)
+baro = "baro"
+mag = "mag"
+gnss = "gnss"                          # 5 Hz (ublox-neo-m8n max_nav_rate_gps_glonass datasheet; the fixture's 10 Hz was GPS-only rate)
+battery = "battery"
+gps_rate_hz = 5                      # must equal the gnss device rate_hz in the model
+satellites = 10
+
+[motors]
+# entry i = PX4 controls[i] = motor i+1 of the assembly (its header: m1 front-right CCW, m2 rear-left CCW, m3 front-left CW, m4 rear-right CW)
+esc = ["esc1", "esc2", "esc3", "esc4"]
+
+[home]                                 # must equal the gnss device lat0 / lon0 / alt0 of the assembly (= environment origin_alt)
+lat = 47.3769
+lon = 8.5417
+alt = 408.0
+
+[px4]
+sysid = 1                              # PX4's MAV_SYS_ID
+compid = 180                           # ours (MAV_COMP_ID_BATTERY), must differ from PX4's
+battery_rate_hz = 5
+cells = 4

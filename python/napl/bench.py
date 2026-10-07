@@ -74,17 +74,8 @@ VENDOR_TEMP_C = {
     ("tmotor-mn5008-kv340", "thrust_test"): 88.0,
 }
 
-# UIUC static C_T / C_P vs rpm tables (APC props, all literature data in the parts DB) pooled into the Reynolds factor.
-UIUC_STATIC = (
-    "uiuc-apcsf-8x3.8",
-    "uiuc-apcsf-9x4.7",
-    "uiuc-apce-9x4.5",
-    "uiuc-apce-11x7",
-    "uiuc-apce-14x12",
-    "uiuc-apce-17x12",
-    "uiuc-apc-sf-10x4.7",
-)
-RE_X_REF = 4.5  # m^2/s: x = n D^2 at which f = 1 (all seven UIUC tables cover it); = 10 in prop at ~4100 rpm
+from .design.reynolds import RE_X_REF, UIUC_STATIC
+from .design.reynolds import reynolds_shape as _reynolds_shape
 
 
 # ---------------------------------------------------------------- parts reader (tiny, private)
@@ -120,51 +111,8 @@ def tabled_motors() -> list:
 
 @functools.cache
 def reynolds_shape() -> dict:
-    """Reynolds / rotor-speed factors f_T(x), f_Q(x), x = n D^2 (rev/s m^2), from the UIUC static tables (J = 0).
-
-    Per prop: f_i(x) = C(x) / C(RE_X_REF) from its own C_T(rpm) (C_Q = C_P / 2 pi: same ratio as C_P). Pooled: at each grid
-    point the MEDIAN of ln f_i over the props whose measured x range covers it (>= 2 props; no extrapolation), then
-    re-normalised to f(RE_X_REF) = 1. Beyond the covered range the device clamps. Reynolds number at 0.75 R is
-    Re = rho (2 pi n) (0.75 R) c / mu ~ n D^2 (c / D): x stands for Re of geometrically similar blades (equal c/D, same
-    air); the shape is a property of the blade-section drag (Cd falls ~ Re^-0.2 .. -0.5 over this range) so it transfers to
-    other props only to the extent they are APC-like. It is not fitted to any stand row."""
-    curves = []
-    for pid in UIUC_STATIC:
-        part = load_part(pid)
-        d = pv(part, "diameter")
-        r = np.array(part["tables"]["static_ct_cp"]["rows"], float)
-        curves.append((r[:, 0] / 60 * d * d, r[:, 1], r[:, 2]))  # x, C_T, C_P
-    grid = sorted({*np.geomspace(2.2, 10.0, 12).tolist(), RE_X_REF})
-    xs, lt, lq, cnt = [], [], [], []
-    for x0 in grid:
-        cov = [c for c in curves if c[0][0] <= x0 <= c[0][-1]]
-        if len(cov) < 2:
-            continue
-        xs.append(x0)
-        cnt.append(len(cov))
-        for out, col in ((lt, 1), (lq, 2)):
-            out.append(
-                float(
-                    np.median(
-                        [
-                            math.log(
-                                np.interp(x0, c[0], c[col])
-                                / np.interp(RE_X_REF, c[0], c[col])
-                            )
-                            for c in cov
-                        ]
-                    )
-                )
-            )
-    k = xs.index(RE_X_REF)
-    return {
-        "x": xs,
-        "ft": [math.exp(v - lt[k]) for v in lt],
-        "fq": [math.exp(v - lq[k]) for v in lq],
-        "n_props": cnt,
-        "x_ref": RE_X_REF,
-        "props": list(UIUC_STATIC),
-    }
+    """Pooled UIUC Reynolds factor shape; the code is napl.design.reynolds.reynolds_shape (shared with the builder)."""
+    return _reynolds_shape(_library())
 
 
 def rotor_re(case: dict) -> dict:
@@ -1022,15 +970,28 @@ _X500_BOM = {  # part id -> qty
 }
 
 
-def auw_estimate() -> tuple[float, str]:
-    rep = ROOT / "build" / "assemblies" / "x500v2.report.json"
-    if rep.exists():
-        d = json.loads(rep.read_text())
-        for k in ("mass_total_kg", "total_mass_kg", "mass_kg", "mass"):
-            # numeric keys only: the assembly report's "mass" is now a dict {by_group, by_instance, total}; its total is
-            # not used here (hover keeps the parts-DB sum below, as in N4, until that report is checked)
-            if isinstance(d, dict) and isinstance(d.get(k), int | float):
-                return float(d[k]), f"{rep.relative_to(ROOT)}:{k}"
+ASM = ROOT / "assemblies" / "x500v2.toml"
+ASM_OUT = ROOT / "build" / "assemblies"
+
+
+def built_assembly() -> tuple[dict, dict]:
+    """Build assemblies/x500v2.toml (deterministic, no kernel) -> (report, napl.devices dict). The hover reads AUW,
+    battery (OCV table, r0 / r1 / c1, discharge lead) and avionics loads from it, so the parts are the single source."""
+    from .design import build
+
+    r = build(ASM, PARTS, ASM_OUT)
+    xml = r["xml"].read_text()
+    m = re.search(r"<text name=\"napl\.devices\" data='(.*?)'\s*/>", xml, re.DOTALL)
+    return r["report"], json.loads(m.group(1))
+
+
+def auw_estimate(report: dict | None = None) -> tuple[float, str]:
+    """All-up mass (kg): the assembly report's `mass.total` (every instance, wire and fastener incl. the avionics; the
+    report's `mass` is a dict {total, by_group, by_instance}), else the parts-DB sum below (N4 fallback)."""
+    if report is not None:
+        return float(
+            report["mass"]["total"]
+        ), f"{ASM.relative_to(ROOT)} build report mass.total"
     tot, miss = 0.0, []
     for pid, q in _X500_BOM.items():
         try:
@@ -1050,44 +1011,46 @@ def auw_estimate() -> tuple[float, str]:
     )
 
 
+def table_current(thrust_n: float) -> float:
+    """Vendor (holybro-2216-kv920 [tables.thrust_test], 16 V) motor current at a thrust, linear interpolation."""
+    tab = thrust_tables(load_part("holybro-2216-kv920"))["thrust_test"]
+    c = tab["columns"]
+    r = np.array(tab["rows"], float)
+    return float(
+        np.interp(thrust_n, r[:, c.index("thrust_N")], r[:, c.index("current_A")])
+    )
+
+
 def hover_bench(
     auw: float | None = None,
     cutoff_cell_v: float = 3.5,
-    avionics_w: float = 8.0,
     dt: float = 0.002,
     tmax_s: float = 3600.0,
 ) -> dict:
-    """Hover of the X500 V2 with the 2216 fit, discharging the Tattu 4S 5200 mAh battery model to `cutoff_cell_v` per cell.
-    A governor (stand-in for the flight controller) holds per-motor thrust = AUW g / 4 by adjusting duty every 0.1 s."""
+    """Hover of the X500 V2 with the 2216 fit, discharging the assembly's battery model to `cutoff_cell_v` per cell.
+    AUW, battery (lipo-cell-ocv-chen2006 x 4, r0 / r1 / c1), the battery discharge lead and the avionics loads come from the
+    built assemblies/x500v2.toml (`built_assembly`); motor + prop numbers are the 2216 stand fit. A governor (stand-in for
+    the flight controller) holds per-motor thrust = AUW g / 4 by adjusting duty every 0.1 s."""
     from . import Sim
 
     b2216 = bench("holybro-2216-kv920", sim_rows=False)
     th = b2216["fitted"]["params"]
     case = make_case("holybro-2216-kv920")
     th = {"ct0": th["ct0"], "cq0": th["cq0"], "a": th["a"], "b": th["b"]}
+    report, adev = built_assembly()
     if auw is None:
-        auw, auw_src = auw_estimate()
+        auw, auw_src = auw_estimate(report)
     else:
         auw_src = "--auw"
-    bat = load_part("tattu-4s-5200mah-35c")
-    cell = load_part("lipo-cell-ocv")["tables"]["ocv_vs_soc"]
-    ci = cell["columns"].index("ocv_V")
-    soc = [r[0] for r in cell["rows"]]
-    ocv = [r[ci] * pv(bat, "cells_series") for r in cell["rows"]]
-    r0, r1, tau = (
-        pv(bat, "r_internal_pack"),
-        pv(bat, "thevenin_r1"),
-        pv(bat, "thevenin_tau"),
-    )
-    cap = pv(bat, "capacity_ah")
-    wire = {
-        "name": "lead",
-        "a": 1,
-        "b": 2,
-        "awg": pv(bat, "discharge_wire_awg"),
-        "length_m": pv(bat, "discharge_wire_length"),
-        "conductors": 2,
-    }
+    pack = dict(
+        adev["batteries"][0], node=1
+    )  # OCV table, capacity, r0 / r1 / c1 as the assembly builds them
+    cap = pack["capacity_ah"]
+    lead = next(w for w in adev["wires"] if w["name"] == "bat-to-pm02")
+    wire = dict(lead, name="lead", a=1, b=2)
+    # avionics: the assembly's constant-current loads sit on the pm02.power_in node = after the battery lead = bench node 2
+    loads = [dict(ld, node=2) for ld in adev["loads"]]
+    avionics_a = -sum(ld["i0"] for ld in loads)
     mo, pr = case["motor_params"], case["prop"]
     bodies, escs, rotors = [], [], []
     for k in range(4):
@@ -1124,22 +1087,9 @@ def hover_bench(
             }
         )
     cfg = {
-        "batteries": [
-            {
-                "name": "pack",
-                "node": 1,
-                "parts": ["tattu-4s-5200mah-35c"],
-                "ocv_soc": soc,
-                "ocv_v": ocv,
-                "capacity_ah": cap,
-                "r0": r0,
-                "r1": r1,
-                "c1": tau / r1,
-                "soc0": 1.0,
-            }
-        ],
+        "batteries": [dict(pack, name="pack")],
         "wires": [wire],
-        "loads": [{"name": "avionics", "node": 1, "g": 0, "i0": -avionics_w / 15.0}],
+        "loads": loads,
         "escs": escs,
         "rotors": rotors,
     }
@@ -1201,7 +1151,10 @@ def hover_bench(
         "auw_kg": auw,
         "auw_source": auw_src,
         "target_thrust_per_motor_N": target,
-        "avionics_w_estimated": avionics_w,
+        "avionics_battery_A": avionics_a,
+        "avionics_loads": {ld["name"]: -ld["i0"] for ld in loads},
+        "ocv_part": "lipo-cell-ocv-chen2006",
+        "table_current_A": table_current(first["thrust_N"]) if first else None,
         "cutoff": stop,
         "endurance_min": (t_cut if t_cut is not None else t) / 60,
         "endurance_80pct_dod_min": None if t_80 is None else t_80 / 60,
@@ -1230,16 +1183,19 @@ def hover_markdown(h: dict) -> str:
             "## X500 V2 hover estimate (open loop, 2216 fit)",
             "",
             f"- AUW {h['auw_kg']:.3f} kg ({h['auw_source']}); per-motor thrust {h['target_thrust_per_motor_N']:.2f} N; "
-            f"avionics {h['avionics_w_estimated']:.0f} W (estimated).",
+            f"avionics {h['avionics_battery_A']:.3f} A from the battery (the assembly's constant-current loads {h['avionics_loads']}); "
+            f"battery OCV {h['ocv_part']} x 4 cells.",
             f"- Start of hover: duty {s['throttle_duty']:.3f} (vendor-equivalent throttle {h['vendor_equiv_throttle_pct_start']:.0f} %), "
             f"{s['rpm']:.0f} rpm, {s['motor_i_bus_A']:.2f} A and {s['motor_p_elec_W']:.1f} W per motor, pack {s['pack_v']:.2f} V, "
             f"pack current {s['pack_i']:.2f} A.",
             f"- Endurance to cutoff: **{h['endurance_min']:.1f} min** ({h['mah_at_cutoff'] or 0:.0f} mAh used; stop: {h['cutoff']}); "
             f"to 80 % depth of discharge (SoC 0.2): **{h['endurance_80pct_dod_min'] or float('nan'):.1f} min**. "
-            "(The parts-DB cell OCV curve is low: 3.5 V/cell at 50 % SoC, so the loaded 3.5 V cutoff trips early.) "
-            f"Holybro claim ~{h['claim_min']:.0f} min hover, no payload, tested with a 5000 mAh battery (AUW and cutoff not stated).",
+            f'Holybro: "Flight time: ~{h["claim_min"]:.0f} minutes hover with no additional payload. Tested with a 5000mAh Battery." '
+            "(docs.holybro.com PX4 Development Kit X500v2, Mechanical Specification; AUW, cutoff voltage and battery model not stated). "
+            f"Vendor-table motor current at this thrust {h['table_current_A']:.2f} A (16 V).",
             "- Uses a thrust governor in place of the flight controller; the prediction rests on fitted C_T/C_Q/duty map "
-            "(2216 + T1045 table at 16 V), estimated battery R / RC, and an estimated avionics load; it is not validated against a flight log.",
+            "(2216 + T1045 table at 16 V), estimated battery R / RC (the assembly's, in the parts DB); it is not validated against a flight log. "
+            "The measured comparison with a PX4 flight of the assembly itself is docs/validation/x500-hover.md.",
         ]
     )
 
@@ -1267,7 +1223,6 @@ def add_parser(sub) -> None:
         help="all-up weight, kg (default: assembly report, else parts-DB sum)",
     )
     h.add_argument("--cutoff-cell-v", type=float, default=3.5)
-    h.add_argument("--avionics-w", type=float, default=8.0)
 
 
 def main_bench(args) -> int:
@@ -1282,7 +1237,7 @@ def main_bench(args) -> int:
         print("\n".join(fmt_row(b) for r in res for b in r["tables"]))
         print(f"-> {DOCS}")
     else:
-        h = hover_bench(args.auw, args.cutoff_cell_v, args.avionics_w)
+        h = hover_bench(args.auw, args.cutoff_cell_v)
         _ok(OUT / "hover.json", h)
         print(hover_markdown(h))
     return 0

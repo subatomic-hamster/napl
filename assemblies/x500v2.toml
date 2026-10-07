@@ -891,9 +891,10 @@ port = "power_in"
 set = { i0 = { value = -0.0258, unit = "A", fidelity = "derived", derivation = "SiK radio V3: 5.2 V x 0.0625 A (sik supply_current_avg = (25 mA receive + 100 mA transmit at 20 dBm) / 2, 50 % TX duty assumed) / (0.85 x 14.8 V) = 0.02583 A out of the battery." } }
 
 # ESCs. Thermal: c_th / r_th are unpublished. Only data: the vendor thrust table note "Motor temperature is motor surface temperature
-# @100% throttle running 10mins" = 80 degC (holybro-2216-kv920 [tables.thrust_test]); at that row the motor draws 16.37 A through
-# 0.115 ohm = 30.8 W of copper loss, so (80 - 25) K / 30.8 W = 1.8 K/W surface-to-ambient (ambient not stated; 25 degC = the model's
-# t_amb default). The winding is hotter than the surface, so r_th is a LOWER bound; c_th = 64 g x ~0.4 J/(g K) (copper 0.385, steel 0.45,
+# @100% throttle running 10mins" = 80 degC (holybro-2216-kv920 [tables.thrust_test]). r_th is the thrust-stand bench's calibration
+# (0.927 K/W: the winding of the fitted stand model sits at 80 degC at that row, ambient 25 degC = the model's t_amb default; the
+# earlier hand figure 1.8 K/W used the table's 16.37 A at a cold 0.115 ohm and ignored R(T)). The winding is hotter than the
+# surface, so r_th is a LOWER bound; c_th = 64 g x ~0.4 J/(g K) (copper 0.385, steel 0.45,
 # aluminium 0.9 J/(g K), generic textbook values) gives a 46 s time constant, consistent with the vendor reaching steady state in 10 min.
 # complementary is left at its schema default (false: diode freewheel; BLHeli_S damped-light behaviour is not published).
 [[devices]]
@@ -904,7 +905,7 @@ port = "power_in"
 motor = "mot1"
 joint = "spin1"
 map = "esc2216"
-set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 1.8, unit = "K/W", fidelity = "estimated", rationale = "(80 degC surface at 100 % throttle after 10 min, vendor thrust-test note - 25 degC assumed ambient) / (16.37 A^2 x 0.115 ohm = 30.8 W) = 1.8 K/W; surface, not winding, temperature, so a lower bound for winding-to-ambient." } }
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.927, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.927 K/W. Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
 
 [[devices]]
 type = "esc"
@@ -914,7 +915,7 @@ port = "power_in"
 motor = "mot2"
 joint = "spin2"
 map = "esc2216"
-set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 1.8, unit = "K/W", fidelity = "estimated", rationale = "(80 degC surface at 100 % throttle after 10 min, vendor thrust-test note - 25 degC assumed ambient) / (16.37 A^2 x 0.115 ohm = 30.8 W) = 1.8 K/W; surface, not winding, temperature, so a lower bound for winding-to-ambient." } }
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.927, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.927 K/W. Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
 
 [[devices]]
 type = "esc"
@@ -924,7 +925,7 @@ port = "power_in"
 motor = "mot3"
 joint = "spin3"
 map = "esc2216"
-set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 1.8, unit = "K/W", fidelity = "estimated", rationale = "(80 degC surface at 100 % throttle after 10 min, vendor thrust-test note - 25 degC assumed ambient) / (16.37 A^2 x 0.115 ohm = 30.8 W) = 1.8 K/W; surface, not winding, temperature, so a lower bound for winding-to-ambient." } }
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.927, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.927 K/W. Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
 
 [[devices]]
 type = "esc"
@@ -934,11 +935,12 @@ port = "power_in"
 motor = "mot4"
 joint = "spin4"
 map = "esc2216"
-set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 1.8, unit = "K/W", fidelity = "estimated", rationale = "(80 degC surface at 100 % throttle after 10 min, vendor thrust-test note - 25 degC assumed ambient) / (16.37 A^2 x 0.115 ohm = 30.8 W) = 1.8 K/W; surface, not winding, temperature, so a lower bound for winding-to-ambient." } }
+set = { "motor.c_th" = { value = 25.6, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 64 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix); no vendor value." }, "motor.r_th" = { value = 0.927, unit = "K/W", fidelity = "derived", derivation = "napl bench thrust holybro-2216-kv920 (docs/validation/thrust-stands.md, thermal section; tests/python/test_bench.py asserts this number equals the bench calibration): r_th = (80 degC vendor surface temperature at 100 % throttle - 25 degC ambient) / (I_m^2 R(80 degC)) with I_m of the stand model fitted on the vendor table at the 100 % row and R(T) = R20 (1 + 0.00393 (T - 20)) = 0.927 K/W. Surface, not winding, temperature, so a lower bound for winding-to-ambient; at hover (~3 A) it moves the winding by ~1 K." } }
 
 # Rotors: body = the prop instance, joint = its spin mate. Thrust direction = dir x (world joint axis) = +z for all four: CCW props
 # (m1, m2) have axis +z and dir = +1, CW props (m3, m4) have the reversed axis -z and dir = -1 (same convention as tests/data/devices/all.xml).
-# k_h = 0 (H-force off): no data for this prop; its moment-free in-plane force is second order next to thrust at hover.
+# reynolds = true: the builder adds the pooled UIUC Reynolds factor tables and re-references ct / cq to x = 4.5 m^2/s (the validated N4b
+# model of docs/validation/thrust-stands.md; napl.design.reynolds). k_h = 0 (H-force off): no data for this prop; its moment-free in-plane force is second order next to thrust at hover.
 [[devices]]
 type = "rotor"
 name = "rotor1"
@@ -948,6 +950,7 @@ joint = "spin1"
 map = "prop1045"
 dir = 1
 ground_effect = true
+reynolds = true
 set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
 
 [[devices]]
@@ -959,6 +962,7 @@ joint = "spin2"
 map = "prop1045"
 dir = 1
 ground_effect = true
+reynolds = true
 set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
 
 [[devices]]
@@ -970,6 +974,7 @@ joint = "spin3"
 map = "prop1045"
 dir = -1
 ground_effect = true
+reynolds = true
 set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
 
 [[devices]]
@@ -981,6 +986,7 @@ joint = "spin4"
 map = "prop1045"
 dir = -1
 ground_effect = true
+reynolds = true
 set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the T1045II; 0 switches the term off rather than inventing a coefficient (all.xml's 5e-5 is a test value)." } }
 
 # Sensors. IMU and barometer sit on the Pixhawk site (instance origin = its mounting face; the 6C's internal sensors are a few mm higher,
@@ -1018,7 +1024,7 @@ name = "gnss"
 instance = "gnss_chip"
 site = "gps"
 map = "m8n"
-set = { lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "Arbitrary simulation origin, the same site as the repo's test model tests/data/devices/all.xml (Zurich); not a claim about where the vehicle flies." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 408.0, unit = "m", fidelity = "estimated", rationale = "As lat0 (all.xml uses 408 m). The environment device below carries the same value as origin_alt, so the barometer's ISA pressure and the GNSS altitude agree." }, horiz_std = { value = 2.1233, unit = "m", fidelity = "derived", derivation = "u-blox NEO-M8N horizontal position accuracy 2.5 m CEP (ublox_neo_m8n horizontal_accuracy_cep_gps, datasheet, 50 % radius) converted to a per-coordinate sigma of a circular normal distribution: sigma = CEP / 1.17741 = 2.1233 m." }, vert_std = { value = 3.185, unit = "m", fidelity = "derived", derivation = "1.5 x horiz_std (2.1233 m) = 3.185 m: the ratio 3.75 m / 2.5 m of the part's vertical_accuracy_cep (itself an estimate: 1.5 x horizontal CEP) to its horizontal CEP, applied to sigma." } }
+set = { latency_s = { value = 0.2, unit = "s", fidelity = "estimated", rationale = "No part publishes the receiver's output latency. PX4's EKF2 assumes EKF2_GPS_DELAY = 110 ms (its default, v1.17.0); the device lags by round(latency_s x rate_hz) samples, and at the datasheet 5 Hz one sample is 0.2 s, the smallest non-zero lag." }, lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "Arbitrary simulation origin, the same site as the repo's test model tests/data/devices/all.xml (Zurich); not a claim about where the vehicle flies." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 408.0, unit = "m", fidelity = "estimated", rationale = "As lat0 (all.xml uses 408 m). The environment device below carries the same value as origin_alt, so the barometer's ISA pressure and the GNSS altitude agree." }, horiz_std = { value = 2.1233, unit = "m", fidelity = "derived", derivation = "u-blox NEO-M8N horizontal position accuracy 2.5 m CEP (ublox_neo_m8n horizontal_accuracy_cep_gps, datasheet, 50 % radius) converted to a per-coordinate sigma of a circular normal distribution: sigma = CEP / 1.17741 = 2.1233 m." }, vert_std = { value = 3.185, unit = "m", fidelity = "derived", derivation = "1.5 x horiz_std (2.1233 m) = 3.185 m: the ratio 3.75 m / 2.5 m of the part's vertical_accuracy_cep (itself an estimate: 1.5 x horizontal CEP) to its horizontal CEP, applied to sigma." } }
 
 # Environment: calm air, world z = 0 at the same altitude as the GNSS origin (alt0 above), so the ISA barometer and GNSS agree. The two
 # values are duplicated with identical rationale (one provenance, two keys). Air density for the rotors is evaluated at origin_alt + z.
