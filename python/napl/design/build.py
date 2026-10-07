@@ -794,13 +794,13 @@ def compute(asm, parts_dir, out_dir, lib=None):
     return xml, report
 
 
-def build(assembly_path, parts_dir, out_dir) -> dict:
+def build(assembly_path, parts_dir, out_dir, lib=None) -> dict:
     """Write <out_dir>/<name>.xml and <out_dir>/<name>.report.json. Returns {"xml", "report_path", "report"}.
     The report gets `findings`: the design-rule check (drc.py) of the same assembly; findings never make the build fail."""
     from .drc import check
 
     asm = assembly_path if isinstance(assembly_path, Assembly) else load(assembly_path)
-    lib = Library(parts_dir)
+    lib = lib or Library(parts_dir)
     xml, report = compute(asm, parts_dir, out_dir, lib)
     report["findings"] = [
         f.as_dict()

@@ -74,6 +74,8 @@ b = "out"
 ocv = "lipo-cell-ocv-chen2006"   # battery: OCV table part (table ocv_vs_soc, columns soc, ocv_V)
 cells = "cells_series"     # battery: series cell count param of `instance` (default cells_series); pack OCV = cell OCV x cells
 set = { i_limit = { value = 40.0, unit = "A", fidelity = "estimated", rationale = "..." } }   # values in no part
+reynolds = true            # rotor: add the pooled UIUC Reynolds factor tables (re_x/re_ft/re_fq) and re-reference ct/cq to x = 4.5 m^2/s
+                           #   (needs the prop's ct_static, cq_static, [tables.ct_cq_static_derived])
 dir = 1                    # flags (complementary, ground_effect, enabled) and `dir` pass through as given
 
 [[targets]]
@@ -262,3 +264,33 @@ Ports that declare `i_peak` (servo sockets) state the device's own draw, not a t
 Limits of the checks, not hidden: a motor without a `thrust_test` table has no thrust / current model (`HOVER_THROTTLE` info);
 avionics current is not in the hover current; the pose grid is a lower bound of the true worst case; interference of meshes is
 sampled, not exact; an `estimated` placeholder envelope (e.g. the Waveshare board box) interferes like a real shape.
+
+## Editing API (`napl.design.Design`, MCP `design_*` tools)
+
+```python
+d = Design.open("assemblies/x500v2.toml")          # + Library; d.save(path) writes deterministic TOML (comments are not kept)
+r = d.swap("mot1", "other-motor")                  # also add / remove / mate / unmate / wire / unwire / set; d.edit([ops]) = atomic batch
+r.changes, r.new, r.resolved, r.changed            # what changed + DRC delta (matched on code + where); d.undo() / d.redo()
+d.suggest("con1.motor"); d.suggest("mot1")         # ranked parts for an open port / ranked swap candidates (what swap keeps / loses)
+d.snap("holybro-m8n-gps", to="mast")               # add + mate to the best open compatible port pair; ambiguity -> snap.alternatives
+d.check(); d.build(out); d.simulate("hover" | "hold")   # simulate needs the kernel
+```
+Every edit is validated (numbers rule included) and re-checked; a failure changes nothing. `swap` re-mates by port name, then by
+same port type, then by any compatible port; it keeps mate names (device bindings use them), resets fasteners the new thread
+cannot take to `auto`, drops instance overrides that shadowed a param of the old part, and lists in `dangling` every reference
+the new part cannot satisfy (`'<inst>.<param>'`, device-map params / table columns, device joints of a lost mate); it never
+invents a value: supply it with `set` (unit, fidelity, src+quote | derivation | rationale). Suggest / snap scores are named
+design weights at the top of `design/edit.py`, not physical data.
+
+`simulate("hover")`: built-in controller (not agent code) on ground-truth state, driving only the ESC throttles through the command
+bus: altitude PID on the height above take-off (ramped to `altitude` in `climb_s`) + attitude PD with a small integral,
+rotor mixer from the model's own rotor positions / axes / spin directions, thrust-vs-throttle and torque/thrust calibrated on a
+fork of the sim, inertia approximated from instance masses (controller scaling only). Reports pass (height within `tol` for
+`hold_s`), altitude error, hover throttle, battery / motor currents, SoC slope and endurance (time to the DRC's 20 % reserve at
+that slope). `simulate("hold")`: servos torque-on at `pose` (default zero), reports sag (|joint - goal|) and currents.
+
+MCP tools: `design_open` (control), `design_edit` (control, list of ops, atomic), `design_suggest` (read), `design_check` (read),
+`design_build` (control, writes `<root>/build/design`), `design_simulate` (control), `design_undo` (control; `redo = true`),
+`design_save` (destructive: client elicitation or `--allow-destructive`). Paths are confined to the server root; arguments are
+validated against the advertised JSON schemas.
+CLI: `napl design suggest <asm> <inst.port|inst> [--limit N] [--json]`.

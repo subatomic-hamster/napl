@@ -24,8 +24,10 @@ EXPECTED = {
     "get_entity_state", "set_entity_state", "step_simulation", "snapshot", "restore", "load_model", "run_test",
     "sweep", "list_prims", "get_run", "delete_run", "render", "raycast", "spawn_entity", "delete_entity",
 }  # fmt: skip
-DESTRUCTIVE = {"load_model", "delete_run", "delete_entity"}
-READ_ONLY = {"get_entity_state", "list_prims", "get_run", "render", "raycast"}
+DESIGN = {"design_open", "design_edit", "design_suggest", "design_check", "design_build", "design_simulate", "design_save", "design_undo"}  # fmt: skip
+EXPECTED |= DESIGN
+DESTRUCTIVE = {"load_model", "delete_run", "delete_entity", "design_save"}
+READ_ONLY = {"get_entity_state", "list_prims", "get_run", "render", "raycast", "design_suggest", "design_check"}  # fmt: skip
 
 
 @pytest.fixture

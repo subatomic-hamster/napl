@@ -129,6 +129,24 @@ def design(args) -> int:
             _, report = compute(args.assembly, parts, ".")
             print(format_budget(report))
             return 0
+        if args.design_cmd == "suggest":
+            from .design import Design
+
+            rows = Design.open(args.assembly, parts).suggest(args.target, args.limit)
+            if args.json:
+                print(json.dumps(rows, indent=2))
+            for r in rows if not args.json else []:
+                where = (
+                    f" via port {r['port']}"
+                    if "port" in r
+                    else f" (keeps {r['mates_kept']} mates, loses {len(r['mates_lost'])}, mass {r['mass_delta']:+} kg)"
+                )
+                print(f"{r['part']:44s} {r.get('score', '')!s:>7}{where}")
+                for w in (
+                    r.get("why", []) + r.get("mates_lost", []) + r.get("dangling", [])
+                ):
+                    print(f"        {w}")
+            return 0
         if args.design_cmd == "check":
             findings = check(args.assembly, Library(parts))
             if args.json:
@@ -228,9 +246,17 @@ def main(argv=None) -> int:
         ("build", "write <out>/<name>.xml and <name>.report.json"),
         ("info", "print the mass budget, write nothing"),
         ("check", "design-rule check (DRC/ERC); exit 1 if any error"),
+        (
+            "suggest",
+            "ranked library parts for an open port ('inst.port') or swap candidates for an instance",
+        ),
     ):
         s = dsub.add_parser(name, help=h)
         s.add_argument("assembly")
+        if name == "suggest":
+            s.add_argument("target", help="'inst.port' or 'inst'")
+            s.add_argument("--limit", type=int, default=10)
+            s.add_argument("--json", action="store_true")
         s.add_argument(
             "--parts",
             default=None,

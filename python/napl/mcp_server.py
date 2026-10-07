@@ -6,6 +6,10 @@ C++ bus unless one call is elevated after approval (`--allow-destructive` or MCP
 resolved (symlinks, `..`) and must stay under the root. Long operations (run_test, sweep) run on a background thread
 over a fork() of the loaded sim and are polled with get_run (no MCP Tasks: the v2 SDK dropped them).
 
+Design tools (design_open / design_edit / design_suggest / design_check / design_build / design_simulate / design_save /
+design_undo) work on one in-memory napl.design.Design: opening and editing it is `control`, checking / suggesting is
+`read`, writing a design file (design_save) is destructive (approval as above). Builds go to <root>/build/design.
+
 Run / Pause are exposed only by a host-backed server (`napl mcp --view`, NaplServer(view=True)): the World then lives
 on a C++ Host thread, which can free-run it, so the tools `play_simulation` (Run{rate}) and `pause_simulation` (Pause)
 exist (names after ROS 2 simulation_interfaces' PLAYING / PAUSED states). On a bare World both would be silent
@@ -24,6 +28,8 @@ from pathlib import Path
 from typing import Annotated
 
 import numpy as np
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import best_match
 from mcp.server import MCPServer
 from mcp.server.elicitation import ElicitationResult
 from mcp.server.mcpserver.context import Context
@@ -36,6 +42,8 @@ from mcp_types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import Sim, _napl
+from .design import Design, DesignError
+from .design.drc import _default_parts
 from .report import run_id as report_run_id
 from .report import write_report
 
@@ -115,6 +123,222 @@ RUN_ID = {
 NO_ARGS = {"type": "object", "properties": {}, "additionalProperties": False}
 
 
+# --- design tools (napl.design.Design): schemas -------------------------------------------------------------------------
+def _obj(props: dict, required=()) -> dict:
+    return {
+        "type": "object",
+        "properties": props,
+        "required": list(required),
+        "additionalProperties": False,
+    }
+
+
+_S, _N = {"type": "string"}, {"type": "number"}
+# the numbers rule: a number is a "<inst>.<param>" reference or a provenance table (never a bare number)
+PROVENANCE = _obj(
+    {
+        "value": {"anyOf": [_N, {"type": "array", "items": _N, "minItems": 1}]},
+        "unit": _S,
+        "fidelity": {
+            "enum": ["datasheet", "literature", "measured", "derived", "estimated"]
+        },
+        "src": _S,
+        "quote": _S,
+        "derivation": _S,
+        "rationale": _S,
+    },
+    ["value", "unit", "fidelity"],
+)
+JOINT = _obj(
+    {
+        "type": {"enum": ["hinge", "slide", "free"]},
+        "range": {
+            "anyOf": [
+                PROVENANCE,
+                _S,
+                {
+                    "type": "array",
+                    "items": {"anyOf": [_S, PROVENANCE]},
+                    "minItems": 2,
+                    "maxItems": 2,
+                },
+            ]
+        },
+        "reverse": {"type": "boolean"},
+        "spin": {"type": "boolean"},
+    },
+    ["type"],
+)
+FASTENERS = {
+    "anyOf": [
+        {"const": "auto"},
+        _obj(
+            {"part": _S, "count": {"type": "integer", "minimum": 1}, "nut": _S},
+            ["part"],
+        ),
+    ]
+}
+
+
+def _op(name: str, props: dict, required=()) -> dict:
+    return _obj({"op": {"const": name}, **props}, ["op", *required])
+
+
+EDIT_OPS = [
+    _op(
+        "add",
+        {
+            "part": _S,
+            "id": _S,
+            "to": _S,
+            "port": _S,
+            "k": {"type": "integer", "minimum": 0},
+            "group": _S,
+            "offboard": {"type": "boolean"},
+            "strict": {"type": "boolean"},
+        },
+        ["part"],
+    ),
+    _op("remove", {"id": _S}, ["id"]),
+    _op(
+        "swap",
+        {
+            "id": {"anyOf": [_S, {"type": "array", "items": _S, "minItems": 1}]},
+            "part": _S,
+        },
+        ["id", "part"],
+    ),
+    _op(
+        "mate",
+        {
+            "a": _S,
+            "b": _S,
+            "k": {"type": "integer", "minimum": 0},
+            "joint": JOINT,
+            "fasteners": FASTENERS,
+            "nut": _S,
+            "name": _S,
+            "closure": {"type": "boolean"},
+        },
+        ["a", "b"],
+    ),
+    _op("unmate", {"name": _S, "a": _S, "b": _S}),
+    _op(
+        "wire",
+        {
+            "from": _S,
+            "to": _S,
+            "part": _S,
+            "length": {"anyOf": [_S, PROVENANCE]},
+            "conductors": {"type": "integer", "minimum": 1},
+            "included_in": _S,
+            "name": _S,
+        },
+        ["from", "to", "part", "length"],
+    ),
+    _op("unwire", {"name": _S}, ["name"]),
+    _op(
+        "set",
+        {
+            "id": _S,
+            "param": _S,
+            "value": {"anyOf": [_N, PROVENANCE]},
+            "unit": _S,
+            "fidelity": PROVENANCE["properties"]["fidelity"],
+            "src": _S,
+            "quote": _S,
+            "derivation": _S,
+            "rationale": _S,
+            "unset": {"type": "boolean"},
+        },
+        ["id", "param"],
+    ),
+]
+DESIGN_TOOLS = {
+    "design_open": (
+        "control",
+        "Open an assembly TOML (path under the server root) as the working design (replaces the current one). Optional "
+        "`parts` = a parts directory under the root (default: <root>/parts, else the repo's). Returns instance counts "
+        "and the design-rule findings.",
+        _obj({"path": _S, "parts": _S}, ["path"]),
+    ),
+    "design_edit": (
+        "control",
+        "Edit the in-memory design: a list of ops applied atomically (all or none), then the design-rule check re-runs. "
+        "ops: add {part, id?, to?, port?, k?}: with `to` ('inst' or 'inst.port') the part snaps to the best open "
+        "compatible port pair and ambiguity is reported as alternatives; remove {id}; swap {id | [ids], part}: re-mates "
+        "by port name then compatible type and reports kept / lost mates + wires and references that no longer "
+        "resolve; mate {a, b, k?, joint?, fasteners?}; unmate {name | a+b}; wire {from, to, part, length}; unwire "
+        "{name}; set {id, param, value, unit, fidelity, src+quote | derivation | rationale}. Numbers rule: a bare "
+        "number is refused; use a provenance table. Returns what changed and the DRC delta (new / resolved / changed "
+        "findings).",
+        _obj(
+            {
+                "ops": {
+                    "type": "array",
+                    "items": {"oneOf": EDIT_OPS},
+                    "minItems": 1,
+                    "maxItems": 100,
+                }
+            },
+            ["ops"],
+        ),
+    ),
+    "design_suggest": (
+        "read",
+        "Ranked library parts for `target`: 'inst.port' = parts (and the port they would use) that mate / connect it, "
+        "ratings checked on power ports; 'inst' = replacement candidates for a swap, ranked by fit (mates / wires kept, "
+        "references resolved, ratings, mass delta).",
+        _obj(
+            {"target": _S, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+            ["target"],
+        ),
+    ),
+    "design_check": (
+        "read",
+        "Run the design-rule check on the in-memory design. `severity` = the least severe level to list.",
+        _obj({"severity": {"enum": ["error", "warning", "info"]}}),
+    ),
+    "design_build": (
+        "control",
+        "Build the in-memory design to <root>/build/design/<name>.xml (+ .report.json). Returns paths, mass and finding counts.",
+        NO_ARGS,
+    ),
+    "design_simulate": (
+        "control",
+        "Build, then simulate in the kernel. kind 'hover' (multirotor): built-in altitude + attitude controller on the "
+        "ESC throttles; reports hover throttle, current, altitude error, endurance from the battery SoC slope; pass = "
+        "height within +-tol of `altitude` for `hold_s`. kind 'hold' (arm): servos torque-on at `pose` (rad per servo / "
+        "joint name, default 0); reports sag and current.",
+        _obj(
+            {
+                "kind": {"enum": ["hover", "hold"]},
+                "altitude": {"type": "number", "exclusiveMinimum": 0, "maximum": 100},
+                "climb_s": {"type": "number", "minimum": 0.5, "maximum": 60},
+                "hold_s": {"type": "number", "exclusiveMinimum": 0, "maximum": 60},
+                "tol": {"type": "number", "exclusiveMinimum": 0},
+                "pose": {"type": "object", "additionalProperties": _N},
+                "settle_s": {"type": "number", "minimum": 0.1, "maximum": 30},
+                "window_s": {"type": "number", "minimum": 0.05, "maximum": 10},
+                "sag_tol": {"type": "number", "exclusiveMinimum": 0},
+            },
+            ["kind"],
+        ),
+    ),
+    "design_save": (
+        "destructive",
+        "Write the in-memory design to a .toml file under the server root (overwrites). Destructive: needs client "
+        "elicitation or server --allow-destructive.",
+        _obj({"path": _S}, ["path"]),
+    ),
+    "design_undo": (
+        "control",
+        "Undo the last edit (or redo it with redo = true); returns the DRC delta of the step.",
+        _obj({"redo": {"type": "boolean"}}),
+    ),
+}
+
+
 class _Args(ArgModelBase):
     """Accepts any arguments: the SDK already validated them against the tool's JSON Schema."""
 
@@ -148,6 +372,7 @@ class NaplServer:
         max_steps_per_call: int = MAX_STEPS_PER_CALL,
         max_wall_s: float = MAX_WALL_S,
         view: bool = False,
+        parts=None,
     ):
         self.max_steps_per_call = max_steps_per_call
         self.max_wall_s = max_wall_s
@@ -160,6 +385,8 @@ class NaplServer:
         self.sim = None  # napl.Sim with SESSION_CAPS (one world; calls run on the event loop, so they are serialised)
         self.model = None
         self.jobs = {}  # run_id -> {"status", "result" | "error"}
+        self.design = None  # the working napl.design.Design (one per server)
+        self.parts = parts  # default parts directory of design_open (None: <root>/parts if it exists, else the repo's)
         tools = []
         for name, (table, desc) in {
             **COMMAND_TOOLS,
@@ -200,7 +427,14 @@ class NaplServer:
                 "Status (pending/running/done/error) and result of a run_id.",
             ),
             self._delete_run_tool(),
+            self._save_design_tool(),
         ]
+        for name, (cap, desc, schema) in DESIGN_TOOLS.items():
+            if (
+                name != "design_save"
+            ):  # destructive: built with its approval resolver above
+                fn = self._validated(getattr(self, f"_{name}"), schema)
+                tools.append(self._tool(name, fn, schema, cap, desc))
         self.server = MCPServer("napl", tools=tools)
 
     @staticmethod
@@ -210,6 +444,31 @@ class NaplServer:
             read_only_hint=cap == "read",
             destructive_hint=cap == "destructive",
         )
+
+    @staticmethod
+    def _validated(fn, schema):
+        """The SDK does not check arguments against the advertised schema (the command tools rely on the C++ bus for that);
+        the design tools do it here, reporting the most relevant violation."""
+        validator = Draft202012Validator(schema)
+
+        async def checked(ctx, **args):
+            err = best_match(validator.iter_errors(args))
+            if err is not None:
+                where = "/".join(str(p) for p in err.absolute_path) or "<arguments>"
+                hint = (
+                    " (numbers rule: a number here is a '<inst>.<param>' reference or a provenance table "
+                    "{value, unit, fidelity, src+quote | derivation | rationale}, never a bare number)"
+                    if isinstance(err.instance, (int, float))
+                    and not isinstance(err.instance, bool)
+                    and err.validator in ("anyOf", "oneOf")
+                    else ""
+                )
+                raise ToolError(
+                    f"invalid arguments at {where}: {err.message[:300]}{hint}"
+                )
+            return await fn(ctx, **args)
+
+        return checked
 
     @classmethod
     def _tool(cls, name, fn, schema, cap, desc) -> Tool:
@@ -267,6 +526,32 @@ class NaplServer:
     async def _ask_delete(self, run_id: str):
         self._run_dir(run_id)
         return self._ask(f"delete run '{run_id}' (its runs/ directory)")
+
+    async def _ask_save(self, path: str):
+        p = self._confine(path)
+        return self._ask(
+            f"write the design to '{p.relative_to(self.root)}'"
+            + (" (overwrites the existing file)" if p.exists() else "")
+        )
+
+    def _save_design_tool(self) -> Tool:
+        async def design_save(
+            ctx: Context,
+            path: str,
+            approval: Annotated[ElicitationResult[_Confirm], Resolve(self._ask_save)],
+        ):
+            self._require(approval)
+            return self._design_save_to(path)
+
+        cap, desc, schema = DESIGN_TOOLS["design_save"]
+        t = Tool.from_function(
+            design_save,
+            name="design_save",
+            description=desc,
+            annotations=self._annotations("design_save", cap),
+        )
+        t.parameters = schema
+        return t
 
     @staticmethod
     def _require(approval) -> None:
@@ -387,6 +672,127 @@ class NaplServer:
         except (ValueError, RuntimeError) as e:
             raise ToolError(str(e)) from None
         return {"distances": d.tolist()}
+
+    # --- design tools ------------------------------------------------------------------------------------------
+    def _need_design(self) -> Design:
+        if self.design is None:
+            raise ToolError("no design open: call design_open first")
+        return self.design
+
+    @staticmethod
+    def _counts(findings) -> dict:
+        sev = [f["severity"] if isinstance(f, dict) else f.severity for f in findings]
+        return {s: sev.count(s) for s in ("error", "warning", "info")}
+
+    def _parts_dir(self, parts) -> Path:
+        if parts:
+            return self._confine(parts)
+        if self.parts:
+            return Path(self.parts)
+        return (
+            self.root / "parts" if (self.root / "parts").is_dir() else _default_parts()
+        )
+
+    async def _design_open(self, ctx, path, parts=None):
+        p, pd = self._confine(path), self._parts_dir(parts)
+        try:
+            d = Design.open(p, pd)
+            findings = d.check()
+        except DesignError as e:
+            raise ToolError(str(e)) from None
+        self.design = d
+        doc = d.doc
+        return {
+            "name": d.asm.name,
+            "path": str(p.relative_to(self.root)),
+            "parts_dir": str(pd),
+            "library_parts": len(d.lib.parts),
+            "instances": [{"id": i["id"], "part": i["part"]} for i in doc["instances"]],
+            "mates": len(doc.get("mates", [])),
+            "wires": len(doc.get("wires", [])),
+            "findings": self._counts(findings),
+            "errors": [f.as_dict() for f in findings if f.severity == "error"],
+        }
+
+    async def _design_edit(self, ctx, ops):
+        d = self._need_design()
+        try:
+            r = d.edit(ops)
+        except DesignError as e:
+            raise ToolError(
+                f"{e}" if "nothing changed" in str(e) else f"{e} (nothing changed)"
+            ) from None
+        return {**r.as_dict(), "undo_depth": len(d._undo)}
+
+    async def _design_suggest(self, ctx, target, limit=10):
+        try:
+            return {
+                "target": target,
+                "suggestions": self._need_design().suggest(target, limit),
+            }
+        except DesignError as e:
+            raise ToolError(str(e)) from None
+
+    async def _design_check(self, ctx, severity="info"):
+        keep = {"error": 0, "warning": 1, "info": 2}
+        fs = self._need_design().check()
+        return {
+            "counts": self._counts(fs),
+            "findings": [f.as_dict() for f in fs if keep[f.severity] <= keep[severity]],
+        }
+
+    async def _design_build(self, ctx):
+        d = self._need_design()
+        try:
+            r = d.build(self._confine("build/design"))
+        except DesignError as e:
+            raise ToolError(str(e)) from None
+        rep = r["report"]
+        return {
+            "assembly": rep["assembly"],
+            "xml": str(r["xml"].relative_to(self.root)),
+            "report": str(r["report_path"].relative_to(self.root)),
+            "mass_kg": rep["mass"]["total"],
+            "instances": len(rep["instances"]),
+            "warnings": [w["code"] for w in rep["warnings"]],
+            "unresolved": len(rep["unresolved"]),
+            "findings": self._counts(rep["findings"]),
+        }
+
+    async def _design_simulate(self, ctx, kind, **opts):
+        d = self._need_design()
+        allowed = {
+            "hover": {"altitude", "climb_s", "hold_s", "tol"},
+            "hold": {"pose", "settle_s", "window_s", "sag_tol"},
+        }[kind]
+        if set(opts) - allowed:
+            raise ToolError(
+                f"simulate {kind}: unknown options {sorted(set(opts) - allowed)} (allowed: {sorted(allowed)})"
+            )
+        if kind == "hover":
+            opts["wall_s"] = self.max_wall_s or 600.0
+        try:
+            return d.simulate(kind, out=self._confine("build/design"), **opts)
+        except (DesignError, RuntimeError) as e:
+            raise ToolError(str(e)) from None
+
+    def _design_save_to(self, path: str) -> dict:
+        p = self._confine(path)
+        if p.suffix != ".toml":
+            raise ToolError("design_save writes a .toml file")
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            self._need_design().save(p)
+        except (DesignError, OSError) as e:
+            raise ToolError(str(e)) from None
+        return {"saved": str(p.relative_to(self.root)), "bytes": p.stat().st_size}
+
+    async def _design_undo(self, ctx, redo=False):
+        d = self._need_design()
+        try:
+            return (d.redo() if redo else d.undo()).as_dict()
+        except DesignError as e:
+            raise ToolError(str(e)) from None
 
     async def _list_prims(self, ctx):
         return {"prims": self._call("Query", {"path": ""}).get("prims", [])}
