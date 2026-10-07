@@ -1,0 +1,58 @@
+#!/bin/sh
+#
+# @name napl Holybro X500 V2 (SITL, external simulator over MAVLink TCP 4560)
+#
+# @type Quadrotor x
+#
+# Copied into PX4's ROMFS/px4fmu_common/init.d-posix/airframes/ by tools/px4_setup.sh (never hand-edit the PX4 tree).
+# ID 4902: 4901 is taken (ROMFS/px4fmu_common/init.d/airframes/4901_crazyflie21 in PX4 v1.17.0).
+#
+# Sources (PX4 v1.17.0):
+#  - SITL plumbing: init.d-posix/airframes/10016_none_iris. Sourcing rc.mc_defaults and NOT setting SIM_GZ_EN /
+#    PX4_SIMULATOR / SYS_AUTOSTART 10040 makes px4-rc.simulator pick px4-rc.mavlinksim
+#    (simulator_mavlink start -c 4560+instance; PX4 is the TCP client, our bridge is the server). No gz, no SIH.
+#  - Vehicle values: init.d/airframes/4019_x500_v2 (Holybro X500 V2): rate gains, IMU_GYRO_CUTOFF, normalised rotor geometry.
+#
+# Motor order (fixed contract with the simulation model), PX4 quad-X numbering:
+#   rotor0 front-right CCW (KM +), rotor1 rear-left CCW (KM +), rotor2 front-left CW (KM -), rotor3 rear-right CW (KM -)
+#   Motor1..4 = HIL_ACTUATOR_CONTROLS controls[0..3].
+
+. ${R}etc/init.d/rc.mc_defaults
+
+# Battery is simulated externally and fed via MAVLink BATTERY_STATUS (UDP 14580), not PX4's linear battery_simulator.
+param set-default SIM_BAT_ENABLE 0
+# Tattu 4S (rcS also default-sets 4; explicit here)
+param set-default BAT1_N_CELLS 4
+
+# --- 4019_x500_v2 ---
+param set-default IMU_GYRO_CUTOFF 30
+
+param set-default MC_ROLLRATE_P 0.14
+param set-default MC_PITCHRATE_P 0.14
+param set-default MC_ROLLRATE_I 0.3
+param set-default MC_PITCHRATE_I 0.3
+param set-default MC_ROLLRATE_D 0.004
+param set-default MC_PITCHRATE_D 0.004
+
+# Square quadrotor X PX4 numbering (positions normalised, FRD: +x forward, +y right)
+param set-default CA_ROTOR_COUNT 4
+param set-default CA_ROTOR0_PX 1
+param set-default CA_ROTOR0_PY 1
+param set-default CA_ROTOR0_KM 0.05
+param set-default CA_ROTOR1_PX -1
+param set-default CA_ROTOR1_PY -1
+param set-default CA_ROTOR1_KM 0.05
+param set-default CA_ROTOR2_PX 1
+param set-default CA_ROTOR2_PY -1
+param set-default CA_ROTOR2_KM -0.05
+param set-default CA_ROTOR3_PX -1
+param set-default CA_ROTOR3_PY 1
+param set-default CA_ROTOR3_KM -0.05
+
+# --- from 10016_none_iris (SITL output mapping; Motor1..4 = functions 101..104) ---
+param set-default CA_AIRFRAME 0
+
+param set-default PWM_MAIN_FUNC1 101
+param set-default PWM_MAIN_FUNC2 102
+param set-default PWM_MAIN_FUNC3 103
+param set-default PWM_MAIN_FUNC4 104

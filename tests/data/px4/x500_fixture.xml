@@ -1,0 +1,262 @@
+<!--
+  Holybro X500 V2 (4S 5200 mAh, Pixhawk 6C, M8N GPS) simulation model for the PX4 bridge.
+
+  PURPOSE: hand-written stand-in until build/assemblies/x500v2.xml exists from the assembly builder. Built only from
+  parts/drone/*.toml, docs/research/x500v2-airframe.md, docs/research/x500v2-kit.md and PX4 v1.17.0's WMM tables.
+
+  CONTRACT (bridge config + PX4 airframe depend on it):
+    World z up, x = East, y = North, floor plane z = 0 (ground at 488 m MSL). timestep 0.001 s.
+    Root body `base` (freejoint `root`), body frame FLU (x forward, y left, z up), yaw 0 = nose East, resting on the gear.
+    rotor0..3 / hinge motor0..3 / esc0..3 / prop0..3, PX4 numbering (motor x,y = +-0.17678 m):
+      0 front-right (+,-) CCW   1 rear-left (-,+) CCW   2 front-left (+,+) CW   3 rear-right (-,-) CW
+      CCW from above = hinge axis 0 0 1, dir 1; CW from above = axis 0 0 -1, dir -1 (the ESC drives positive about the axis).
+    Devices: battery; esc0..3; prop0..3; imu (250 Hz), baro (50 Hz), mag (100 Hz) on site imu_site; gnss (10 Hz) on
+    site gps_site; environment `air` (calm). Vehicle geoms are in group 4 (the rotors' ground-effect rays skip it,
+    ray_groups 47 = all groups but 4); only the two landing-gear cross bars collide (with the floor).
+
+  PROVENANCE LEGEND: [id param] = value copied from parts/drone/<id>.toml param `param` (any unit conversion shown);
+    [airframe L] / [kit] = docs/research/x500v2-airframe.md / x500v2-kit.md; (D) = derived, derivation shown;
+    (E) = `estimated`: no part/doc number exists, rationale given. Inertia: MuJoCo computes it from the geom shapes with
+    the explicit geom masses (solid shapes, so hollow tubes are slightly over-estimated in inertia; masses are exact).
+
+  MASS BUDGET (kg), every body mass = sum of the geoms on it:
+    frame kit [holybro-x500v2-frame-kit published_weight]  0.610   (CAD parts 0.33296 + lumped hardware 0.27704, see below)
+    4 motors   [holybro-2216-kv920 mass]              4 x 0.064   = 0.256   (on base: stator + rotor bell + cable)
+    4 ESCs     [holybro-x500v2-esc-blheli-s-20a mass] 4 x 0.021   = 0.084
+    4 props    [holybro-1045-prop mass]               4 x 0.0125  = 0.050   (on the rotor bodies)
+    battery    [tattu-4s-5200mah-35c mass]                        0.4365  (net weight, includes its leads and XT60)
+    PM02 V3    [holybro-pm02-v3 mass]                             0.020   (includes pre-soldered wires and XT60s)
+    PDB        [holybro-pdb-60a mass]                             0.015   (E, part file marks it estimated)
+    Pixhawk 6C [holybro-pixhawk-6c mass_aluminium_case]           0.0593
+    M8N GPS    [holybro-m8n-gps mass]                             0.032   (E, part file marks it estimated)
+    TOTAL                                                         1.5628
+  Frame split. CAD-derived part masses (each part file, x qty): top plate 0.0578, bottom plate 0.05355, 4 arm tubes
+  4 x 0.00807, 4 arms of connectors 4 x 0.0309725 (end clamp 0.0155792 + body clamps 0.0125710 + motor base 0.0028223),
+  2 landing-gear poles 2 x 0.01444, 2 cross bars 2 x 0.00741, 2 rail rods 2 x 0.01087 = 0.33296. Holybro's published
+  610 g frame weight is larger; the 0.27704 kg remainder (battery/platform boards, hangers, rubber rings, clips, foam,
+  screws, XT60 holder: parts without files) is one lumped box `frame_hardware` (E: placement and size).
+  Not modelled (no part file number): ESC-to-PDB and PM02 lead resistance (lead gauge/length unpublished), avionics
+  load (Pixhawk draw unpublished; GPS gives only a 0.2 A maximum), body drag (no Cd*A anywhere), rotor H-force k_h.
+  No wire / connector masses are added: the pack, PM02 and ESC weights already include their leads.
+
+  FRAME GEOMETRY. base origin = mid-gap between the plates [airframe L34: plate gap 28 mm, plates 2 mm, at STEP heights
+  +1 / +31 mm, so mid-gap = STEP +16 mm]: bottom plate centre z = -0.015, top plate centre z = +0.015 (D).
+  Landing gear height 0.215 [holybro-x500v2-frame-kit landing_gear_height, airframe L34] is taken as floor to the
+  underside of the bottom plate (E: interpretation), so base origin is 0.215 + 0.016 = 0.231 m above the floor (D).
+  Cross bar: OD 0.0094 [holybro-x500v2-landing-gear crossbar_cad_outer_diameter] -> capsule radius 0.0047, length
+  0.25 [crossbar_cad_length] -> fromto +-(0.125 - 0.0047) = +-0.1203; its centre is at z = -0.231 + 0.0047 = -0.2263 (D).
+  Pole: OD 0.016 -> radius 0.008 [pole_cad_outer_diameter], length 0.1977 [pole_cad_length], axis direction (0, 0.30, 0.95)
+  per the part derivation (leans out 17.5 deg) -> dy = 0.0593, dz = sqrt(0.1977^2 - 0.0593^2) = 0.1886 (D). The pole top
+  ends 0.0377 below the plate centre line, 21.6 mm below the plate underside; the tee connectors/hangers that close that
+  gap have no part file. Cross bar y = 0.07186 (plate half size [holybro-x500v2-top-plate geometry 0.07186]) + 0.0593 = 0.1312 (D).
+  Arms: X frame, tube centre 0.1482 m from the centre on the 45 deg diagonals [airframe L40, holybro-x500v2-arm-tube];
+  diagonal component = r / sqrt(2). Tube: radius 0.0077 [cad_outer_diameter 0.0154 / 2], length 0.1611 [cad_length], so
+  r = 0.1482 +- 0.08055 = 0.0676 .. 0.2287 -> components 0.04783 .. 0.16175 (D). Arm z = 0 (E: arms centred in the plate gap).
+  Connectors per arm [holybro-x500v2-arm-connectors]: end clamp AABB 72.05 x 72.05 x 22.00 mm at r = 0.2247 (comp
+  0.15889), body clamp pair 34.07 x 34.07 mm AABB at r = 0.0778 (comp 0.05501) lumped to the 28 mm gap height, motor base
+  53.57 x 53.57 x 2.00 mm at r = 0.2488 (comp 0.17593). Masses: volume x density 1300 (E in that part): 1.1984e-5 x 1300
+  = 0.0155792, 2 x 4.835e-6 x 1300 = 0.0125710, 2.171e-6 x 1300 = 0.0028223.
+  Motors [holybro-2216-kv920 geometry]: cylinder radius 0.01385, half length 0.02125; motor base top is at
+  z = 0.012 + 0.001 = 0.013 (clamp half height 0.011 + plate 0.002, E: arm centred under the clamp), so the motor centre
+  is z = 0.013 + 0.02125 = 0.03425 and the prop hub plane z = 0.013 + 0.0425 = 0.0555 (E: prop on the top of the 42.5 mm
+  motor [holybro-2216-kv920 length_body]). Motor x,y = +-0.17678 [holybro-x500v2-frame-kit motor_xy_offset, airframe L46:
+  176.8 mm].
+  ESC box 26 x 14 x 5 mm [holybro-x500v2-esc-blheli-s-20a geometry half sizes 0.013 0.007 0.0025], on top of the arm tube
+  (z = 0.0077 + 0.0025 = 0.0102) at r = 0.14 (comp 0.09899) (E: position along the arm).
+  Prop blade: box 0.254 long [holybro-1045-prop diameter] x 0.006 x 0.002 (E: width/thickness), mass 0.0125 [mass]:
+  J about the hub = 0.0125 (0.254^2 + 0.006^2) / 12 = 6.72e-5 kg m^2 = [holybro-1045-prop j_prop], so the rotating
+  inertia is j_prop (from the geom) + 4.2e-6 [holybro-2216-kv920 j_rotor_bell, E in that part] (ESC armature).
+  Battery box = 2 x [0.0665 0.0225 0.01675] [tattu-4s-5200mah-35c geometry], centre z = -0.016 - 0.01675 = -0.03275 (E: pack
+  directly under the bottom plate, board thickness unfiled), x = y = 0 (E).
+  Rail rods [holybro-x500v2-rail-rod]: radius 0.005, length 0.248 [cad_length], at y = +-0.04, z = -0.021 (E: position).
+  Pixhawk box 0.0848 x 0.044 x 0.0124 [holybro-pixhawk-6c length/width/height] on the top plate: z = 0.016 + 0.0062 = 0.0222
+  (E: placement, centred, axes aligned with base, so imu_site = its centre). PDB box 0.045 x 0.045 [holybro-pdb-60a
+  mount_pattern] x 0.002 (E: thickness) on the bottom plate, centre z = -0.013 (E). PM02: size unpublished (E: 0.03 x 0.02
+  x 0.006 box at x = 0.04, z = -0.005). GPS: cylinder radius 0.025, half height 0.0072 [holybro-m8n-gps diameter 0.050,
+  height 0.0144; both E in that part] on a mast behind the plates at x = -0.10, z = 0.12 (E: the mast has no part file);
+  gps_site is its centre. frame_hardware: box half sizes 0.07 0.05 0.014 at the origin (E), mass 0.610 - 0.33296 = 0.27704.
+
+  ELECTRICAL: battery node 1 -> 10 AWG leads 0.12 m, 2 conductors [tattu-4s-5200mah-35c discharge_wire_awg,
+  discharge_wire_length; awg-10-silicone-wire] -> XT60 pair -> PM02 board -> XT60 pair -> PDB -> 4 ESC nodes (6..9).
+  XT60 mated pair [amass-xt60 contact_resistance_mated_pair] 0.0011 per contact, x 2 (+ and - contacts, D) = 0.0022.
+  PM02 [holybro-pm02-v3 r_series, E in that part] 0.0015. PDB path [holybro-pdb-60a r_path, E in that part] 0.0005 per ESC.
+  Battery [tattu-4s-5200mah-35c]: capacity_ah 5.2, r0 = r_internal_pack 0.020 (E), r1 = thevenin_r1 0.008 (E), c1 =
+  thevenin_tau / r1 = 3.3 / 0.008 = 412.5 F (D), soc0 = 1 (full). OCV = 4 x [lipo-cell-ocv ocv_V] at 29 SoC points (E, the
+  OCV table is marked estimated there), 4 x 2.499 = 9.996 ... 4 x 4.2 = 16.8.
+  Motor [holybro-2216-kv920]: kv 920, r20 = r_winding 0.115 + [holybro-x500v2-esc-blheli-s-20a r_on_total, E there] 0.012 =
+  0.127 (D: FET resistance in series with the winding), i0 0.8 (measured at 10 V), rotor_inertia = j_rotor_bell 4.2e-6.
+  Thermal (E, none in any part): r_th = (80 - 25) K / (16.37^2 A^2 x 0.115 ohm) = 1.79 K/W from the vendor 80 degC surface
+  note at 100 % throttle and thrust_test current 16.37 A; c_th = 0.064 kg x 385 J/(kg K) = 24.6 J/K (copper specific heat,
+  not in any part file). ESC i_limit = [holybro-x500v2-esc-blheli-s-20a current_peak] 30 A.
+  Prop aero: diameter 0.254; C_T(0) = [holybro-1045-prop ct_static] 0.095, C_Q(0) = [cq_static] 0.0053; J shape from
+  [uiuc-apc-sf-10x4.7 advancing_4014rpm] as the 1045 part prescribes: ct(J) = 0.095 C_T(J) / 0.1158, cq(J) = 0.0053 C_P(J) /
+  0.0466 (C_T(0) = 0.1158 and C_P(0) = 0.0466 = static at 4029 rpm, E in the prop part). 9 table rows J = 0.142 .. 0.719 plus J = 0.
+  Ground effect on (model switch, no part number). k_h omitted (0): no part gives an H-force coefficient.
+
+  SENSORS (all on imu_site unless stated):
+    IMU [tdk-icm-42688-p]: rate 250 Hz = 1 / (250 x 0.001) = 4 ticks (one sample per 4 ms PX4 lockstep step).
+      gyro noise_density 4.887e-5 rad/s/rtHz [gyro_noise_density], full_scale 34.907 [gyro_fs_max, 2000 dps], bits 16
+      [gyro_adc_bits] -> lsb = 2 x 34.907 / 2^16 = 1.065e-3 rad/s (= 1/16.4 dps). accel noise_density 6.865e-4 m/s2/rtHz
+      [accel_noise_density_z; the xy value 6.374e-4 is lower, the larger one is used for all axes], full_scale 156.906
+      [accel_fs_max, 16 g], bits 16 -> lsb 4.788e-3 (= 1/2048 g). Bias and scale = 0: the datasheet zero offsets
+      (gyro_zro_initial 8.727e-3 rad/s, accel_zero_g_initial 0.19613 m/s2) are +-limits, not typical values, so they are
+      not applied; in-run bias walk is unpublished (airframe L114), rw_density omitted.
+    Baro [te-ms5611-01ba03]: rate 50 Hz = 20 ticks (two OSR 4096 conversions 2 x 8.22e-3 s [response_time_osr4096] fit in
+      20 ms), noise_std 1.2 Pa [pressure_rms_noise_osr4096]; bias 0 (accuracy_25c_750mbar 150 Pa is a +- limit), resolution 0 (none given).
+    Mag [isentek-ist8310]: rate 100 Hz = 10 ticks (within odr 1..200 Hz), noise_std 3.0e-7 T [rms_noise, E in that part],
+      bias 0 (zero_gauss_offset_rms 3.0e-7 T has no direction).
+      earth_field: PX4 v1.17.0 src/lib/world_magnetic_model/geo_mag_declination.cpp (bilinear lookup on the 10 deg grid,
+      WMM-2020 tables in geo_magnetic_tables.hpp) at lat 47.397742, lon 8.545594: corners (index lat 13, lon 18) decl raw
+      252 629 719 193 (sw se ne nw) x 0.00545143529, incl raw 20340 20695 24404 24176 x 0.00269892697, intensity raw 22117 22515
+      24073 23819 x 2.04183477 nT; weights lat 0.7397742, lon 0.8545594 give
+      declination 3.4056 deg, inclination 63.1572 deg (down), F = 48238.7 nT.
+      H = F cos(inc) = 21.78 uT; B_E = H sin(dec) = 1.2939e-6 T, B_N = H cos(dec) = 2.1743e-5 T, B_U = -F sin(inc) = -4.3041e-5 T.
+    GNSS [ublox-neo-m8n] on gps_site: rate 10 Hz = 10 ticks [max_nav_rate_gps_only], horiz_std = CEP 2.5 m
+      [horizontal_accuracy_cep_gps] / 1.1774 = 2.123 m per axis (D: circular-normal CEP = 1.1774 sigma), vert_std = 1.5 x 2.123 =
+      3.185 m (D: the part's estimated vertical_accuracy_cep is 1.5 x horizontal), vel_std 0.05 m/s [velocity_accuracy],
+      latency_s 0.1 (E: no latency in any part file; one 10 Hz sample, near PX4's EKF2_GPS_DELAY default of 110 ms,
+      src/modules/ekf2/params_gnss.yaml), home lat0 47.397742, lon0 8.545594, alt0 488.0 (PX4 SITL default home).
+    Environment: origin_alt 488.0 (world z = 0 is ground at 488 m MSL), no wind, w20 0 (calm). ref_body base.
+    Top-level seed 1: arbitrary RNG seed (E: no source applies).
+  Gravity left at MuJoCo's default 0 0 -9.81.
+-->
+<mujoco model="x500v2_px4">
+  <option timestep="0.001"/>
+  <default>
+    <geom group="4" contype="0" conaffinity="0"/>
+  </default>
+  <worldbody>
+    <geom name="floor" type="plane" size="50 50 0.1" group="0" contype="1" conaffinity="1"/>
+    <!-- z = 0.231 (D, see header) + 0.002 (E: start 2 mm above first contact) -->
+    <body name="base" pos="0 0 0.233">
+      <freejoint name="root"/>
+      <site name="imu_site" pos="0 0 0.0222"/>
+      <site name="gps_site" pos="-0.10 0 0.12"/>
+
+      <!-- frame: plates [holybro-x500v2-top-plate/bottom-plate geometry half size 0.07186, half thickness 0.001; mass] -->
+      <geom name="top_plate" type="box" size="0.07186 0.07186 0.001" pos="0 0 0.015" mass="0.0578"/>
+      <geom name="bottom_plate" type="box" size="0.07186 0.07186 0.001" pos="0 0 -0.015" mass="0.05355"/>
+      <geom name="frame_hardware" type="box" size="0.07 0.05 0.014" pos="0 0 0" mass="0.27704"/>
+
+      <!-- landing gear (collision): cross bars mass 0.00741 each, poles 0.01444 each [holybro-x500v2-landing-gear] -->
+      <geom name="gear_bar_r" type="capsule" fromto="-0.1203 -0.1312 -0.2263 0.1203 -0.1312 -0.2263" size="0.0047" mass="0.00741" contype="1" conaffinity="1"/>
+      <geom name="gear_bar_l" type="capsule" fromto="-0.1203 0.1312 -0.2263 0.1203 0.1312 -0.2263" size="0.0047" mass="0.00741" contype="1" conaffinity="1"/>
+      <geom name="gear_pole_r" type="cylinder" fromto="0 -0.1312 -0.2263 0 -0.0719 -0.0377" size="0.008" mass="0.01444"/>
+      <geom name="gear_pole_l" type="cylinder" fromto="0 0.1312 -0.2263 0 0.0719 -0.0377" size="0.008" mass="0.01444"/>
+      <geom name="rail_rod_r" type="cylinder" fromto="-0.124 -0.04 -0.021 0.124 -0.04 -0.021" size="0.005" mass="0.01087"/>
+      <geom name="rail_rod_l" type="cylinder" fromto="-0.124 0.04 -0.021 0.124 0.04 -0.021" size="0.005" mass="0.01087"/>
+
+      <!-- arm 0 (front-right, +x -y): tube, end clamp, body clamps, motor base, motor stator (0.064), ESC (0.021) -->
+      <geom name="arm0_tube" type="cylinder" fromto="0.04783 -0.04783 0 0.16175 -0.16175 0" size="0.0077" mass="0.00807"/>
+      <geom name="arm0_end_clamp" type="box" size="0.036025 0.036025 0.011" pos="0.15889 -0.15889 0" mass="0.0155792"/>
+      <geom name="arm0_body_clamp" type="box" size="0.017035 0.017035 0.014" pos="0.05501 -0.05501 0" mass="0.012571"/>
+      <geom name="arm0_motor_base" type="box" size="0.026785 0.026785 0.001" pos="0.17593 -0.17593 0.012" mass="0.0028223"/>
+      <geom name="motor0" type="cylinder" size="0.01385 0.02125" pos="0.17678 -0.17678 0.03425" mass="0.064"/>
+      <geom name="esc0_body" type="box" size="0.013 0.007 0.0025" pos="0.09899 -0.09899 0.0102" euler="0 0 -45" mass="0.021"/>
+      <!-- arm 1 (rear-left, -x +y) -->
+      <geom name="arm1_tube" type="cylinder" fromto="-0.04783 0.04783 0 -0.16175 0.16175 0" size="0.0077" mass="0.00807"/>
+      <geom name="arm1_end_clamp" type="box" size="0.036025 0.036025 0.011" pos="-0.15889 0.15889 0" mass="0.0155792"/>
+      <geom name="arm1_body_clamp" type="box" size="0.017035 0.017035 0.014" pos="-0.05501 0.05501 0" mass="0.012571"/>
+      <geom name="arm1_motor_base" type="box" size="0.026785 0.026785 0.001" pos="-0.17593 0.17593 0.012" mass="0.0028223"/>
+      <geom name="motor1" type="cylinder" size="0.01385 0.02125" pos="-0.17678 0.17678 0.03425" mass="0.064"/>
+      <geom name="esc1_body" type="box" size="0.013 0.007 0.0025" pos="-0.09899 0.09899 0.0102" euler="0 0 135" mass="0.021"/>
+      <!-- arm 2 (front-left, +x +y) -->
+      <geom name="arm2_tube" type="cylinder" fromto="0.04783 0.04783 0 0.16175 0.16175 0" size="0.0077" mass="0.00807"/>
+      <geom name="arm2_end_clamp" type="box" size="0.036025 0.036025 0.011" pos="0.15889 0.15889 0" mass="0.0155792"/>
+      <geom name="arm2_body_clamp" type="box" size="0.017035 0.017035 0.014" pos="0.05501 0.05501 0" mass="0.012571"/>
+      <geom name="arm2_motor_base" type="box" size="0.026785 0.026785 0.001" pos="0.17593 0.17593 0.012" mass="0.0028223"/>
+      <geom name="motor2" type="cylinder" size="0.01385 0.02125" pos="0.17678 0.17678 0.03425" mass="0.064"/>
+      <geom name="esc2_body" type="box" size="0.013 0.007 0.0025" pos="0.09899 0.09899 0.0102" euler="0 0 45" mass="0.021"/>
+      <!-- arm 3 (rear-right, -x -y) -->
+      <geom name="arm3_tube" type="cylinder" fromto="-0.04783 -0.04783 0 -0.16175 -0.16175 0" size="0.0077" mass="0.00807"/>
+      <geom name="arm3_end_clamp" type="box" size="0.036025 0.036025 0.011" pos="-0.15889 -0.15889 0" mass="0.0155792"/>
+      <geom name="arm3_body_clamp" type="box" size="0.017035 0.017035 0.014" pos="-0.05501 -0.05501 0" mass="0.012571"/>
+      <geom name="arm3_motor_base" type="box" size="0.026785 0.026785 0.001" pos="-0.17593 -0.17593 0.012" mass="0.0028223"/>
+      <geom name="motor3" type="cylinder" size="0.01385 0.02125" pos="-0.17678 -0.17678 0.03425" mass="0.064"/>
+      <geom name="esc3_body" type="box" size="0.013 0.007 0.0025" pos="-0.09899 -0.09899 0.0102" euler="0 0 -135" mass="0.021"/>
+
+      <!-- electronics -->
+      <geom name="battery_body" type="box" size="0.0665 0.0225 0.01675" pos="0 0 -0.03275" mass="0.4365"/>
+      <geom name="pdb_board" type="box" size="0.0225 0.0225 0.001" pos="0 0 -0.013" mass="0.015"/>
+      <geom name="pm02_board" type="box" size="0.015 0.01 0.003" pos="0.04 0 -0.005" mass="0.020"/>
+      <geom name="pixhawk_6c" type="box" size="0.0424 0.022 0.0062" pos="0 0 0.0222" mass="0.0593"/>
+      <geom name="gps_module" type="cylinder" size="0.025 0.0072" pos="-0.10 0 0.12" mass="0.032"/>
+
+      <!-- rotors: hinge at the hub; CCW = axis 0 0 1, CW = axis 0 0 -1; blade box mass 0.0125 each [holybro-1045-prop mass] -->
+      <body name="rotor0" pos="0.17678 -0.17678 0.0555">
+        <joint name="motor0" type="hinge" axis="0 0 1"/>
+        <geom name="blade0" type="box" size="0.127 0.003 0.001" mass="0.0125"/>
+      </body>
+      <body name="rotor1" pos="-0.17678 0.17678 0.0555">
+        <joint name="motor1" type="hinge" axis="0 0 1"/>
+        <geom name="blade1" type="box" size="0.127 0.003 0.001" mass="0.0125"/>
+      </body>
+      <body name="rotor2" pos="0.17678 0.17678 0.0555">
+        <joint name="motor2" type="hinge" axis="0 0 -1"/>
+        <geom name="blade2" type="box" size="0.127 0.003 0.001" mass="0.0125"/>
+      </body>
+      <body name="rotor3" pos="-0.17678 -0.17678 0.0555">
+        <joint name="motor3" type="hinge" axis="0 0 -1"/>
+        <geom name="blade3" type="box" size="0.127 0.003 0.001" mass="0.0125"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "seed": 1,
+      "batteries": [{"name": "battery", "node": 1, "parts": ["tattu-4s-5200mah-35c", "lipo-cell-ocv"],
+        "capacity_ah": 5.2, "r0": 0.020, "r1": 0.008, "c1": 412.5, "soc0": 1.0,
+        "ocv_soc": [0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00],
+        "ocv_v": [9.996, 11.02, 11.56, 11.996, 12.38, 12.5, 12.6, 12.668, 12.7, 12.736, 12.784, 13.004, 13.204, 13.356, 13.508, 13.624, 13.744, 13.876, 14.028, 14.164, 14.364, 14.632, 14.92, 15.204, 15.556, 15.844, 16.196, 16.464, 16.8]}],
+      "wires": [
+        {"name": "battery_leads", "parts": ["awg-10-silicone-wire", "tattu-4s-5200mah-35c"], "a": 1, "b": 2, "awg": 10, "length_m": 0.12, "conductors": 2},
+        {"name": "xt60_battery_pm02", "parts": ["amass-xt60"], "a": 2, "b": 3, "resistance": 0.0022},
+        {"name": "pm02_board", "parts": ["holybro-pm02-v3"], "a": 3, "b": 4, "resistance": 0.0015},
+        {"name": "xt60_pm02_pdb", "parts": ["amass-xt60"], "a": 4, "b": 5, "resistance": 0.0022},
+        {"name": "pdb_esc0", "parts": ["holybro-pdb-60a"], "a": 5, "b": 6, "resistance": 0.0005},
+        {"name": "pdb_esc1", "parts": ["holybro-pdb-60a"], "a": 5, "b": 7, "resistance": 0.0005},
+        {"name": "pdb_esc2", "parts": ["holybro-pdb-60a"], "a": 5, "b": 8, "resistance": 0.0005},
+        {"name": "pdb_esc3", "parts": ["holybro-pdb-60a"], "a": 5, "b": 9, "resistance": 0.0005}],
+      "escs": [
+        {"name": "esc0", "node": 6, "joint": "motor0", "i_limit": 30, "parts": ["holybro-x500v2-esc-blheli-s-20a", "holybro-2216-kv920"],
+         "motor": {"kv": 920, "r20": 0.127, "i0": 0.8, "rotor_inertia": 4.2e-6, "c_th": 24.6, "r_th": 1.79}},
+        {"name": "esc1", "node": 7, "joint": "motor1", "i_limit": 30, "parts": ["holybro-x500v2-esc-blheli-s-20a", "holybro-2216-kv920"],
+         "motor": {"kv": 920, "r20": 0.127, "i0": 0.8, "rotor_inertia": 4.2e-6, "c_th": 24.6, "r_th": 1.79}},
+        {"name": "esc2", "node": 8, "joint": "motor2", "i_limit": 30, "parts": ["holybro-x500v2-esc-blheli-s-20a", "holybro-2216-kv920"],
+         "motor": {"kv": 920, "r20": 0.127, "i0": 0.8, "rotor_inertia": 4.2e-6, "c_th": 24.6, "r_th": 1.79}},
+        {"name": "esc3", "node": 9, "joint": "motor3", "i_limit": 30, "parts": ["holybro-x500v2-esc-blheli-s-20a", "holybro-2216-kv920"],
+         "motor": {"kv": 920, "r20": 0.127, "i0": 0.8, "rotor_inertia": 4.2e-6, "c_th": 24.6, "r_th": 1.79}}],
+      "rotors": [
+        {"name": "prop0", "body": "rotor0", "joint": "motor0", "dir": 1, "diameter": 0.254, "ground_effect": true, "ray_groups": 47,
+         "parts": ["holybro-1045-prop", "uiuc-apc-sf-10x4.7"],
+         "j": [0, 0.142, 0.216, 0.289, 0.361, 0.438, 0.510, 0.577, 0.647, 0.719],
+         "ct": [0.095, 0.08155, 0.0726, 0.06317, 0.05349, 0.04118, 0.02814, 0.0146, -0.0009, -0.01788],
+         "cq": [0.0053, 0.005129, 0.004959, 0.004709, 0.004458, 0.004003, 0.003503, 0.002934, 0.002263, 0.001479]},
+        {"name": "prop1", "body": "rotor1", "joint": "motor1", "dir": 1, "diameter": 0.254, "ground_effect": true, "ray_groups": 47,
+         "parts": ["holybro-1045-prop", "uiuc-apc-sf-10x4.7"],
+         "j": [0, 0.142, 0.216, 0.289, 0.361, 0.438, 0.510, 0.577, 0.647, 0.719],
+         "ct": [0.095, 0.08155, 0.0726, 0.06317, 0.05349, 0.04118, 0.02814, 0.0146, -0.0009, -0.01788],
+         "cq": [0.0053, 0.005129, 0.004959, 0.004709, 0.004458, 0.004003, 0.003503, 0.002934, 0.002263, 0.001479]},
+        {"name": "prop2", "body": "rotor2", "joint": "motor2", "dir": -1, "diameter": 0.254, "ground_effect": true, "ray_groups": 47,
+         "parts": ["holybro-1045-prop", "uiuc-apc-sf-10x4.7"],
+         "j": [0, 0.142, 0.216, 0.289, 0.361, 0.438, 0.510, 0.577, 0.647, 0.719],
+         "ct": [0.095, 0.08155, 0.0726, 0.06317, 0.05349, 0.04118, 0.02814, 0.0146, -0.0009, -0.01788],
+         "cq": [0.0053, 0.005129, 0.004959, 0.004709, 0.004458, 0.004003, 0.003503, 0.002934, 0.002263, 0.001479]},
+        {"name": "prop3", "body": "rotor3", "joint": "motor3", "dir": -1, "diameter": 0.254, "ground_effect": true, "ray_groups": 47,
+         "parts": ["holybro-1045-prop", "uiuc-apc-sf-10x4.7"],
+         "j": [0, 0.142, 0.216, 0.289, 0.361, 0.438, 0.510, 0.577, 0.647, 0.719],
+         "ct": [0.095, 0.08155, 0.0726, 0.06317, 0.05349, 0.04118, 0.02814, 0.0146, -0.0009, -0.01788],
+         "cq": [0.0053, 0.005129, 0.004959, 0.004709, 0.004458, 0.004003, 0.003503, 0.002934, 0.002263, 0.001479]}],
+      "environments": [{"name": "air", "origin_alt": 488.0, "w20": 0, "ref_body": "base", "parts": []}],
+      "imus": [{"name": "imu", "site": "imu_site", "rate_hz": 250, "parts": ["tdk-icm-42688-p", "holybro-pixhawk-6c"],
+        "gyro": {"noise_density": 4.887e-5, "full_scale": 34.907, "bits": 16},
+        "accel": {"noise_density": 6.865e-4, "full_scale": 156.906, "bits": 16}}],
+      "baros": [{"name": "baro", "site": "imu_site", "rate_hz": 50, "parts": ["te-ms5611-01ba03"], "noise_std": 1.2}],
+      "mags": [{"name": "mag", "site": "imu_site", "rate_hz": 100, "parts": ["isentek-ist8310"],
+        "earth_field": [1.2939e-6, 2.1743e-5, -4.3041e-5], "noise_std": 3.0e-7}],
+      "gnss_receivers": [{"name": "gnss", "site": "gps_site", "rate_hz": 10, "parts": ["ublox-neo-m8n", "holybro-m8n-gps"],
+        "lat0": 47.397742, "lon0": 8.545594, "alt0": 488.0,
+        "horiz_std": 2.123, "vert_std": 3.185, "vel_std": 0.05, "latency_s": 0.1}]
+    }'/>
+  </custom>
+</mujoco>

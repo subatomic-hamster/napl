@@ -1,0 +1,25 @@
+# napl-px4-bridge config for the X500 (tests/data/px4/x500_fixture.xml; the real model, e.g. build/assemblies/x500v2.xml,
+# is passed with --model and must use the same device names). Paths relative to this file.
+model = "../tests/data/px4/x500_fixture.xml"
+base = "/world/base"                   # body prim for HIL_STATE_QUATERNION ground truth and the trace
+imu = "imu"                            # 250 Hz in the model (dt 0.001)
+baro = "baro"
+mag = "mag"
+gnss = "gnss"                          # 10 Hz in the model
+battery = "battery"
+gps_rate_hz = 10                       # optional: must equal the gnss device rate_hz in the model
+satellites = 10
+
+[motors]
+esc = ["esc0", "esc1", "esc2", "esc3"] # entry i = PX4 controls[i]: 0 front-right, 1 rear-left, 2 front-left, 3 rear-right
+
+[home]                                 # must equal the gnss device lat0 / lon0 / alt0 (and environment origin_alt)
+lat = 47.397742
+lon = 8.545594
+alt = 488.0
+
+[px4]
+sysid = 1                              # PX4's MAV_SYS_ID
+compid = 180                           # ours (MAV_COMP_ID_BATTERY), must differ from PX4's
+battery_rate_hz = 5
+cells = 4

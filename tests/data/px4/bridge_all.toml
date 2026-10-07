@@ -1,0 +1,24 @@
+# napl-px4-bridge config for tests/data/devices/all.xml (the free-floating test quad). Paths relative to this file.
+model = "../devices/all.xml"           # CLI --model overrides
+base = "/world/quad"                   # body prim used for HIL_STATE_QUATERNION ground truth and the trace
+imu = "imu"
+baro = "baro"
+mag = "mag"
+gnss = "gnss"
+battery = "pack"
+gps_rate_hz = 10                       # optional: must equal the gnss device rate_hz in the model
+satellites = 10
+
+[motors]
+esc = ["esc1", "esc2", "esc3", "esc4"] # entry i = PX4 HIL_ACTUATOR_CONTROLS controls[i]
+
+[home]                                 # must equal the gnss device lat0 / lon0 / alt0
+lat = 47.3769
+lon = 8.5417
+alt = 408.0
+
+[px4]
+sysid = 1                              # PX4's MAV_SYS_ID (BATTERY_STATUS is ignored unless it carries it)
+compid = 180                           # ours, must differ from PX4's (MAV_COMP_ID_BATTERY)
+battery_rate_hz = 5
+cells = 3                              # all.xml has a 3S pack

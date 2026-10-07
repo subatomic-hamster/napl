@@ -117,17 +117,26 @@ add_executable(napl_shm_serve src/cli/shm_serve.cpp)  # shm lockstep server (M11
 set_target_properties(napl_shm_serve PROPERTIES OUTPUT_NAME napl-shm-serve)
 target_link_libraries(napl_shm_serve PRIVATE napl_core napl_mujoco mujoco)
 
+# napl-px4-bridge (N5): PX4 SITL lockstep bridge. Header-only deps (mavlink: SYSTEM, its generated code is not ours to lint).
+add_library(napl_px4_deps INTERFACE)
+target_include_directories(napl_px4_deps SYSTEM INTERFACE ${mavlink_SOURCE_DIR} ${tomlplusplus_SOURCE_DIR}/include)
+add_executable(napl_px4_bridge src/px4/main.cpp)
+set_target_properties(napl_px4_bridge PROPERTIES OUTPUT_NAME napl-px4-bridge)
+target_link_libraries(napl_px4_bridge PRIVATE napl_core napl_mujoco mujoco napl_px4_deps)
+
 # The shm test's child process: header-only client only, so it links nothing of napl (proves the header stands alone).
 add_executable(napl_shm_test_client tests/cpp/shm_test_client.cpp)
 target_include_directories(napl_shm_test_client PRIVATE include tests/cpp)
 
 add_executable(napl_tests tests/cpp/test_smoke.cpp tests/cpp/test_determinism.cpp tests/cpp/test_bus.cpp
-  tests/cpp/test_replay.cpp tests/cpp/test_host.cpp tests/cpp/test_shm.cpp tests/cpp/test_devices.cpp)
-add_dependencies(napl_tests napl_cli napl_shm_test_client)  # test_replay / test_shm run these executables
+  tests/cpp/test_replay.cpp tests/cpp/test_host.cpp tests/cpp/test_shm.cpp tests/cpp/test_devices.cpp
+  tests/cpp/test_px4.cpp)
+add_dependencies(napl_tests napl_cli napl_shm_test_client napl_px4_bridge)  # test_replay / test_shm / test_px4 run these executables
 target_include_directories(napl_tests PRIVATE tests/cpp)
-target_link_libraries(napl_tests PRIVATE napl_core napl_mujoco mujoco GTest::gtest_main)
+target_link_libraries(napl_tests PRIVATE napl_core napl_mujoco mujoco napl_px4_deps GTest::gtest_main)
 target_compile_definitions(napl_tests PRIVATE
   NAPL_CLI_EXE="$<TARGET_FILE:napl_cli>"
+  NAPL_PX4_BRIDGE_EXE="$<TARGET_FILE:napl_px4_bridge>"
   NAPL_SHM_CLIENT_EXE="$<TARGET_FILE:napl_shm_test_client>"
   NAPL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
   NAPL_HUMANOID_XML="${mujoco_SOURCE_DIR}/model/humanoid/humanoid.xml")

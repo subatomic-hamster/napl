@@ -68,7 +68,24 @@ FetchContent_Declare(vma
   GIT_SHALLOW TRUE
   SOURCE_SUBDIR napl_sources_only)
 
-FetchContent_MakeAvailable(mujoco flatbuffers googletest vulkan_headers volk vma)
+# PX4 bridge deps (N5), header-only, used as sources only (our own INTERFACE targets are in CMakeLists.txt).
+# mavlink/c_library_v2 (generated C headers, `common` dialect used): the repo has no tags and no LICENSE file, so it is
+# pinned by commit (master of 2026-10-07). Licence: the generator repo's COPYING (https://github.com/mavlink/mavlink/blob/
+# master/COPYING) says the generator is (L)GPL v3 but, "as an exception", a product embedding the generator OUTPUT may be
+# redistributed under the MIT licence => the headers are MIT (docs/research/px4-sitl.md). The generator is not used.
+FetchContent_Declare(mavlink
+  GIT_REPOSITORY https://github.com/mavlink/c_library_v2.git
+  GIT_TAG 56f6435ee725ed15d2e6d2a4c97ab6b41886ffc9  # master, no tags
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR napl_sources_only)
+# toml++ v3.4.0 (MIT), header-only: bridge config
+FetchContent_Declare(tomlplusplus
+  GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+  GIT_TAG v3.4.0  # 30172438cee64926dc41fdd9c11fb3ba5b2ba9de (lightweight tag)
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR napl_sources_only)
+
+FetchContent_MakeAvailable(mujoco flatbuffers googletest vulkan_headers volk vma mavlink tomlplusplus)
 
 # Viewer deps (M10, Linux/X11 only for now: the Windows/macOS GLFW source lists are not written or tested). Sources only,
 # like the renderer deps: our own targets are in CMakeLists.txt.

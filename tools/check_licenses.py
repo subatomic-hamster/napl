@@ -13,6 +13,11 @@ any depth). Decision rule, to avoid false positives without weakening the check:
   3. A file that mentions GPL-family and has no permissive grant -> FAIL.
 Not covered: GPL code whose license file is missing or named otherwise (e.g. only an SPDX
 header in sources); review new deps by hand when adding them to cmake/deps.cmake.
+Known case: mavlink/c_library_v2 (generated MAVLink C headers, fetched for napl-px4-bridge) ships no license file at all,
+so this scan cannot see it. Its terms come from the generator repo's COPYING
+(https://github.com/mavlink/mavlink/blob/master/COPYING): the generator is (L)GPL v3, but "as an exception" a product that
+embeds the generator OUTPUT may be redistributed under the MIT license. We only fetch and compile the generated headers,
+never the generator. Reviewed by hand; see cmake/deps.cmake and docs/research/px4-sitl.md.
 """
 
 import re

@@ -1,0 +1,17 @@
+# Runtime parameters for the napl headless MAVSDK-only SITL flight test.
+#
+# Mechanism (verified in PX4 v1.17.0 ROMFS/px4fmu_common/init.d-posix/rcS): rcS loops over the environment and runs
+# `param set <NAME> <value>` for every PX4_PARAM_<NAME>=<value> variable, after SYS_AUTOCONFIG's `param reset_all`
+# and before the airframe file is sourced. So these are applied by exporting env vars before launching px4:
+#
+#   while read -r n v; do [ -n "$n" ] && export "PX4_PARAM_$n=$v"; done < <(grep -v '^[[:space:]]*#' px4/params/napl_sitl.params)
+#
+# Format: one `NAME VALUE` per line, '#' comment lines only (no trailing comments). Use a FRESH working dir per run
+# (parameters.bson there persists values across runs).
+
+# Battery comes from our simulation via MAVLink BATTERY_STATUS; disable PX4's built-in linear battery_simulator.
+SIM_BAT_ENABLE 0
+# No RC in the test: 4 = disable manual control input entirely (rcS default is 1, MAVLink-only, which still expects stick messages).
+COM_RC_IN_MODE 4
+# No data-link-loss failsafe (0 = disabled; already the default, pinned so a PX4 default change cannot affect the test).
+NAV_DLL_ACT 0
