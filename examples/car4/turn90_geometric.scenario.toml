@@ -1,0 +1,40 @@
+# napl program examples/car4/turn90_geometric.scenario.toml
+# As turn90.scenario.toml but the odometry assumes the GEOMETRIC track (0.223 m, wheel centre to wheel centre): the uncalibrated skid-steer turn.
+# The car turns only about half of the commanded 90 degrees (tests/python/test_car4.py reports it).
+name = "car4-turn90-geometric"
+
+[model]
+assembly = "../../assemblies/car4.toml"
+
+[interfaces.roboclaw]
+motors = { 1 = "/devices/wheel_fl", 2 = "/devices/wheel_rl" }
+address = 128
+baud = 38400
+controllers = [{ address = 129, motors = { 1 = "/devices/wheel_fr", 2 = "/devices/wheel_rr" } }]
+
+[program]
+cmd = ["python", "{dir}/square.py"]
+env = { CAR4_MODE = "turn", CAR4_TRACK = "0.223" }
+
+[limits]
+wall_s = 60
+sim_s = 40
+cpu_s = 60
+
+[[monitors]]
+name = "qw"
+path = "/world/plate"
+attr = "quat"
+index = 0
+op = "always"
+lo = -1.01
+hi = 1.01
+
+[[monitors]]
+name = "qz"
+path = "/world/plate"
+attr = "quat"
+index = 3
+op = "always"
+lo = -1.01
+hi = 1.01

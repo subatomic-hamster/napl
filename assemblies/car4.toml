@@ -1,0 +1,366 @@
+[assembly]
+name = "car4"
+base = "free"
+description = "4-wheel skid-steer car built from an empty design"
+
+[[instances]]
+id = "plate"
+part = "car4-chassis-plate-custom"
+group = "chassis"
+root = true
+
+[[instances]]
+id = "bracket_fl"
+part = "pololu-37d-bracket-machined-1995"
+group = "drive"
+
+[[instances]]
+id = "bracket_fr"
+part = "pololu-37d-bracket-machined-1995"
+group = "drive"
+
+[[instances]]
+id = "bracket_rl"
+part = "pololu-37d-bracket-machined-1995"
+group = "drive"
+
+[[instances]]
+id = "bracket_rr"
+part = "pololu-37d-bracket-machined-1995"
+group = "drive"
+
+[[instances]]
+id = "motor_fl"
+part = "pololu-37d-19-1-12v-4751"
+group = "drive"
+
+[[instances]]
+id = "motor_fr"
+part = "pololu-37d-19-1-12v-4751"
+group = "drive"
+
+[[instances]]
+id = "motor_rl"
+part = "pololu-37d-19-1-12v-4751"
+group = "drive"
+
+[[instances]]
+id = "motor_rr"
+part = "pololu-37d-19-1-12v-4751"
+group = "drive"
+
+[[instances]]
+id = "hub_fl"
+part = "pololu-hub-6mm-4-40-1083"
+group = "drive"
+
+[[instances]]
+id = "hub_fr"
+part = "pololu-hub-6mm-4-40-1083"
+group = "drive"
+
+[[instances]]
+id = "hub_rl"
+part = "pololu-hub-6mm-4-40-1083"
+group = "drive"
+
+[[instances]]
+id = "hub_rr"
+part = "pololu-hub-6mm-4-40-1083"
+group = "drive"
+
+[[instances]]
+id = "tire_fl"
+part = "pololu-wheel-90x10mm-1436"
+group = "drive"
+
+[[instances]]
+id = "tire_fr"
+part = "pololu-wheel-90x10mm-1436"
+group = "drive"
+
+[[instances]]
+id = "tire_rl"
+part = "pololu-wheel-90x10mm-1436"
+group = "drive"
+
+[[instances]]
+id = "tire_rr"
+part = "pololu-wheel-90x10mm-1436"
+group = "drive"
+
+[[instances]]
+id = "battery"
+part = "gensace-2200mah-3s-25c-gea223s25t3gt"
+group = "power"
+
+[[instances]]
+id = "ctrl_l"
+part = "basicmicro-roboclaw-2x7a-3682"
+group = "electronics"
+
+[[instances]]
+id = "ctrl_r"
+part = "basicmicro-roboclaw-2x7a-3682"
+group = "electronics"
+
+[[mates]]
+a = "plate.bracket_fl"
+b = "bracket_fl.base"
+rotation = 0
+
+[[mates]]
+a = "plate.bracket_fr"
+b = "bracket_fr.base"
+rotation = 0
+
+[[mates]]
+a = "plate.bracket_rl"
+b = "bracket_rl.base"
+rotation = 0
+
+[[mates]]
+a = "plate.bracket_rr"
+b = "bracket_rr.base"
+rotation = 0
+
+[[mates]]
+a = "bracket_fl.motor_face"
+b = "motor_fl.mount"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "bracket_fr.motor_face"
+b = "motor_fr.mount"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "bracket_rl.motor_face"
+b = "motor_rl.mount"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "bracket_rr.motor_face"
+b = "motor_rr.mount"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "motor_fl.shaft"
+b = "hub_fl.bore"
+name = "wheel_fl"
+rotation = 0
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+a = "motor_fr.shaft"
+b = "hub_fr.bore"
+name = "wheel_fr"
+rotation = 0
+joint = { type = "hinge", spin = true, reverse = true }
+
+[[mates]]
+a = "motor_rl.shaft"
+b = "hub_rl.bore"
+name = "wheel_rl"
+rotation = 0
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+a = "motor_rr.shaft"
+b = "hub_rr.bore"
+name = "wheel_rr"
+rotation = 0
+joint = { type = "hinge", spin = true, reverse = true }
+
+[[mates]]
+a = "hub_fl.wheel_seat"
+b = "tire_fl.hub_seat"
+rotation = 0
+
+[[mates]]
+a = "hub_fr.wheel_seat"
+b = "tire_fr.hub_seat"
+rotation = 0
+
+[[mates]]
+a = "hub_rl.wheel_seat"
+b = "tire_rl.hub_seat"
+rotation = 0
+
+[[mates]]
+a = "hub_rr.wheel_seat"
+b = "tire_rr.hub_seat"
+rotation = 0
+
+[[mates]]
+a = "plate.battery_seat"
+b = "battery.base"
+rotation = 0
+
+[[mates]]
+a = "plate.controller_seat_l"
+b = "ctrl_l.base"
+rotation = 0
+
+[[mates]]
+a = "plate.controller_seat_r"
+b = "ctrl_r.base"
+rotation = 0
+
+[[wires]]
+name = "battery_to_ctrl_l"
+from = "battery.power_out"
+to = "ctrl_l.power_in"
+part = "awg-14-silicone-wire"
+length = "battery.discharge_wire_length"
+conductors = 2
+included_in = "battery"
+
+[[wires]]
+name = "battery_to_ctrl_r"
+from = "battery.power_out"
+to = "ctrl_r.power_in"
+part = "awg-14-silicone-wire"
+length = { value = 0.1, unit = "m", fidelity = "estimated", rationale = "Y-tail from the pack lead to the right controller: ~0.06 m straight line x 1.3 routing + 20 mm for the splice; no datasheet" }
+conductors = 2
+
+[[wires]]
+name = "m1_ctrl_l_motor_fl"
+from = "ctrl_l.m1_out"
+to = "motor_fl.motor_power"
+part = "awg-22-silicone-wire"
+length = "motor_fl.lead_length"
+conductors = 2
+included_in = "motor_fl"
+
+[[wires]]
+name = "m2_ctrl_l_motor_rl"
+from = "ctrl_l.m2_out"
+to = "motor_rl.motor_power"
+part = "awg-22-silicone-wire"
+length = "motor_rl.lead_length"
+conductors = 2
+included_in = "motor_rl"
+
+[[wires]]
+name = "m1_ctrl_r_motor_fr"
+from = "ctrl_r.m1_out"
+to = "motor_fr.motor_power"
+part = "awg-22-silicone-wire"
+length = "motor_fr.lead_length"
+conductors = 2
+included_in = "motor_fr"
+
+[[wires]]
+name = "m2_ctrl_r_motor_rr"
+from = "ctrl_r.m2_out"
+to = "motor_rr.motor_power"
+part = "awg-22-silicone-wire"
+length = "motor_rr.lead_length"
+conductors = 2
+included_in = "motor_rr"
+
+[[wires]]
+name = "ctrl_l.enc1--motor_fl.encoder"
+from = "ctrl_l.enc1"
+to = "motor_fl.encoder"
+part = "awg-26-silicone-wire"
+length = { value = 0.125, unit = "m", fidelity = "derived", derivation = "autowire: straight line 0.0959 m between the port positions x routing factor 1.3 = 0.1246 m, at least 0.03 m, rounded up to 5 mm" }
+included_in = "motor_fl"
+
+[[wires]]
+name = "ctrl_l.enc2--motor_rl.encoder"
+from = "ctrl_l.enc2"
+to = "motor_rl.encoder"
+part = "awg-26-silicone-wire"
+length = { value = 0.125, unit = "m", fidelity = "derived", derivation = "autowire: straight line 0.0959 m between the port positions x routing factor 1.3 = 0.1246 m, at least 0.03 m, rounded up to 5 mm" }
+included_in = "motor_rl"
+
+[[wires]]
+name = "ctrl_r.enc1--motor_fr.encoder"
+from = "ctrl_r.enc1"
+to = "motor_fr.encoder"
+part = "awg-26-silicone-wire"
+length = { value = 0.125, unit = "m", fidelity = "derived", derivation = "autowire: straight line 0.0959 m between the port positions x routing factor 1.3 = 0.1246 m, at least 0.03 m, rounded up to 5 mm" }
+included_in = "motor_fr"
+
+[[wires]]
+name = "ctrl_r.enc2--motor_rr.encoder"
+from = "ctrl_r.enc2"
+to = "motor_rr.encoder"
+part = "awg-26-silicone-wire"
+length = { value = 0.125, unit = "m", fidelity = "derived", derivation = "autowire: straight line 0.0959 m between the port positions x routing factor 1.3 = 0.1246 m, at least 0.03 m, rounded up to 5 mm" }
+included_in = "motor_rr"
+
+[device_maps.auto_battery_gensace-2200mah-3s-25c-gea223s25t3gt_lipo-cell-ocv-chen2006]
+capacity_ah = "capacity_ah"
+r0 = "r_internal_pack"
+
+[device_maps.wheel_drive]
+"motor.kv" = "motor:kv_equivalent"
+"motor.r20" = "motor:r_effective"
+"motor.i0" = "motor:no_load_current_12v"
+"motor.i0_w" = "motor:omega_noload_motor_12v"
+"motor.i0_visc" = "motor:i0_visc"
+"motor.rotor_inertia" = "motor:rotor_inertia_motor"
+"motor.c_th" = "motor:c_th"
+"motor.r_th" = "motor:r_th"
+gear_ratio = "motor:gear_ratio"
+efficiency = "motor:gear_efficiency"
+encoder_cpr = "motor:encoder_resolution"
+firmware_hz = "firmware_hz"
+pid_scale = "pid_scale"
+max_torque = "max_duty_register"
+i_limit = "i_peak"
+min_voltage = "v_min"
+max_voltage = "v_max"
+unload_mask = "protect_voltage_mask"
+
+[[devices]]
+type = "battery"
+name = "battery"
+instance = "battery"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "auto_battery_gensace-2200mah-3s-25c-gea223s25t3gt_lipo-cell-ocv-chen2006"
+auto = true
+
+[[devices]]
+type = "servo"
+name = "wheel_fl"
+instance = "ctrl_l"
+port = "power_in"
+motor = "motor_fl"
+joint = "wheel_fl"
+map = "wheel_drive"
+
+[[devices]]
+type = "servo"
+name = "wheel_rl"
+instance = "ctrl_l"
+port = "power_in"
+motor = "motor_rl"
+joint = "wheel_rl"
+map = "wheel_drive"
+
+[[devices]]
+type = "servo"
+name = "wheel_fr"
+instance = "ctrl_r"
+port = "power_in"
+motor = "motor_fr"
+joint = "wheel_fr"
+map = "wheel_drive"
+
+[[devices]]
+type = "servo"
+name = "wheel_rr"
+instance = "ctrl_r"
+port = "power_in"
+motor = "motor_rr"
+joint = "wheel_rr"
+map = "wheel_drive"

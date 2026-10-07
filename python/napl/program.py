@@ -19,6 +19,8 @@ Scenario (TOML; relative paths are relative to the scenario file):
     servos = { 1 = "/devices/servo1" }         #   "xl330-m288-t" | "xl330-m077-t" } per bus id (default xl430-w250-t), baud as above
     [interfaces.roboclaw]        # instead: a Basicmicro RoboClaw Packet Serial pty (napl.roboclaw): motors = { 1 = "/devices/wheel_l", 2 = ... },
     address = 128                #   address 0x80..0x87 (default 128), baud (default 38400)
+    # controllers = [{ address = 129, motors = { 1 = "/devices/wheel_rl", 2 = "/devices/wheel_rr" } }]   # roboclaw: further RoboClaws, each its own
+    #   pty (env NAPL_SERIAL_2, ...), same baud; added for assemblies/car4.toml (4 motors on 2 RoboClaw 2x7A)
     [interfaces.px4]             # PX4 SITL + napl-px4-bridge (own World); env NAPL_MAVLINK=udp://:14540. Exactly one interface per scenario.
     bridge = "../../px4/bridge_x500.toml"
     # px4 from a DESIGN instead of a hand-written bridge file: [design] path = "my-quad.toml" (a saved napl.design design / assembly; optional
@@ -698,6 +700,18 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
             realtime=True,
             **extra,
         )
+        # roboclaw only: `controllers = [{address, motors}, ...]` = further RoboClaws, each on its own pty (separate USB cables),
+        # env NAPL_SERIAL_2, NAPL_SERIAL_3, ... (NAPL_SERIAL = the first)
+        more = [
+            Port(
+                sim,
+                {int(i): p for i, p in c["motors"].items()},
+                baud=fc.get("baud", 38400),
+                realtime=True,
+                address=c.get("address", 0x80),
+            )
+            for c in (fc.get("controllers", []) if rc else [])
+        ]
     except (ValueError, KeyError) as e:
         raise ScenarioError(str(e)) from None
     dt, series, rows, stop = (
@@ -726,6 +740,8 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
             sample()
 
     env["NAPL_SERIAL"] = port.device_path
+    for n, p in enumerate(more, 2):
+        env[f"NAPL_SERIAL_{n}"] = p.device_path
     th = threading.Thread(target=sampler, daemon=True)
     try:
         r = sim.call({"cmd_type": "Run", "cmd": {"rate": float(lim["rate"])}})
@@ -741,13 +757,14 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
         stop.set()
         th.join()
         F.close(sim.tick * dt)
-        port.close()
+        for p in (port, *more):
+            p.close()
         sim.call({"cmd_type": "Pause", "cmd": {}})
     sample()
     h = f"{sim.state_hash():016x}"
     (run_dir / "replay.naplog").write_bytes(sim.log())
     res["sim"] = dict(tick=sim.tick - tick0, sim_s=(sim.tick - tick0) * dt, state_hash=h, diverged=sim.diverged,
-                      port_errors=list(port.errors))  # fmt: skip
+                      port_errors=[e for p in (port, *more) for e in p.errors])  # fmt: skip
     end = sim.tick * dt
     spans = {"program": (F.starts["program"], end), **F.spans(), "end": end}
     res["monitors"] = (

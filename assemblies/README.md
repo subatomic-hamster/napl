@@ -386,6 +386,11 @@ refused ("no root yet"). `fasteners=None` on an `add` / `mate` writes no `fasten
 already counts, e.g. the X500 top plate on the M3x38 clamp bolts); the default `"auto"` adds them wherever a port has a thread.
 Test result: a complete X500 (frame by snapping to named ports, 4 motors / props / ESCs, PDB, PM02, Pixhawk 6C, M8N GPS, SiK radio,
 pack, sensors, wires) built this way has 0 DRC errors, hovers, and agrees with `x500v2.toml` to 0.1 % in mass and hover current.
+A 4-wheel skid-steer car (`assemblies/car4.toml`: 4 x Pololu 37D 4751, 2 x RoboClaw 2x7A, 3S pack, custom 4-bracket plate
+`car4-chassis-plate-custom`) was built the same way by an agent, one request at a time, and is driven by `examples/car4/` over two RoboClaw ptys
+(`[interfaces.roboclaw] controllers = [...]`: more controllers, one pty each, `NAPL_SERIAL_2`...). Op log, video and what is measured:
+`docs/showcase/car/README.md` (the rover-style `servo` wheel devices and `wheel_drive` map are written with the `device_map` / `device` ops: `auto_devices`
+only derives the battery there; `autowire_all` pairs a RoboClaw motor output with the other controller's supply input, see that README).
 
 `suggest("inst.port")` rows and the `add ... to` change record carry `needs`: up to four hints from the part's other ports (a male /
 female mech port: parts that take it; a power / signal port: open compatible ports in this design to wire to, else library parts that

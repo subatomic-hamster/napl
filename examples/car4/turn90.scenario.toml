@@ -1,0 +1,41 @@
+# napl program examples/car4/turn90.scenario.toml
+# One 90 degree spin in place of the 4-wheel car by encoder odometry (CAR4_MODE=turn in square.py), with the EFFECTIVE track (0.42 m, the
+# skid-steer scrub calibrated in the sim). The true yaw is read from the plate quaternion columns qw / qz of trace.csv (tests/python/test_car4.py).
+# examples/car4/turn90_geometric.scenario.toml is the same with the geometric track 0.223 m.
+name = "car4-turn90"
+
+[model]
+assembly = "../../assemblies/car4.toml"
+
+[interfaces.roboclaw]
+motors = { 1 = "/devices/wheel_fl", 2 = "/devices/wheel_rl" }
+address = 128
+baud = 38400
+controllers = [{ address = 129, motors = { 1 = "/devices/wheel_fr", 2 = "/devices/wheel_rr" } }]
+
+[program]
+cmd = ["python", "{dir}/square.py"]
+env = { CAR4_MODE = "turn" }
+
+[limits]
+wall_s = 60
+sim_s = 40
+cpu_s = 60
+
+[[monitors]]
+name = "qw"
+path = "/world/plate"
+attr = "quat"
+index = 0
+op = "always"
+lo = -1.01
+hi = 1.01
+
+[[monitors]]
+name = "qz"
+path = "/world/plate"
+attr = "quat"
+index = 3
+op = "always"
+lo = -1.01
+hi = 1.01

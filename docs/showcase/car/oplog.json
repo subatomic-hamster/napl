@@ -1,0 +1,678 @@
+{
+ "about": "Request log of the exploration session in which an LLM agent (Claude) built assemblies/car4.toml from an empty design, one request at a time, reading each reply before choosing the next. `request` = a napl.design.viewer.Backend request (the same arguments as the MCP design_* tools); `why` = the reason the agent wrote when it sent it; `ok` = whether the Design accepted it (a refused request changed nothing). tools/record_build.py build replays these requests in order.",
+ "requests": [
+  {
+   "n": 1,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "add",
+       "part": "car4-chassis-plate-custom",
+       "id": "plate",
+       "root": true,
+       "group": "chassis"
+      }
+     ]
+    }
+   },
+   "why": "Root = the new 4-bracket car4 chassis plate (the rover plate only has 2 bracket seats).",
+   "ok": true
+  },
+  {
+   "n": 2,
+   "request": {
+    "tool": "design_suggest",
+    "args": {
+     "target": "plate.bracket_fl",
+     "limit": 8
+    }
+   },
+   "why": "What mates the front-left bracket seat?",
+   "ok": true
+  },
+  {
+   "n": 3,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "add",
+       "part": "pololu-37d-bracket-machined-1995",
+       "id": "bracket_fl",
+       "to": "plate.bracket_fl",
+       "port": "base",
+       "group": "drive"
+      }
+     ]
+    }
+   },
+   "why": "Only the 37D bracket (category bracket) is made for the Pololu 37D gearmotors, bolt-circle 31.6 M3 matches the motor face.",
+   "ok": true
+  },
+  {
+   "n": 4,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "add",
+       "part": "pololu-37d-bracket-machined-1995",
+       "id": "bracket_fr",
+       "to": "plate.bracket_fr",
+       "port": "base",
+       "k": 0,
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-37d-bracket-machined-1995",
+       "id": "bracket_rl",
+       "to": "plate.bracket_rl",
+       "port": "base",
+       "k": 0,
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-37d-bracket-machined-1995",
+       "id": "bracket_rr",
+       "to": "plate.bracket_rr",
+       "port": "base",
+       "k": 0,
+       "group": "drive"
+      }
+     ]
+    }
+   },
+   "why": "Same bracket on the other three seats. fl showed k=0 and k=1 tie (bracket flipped 180 deg), so I pin k=0: the seat refs (+x left, -x right) were written so that k=0 puts the motor face inboard.",
+   "ok": true
+  },
+  {
+   "n": 5,
+   "request": {
+    "tool": "design_suggest",
+    "args": {
+     "target": "bracket_fl.motor_face",
+     "limit": 8,
+     "category": "motor"
+    }
+   },
+   "why": "Which motor fits the bracket face?",
+   "ok": true
+  },
+  {
+   "n": 6,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "add",
+       "part": "pololu-37d-19-1-12v-4751",
+       "id": "motor_fl",
+       "to": "bracket_fl.motor_face",
+       "port": "mount",
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-37d-19-1-12v-4751",
+       "id": "motor_fr",
+       "to": "bracket_fr.motor_face",
+       "port": "mount",
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-37d-19-1-12v-4751",
+       "id": "motor_rl",
+       "to": "bracket_rl.motor_face",
+       "port": "mount",
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-37d-19-1-12v-4751",
+       "id": "motor_rr",
+       "to": "bracket_rr.motor_face",
+       "port": "mount",
+       "group": "drive"
+      }
+     ]
+    }
+   },
+   "why": "4751 is the 37D variant with the 64 CPR encoder (needed for the RoboClaw velocity mode and odometry) and the one the sim has validated motor parameters for (docs/research/rover.md). Others lack encoder / validated data. Mount one per bracket.",
+   "ok": true
+  },
+  {
+   "n": 7,
+   "request": {
+    "tool": "design_suggest",
+    "args": {
+     "target": "motor_fl.shaft",
+     "limit": 5
+    }
+   },
+   "why": "Hub for the 6 mm D shaft.",
+   "ok": true
+  },
+  {
+   "n": 8,
+   "request": {
+    "tool": "design_suggest",
+    "args": {
+     "target": "hub_x.wheel_seat"
+    }
+   },
+   "why": "Wheel for the hub.",
+   "ok": false
+  },
+  {
+   "n": 9,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "add",
+       "part": "pololu-hub-6mm-4-40-1083",
+       "id": "hub_fl",
+       "to": "motor_fl.shaft",
+       "port": "bore",
+       "mate": "wheel_fl",
+       "joint": {
+        "type": "hinge",
+        "spin": true
+       },
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-hub-6mm-4-40-1083",
+       "id": "hub_fr",
+       "to": "motor_fr.shaft",
+       "port": "bore",
+       "mate": "wheel_fr",
+       "joint": {
+        "type": "hinge",
+        "spin": true,
+        "reverse": true
+       },
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-hub-6mm-4-40-1083",
+       "id": "hub_rl",
+       "to": "motor_rl.shaft",
+       "port": "bore",
+       "mate": "wheel_rl",
+       "joint": {
+        "type": "hinge",
+        "spin": true
+       },
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-hub-6mm-4-40-1083",
+       "id": "hub_rr",
+       "to": "motor_rr.shaft",
+       "port": "bore",
+       "mate": "wheel_rr",
+       "joint": {
+        "type": "hinge",
+        "spin": true,
+        "reverse": true
+       },
+       "group": "drive"
+      }
+     ]
+    }
+   },
+   "why": "Only hub offered for shaft.6d. The mate is the wheel joint (spin hinge). Right-side motors are mirrored (hub z = -y), so reverse=true there to make +q roll forward, as in assemblies/rover.toml.",
+   "ok": true
+  },
+  {
+   "n": 10,
+   "request": {
+    "tool": "design_suggest",
+    "args": {
+     "target": "hub_fl.wheel_seat",
+     "limit": 5
+    }
+   },
+   "why": "Wheel for the hub seat.",
+   "ok": true
+  },
+  {
+   "n": 11,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "add",
+       "part": "pololu-wheel-90x10mm-1436",
+       "id": "tire_fl",
+       "to": "hub_fl.wheel_seat",
+       "port": "hub_seat",
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-wheel-90x10mm-1436",
+       "id": "tire_fr",
+       "to": "hub_fr.wheel_seat",
+       "port": "hub_seat",
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-wheel-90x10mm-1436",
+       "id": "tire_rl",
+       "to": "hub_rl.wheel_seat",
+       "port": "hub_seat",
+       "group": "drive"
+      },
+      {
+       "op": "add",
+       "part": "pololu-wheel-90x10mm-1436",
+       "id": "tire_rr",
+       "to": "hub_rr.wheel_seat",
+       "port": "hub_seat",
+       "group": "drive"
+      }
+     ]
+    }
+   },
+   "why": "The 90x10 mm Pololu wheel is the only wheel part (rank 1, same port type); its 45 mm radius is what the plate/bracket heights were derived for.",
+   "ok": true
+  },
+  {
+   "n": 12,
+   "request": {
+    "tool": "design_suggest",
+    "args": {
+     "target": "plate.controller_seat_l",
+     "category": "pcb.motor_controller"
+    }
+   },
+   "why": "Motor controllers for a controller seat.",
+   "ok": true
+  },
+  {
+   "n": 13,
+   "request": {
+    "tool": "design_suggest",
+    "args": {
+     "target": "plate.battery_seat",
+     "category": "battery.lipo",
+     "limit": 6
+    }
+   },
+   "why": "Batteries (lipo) for the battery seat, 3S.",
+   "ok": true
+  },
+  {
+   "n": 14,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "add",
+       "part": "gensace-2200mah-3s-25c-gea223s25t3gt",
+       "id": "battery",
+       "to": "plate.battery_seat",
+       "port": "base",
+       "group": "power"
+      },
+      {
+       "op": "add",
+       "part": "basicmicro-roboclaw-2x7a-3682",
+       "id": "ctrl_l",
+       "to": "plate.controller_seat_l",
+       "port": "base",
+       "group": "electronics"
+      },
+      {
+       "op": "add",
+       "part": "basicmicro-roboclaw-2x7a-3682",
+       "id": "ctrl_r",
+       "to": "plate.controller_seat_r",
+       "port": "base",
+       "group": "electronics"
+      }
+     ]
+    }
+   },
+   "why": "3S pack (11.1 V nominal) for 12 V motors; the 6S Tattu would exceed the motor / controller voltage ratings. The sim has the 3S Gens Ace pack validated on the rover.",
+   "ok": true
+  },
+  {
+   "n": 15,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "autowire_all"
+      }
+     ]
+    }
+   },
+   "why": "Let autowire_all do every unambiguous hop (motor -> controller channel, power) and tell me what it leaves open.",
+   "ok": true
+  },
+  {
+   "n": 16,
+   "request": {
+    "tool": "design_undo",
+    "args": {}
+   },
+   "why": "REJECT: autowire_all wired ctrl_l.m1_out (a motor-drive OUTPUT, role=source, screw-terminal) into ctrl_r.power_in and vice versa. Electrically nonsense: a PWM motor output must not feed a controller supply input. It only matched on port type + source/sink roles. Undo and wire explicitly.",
+   "ok": true
+  },
+  {
+   "n": 17,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "autowire",
+       "a": "battery.power_out",
+       "b": "ctrl_l.power_in"
+      }
+     ]
+    }
+   },
+   "why": "Battery lead to the left controller: autowire sizes the wire from the DRC current model; the pack lead is the pack own 14 AWG lead (lead flag) so included_in battery.",
+   "ok": false
+  },
+  {
+   "n": 18,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "wire",
+       "name": "battery_to_ctrl_l",
+       "from": "battery.power_out",
+       "to": "ctrl_l.power_in",
+       "part": "awg-14-silicone-wire",
+       "length": "battery.discharge_wire_length",
+       "conductors": 2,
+       "included_in": "battery"
+      },
+      {
+       "op": "wire",
+       "name": "battery_to_ctrl_r",
+       "from": "battery.power_out",
+       "to": "ctrl_r.power_in",
+       "part": "awg-14-silicone-wire",
+       "length": {
+        "value": 0.1,
+        "unit": "m",
+        "fidelity": "estimated",
+        "rationale": "Y-tail from the pack lead to the right controller: ~0.06 m straight line x 1.3 routing + 20 mm for the splice; no datasheet"
+       },
+       "conductors": 2
+      }
+     ]
+    }
+   },
+   "why": "autowire refuses pack wire-lead -> screw terminal (the connector families differ), so wire explicitly as the rover does: the pack's own 120 mm 14 AWG lead (mass inside the pack) to the left controller; a second 14 AWG tail (estimated 0.10 m: ~60 mm straight x 1.3 + a Y-splice; mass counted, not in the pack) to the right controller. 2 controllers need 2 supply leads, no PDB part fits the plate.",
+   "ok": true
+  },
+  {
+   "n": 19,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "autowire",
+       "a": "ctrl_l.m1_out",
+       "b": "motor_fl.motor_power",
+       "included_in": "motor_fl"
+      },
+      {
+       "op": "autowire",
+       "a": "ctrl_l.m2_out",
+       "b": "motor_rl.motor_power",
+       "included_in": "motor_rl"
+      },
+      {
+       "op": "autowire",
+       "a": "ctrl_r.m1_out",
+       "b": "motor_fr.motor_power",
+       "included_in": "motor_fr"
+      },
+      {
+       "op": "autowire",
+       "a": "ctrl_r.m2_out",
+       "b": "motor_rr.motor_power",
+       "included_in": "motor_rr"
+      }
+     ]
+    }
+   },
+   "why": "Channel assignment (my call, the tool cannot know): left RoboClaw M1 = front-left, M2 = rear-left; right RoboClaw M1 = front-right, M2 = rear-right (one controller per side = skid steer). included_in motor: the gearmotor datasheet mass already contains its 20 cm leads.",
+   "ok": false
+  },
+  {
+   "n": 20,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "wire",
+       "name": "m1_ctrl_l_motor_fl",
+       "from": "ctrl_l.m1_out",
+       "to": "motor_fl.motor_power",
+       "part": "awg-22-silicone-wire",
+       "length": "motor_fl.lead_length",
+       "conductors": 2,
+       "included_in": "motor_fl"
+      },
+      {
+       "op": "wire",
+       "name": "m2_ctrl_l_motor_rl",
+       "from": "ctrl_l.m2_out",
+       "to": "motor_rl.motor_power",
+       "part": "awg-22-silicone-wire",
+       "length": "motor_rl.lead_length",
+       "conductors": 2,
+       "included_in": "motor_rl"
+      },
+      {
+       "op": "wire",
+       "name": "m1_ctrl_r_motor_fr",
+       "from": "ctrl_r.m1_out",
+       "to": "motor_fr.motor_power",
+       "part": "awg-22-silicone-wire",
+       "length": "motor_fr.lead_length",
+       "conductors": 2,
+       "included_in": "motor_fr"
+      },
+      {
+       "op": "wire",
+       "name": "m2_ctrl_r_motor_rr",
+       "from": "ctrl_r.m2_out",
+       "to": "motor_rr.motor_power",
+       "part": "awg-22-silicone-wire",
+       "length": "motor_rr.lead_length",
+       "conductors": 2,
+       "included_in": "motor_rr"
+      }
+     ]
+    }
+   },
+   "why": "autowire cannot pair controller screw-terminal outputs with the motor solder-pad leads (different connector families), so explicit wires as in assemblies/rover.toml: the motor own 20 cm red/black leads (22 AWG, gauge estimated in the part), mass inside the motor. Channel map: left RoboClaw M1 = front-left, M2 = rear-left; right RoboClaw M1 = front-right, M2 = rear-right (my call; one controller per side).",
+   "ok": true
+  },
+  {
+   "n": 21,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "autowire",
+       "a": "ctrl_l.enc1",
+       "b": "motor_fl.encoder",
+       "included_in": "motor_fl"
+      },
+      {
+       "op": "autowire",
+       "a": "ctrl_l.enc2",
+       "b": "motor_rl.encoder",
+       "included_in": "motor_rl"
+      },
+      {
+       "op": "autowire",
+       "a": "ctrl_r.enc1",
+       "b": "motor_fr.encoder",
+       "included_in": "motor_fr"
+      },
+      {
+       "op": "autowire",
+       "a": "ctrl_r.enc2",
+       "b": "motor_rr.encoder",
+       "included_in": "motor_rr"
+      }
+     ]
+    }
+   },
+   "why": "Encoder leads: autowire_all called the 4x4 enc1/enc2 assignment ambiguous (correct: it cannot know which motor is on which channel), so I give each pair, same channel map as the power wires: encoder N of a controller = the motor on its channel N.",
+   "ok": true
+  },
+  {
+   "n": 22,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "auto_devices"
+      }
+     ]
+    }
+   },
+   "why": "Ask auto_devices what it can derive from parts + topology (battery for sure); see what it says about the wheel drives.",
+   "ok": true
+  },
+  {
+   "n": 23,
+   "request": {
+    "tool": "design_edit",
+    "args": {
+     "ops": [
+      {
+       "op": "device_map",
+       "name": "wheel_drive",
+       "map": {
+        "motor.kv": "motor:kv_equivalent",
+        "motor.r20": "motor:r_effective",
+        "motor.i0": "motor:no_load_current_12v",
+        "motor.i0_w": "motor:omega_noload_motor_12v",
+        "motor.i0_visc": "motor:i0_visc",
+        "motor.rotor_inertia": "motor:rotor_inertia_motor",
+        "motor.c_th": "motor:c_th",
+        "motor.r_th": "motor:r_th",
+        "gear_ratio": "motor:gear_ratio",
+        "efficiency": "motor:gear_efficiency",
+        "encoder_cpr": "motor:encoder_resolution",
+        "firmware_hz": "firmware_hz",
+        "pid_scale": "pid_scale",
+        "max_torque": "max_duty_register",
+        "i_limit": "i_peak",
+        "min_voltage": "v_min",
+        "max_voltage": "v_max",
+        "unload_mask": "protect_voltage_mask"
+       }
+      },
+      {
+       "op": "device",
+       "device": {
+        "type": "servo",
+        "name": "wheel_fl",
+        "instance": "ctrl_l",
+        "port": "power_in",
+        "motor": "motor_fl",
+        "joint": "wheel_fl",
+        "map": "wheel_drive"
+       }
+      },
+      {
+       "op": "device",
+       "device": {
+        "type": "servo",
+        "name": "wheel_rl",
+        "instance": "ctrl_l",
+        "port": "power_in",
+        "motor": "motor_rl",
+        "joint": "wheel_rl",
+        "map": "wheel_drive"
+       }
+      },
+      {
+       "op": "device",
+       "device": {
+        "type": "servo",
+        "name": "wheel_fr",
+        "instance": "ctrl_r",
+        "port": "power_in",
+        "motor": "motor_fr",
+        "joint": "wheel_fr",
+        "map": "wheel_drive"
+       }
+      },
+      {
+       "op": "device",
+       "device": {
+        "type": "servo",
+        "name": "wheel_rr",
+        "instance": "ctrl_r",
+        "port": "power_in",
+        "motor": "motor_rr",
+        "joint": "wheel_rr",
+        "map": "wheel_drive"
+       }
+      }
+     ]
+    }
+   },
+   "why": "auto_devices made only the battery: nothing derives the RoboClaw+DC-gearmotor drive. The sim models a RoboClaw channel as a `servo` device (duty / velocity-PID firmware modes) on the controller power node, driving the wheel hinge through the channel's motor. I add the same wheel_drive map as assemblies/rover.toml (every field is a reference to a part param, no bare numbers) and one binding per wheel on its own controller.",
+   "ok": true
+  },
+  {
+   "n": 24,
+   "request": {
+    "tool": "design_check",
+    "args": {}
+   },
+   "why": "Full DRC list before saving.",
+   "ok": true
+  },
+  {
+   "n": 25,
+   "request": {
+    "tool": "design_save",
+    "args": {
+     "path": "/workspace/wt/napl/scratch/car/car4.toml"
+    }
+   },
+   "why": "Save the design (Design.save).",
+   "ok": true
+  }
+ ]
+}
