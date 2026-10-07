@@ -1,6 +1,10 @@
 // _napl: thin nanobind layer over World. All logic stays in C++; python/napl/__init__.py adds only
 // dict<->JSON and numpy conveniences. Every call that can run long releases the GIL; a World is
 // single-threaded, so one Sim must not be used from two threads at once (different Sims are independent).
+//
+// Two backends expose the same methods (bind_common): `Sim` calls its World directly on the caller's thread;
+// `HostSim` owns a Host (the World lives on the Host's sim thread, so a viewer can run beside it) and routes every call
+// through it. Python's napl.Sim wraps either one.
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
@@ -8,37 +12,256 @@
 #include <nanobind/stl/vector.h>
 
 #include <algorithm>
+#include <atomic>
 #include <climits>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 
+#include "core/host.h"
 #include "core/world.h"
+#include "lodepng.h"
 #include "mujoco/mujoco_solver.h"
 #include "napl_generated.h"
 #include "napl_schema_json.h"
+#include "render/renderer.h"
+#ifdef NAPL_HAS_VIEWER
+#include "viewer/viewer.h"
+#endif
 
 namespace nb = nanobind;
 using namespace nb::literals;
 
 namespace {
+World make_world(const std::string& path) {
+  World w(load_mujoco, path);
+  w.set_render_hook(make_render_hook());  // lazy: Vulkan is only touched by the first Render
+  return w;
+}
+Session make_session(const std::string& path, const std::string& root, int max_sweep_runs, double max_wall_s,
+                     std::vector<std::string> caps, int max_steps_per_call) {
+  Session s;
+  s.caps = std::move(caps);  // plain Python: all caps (trusted caller); the MCP layer passes read+control
+  s.max_steps_per_call = max_steps_per_call;  // plain Python: INT_MAX; the MCP layer passes a finite limit
+  s.max_sweep_runs = max_sweep_runs;  // plain Python trusts its caller: generous defaults (see Sim.load)
+  s.max_wall_s = max_wall_s;
+  s.root = root.empty() ? std::filesystem::path(path).parent_path() : std::filesystem::path(root);
+  return s;
+}
+Session elevated(Session s) {
+  s.caps = {"read", "control", "destructive"};  // one call, after the caller's approval
+  return s;
+}
+
 struct Sim {
   World w;
   Session s;
 
   Sim(const std::string& path, const std::string& root, int max_sweep_runs, double max_wall_s,
       std::vector<std::string> caps, int max_steps_per_call)
-      : w(load_mujoco, path) {
-    s.caps = std::move(caps);  // plain Python: all caps (trusted caller); the MCP layer passes read+control
-    s.max_steps_per_call = max_steps_per_call;  // plain Python: INT_MAX; the MCP layer passes a finite limit
-    s.max_sweep_runs = max_sweep_runs;  // plain Python trusts its caller: generous defaults (see Sim.load)
-    s.max_wall_s = max_wall_s;
-    s.root = root.empty() ? std::filesystem::path(path).parent_path() : std::filesystem::path(root);
-  }
+      : w(make_world(path)), s(make_session(path, root, max_sweep_runs, max_wall_s, std::move(caps), max_steps_per_call)) {}
   Sim(World&& world, Session session) : w(std::move(world)), s(std::move(session)) {}
+
+  flatbuffers::DetachedBuffer exec(std::span<const std::uint8_t> env, bool elevate) {
+    return w.execute(env, elevate ? elevated(s) : s);
+  }
+  template <class F>
+  void with_world(F&& f) {
+    f(w);
+  }
+};
+
+struct HostSim {
+  Session s;  // the Host's session (caps are reported from here)
+  std::unique_ptr<Host> h;
+  std::atomic<bool> close{false};  // request_close(): ends a running view()
+
+  HostSim(const std::string& path, const std::string& root, int max_sweep_runs, double max_wall_s,
+          std::vector<std::string> caps, int max_steps_per_call)
+      : s(make_session(path, root, max_sweep_runs, max_wall_s, std::move(caps), max_steps_per_call)),
+        h(std::make_unique<Host>(make_world(path), s)) {}
+
+  flatbuffers::DetachedBuffer exec(std::span<const std::uint8_t> env, bool elevate) {
+    return h->call(std::vector<std::uint8_t>(env.begin(), env.end()), elevate);
+  }
+  template <class F>
+  void with_world(F&& f) {  // f runs on the sim thread: C++ only (no Python objects)
+    h->exec([&](World& w) { f(w); });
+  }
 };
 
 using Array = nb::ndarray<nb::numpy, double>;
+
+// numpy array owning a copy of [src, src+n).
+template <class T>
+nb::ndarray<nb::numpy, T> copy_array(const T* src, std::initializer_list<std::size_t> shape) {
+  std::size_t n = 1;
+  for (std::size_t d : shape) n *= d;
+  auto* data = new T[n];
+  std::copy(src, src + n, data);
+  nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<T*>(p); });
+  return nb::ndarray<nb::numpy, T>(data, shape, owner);
+}
+
+// Runs one command through the bus with the GIL released and returns the binary Reply.
+template <class T>
+flatbuffers::DetachedBuffer run_envelope(T& s, flatbuffers::FlatBufferBuilder& fbb, bool elevate = false) {
+  nb::gil_scoped_release nogil;
+  return s.exec({fbb.GetBufferPointer(), fbb.GetSize()}, elevate);
+}
+
+// Runs one read command through the bus (capability-checked, binary reply) and hands the Reply to `use`, which
+// copies out what it needs while the buffer is alive. A refused command becomes ValueError (invalid_argument) or
+// RuntimeError (everything else, message prefixed with the error name).
+template <class T, class F>
+auto read_command(T& s, flatbuffers::FlatBufferBuilder& fbb, F use) {
+  const flatbuffers::DetachedBuffer reply = run_envelope(s, fbb);
+  const napl::Reply* r = flatbuffers::GetRoot<napl::Reply>(reply.data());
+  if (!r->ok()) {
+    const std::string msg = std::string(napl::EnumNameErr(r->error())) + ": " + (r->message() ? r->message()->str() : "");
+    if (r->error() == napl::Err::invalid_argument) throw nb::value_error(msg.c_str());
+    throw std::runtime_error(msg);
+  }
+  return use(*r);
+}
+
+template <class T>
+void bind_common(nb::class_<T>& c) {
+  c  // Step goes through the bus (not World::step) so it is logged and replayable.
+      .def("step",
+           [](T& s, int n) {
+             flatbuffers::FlatBufferBuilder fbb;
+             fbb.Finish(napl::CreateEnvelope(fbb, 0, fbb.CreateString("python"), napl::Command::Step,
+                                             napl::CreateStep(fbb, n).Union()));
+             const flatbuffers::DetachedBuffer reply = run_envelope(s, fbb);
+             const napl::Reply* r = flatbuffers::GetRoot<napl::Reply>(reply.data());
+             if (!r->ok()) throw std::runtime_error(r->message()->str());
+             return r->tick();
+           },
+           "n"_a = 1)
+      // Render / Raycast go through the bus (read capability) but take the binary reply, so pixels, depth and
+      // distances reach numpy losslessly (the JSON edge would round doubles and print every pixel).
+      .def("render",
+           [](T& s, std::vector<double> pos, std::vector<double> lookat, double fovy, int width, int height) {
+             flatbuffers::FlatBufferBuilder fbb;
+             fbb.Finish(napl::CreateEnvelope(fbb, 0, fbb.CreateString("python"), napl::Command::Render,
+                                             napl::CreateRender(fbb, fbb.CreateVector(pos), fbb.CreateVector(lookat), fovy,
+                                                                width, height).Union()));
+             return read_command(s, fbb, [](const napl::Reply& r) {
+               const std::size_t w = static_cast<std::size_t>(r.width()), h = static_cast<std::size_t>(r.height());
+               return std::make_tuple(copy_array<std::uint8_t>(r.image()->data(), {h, w, 4}),
+                                      copy_array<float>(r.depth()->data(), {h, w}));
+             });
+           },
+           "pos"_a, "lookat"_a, "fovy"_a = 45.0, "width"_a = 320, "height"_a = 240)
+      .def("raycast",
+           [](T& s, std::vector<double> origin, std::vector<double> directions) {
+             flatbuffers::FlatBufferBuilder fbb;
+             fbb.Finish(napl::CreateEnvelope(fbb, 0, fbb.CreateString("python"), napl::Command::Raycast,
+                                             napl::CreateRaycast(fbb, fbb.CreateVector(origin), fbb.CreateVector(directions)).Union()));
+             return read_command(s, fbb, [](const napl::Reply& r) {
+               return copy_array<double>(r.distances()->data(), {r.distances()->size()});
+             });
+           },
+           "origin"_a, "directions"_a)
+      .def_prop_ro("tick", [](T& s) {
+        std::uint64_t t = 0;
+        s.with_world([&](World& w) { t = w.tick(); });
+        return t;
+      })
+      .def_prop_ro("diverged", [](T& s) {
+        bool d = false;
+        s.with_world([&](World& w) { d = w.diverged(); });
+        return d;
+      })
+      .def("call",
+           [](T& s, const std::string& json, bool elevate) {
+             nb::gil_scoped_release nogil;
+             return execute_json([&](std::span<const std::uint8_t> env) { return s.exec(env, elevate); },
+                                 [&] {
+                                   std::uint64_t t = 0;
+                                   s.with_world([&](World& w) { t = w.tick(); });
+                                   return t;
+                                 },
+                                 json);
+           },
+           "json"_a, "elevate"_a = false)
+      .def_prop_ro("caps", [](T& s) { return s.s.caps; })
+      // Direct solver read (reads are never logged and change no state). Writes must use call().
+      .def("get",
+           [](T& s, const std::string& path, const std::string& attr, const std::string& frame) {
+             std::vector<double> v;
+             std::string unit;
+             Result r;
+             {
+               nb::gil_scoped_release nogil;
+               s.with_world([&](World& w) {
+                 r = w.solver().get(path, attr, frame, v);
+                 if (r.code == Result::ok) unit = w.solver().unit(path, attr);
+               });
+             }
+             if (r.code == Result::not_found) throw nb::key_error(r.message.c_str());
+             if (r.code != Result::ok) throw nb::value_error(r.message.c_str());
+             auto* data = new double[v.size()];
+             std::copy(v.begin(), v.end(), data);
+             nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+             return std::make_tuple(Array(data, {v.size()}, owner), unit);
+           },
+           "path"_a, "attr"_a, "frame"_a = "")
+      .def("save", [](T& s) {
+        std::vector<std::byte> b;
+        {
+          nb::gil_scoped_release nogil;
+          s.with_world([&](World& w) { b = w.save(); });
+        }
+        return nb::bytes(reinterpret_cast<const char*>(b.data()), b.size());
+      })
+      .def("restore",
+           [](T& s, nb::bytes b) {
+             const std::vector<std::byte> bytes(reinterpret_cast<const std::byte*>(b.c_str()),
+                                                reinterpret_cast<const std::byte*>(b.c_str()) + b.size());
+             nb::gil_scoped_release nogil;
+             s.with_world([&](World& w) { w.restore(bytes); });  // throws on malformed
+           },
+           "state"_a)
+      .def("state_hash", [](T& s) {
+        std::uint64_t h = 0;
+        s.with_world([&](World& w) { h = w.state_hash(); });
+        return h;
+      })
+      .def("clone", [](T& s) {
+        std::optional<Sim> out;
+        {
+          nb::gil_scoped_release nogil;
+          s.with_world([&](World& w) { out.emplace(w.clone(), s.s); });
+        }
+        return std::move(*out);
+      })
+      .def("log", [](T& s) -> nb::object {
+        std::optional<std::vector<std::byte>> b;
+        s.with_world([&](World& w) {
+          if (w.log()) b = w.log()->bytes();
+        });
+        if (!b) return nb::none();
+        return nb::bytes(reinterpret_cast<const char*>(b->data()), b->size());
+      });
+}
+
+#ifdef NAPL_HAS_VIEWER
+// Runs the viewer on this thread with the GIL released. A Python KeyboardInterrupt is not delivered until it returns.
+void view(Host& host, int frames, const std::string& script, int width, int height, const std::atomic<bool>* stop) {
+  ViewerOptions o;
+  o.frames = frames;
+  o.script = script;
+  o.width = width;
+  o.height = height;
+  o.stop = stop;
+  nb::gil_scoped_release nogil;
+  run_viewer(host, o);  // throws std::runtime_error (-> RuntimeError) with the reason: no display, no Vulkan device, ...
+}
+#endif
+[[noreturn]] void no_viewer() { throw std::runtime_error("this build of napl has no viewer (NAPL_VIEWER=OFF, or a platform without one)"); }
 }  // namespace
 
 NB_MODULE(_napl, m) {
@@ -46,78 +269,78 @@ NB_MODULE(_napl, m) {
 
   m.def("command_cap", [](const std::string& command) { return command_cap(command); }, "command"_a);
   m.attr("schema_json") = kSchemaJson;  // flatc --jsonschema output, embedded at build time
+#ifdef NAPL_HAS_VIEWER
+  m.attr("has_viewer") = true;
+#else
+  m.attr("has_viewer") = false;
+#endif
 
-  nb::class_<Sim>(m, "Sim")
-      .def("__init__",
-           [](Sim* self, const std::string& path, const std::string& root, int max_sweep_runs, double max_wall_s,
+  // PNG (lodepng, the copy MuJoCo already ships) of an (h, w, 4) uint8 RGBA array.
+  m.def("encode_png",
+        [](nb::ndarray<const std::uint8_t, nb::shape<-1, -1, 4>, nb::c_contig, nb::device::cpu> img) {
+          std::vector<unsigned char> out;
+          if (const unsigned err = lodepng::encode(out, img.data(), static_cast<unsigned>(img.shape(1)),
+                                                   static_cast<unsigned>(img.shape(0))))
+            throw std::runtime_error(std::string("PNG encoding failed: ") + lodepng_error_text(err));
+          return nb::bytes(reinterpret_cast<const char*>(out.data()), out.size());
+        },
+        "rgba"_a);
+
+  nb::class_<Sim> sim(m, "Sim");
+  sim.def("__init__",
+          [](Sim* self, const std::string& path, const std::string& root, int max_sweep_runs, double max_wall_s,
+             std::vector<std::string> caps, int max_steps_per_call) {
+            nb::gil_scoped_release nogil;
+            new (self) Sim(path, root, max_sweep_runs, max_wall_s, std::move(caps), max_steps_per_call);  // throws std::runtime_error (-> RuntimeError) with MuJoCo's message
+          },
+          "path"_a, "root"_a = "", "max_sweep_runs"_a = 100000, "max_wall_s"_a = 0.0,
+          "caps"_a = std::vector<std::string>{"read", "control", "destructive"}, "max_steps_per_call"_a = INT_MAX);
+  bind_common(sim);
+  sim.def("start_log", [](Sim& s) { s.w.start_log(); })
+      // Hands the World to a Host (its own sim thread) and runs the viewer on this thread until the window closes or
+      // `frames` frames were drawn; then takes the World back. The session's commands are logged like any Host's.
+      .def("show",
+           [](Sim& s, int frames, const std::string& script, int width, int height) {
+#ifdef NAPL_HAS_VIEWER
+             Host host(std::move(s.w), s.s);
+             struct TakeBack {  // also on an exception: the Sim must get its World back
+               Sim& s;
+               Host& h;
+               ~TakeBack() {
+                 h.stop();
+                 s.w = std::move(h.world());
+               }
+             } take_back{s, host};
+             view(host, frames, script, width, height, nullptr);
+#else
+             no_viewer();
+#endif
+           },
+           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720);
+
+  // A Sim whose World lives on a Host thread: what `napl mcp --view` serves, with the viewer on the main thread.
+  nb::class_<HostSim> host(m, "Host");
+  host.def("__init__",
+           [](HostSim* self, const std::string& path, const std::string& root, int max_sweep_runs, double max_wall_s,
               std::vector<std::string> caps, int max_steps_per_call) {
              nb::gil_scoped_release nogil;
-             new (self) Sim(path, root, max_sweep_runs, max_wall_s, std::move(caps), max_steps_per_call);  // throws std::runtime_error (-> RuntimeError) with MuJoCo's message
+             new (self) HostSim(path, root, max_sweep_runs, max_wall_s, std::move(caps), max_steps_per_call);
            },
            "path"_a, "root"_a = "", "max_sweep_runs"_a = 100000, "max_wall_s"_a = 0.0,
-           "caps"_a = std::vector<std::string>{"read", "control", "destructive"}, "max_steps_per_call"_a = INT_MAX)
-      // Step goes through the bus (not World::step) so it is logged and replayable.
-      .def("step",
-           [](Sim& s, int n) {
-             flatbuffers::FlatBufferBuilder fbb;
-             fbb.Finish(napl::CreateEnvelope(fbb, 0, fbb.CreateString("python"), napl::Command::Step,
-                                             napl::CreateStep(fbb, n).Union()));
-             flatbuffers::DetachedBuffer reply;
-             {
-               nb::gil_scoped_release nogil;
-               reply = s.w.execute({fbb.GetBufferPointer(), fbb.GetSize()}, s.s);
-             }
-             const napl::Reply* r = flatbuffers::GetRoot<napl::Reply>(reply.data());
-             if (!r->ok()) throw std::runtime_error(r->message()->str());
-             return r->tick();
+           "caps"_a = std::vector<std::string>{"read", "control", "destructive"}, "max_steps_per_call"_a = INT_MAX);
+  bind_common(host);
+  host.def("view",
+           [](HostSim& s, int frames, const std::string& script, int width, int height) {
+#ifdef NAPL_HAS_VIEWER
+             view(*s.h, frames, script, width, height, &s.close);  // request_close() latches: later views return at once
+#else
+             no_viewer();
+#endif
            },
-           "n"_a = 1)
-      .def_prop_ro("tick", [](Sim& s) { return s.w.tick(); })
-      .def_prop_ro("diverged", [](Sim& s) { return s.w.diverged(); })
-      .def("call",
-           [](Sim& s, const std::string& json, bool elevate) {
-             Session session = s.s;
-             if (elevate) session.caps = {"read", "control", "destructive"};  // one call, after the caller's approval
-             std::string out;
-             {
-               nb::gil_scoped_release nogil;
-               out = execute_json(s.w, json, session);
-             }
-             return out;
-           },
-           "json"_a, "elevate"_a = false)
-      .def_prop_ro("caps", [](Sim& s) { return s.s.caps; })
-      // Direct solver read (reads are never logged and change no state). Writes must use call().
-      .def("get",
-           [](Sim& s, const std::string& path, const std::string& attr, const std::string& frame) {
-             std::vector<double> v;
-             const Result r = s.w.solver().get(path, attr, frame, v);
-             if (r.code == Result::not_found) throw nb::key_error(r.message.c_str());
-             if (r.code != Result::ok) throw nb::value_error(r.message.c_str());
-             auto* data = new double[v.size()];
-             std::copy(v.begin(), v.end(), data);
-             nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<double*>(p); });
-             return std::make_tuple(Array(data, {v.size()}, owner), s.w.solver().unit(path, attr));
-           },
-           "path"_a, "attr"_a, "frame"_a = "")
-      .def("save", [](Sim& s) {
-        const auto b = s.w.save();
-        return nb::bytes(reinterpret_cast<const char*>(b.data()), b.size());
-      })
-      .def("restore",
-           [](Sim& s, nb::bytes b) {
-             s.w.restore({reinterpret_cast<const std::byte*>(b.c_str()), b.size()});  // throws on malformed
-           },
-           "state"_a)
-      .def("state_hash", [](Sim& s) { return s.w.state_hash(); })
-      .def("clone", [](Sim& s) {
+           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720)
+      .def("request_close", [](HostSim& s) { s.close = true; })  // callable from any thread
+      .def("stop", [](HostSim& s) {
         nb::gil_scoped_release nogil;
-        return Sim(s.w.clone(), s.s);
-      })
-      .def("start_log", [](Sim& s) { s.w.start_log(); })
-      .def("log", [](Sim& s) -> nb::object {
-        if (!s.w.log()) return nb::none();
-        const auto b = s.w.log()->bytes();
-        return nb::bytes(reinterpret_cast<const char*>(b.data()), b.size());
+        s.h->stop();
       });
 }

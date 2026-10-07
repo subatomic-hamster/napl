@@ -25,6 +25,16 @@ NAME = re.compile(r"(licen[sc]e|copying|copyright|unlicense|notice)", re.IGNOREC
 # it when BUILD_TESTING and not CCD_HIDE_ALL_SYMBOLS (MuJoCo hides symbols) and the generated
 # build.ninja has no testsuites target (verified at M0). Re-verify when bumping MuJoCo/ccd.
 EXCLUDE = ("ccd-src/src/testsuites/cu/",)
+# Path-exact, content-checked justification (never a pattern). slangc (build-time tool, M9) ships LICENSE and
+# LICENSES/LLVM-exception.txt: Apache-2.0 plus the "LLVM Exceptions to the Apache 2.0 License", whose second paragraph
+# says that when the Software is combined with GPLv2 software a conflicting Apache section may be waived. That is a
+# permission granted to the user (it adds a compatibility, it does not impose GPL on anything) and no GPL license text
+# is in either file. Accepted only if the exact clause title is present and no GNU license body is. The slang archive's
+# third-party-notices/ (glslang's vestigial Bison-exception GPL text) is NOT extracted, see cmake/deps.cmake.
+LLVM_EXCEPTION_FILES = (
+    "slang-bin/LICENSE",
+)  # the scanner only visits LICENSE*/COPYING*/... file names
+LLVM_EXCEPTION_TITLE = re.compile(r"LLVM Exceptions to the Apache 2\.0 License")
 BODY = re.compile(
     r"GNU\s+(LESSER\s+|LIBRARY\s+|AFFERO\s+)?GENERAL\s+PUBLIC\s+LICENSE", re.IGNORECASE
 )
@@ -79,6 +89,12 @@ def main() -> int:
         if BODY.search(text) and TERMS.search(text):
             print(f"FAIL {p}: GPL-family license text")
             bad += 1
+        elif p.as_posix().endswith(
+            LLVM_EXCEPTION_FILES
+        ) and LLVM_EXCEPTION_TITLE.search(text):
+            print(
+                f"NOTE {p}: [Apache-2.0 WITH LLVM-exception] GPLv2 compatibility clause only; reviewed"
+            )
         elif MENTION.search(text):
             if found:
                 print(

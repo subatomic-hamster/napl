@@ -11,9 +11,11 @@ __all__ = ["Sim"]
 
 
 class Sim:
-    """One World. Not thread-safe per instance; separate Sims run in parallel (the GIL is released)."""
+    """One World. Not thread-safe per instance; separate Sims run in parallel (the GIL is released).
+    A Sim loaded with `host=True` keeps its World on a C++ thread (the Host), so it can be used from several Python
+    threads at once and shown in the viewer while other threads (e.g. an MCP server) keep calling it."""
 
-    def __init__(self, core: "_napl.Sim"):
+    def __init__(self, core: "_napl.Sim | _napl.Host"):
         self._c = core
 
     @classmethod
@@ -25,14 +27,17 @@ class Sim:
         max_wall_s: float = 0.0,
         caps=("read", "control", "destructive"),
         max_steps_per_call: int = 2**31 - 1,
+        host: bool = False,
     ) -> "Sim":
         """Load MJCF/URDF. `root` confines later LoadModel commands (default: the model's directory).
         Session limits: `max_sweep_runs` (larger sweeps -> limit_exceeded), `max_wall_s` (0 = none; a RunTest or
         sweep running longer fails with limit_exceeded and changes nothing). `caps` is the session's capability
         set, enforced by the C++ bus (a command whose `cap` is missing gets permission_denied); forks inherit it.
-        `max_steps_per_call`: a Step with larger n, or a RunTest/Sweep longer than this, gets limit_exceeded."""
+        `max_steps_per_call`: a Step with larger n, or a RunTest/Sweep longer than this, gets limit_exceeded.
+        `host=True`: the World lives on a Host thread (starts paused, logs from tick 0): Run / Pause commands then
+        work (via call()), and show() can run the viewer beside it."""
         return cls(
-            _napl.Sim(
+            (_napl.Host if host else _napl.Sim)(
                 fspath(path),
                 "" if root is None else fspath(root),
                 max_sweep_runs,
@@ -41,6 +46,24 @@ class Sim:
                 max_steps_per_call,
             )
         )
+
+    def show(
+        self, frames: int = 0, script: str = "", width: int = 1280, height: int = 720
+    ) -> None:
+        """Open the Vulkan viewer on THIS thread and block until the window is closed (or `frames` > 0 frames were
+        drawn). The Sim's World runs on a Host thread meanwhile: the UI's pause / run / step / rate and SetAttr
+        edits are bus commands (source "viewer"), logged and replayable. Plain Sim: its World is handed to a Host
+        for the duration and returned afterwards (state, tick and log carry on). Linux: any thread may call this.
+        macOS: GLFW needs the process's MAIN thread (not built there yet). `script` = "FRAME ACTION ARGS; ..." issues
+        UI-equivalent commands at given frames (see napl-view --script). Raises RuntimeError with the reason if there
+        is no display, no Vulkan device, or this build has no viewer (`_napl.has_viewer`)."""
+        (self._c.view if isinstance(self._c, _napl.Host) else self._c.show)(
+            int(frames), script, int(width), int(height)
+        )
+
+    def close_viewer(self) -> None:
+        """Ask a show() running on another thread to return (host=True Sims only)."""
+        self._c.request_close()
 
     def step(self, n: int = 1) -> int:
         """Advance n steps through the command bus (logged); returns the tick."""
@@ -82,6 +105,30 @@ class Sim:
         if not r["ok"]:
             raise ValueError(r["message"])
         return r
+
+    def render(
+        self, pos, lookat, fovy: float = 45.0, width: int = 320, height: int = 240
+    ):
+        """Offscreen camera image (Render command, read cap; needs a Vulkan 1.3 device). World frame, +z up; fovy is the
+        vertical field of view in degrees. -> (rgba uint8 (height, width, 4), depth float32 (height, width)): depth is
+        linear metres along the optical axis, +inf where nothing was hit. Lossless (binary reply, not the JSON edge).
+        Raises ValueError for invalid arguments and RuntimeError otherwise (e.g. "solver_error: no Vulkan device ...").
+        Images are deterministic per GPU/driver only."""
+        return self._c.render(
+            np.asarray(pos, dtype=np.float64).tolist(),
+            np.asarray(lookat, dtype=np.float64).tolist(),
+            float(fovy),
+            int(width),
+            int(height),
+        )
+
+    def raycast(self, origin, directions) -> np.ndarray:
+        """Lidar: float64 distances (metres, -1 = miss) from `origin` (3,) along each row of `directions` (n, 3; any
+        nonzero length) via the solver's ray casts. CPU, fully deterministic, full double precision."""
+        d = np.atleast_2d(np.asarray(directions, dtype=np.float64))
+        return self._c.raycast(
+            np.asarray(origin, dtype=np.float64).tolist(), d.ravel().tolist()
+        )
 
     def run_test(self, spec: dict) -> dict:
         """RunTest (a napl.TestSpec as a dict) through the bus; returns the napl.TestResult dict with

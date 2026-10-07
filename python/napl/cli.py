@@ -1,5 +1,6 @@
 """`napl test <spec.toml|spec.json> [--model PATH] [--runs-dir DIR] [--set path.attr=v1,v2 ...]` and
-`napl mcp [--http] [--host H] [--port N] [--root DIR] [--allow-destructive] [--max-steps N] [--max-wall-s S]` (see mcp_server.py).
+`napl mcp [--http] [--host H] [--port N] [--root DIR] [--allow-destructive] [--max-steps N] [--max-wall-s S] [--view]`
+(see mcp_server.py).
 
 Exit code 0 = all monitors pass, 1 = a monitor failed (or the solver diverged), 2 = error (bad spec, model, args).
 """
@@ -112,6 +113,12 @@ def main(argv=None) -> int:
         help="skip the approval prompt for destructive tools (load_model, delete_run)",
     )
     m.add_argument(
+        "--view",
+        action="store_true",
+        help="open the Vulkan viewer (main thread) once a model is loaded, with the MCP loop on a background thread; "
+        "needs a display and a Vulkan device; adds play_simulation / pause_simulation",
+    )
+    m.add_argument(
         "--max-steps",
         type=int,
         default=100000,
@@ -128,15 +135,21 @@ def main(argv=None) -> int:
         if args.cmd == "mcp":
             from .mcp_server import serve
 
-            serve(
-                args.root,
-                args.http,
-                args.host,
-                args.port,
-                args.allow_destructive,
-                args.max_steps,
-                args.max_wall_s,
-            )
+            try:
+                serve(
+                    args.root,
+                    args.http,
+                    args.host,
+                    args.port,
+                    args.allow_destructive,
+                    args.max_steps,
+                    args.max_wall_s,
+                    args.view,
+                )
+            except (
+                RuntimeError
+            ) as e:  # --view: no display / Vulkan device / viewer in this build
+                raise SpecError(str(e)) from None
             return 0
         return run(args)
     except SpecError as e:

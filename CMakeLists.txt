@@ -11,6 +11,13 @@ if(NOT MSVC)
   add_compile_options(-ffp-contract=off)
 endif()
 
+# napl-view / Sim.show(): GLFW + Dear ImGui. Linux (X11) only until the Windows/macOS GLFW build is written and tested.
+if(UNIX AND NOT APPLE)
+  option(NAPL_VIEWER "Build the Vulkan viewer (napl-view)" ON)
+else()
+  option(NAPL_VIEWER "Build the Vulkan viewer (napl-view)" OFF)
+endif()
+
 include(cmake/deps.cmake)
 
 enable_testing()
@@ -33,26 +40,87 @@ target_link_libraries(napl_schema INTERFACE flatbuffers)
 # Seam enforced by the build graph: napl_core gets no mujoco include dirs, so including mujoco.h fails.
 find_package(Threads REQUIRED)
 add_library(napl_core STATIC src/core/world.cpp src/core/bus.cpp src/core/replay.cpp src/core/host.cpp
-  src/core/monitor.cpp)
-target_include_directories(napl_core PUBLIC src)
+  src/core/monitor.cpp src/core/shm.cpp)
+target_include_directories(napl_core PUBLIC src include)  # include/: napl/shm_client.hpp, the dependency-free shm client
 target_link_libraries(napl_core PUBLIC napl_schema Threads::Threads)
 
 add_library(napl_mujoco STATIC src/mujoco/mujoco_solver.cpp)
 target_link_libraries(napl_mujoco PUBLIC napl_core mujoco)
 
 # Static libs end up inside the _napl shared module: they need -fPIC.
-set_target_properties(napl_core napl_mujoco flatbuffers PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(napl_core napl_mujoco flatbuffers lodepng PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# napl_render: headless Vulkan 1.3 renderer (no window system). napl_core never links it: the app installs it into a
+# World as a RenderHook (src/core/render.h). volk loads libvulkan at run time, so binaries start without a GPU.
+include(cmake/shaders.cmake)
+add_library(napl_volk STATIC ${volk_SOURCE_DIR}/volk.c)
+target_include_directories(napl_volk PUBLIC ${volk_SOURCE_DIR} ${vulkan_headers_SOURCE_DIR}/include)
+target_compile_definitions(napl_volk PUBLIC VK_NO_PROTOTYPES)
+target_link_libraries(napl_volk PUBLIC ${CMAKE_DL_LIBS})
+napl_embed_shader(geom)
+add_library(napl_render STATIC src/render/renderer.cpp ${NAPL_GEN_DIR}/shaders/geom_spv.h)
+target_include_directories(napl_render PUBLIC src PRIVATE ${vma_SOURCE_DIR}/include ${NAPL_GEN_DIR}/shaders)
+target_link_libraries(napl_render PUBLIC napl_core PRIVATE napl_volk)
+set_target_properties(napl_render napl_volk PROPERTIES POSITION_INDEPENDENT_CODE ON)  # linked into _napl.so
+
+# napl_viewer (M10): GLFW window + Vulkan swapchain + Dear ImGui over a Host. napl-view is its command line; _napl links it
+# for Sim.show(). GLFW and ImGui are built from fetched sources (no find_package): GLFW dlopen()s libX11 & co, so only the
+# X11 headers (fetched, cmake/deps.cmake) are needed to compile it.
+if(NAPL_VIEWER)
+  set(_x11_gen ${CMAKE_BINARY_DIR}/x11-gen)  # the one generated X11 header: Xcursor.h from its (unsubstituted) .in
+  configure_file(${libxcursor_SOURCE_DIR}/include/X11/Xcursor/Xcursor.h.in ${_x11_gen}/X11/Xcursor/Xcursor.h COPYONLY)
+  set(_glfw_src ${glfw_SOURCE_DIR}/src)
+  add_library(napl_glfw STATIC
+    ${_glfw_src}/context.c ${_glfw_src}/init.c ${_glfw_src}/input.c ${_glfw_src}/monitor.c ${_glfw_src}/platform.c
+    ${_glfw_src}/vulkan.c ${_glfw_src}/window.c ${_glfw_src}/egl_context.c ${_glfw_src}/osmesa_context.c
+    ${_glfw_src}/null_init.c ${_glfw_src}/null_monitor.c ${_glfw_src}/null_window.c ${_glfw_src}/null_joystick.c
+    ${_glfw_src}/posix_time.c ${_glfw_src}/posix_thread.c ${_glfw_src}/posix_module.c ${_glfw_src}/posix_poll.c
+    ${_glfw_src}/linux_joystick.c ${_glfw_src}/x11_init.c ${_glfw_src}/x11_monitor.c ${_glfw_src}/x11_window.c
+    ${_glfw_src}/xkb_unicode.c ${_glfw_src}/glx_context.c)
+  target_compile_definitions(napl_glfw PRIVATE _GLFW_X11 INTERFACE GLFW_INCLUDE_NONE)  # NONE (for users, not GLFW itself): no GL headers; Vulkan comes from volk
+  target_include_directories(napl_glfw PUBLIC ${glfw_SOURCE_DIR}/include)
+  target_include_directories(napl_glfw SYSTEM PRIVATE ${_x11_gen}
+    ${xorgproto_SOURCE_DIR}/include ${libx11_SOURCE_DIR}/include ${libxrandr_SOURCE_DIR}/include
+    ${libxrender_SOURCE_DIR}/include ${libxi_SOURCE_DIR}/include ${libxinerama_SOURCE_DIR}/include
+    ${libxext_SOURCE_DIR}/include ${libxfixes_SOURCE_DIR}/include)
+  target_link_libraries(napl_glfw PUBLIC ${CMAKE_DL_LIBS} Threads::Threads m)
+
+  set(_imgui_src ${imgui_SOURCE_DIR})
+  add_library(napl_imgui STATIC ${_imgui_src}/imgui.cpp ${_imgui_src}/imgui_draw.cpp ${_imgui_src}/imgui_tables.cpp
+    ${_imgui_src}/imgui_widgets.cpp ${_imgui_src}/backends/imgui_impl_glfw.cpp ${_imgui_src}/backends/imgui_impl_vulkan.cpp)
+  target_include_directories(napl_imgui SYSTEM PUBLIC ${_imgui_src} ${_imgui_src}/backends)
+  target_compile_definitions(napl_imgui PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
+  target_link_libraries(napl_imgui PUBLIC napl_volk napl_glfw)
+
+  add_library(napl_viewer STATIC src/viewer/viewer.cpp)
+  target_link_libraries(napl_viewer PUBLIC napl_render napl_core PRIVATE napl_imgui napl_glfw napl_volk)
+  set_target_properties(napl_glfw napl_imgui napl_viewer PROPERTIES POSITION_INDEPENDENT_CODE ON)  # linked into _napl.so
+
+  add_executable(napl_view src/viewer/main.cpp)
+  set_target_properties(napl_view PROPERTIES OUTPUT_NAME napl-view)
+  target_link_libraries(napl_view PRIVATE napl_viewer napl_mujoco mujoco)
+endif()
 
 add_executable(napl_cli src/cli/main.cpp)
 set_target_properties(napl_cli PROPERTIES OUTPUT_NAME napl-replay)  # the Python CLI owns `napl`
 target_link_libraries(napl_cli PRIVATE napl_core napl_mujoco mujoco)
 
+add_executable(napl_shm_serve src/cli/shm_serve.cpp)  # shm lockstep server (M11); the client is include/napl/shm_client.hpp
+set_target_properties(napl_shm_serve PROPERTIES OUTPUT_NAME napl-shm-serve)
+target_link_libraries(napl_shm_serve PRIVATE napl_core napl_mujoco mujoco)
+
+# The shm test's child process: header-only client only, so it links nothing of napl (proves the header stands alone).
+add_executable(napl_shm_test_client tests/cpp/shm_test_client.cpp)
+target_include_directories(napl_shm_test_client PRIVATE include tests/cpp)
+
 add_executable(napl_tests tests/cpp/test_smoke.cpp tests/cpp/test_determinism.cpp tests/cpp/test_bus.cpp
-  tests/cpp/test_replay.cpp tests/cpp/test_host.cpp)
-add_dependencies(napl_tests napl_cli)  # test_replay runs the napl-replay executable
+  tests/cpp/test_replay.cpp tests/cpp/test_host.cpp tests/cpp/test_shm.cpp)
+add_dependencies(napl_tests napl_cli napl_shm_test_client)  # test_replay / test_shm run these executables
+target_include_directories(napl_tests PRIVATE tests/cpp)
 target_link_libraries(napl_tests PRIVATE napl_core napl_mujoco mujoco GTest::gtest_main)
 target_compile_definitions(napl_tests PRIVATE
   NAPL_CLI_EXE="$<TARGET_FILE:napl_cli>"
+  NAPL_SHM_CLIENT_EXE="$<TARGET_FILE:napl_shm_test_client>"
   NAPL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
   NAPL_HUMANOID_XML="${mujoco_SOURCE_DIR}/model/humanoid/humanoid.xml")
 if(WIN32)  # no rpath on Windows: put mujoco.dll next to the test exe
@@ -62,6 +130,31 @@ if(WIN32)  # no rpath on Windows: put mujoco.dll next to the test exe
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:mujoco> $<TARGET_FILE_DIR:napl_cli>)
 endif()
 gtest_discover_tests(napl_tests PROPERTIES LABELS cpu)
+
+# GPU tests: their own executable and ctest label, so `ctest --preset dev` (cpu) never touches a GPU.
+# Run them with `ctest --preset gpu` (see CMakePresets.json); pick the driver with VK_DRIVER_FILES.
+add_executable(napl_render_tests tests/cpp/test_render.cpp)
+target_link_libraries(napl_render_tests PRIVATE napl_render napl_mujoco mujoco lodepng GTest::gtest_main)
+target_compile_definitions(napl_render_tests PRIVATE
+  NAPL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
+  NAPL_RENDER_OUT_DIR="${CMAKE_BINARY_DIR}/render-out")
+if(WIN32)
+  add_custom_command(TARGET napl_render_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:mujoco> $<TARGET_FILE_DIR:napl_render_tests>)
+endif()
+gtest_discover_tests(napl_render_tests PROPERTIES LABELS gpu)
+
+if(NAPL_VIEWER)  # needs a window system too: run under a display or `xvfb-run -a ctest --preset gpu`
+  add_executable(napl_viewer_tests tests/cpp/test_viewer.cpp)
+  add_dependencies(napl_viewer_tests napl_view napl_cli)  # the tests run the napl-view / napl-replay executables
+  target_link_libraries(napl_viewer_tests PRIVATE napl_viewer napl_mujoco mujoco GTest::gtest_main)
+  target_compile_definitions(napl_viewer_tests PRIVATE
+    NAPL_VIEW_EXE="$<TARGET_FILE:napl_view>"
+    NAPL_CLI_EXE="$<TARGET_FILE:napl_cli>"
+    NAPL_VIEWER_OUT_DIR="${CMAKE_BINARY_DIR}/viewer-out"
+    NAPL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
+  gtest_discover_tests(napl_viewer_tests PROPERTIES LABELS gpu)
+endif()
 
 # _napl: nanobind extension (CPython >= 3.12 stable ABI). Off by default; scikit-build-core turns it on
 # (pyproject.toml) and shares this build tree, so the dependency sources/objects exist exactly once.
@@ -76,7 +169,11 @@ if(NAPL_PYTHON)
             -DNAME=kSchemaJson -P ${CMAKE_SOURCE_DIR}/cmake/embed_text.cmake
     DEPENDS ${NAPL_GEN_DIR}/napl.schema.json ${CMAKE_SOURCE_DIR}/cmake/embed_text.cmake)
   nanobind_add_module(_napl STABLE_ABI src/python/bindings.cpp ${NAPL_GEN_DIR}/napl_schema_json.h)
-  target_link_libraries(_napl PRIVATE napl_core napl_mujoco mujoco)
+  target_link_libraries(_napl PRIVATE napl_core napl_mujoco mujoco napl_render lodepng)
+  if(NAPL_VIEWER)
+    target_link_libraries(_napl PRIVATE napl_viewer)
+    target_compile_definitions(_napl PRIVATE NAPL_HAS_VIEWER)
+  endif()
   set_target_properties(_napl PROPERTIES INSTALL_RPATH "$ORIGIN")  # libmujoco.so is installed next to it
   install(TARGETS _napl mujoco LIBRARY DESTINATION napl COMPONENT napl_python)
 endif()

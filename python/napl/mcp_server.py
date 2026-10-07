@@ -6,8 +6,14 @@ C++ bus unless one call is elevated after approval (`--allow-destructive` or MCP
 resolved (symlinks, `..`) and must stay under the root. Long operations (run_test, sweep) run on a background thread
 over a fork() of the loaded sim and are polled with get_run (no MCP Tasks: the v2 SDK dropped them).
 
-Not exposed: Run / Pause (they need the C++ Host thread, which Python does not bind; on a bare World they are
-no-ops, and a tool that silently does nothing would mislead an agent).
+Run / Pause are exposed only by a host-backed server (`napl mcp --view`, NaplServer(view=True)): the World then lives
+on a C++ Host thread, which can free-run it, so the tools `play_simulation` (Run{rate}) and `pause_simulation` (Pause)
+exist (names after ROS 2 simulation_interfaces' PLAYING / PAUSED states). On a bare World both would be silent
+no-ops, and a tool that does nothing would mislead an agent, so the default tool list does not have them.
+
+With --view the viewer window runs on the main thread (GLFW needs it on macOS) and this server's asyncio loop on a
+background thread; every tool call goes through the Host's queue, so what the agent does shows up live in the viewer,
+and the viewer's own UI actions are bus commands (source "viewer") in the same replay log.
 """
 
 import json
@@ -17,6 +23,7 @@ import threading
 from pathlib import Path
 from typing import Annotated
 
+import numpy as np
 from mcp.server import MCPServer
 from mcp.server.elicitation import ElicitationResult
 from mcp.server.mcpserver.context import Context
@@ -24,6 +31,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.resolve import Elicit, Resolve
 from mcp.server.mcpserver.tools import Tool
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
+from mcp.server.mcpserver.utilities.types import Image
 from mcp_types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -54,6 +62,17 @@ COMMAND_TOOLS = {
         "LoadModel",
         "Load an MJCF/URDF model (path under the server root), replacing the current simulation. Destructive.",
     ),
+    "spawn_entity": (
+        "Spawn",
+        "Add an MJCF/URDF model (path under the server root) to the running simulation as the new prim `at` "
+        "('<parent body prim>/<name>', e.g. /world/arm2), optionally placed by pos (3) / quat (4: w x y z). Existing "
+        "entities keep their state exactly; snapshots taken earlier can no longer be restored.",
+    ),
+    "delete_entity": (
+        "Delete",
+        "Remove the body prim `path` and everything beneath it from the running simulation. Destructive: its state "
+        "is lost, and snapshots taken earlier can no longer be restored.",
+    ),
     "run_test": (
         "RunTest",
         "Run a declarative test spec on a copy of the current state. Returns run_id at once; poll get_run. "
@@ -63,6 +82,28 @@ COMMAND_TOOLS = {
         "Sweep",
         "Parameter sweep (grid or seeded random) of a test spec on copies of the current state. Returns run_id at "
         "once; poll get_run.",
+    ),
+    "render": (
+        "Render",
+        "Render the current state from a camera (pos, lookat: world frame, +z up; fovy degrees) and return a PNG image. "
+        "Needs a Vulkan device (error otherwise).",
+    ),
+    "raycast": (
+        "Raycast",
+        "Lidar: distances in metres (-1 = miss) from `origin` along each direction (flat list of 3n numbers), "
+        "full double precision.",
+    ),
+}
+# Added only when the server is host-backed (see the module docstring).
+HOST_TOOLS = {
+    "play_simulation": (
+        "Run",
+        "Free-run the simulation in the background at `rate` sim-seconds per wall-second (0 = as fast as possible) "
+        "until pause_simulation. step_simulation and the other tools still work meanwhile.",
+    ),
+    "pause_simulation": (
+        "Pause",
+        "Freeze the simulation tick (free-running stops at the next tick boundary; step_simulation still advances it).",
     ),
 }
 RUN_ID = {
@@ -106,20 +147,34 @@ class NaplServer:
         allow_destructive: bool = False,
         max_steps_per_call: int = MAX_STEPS_PER_CALL,
         max_wall_s: float = MAX_WALL_S,
+        view: bool = False,
     ):
         self.max_steps_per_call = max_steps_per_call
         self.max_wall_s = max_wall_s
         self.root = Path(root or Path.cwd()).resolve()
         self.allow_destructive = allow_destructive
+        self.view = view  # host-backed: the World lives on a Host thread (viewer-capable); adds play/pause tools
+        self.loaded = (
+            threading.Event()
+        )  # set when the first model is loaded (the viewer opens then)
         self.sim = None  # napl.Sim with SESSION_CAPS (one world; calls run on the event loop, so they are serialised)
         self.model = None
         self.jobs = {}  # run_id -> {"status", "result" | "error"}
         tools = []
-        for name, (table, desc) in COMMAND_TOOLS.items():
-            if name == "load_model":
-                tools.append(self._load_model_tool(desc))
+        for name, (table, desc) in {
+            **COMMAND_TOOLS,
+            **(HOST_TOOLS if view else {}),
+        }.items():
+            if name in ("load_model", "delete_entity"):
+                tools.append(self._approved_tool(name, table, desc))
                 continue
-            fn = {"run_test": self._run_test, "sweep": self._sweep}.get(name)
+            fn = {
+                "spawn_entity": self._spawn,
+                "run_test": self._run_test,
+                "sweep": self._sweep,
+                "render": self._render,
+                "raycast": self._raycast,
+            }.get(name)
             tools.append(
                 self._tool(
                     name,
@@ -204,6 +259,11 @@ class NaplServer:
         )  # sandbox first: never ask the user to approve an outside path
         return self._ask(f"load model '{p.name}' (replaces the current simulation)")
 
+    async def _ask_delete_entity(self, path: str):
+        return self._ask(
+            f"delete '{path}' and everything beneath it from the simulation"
+        )
+
     async def _ask_delete(self, run_id: str):
         self._run_dir(run_id)
         return self._ask(f"delete run '{run_id}' (its runs/ directory)")
@@ -213,24 +273,28 @@ class NaplServer:
         if approval.action != "accept" or not approval.data.confirm:
             raise ToolError("refused, nothing changed: not approved")
 
-    def _load_model_tool(self, desc: str) -> Tool:
-        async def load_model(
+    def _approved_tool(self, name: str, table: str, desc: str) -> Tool:
+        """A destructive command tool taking one `path`: approval is resolved (and the sandbox checked) before the body."""
+        ask, run = {
+            "load_model": (self._ask_load, self._load),
+            "delete_entity": (self._ask_delete_entity, self._delete_entity),
+        }[name]
+
+        async def fn(
             ctx: Context,
             path: str,
-            approval: Annotated[ElicitationResult[_Confirm], Resolve(self._ask_load)],
+            approval: Annotated[ElicitationResult[_Confirm], Resolve(ask)],
         ):
             self._require(approval)
-            return self._load(path)
+            return run(path)
 
         t = Tool.from_function(
-            load_model,
-            name="load_model",
+            fn,
+            name=name,
             description=desc,
-            annotations=self._annotations("load_model", _napl.command_cap("LoadModel")),
+            annotations=self._annotations(name, _napl.command_cap(table)),
         )
-        t.parameters = _schema(
-            "LoadModel"
-        )  # the flatc schema, not the stub's signature
+        t.parameters = _schema(table)  # the flatc schema, not the stub's signature
         return t
 
     def _delete_run_tool(self) -> Tool:
@@ -282,6 +346,48 @@ class NaplServer:
 
         return fn
 
+    async def _spawn(self, ctx, **args):
+        return self._call(
+            "Spawn", {**args, "path": str(self._confine(args.get("path", "")))}
+        )
+
+    def _delete_entity(self, path: str) -> dict:
+        return self._call(
+            "Delete", {"path": path}, elevate=True
+        )  # approved by the resolver
+
+    async def _render(self, ctx, **args):
+        sim = self._need_sim()
+        if not args.get("pos") or not args.get("lookat"):
+            raise ToolError("render needs pos and lookat (3 numbers each)")
+        try:  # runs on the event loop like every sim call (a Sim is not thread-safe)
+            rgba, depth = sim.render(
+                args["pos"],
+                args["lookat"],
+                args.get("fovy", 45.0),
+                args.get("width", 320),
+                args.get("height", 240),
+            )
+        except (ValueError, RuntimeError) as e:
+            raise ToolError(str(e)) from None
+        h, w = depth.shape
+        info = {"width": w, "height": h, "center_depth_m": float(depth[h // 2, w // 2])}
+        return [Image(data=_napl.encode_png(rgba), format="png"), info]
+
+    async def _raycast(self, ctx, origin=None, directions=None):
+        sim = self._need_sim()
+        if not origin or not directions or len(directions) % 3:
+            raise ToolError(
+                "raycast needs origin (3 numbers) and directions (3n numbers)"
+            )
+        try:
+            d = sim.raycast(
+                origin, np.asarray(directions, dtype=np.float64).reshape(-1, 3)
+            )
+        except (ValueError, RuntimeError) as e:
+            raise ToolError(str(e)) from None
+        return {"distances": d.tolist()}
+
     async def _list_prims(self, ctx):
         return {"prims": self._call("Query", {"path": ""}).get("prims", [])}
 
@@ -298,12 +404,14 @@ class NaplServer:
                     max_wall_s=self.max_wall_s,
                     caps=SESSION_CAPS,
                     max_steps_per_call=self.max_steps_per_call,
+                    host=self.view,
                 )
             else:  # the C++ bus checks the path against the session root and the (elevated) capability
                 self._call("LoadModel", {"path": str(p)}, elevate=True)
         except RuntimeError as e:
             raise ToolError(str(e)) from None
         self.model = p
+        self.loaded.set()
         return {"model": str(p.relative_to(self.root)), "tick": self.sim.tick}
 
     async def _run_test(self, ctx, spec=None):
@@ -393,9 +501,33 @@ def serve(
     allow_destructive: bool = False,
     max_steps_per_call: int = MAX_STEPS_PER_CALL,
     max_wall_s: float = MAX_WALL_S,
+    view: bool = False,
 ) -> None:
-    s = NaplServer(root, allow_destructive, max_steps_per_call, max_wall_s).server
-    if http:
-        s.run(transport="streamable-http", host=host, port=port)
-    else:
-        s.run()
+    if view and not _napl.has_viewer:
+        raise RuntimeError("this build of napl has no viewer, so --view is unavailable")
+    srv = NaplServer(root, allow_destructive, max_steps_per_call, max_wall_s, view)
+
+    def run() -> None:
+        if http:
+            srv.server.run(transport="streamable-http", host=host, port=port)
+        else:
+            srv.server.run()
+
+    if not view:
+        run()
+        return
+
+    # Viewer on this (the main) thread, the MCP asyncio loop on a background one; the viewer opens once an agent has
+    # loaded a model. Closing the window ends the process; the client going away closes the window.
+    def serve_mcp() -> None:
+        try:
+            run()
+        finally:
+            srv.loaded.set()  # wake the main thread if no model was ever loaded
+            if srv.sim is not None:
+                srv.sim.close_viewer()
+
+    threading.Thread(target=serve_mcp, name="napl-mcp", daemon=True).start()
+    srv.loaded.wait()
+    if srv.sim is not None:
+        srv.sim.show()

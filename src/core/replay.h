@@ -21,7 +21,11 @@
 #include <string_view>
 #include <vector>
 
-constexpr std::uint32_t kReplayFormatVersion = 3;
+// v4: Spawn / Delete commands. The model blob is opaque to the core; the MuJoCo solver's blob is now
+// u64 n + mj_saveModel bytes, then the model spec as MJCF XML (17-digit numbers; rest of the blob; may be empty).
+// mj_saveModel carries no mjSpec, which a replayed Spawn / Delete needs to attach / remove bodies, so replay rebuilds
+// the spec from the XML on the first structural command (a log without one never touches it).
+constexpr std::uint32_t kReplayFormatVersion = 4;
 constexpr std::size_t kReplayFooterSize = 24;
 
 std::uint64_t schema_hash();  // FNV-1a 64 over the embedded napl.bfbs

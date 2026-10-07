@@ -44,9 +44,15 @@
     { "name": "ci", "configurePreset": "ci" }
   ],
   "testPresets": [
-    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
-    { "name": "gcc", "configurePreset": "gcc", "output": { "outputOnFailure": true } },
-    { "name": "clang", "configurePreset": "clang", "output": { "outputOnFailure": true } },
-    { "name": "ci", "configurePreset": "ci", "output": { "outputOnFailure": true } }
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "gpu" } } },
+    { "name": "gcc", "configurePreset": "gcc", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "gpu" } } },
+    { "name": "clang", "configurePreset": "clang", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "gpu" } } },
+    { "name": "ci", "configurePreset": "ci", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "gpu" } } },
+    { "name": "gpu", "configurePreset": "dev", "output": { "outputOnFailure": true },
+      "filter": { "include": { "label": "gpu" } } }
   ]
 }

@@ -59,6 +59,8 @@ struct Out {
   std::uint64_t snapshot_id = 0;
   std::optional<TestOut> test;
   std::optional<SweepOut> sweep;
+  std::optional<Image> image;
+  std::vector<double> distances;
   bool timed_out = false;  // err == limit_exceeded because the wall-clock deadline passed (not a length limit)
 };
 
@@ -454,6 +456,47 @@ flatbuffers::DetachedBuffer World::execute(std::span<const std::uint8_t> bytes, 
         }
         case napl::Command::Pause:
           return {};
+        case napl::Command::Render: {
+          const napl::Render* r = env.cmd_as_Render();
+          Camera cam;
+          auto vec3 = [](const flatbuffers::Vector<double>* v, double* dst) {
+            if (!v || v->size() != 3) return false;
+            for (flatbuffers::uoffset_t i = 0; i < 3; ++i) {
+              dst[i] = (*v)[i];
+              if (!std::isfinite(dst[i])) return false;
+            }
+            return true;
+          };
+          if (!vec3(r->pos(), cam.pos) || !vec3(r->lookat(), cam.lookat))
+            return fail(napl::Err::invalid_argument, "Render needs pos and lookat: 3 finite doubles each");
+          const double dx = cam.lookat[0] - cam.pos[0], dy = cam.lookat[1] - cam.pos[1], dz = cam.lookat[2] - cam.pos[2];
+          if (!(dx * dx + dy * dy + dz * dz > 0)) return fail(napl::Err::invalid_argument, "Render: pos and lookat coincide");
+          cam.fovy = r->fovy();
+          if (!(cam.fovy > 0 && cam.fovy < 180)) return fail(napl::Err::invalid_argument, "Render fovy must be in (0, 180) degrees");
+          constexpr int kMaxSide = 4096;
+          if (r->width() < 1 || r->height() < 1 || r->width() > kMaxSide || r->height() > kMaxSide)
+            return fail(napl::Err::invalid_argument, "Render width/height must be in [1, " + std::to_string(kMaxSide) + "]");
+          if (!render_) return fail(napl::Err::solver_error, "no renderer installed");
+          Out o;
+          o.image = render_(*solver_, cam, r->width(), r->height());  // throws (-> solver_error) if there is no GPU
+          return o;
+        }
+        case napl::Command::Raycast: {
+          const napl::Raycast* r = env.cmd_as_Raycast();
+          constexpr std::size_t kMaxRays = 1u << 20;
+          if (!r->origin() || r->origin()->size() != 3 || (r->directions() && r->directions()->size() % 3 != 0))
+            return fail(napl::Err::invalid_argument, "Raycast needs origin (3 doubles) and directions (3n doubles)");
+          const std::size_t n = r->directions() ? r->directions()->size() / 3 : 0;
+          if (n == 0) return fail(napl::Err::invalid_argument, "Raycast needs at least one direction");
+          if (n > kMaxRays) return fail(napl::Err::limit_exceeded, "Raycast has more than " + std::to_string(kMaxRays) + " rays");
+          Out o;
+          try {
+            o.distances = solver_->raycast({r->origin()->data(), 3}, {r->directions()->data(), r->directions()->size()});
+          } catch (const std::invalid_argument& e) {
+            return fail(napl::Err::invalid_argument, e.what());
+          }
+          return o;
+        }
         case napl::Command::LoadModel: {
           std::string resolved;
           const std::string path = str(env.cmd_as_LoadModel()->path());
@@ -464,6 +507,19 @@ flatbuffers::DetachedBuffer World::execute(std::span<const std::uint8_t> bytes, 
           snapshots_.clear();  // old snapshots do not fit the new model
           return {};
         }
+        case napl::Command::Spawn: {
+          const napl::Spawn* s = env.cmd_as_Spawn();
+          std::string resolved;
+          const std::string path = str(s->path());
+          if (!confined(session.root, path, resolved))
+            return fail(napl::Err::permission_denied, "Spawn path '" + path + "' is outside the session root");
+          std::vector<double> pos, quat;
+          if (s->pos()) pos.assign(s->pos()->begin(), s->pos()->end());
+          if (s->quat()) quat.assign(s->quat()->begin(), s->quat()->end());
+          return from(solver_->spawn(resolved, str(s->at()), pos, quat));  // snapshots stay; restore rejects stale ones
+        }
+        case napl::Command::Delete:
+          return from(solver_->remove(str(env.cmd_as_Delete()->path())));
         default:
           return fail(napl::Err::invalid_argument, "unsupported command " + cmd);
       }
@@ -487,6 +543,13 @@ flatbuffers::DetachedBuffer World::execute(std::span<const std::uint8_t> bytes, 
   if (out.test) result = build_result(fbb, *out.test);
   flatbuffers::Offset<napl::SweepResult> sweep;
   if (out.sweep) sweep = build_sweep(fbb, *out.sweep);
+  flatbuffers::Offset<flatbuffers::Vector<std::uint8_t>> image;
+  flatbuffers::Offset<flatbuffers::Vector<float>> depth;
+  if (out.image) {
+    image = fbb.CreateVector(out.image->rgba);
+    depth = fbb.CreateVector(out.image->depth);
+  }
+  auto distances = fbb.CreateVector(out.distances);
   napl::ReplyBuilder rb(fbb);
   rb.add_id(id);
   rb.add_ok(out.err == napl::Err::none);
@@ -499,11 +562,23 @@ flatbuffers::DetachedBuffer World::execute(std::span<const std::uint8_t> bytes, 
   rb.add_snapshot_id(out.snapshot_id);
   if (out.test) rb.add_result(result);
   if (out.sweep) rb.add_sweep(sweep);
+  if (out.image) {
+    rb.add_width(out.image->width);
+    rb.add_height(out.image->height);
+    rb.add_image(image);
+    rb.add_depth(depth);
+  }
+  if (!out.distances.empty()) rb.add_distances(distances);
   fbb.Finish(rb.Finish());
   return fbb.Release();
 }
 
 std::string execute_json(World& w, std::string_view json, const Session& session) {
+  return execute_json([&](std::span<const std::uint8_t> env) { return w.execute(env, session); },
+                      [&] { return w.tick(); }, json);
+}
+
+std::string execute_json(const EnvelopeExecutor& exec, const std::function<std::uint64_t()>& tick, std::string_view json) {
   flatbuffers::IDLOptions opts;
   opts.strict_json = true;                   // quoted names; skip_unexpected_fields_in_json stays false => unknown field is an error
   opts.output_default_scalars_in_json = true;  // print ok:false, tick:0, ...
@@ -514,14 +589,14 @@ std::string execute_json(World& w, std::string_view json, const Session& session
 
   flatbuffers::DetachedBuffer reply;
   if (parser.Parse(std::string(json).c_str())) {
-    reply = w.execute({parser.builder_.GetBufferPointer(), parser.builder_.GetSize()}, session);
+    reply = exec({parser.builder_.GetBufferPointer(), parser.builder_.GetSize()});
   } else {  // parser.error_ names the offending field for unknown fields
     flatbuffers::FlatBufferBuilder fbb;
     auto msg = fbb.CreateString(parser.error_);
     napl::ReplyBuilder rb(fbb);
     rb.add_error(napl::Err::invalid_argument);
     rb.add_message(msg);
-    rb.add_tick(w.tick());
+    rb.add_tick(tick());
     fbb.Finish(rb.Finish());
     reply = fbb.Release();
   }

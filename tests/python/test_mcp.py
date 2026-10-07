@@ -22,10 +22,10 @@ DATA = Path(__file__).resolve().parents[2] / "tests" / "data"
 HINGE = "/world/pole/hinge"
 EXPECTED = {
     "get_entity_state", "set_entity_state", "step_simulation", "snapshot", "restore", "load_model", "run_test",
-    "sweep", "list_prims", "get_run", "delete_run",
+    "sweep", "list_prims", "get_run", "delete_run", "render", "raycast", "spawn_entity", "delete_entity",
 }  # fmt: skip
-DESTRUCTIVE = {"load_model", "delete_run"}
-READ_ONLY = {"get_entity_state", "list_prims", "get_run"}
+DESTRUCTIVE = {"load_model", "delete_run", "delete_entity"}
+READ_ONLY = {"get_entity_state", "list_prims", "get_run", "render", "raycast"}
 
 
 @pytest.fixture

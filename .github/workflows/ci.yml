@@ -29,6 +29,31 @@ jobs:
       - name: License check
         run: python3 tools/check_licenses.py build/ci/_deps
 
+  # The gpu-labelled tests (offscreen renderer, viewer) on a software Vulkan device: Mesa's lavapipe, with xvfb for the
+  # viewer's window. Slow-ish, so it runs on every push and PR like `linux` but is a separate job (own build tree).
+  linux-gpu:
+    runs-on: ubuntu-latest
+    env:
+      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
+      LP_NUM_THREADS: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-linux-gpu-${{ hashFiles('cmake/deps.cmake') }}
+      - name: Install lavapipe and xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 xvfb
+          test -f "$VK_DRIVER_FILES"
+      - name: Configure
+        run: cmake --preset dev
+      - name: Build
+        run: cmake --build --preset dev
+      - name: GPU tests
+        run: xvfb-run -a ctest --preset gpu
+
   # Win/macOS only on PRs to main (private-repo CI minutes, plan Risk 8).
   cross-platform:
     if: github.event_name == 'pull_request'

@@ -46,7 +46,124 @@ FetchContent_Declare(nanobind
   GIT_TAG v3.1.0  # 68480a9e6883bb1bf65e1925423321e2a89d07f9 (annotated tag; tag object 1852d88c)
   GIT_SHALLOW TRUE)
 
-FetchContent_MakeAvailable(mujoco flatbuffers googletest)
+# Renderer deps (M9). Used as sources only (SOURCE_SUBDIR points at a directory without a CMakeLists.txt, so their own
+# build files are never run): include dirs + our own targets in CMakeLists.txt. Target API is Vulkan 1.3; the headers are
+# pinned to the 1.3.275 SDK = the loader version on the reference host (hfbox), volk loads everything dynamically.
+# Vulkan-Headers (Apache-2.0 / MIT)
+FetchContent_Declare(vulkan_headers
+  GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+  GIT_TAG vulkan-sdk-1.3.275.0  # 217e93c664ec6704ec2d8c36fa116c1a4a1e2d40
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR napl_sources_only)
+# volk (MIT): meta-loader, no link-time libvulkan
+FetchContent_Declare(volk
+  GIT_REPOSITORY https://github.com/zeux/volk.git
+  GIT_TAG vulkan-sdk-1.3.275.0  # f2a16e3e19c2349b873343b2dc38a1d4c25af23a
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR napl_sources_only)
+# Vulkan Memory Allocator v3.2.1 (MIT), header-only
+FetchContent_Declare(vma
+  GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+  GIT_TAG v3.2.1  # c788c52156f3ef7bc7ab769cb03c110a53ac8fcb
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR napl_sources_only)
+
+FetchContent_MakeAvailable(mujoco flatbuffers googletest vulkan_headers volk vma)
+
+# Viewer deps (M10, Linux/X11 only for now: the Windows/macOS GLFW source lists are not written or tested). Sources only,
+# like the renderer deps: our own targets are in CMakeLists.txt.
+if(NAPL_VIEWER)
+  # GLFW 3.4 (zlib). Wayland is not built. GLFW dlopen()s libX11 (required) and libXrandr/libXi/libXext/libXrender/
+  # libXxf86vm/libXinerama/libXcursor/libX11-xcb (each optional, checked at run time), so the build needs X11 HEADERS only.
+  FetchContent_Declare(glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG 3.4  # 7b6aead9fb88b3623e3b3725ebb42670cbe4c579 (annotated tag; tag object a74efa0d)
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR napl_sources_only)
+  # Dear ImGui v1.92.9b (MIT): core + the GLFW and Vulkan backends (volk, dynamic rendering).
+  FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.92.9b  # f1cc2ae15e53a861a874c3034aae6798fde194ab (lightweight tag)
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR napl_sources_only)
+  # X11 compile-time headers (MIT/X11 licences), fetched shallow from freedesktop.org instead of a system -dev package.
+  # Only include/ is used; the repos' library sources are never built. Needed by GLFW's x11_*.c (tags verified 2026-10-06):
+  #   xorgproto 2024.1  X.h Xproto.h Xfuncproto.h keysym.h XKB.h randr/render/XI2/shape protocol headers ...
+  #   libX11 1.8.12     Xlib.h Xutil.h Xresource.h XKBlib.h cursorfont.h
+  #   libXrandr 1.5.4, libXrender 0.9.12, libXi 1.8.2, libXinerama 1.1.5, libXcursor 1.2.3, libXext 1.3.7 (Xge.h),
+  #   libXfixes 6.0.1 (Xfixes.h, pulled in by XInput2.h)
+  # Odd historical notice: libX11's src/xlibi18n/lcUniConv/COPYRIGHT says those (never compiled here) files derive from
+  # LGPL libiconv and were relicensed MIT-style by the FSF; check_licenses.py reports it as a NOTE, not a failure.
+  foreach(_x IN ITEMS
+      "xorgproto|proto/xorgproto|xorgproto-2024.1|67469711055522b8adb2d795b01e7ba98cb8816c"
+      "libx11|lib/libx11|libX11-1.8.12|59917d28a3c41ad22d6fc52e323cafe2cdd596d5"
+      "libxrandr|lib/libxrandr|libXrandr-1.5.4|512bf0b15b5597c721ff8c61083616ca9040fa72"
+      "libxrender|lib/libxrender|libXrender-0.9.12|46e12ff9e8e4d3f0313a2f097df93dbfdc14f92f"
+      "libxi|lib/libxi|libXi-1.8.2|3c2d5aedd7708c75710b39268631762de904c304"
+      "libxinerama|lib/libxinerama|libXinerama-1.1.5|71dfee64feb84f907016940263b235a61c9e8960"
+      "libxcursor|lib/libxcursor|libXcursor-1.2.3|8ae6cf61b18ecddf26f72a07bbfbd1ea9f022c36"
+      "libxext|lib/libxext|libXext-1.3.7|2a694ba264ccdb205909909abfe8b136f9156ebe"
+      "libxfixes|lib/libxfixes|libXfixes-6.0.1|c1cab28e27dd1c5a81394965248b57e490ccf2ca")
+    string(REPLACE "|" ";" _x "${_x}")
+    list(GET _x 0 _name)
+    list(GET _x 1 _path)
+    list(GET _x 2 _tag)
+    FetchContent_Declare(${_name}
+      GIT_REPOSITORY https://gitlab.freedesktop.org/xorg/${_path}.git
+      GIT_TAG ${_tag}  # commit: see the list above
+      GIT_SHALLOW TRUE
+      SOURCE_SUBDIR napl_sources_only)
+    list(APPEND _x11_repos ${_name})
+  endforeach()
+  FetchContent_MakeAvailable(glfw imgui ${_x11_repos})
+endif()
+
+# slangc 2026.19 (Apache-2.0 WITH LLVM-exception): prebuilt, BUILD-TIME TOOL ONLY (never linked or shipped). The release
+# archive is ~30 MB / ~200 MB unpacked, so it is downloaded to a scratch dir with a pinned SHA256, only slangc and the
+# libraries it loads are extracted (plus the license files), and the archive is deleted. Result: build/_deps/slang-bin/.
+# Override with -DNAPL_SLANGC=/path/to/slangc. Pins verified 2026-10-06; only the linux-x86_64 one has been run
+# (hfbox); the other layouts come from the archive listings.
+set(NAPL_SLANGC "" CACHE FILEPATH "slangc to use instead of the pinned download")
+if(NOT NAPL_SLANGC OR NOT EXISTS "${NAPL_SLANGC}")
+  set(_slang_ver 2026.19)
+  set(_slang_url https://github.com/shader-slang/slang/releases/download/v${_slang_ver})
+  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+    set(_slang_archive slang-${_slang_ver}-linux-x86_64-glibc-2.28.tar.gz)
+    set(_slang_sha256 bd7afcb0956dee9304f44ed115e9aaa7140704271b5c3294bcb237e3ae67adc7)
+    set(_slang_exe bin/slangc)
+    set(_slang_keep bin/slangc "lib/libslang-compiler.so*" LICENSE "LICENSES/*")
+  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(_slang_archive slang-${_slang_ver}-linux-aarch64-glibc-2.28.tar.gz)
+    set(_slang_sha256 f49229eb9606b47b122e1d8789be46a7bcd6bb2ffa94b06fae6d544a4e6df637)
+    set(_slang_exe bin/slangc)
+    set(_slang_keep bin/slangc "lib/libslang-compiler.so*" LICENSE "LICENSES/*")
+  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+    set(_slang_archive slang-${_slang_ver}-windows-x86_64.zip)
+    set(_slang_sha256 fc922f214b5d115f663932e59e80e0f6b6cc6fae140979cf307da6459b6f8f33)
+    set(_slang_exe bin/slangc.exe)
+    set(_slang_keep bin/slangc.exe bin/slang-compiler.dll LICENSE "LICENSES/*")
+  else()
+    message(FATAL_ERROR "No pinned slangc for ${CMAKE_HOST_SYSTEM_NAME}/${CMAKE_HOST_SYSTEM_PROCESSOR}: "
+                        "pass -DNAPL_SLANGC=/path/to/slangc or add a pin in cmake/deps.cmake")
+  endif()
+  set(_slang_dir ${FETCHCONTENT_BASE_DIR}/slang-bin)
+  if(NOT EXISTS ${_slang_dir}/${_slang_exe})
+    set(_slang_tmp ${FETCHCONTENT_BASE_DIR}/slang-download)
+    file(REMOVE_RECURSE ${_slang_tmp})
+    message(STATUS "Fetching slangc ${_slang_ver} (${_slang_archive})")
+    file(DOWNLOAD ${_slang_url}/${_slang_archive} ${_slang_tmp}/${_slang_archive}
+         EXPECTED_HASH SHA256=${_slang_sha256} STATUS _slang_st)
+    list(GET _slang_st 0 _slang_rc)
+    if(_slang_rc EQUAL 0)
+      file(ARCHIVE_EXTRACT INPUT ${_slang_tmp}/${_slang_archive} DESTINATION ${_slang_dir} PATTERNS ${_slang_keep})
+    endif()
+    file(REMOVE_RECURSE ${_slang_tmp})  # always: the archive must not stay in _deps
+    if(NOT _slang_rc EQUAL 0 OR NOT EXISTS ${_slang_dir}/${_slang_exe})
+      message(FATAL_ERROR "slangc fetch failed: ${_slang_st}")
+    endif()
+  endif()
+  set(NAPL_SLANGC ${_slang_dir}/${_slang_exe} CACHE FILEPATH "slangc to use instead of the pinned download" FORCE)
+endif()
 
 # Risk 2: mju_user_error handler throws a C++ exception through MuJoCo's C frames -> C needs unwind tables.
 if(NOT MSVC)

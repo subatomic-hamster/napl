@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/render.h"
 #include "core/replay.h"
 #include "core/solver.h"
 #include "flatbuffers/flatbuffers.h"
@@ -47,7 +48,14 @@ class World {
 
   std::vector<std::byte> save() const;                    // tick (8 bytes) + solver bytes
   void restore(std::span<const std::byte> bytes);         // throws on malformed input
-  World clone() const { return World(load_, solver_->clone(), tick_); }
+  World clone() const {
+    World c(load_, solver_->clone(), tick_);
+    c.render_ = render_;  // renders are pure reads; the hook serialises its own GPU use
+    return c;
+  }
+
+  // Installs the renderer used by Render commands (none: Render fails with solver_error "no renderer installed").
+  void set_render_hook(RenderHook h) { render_ = std::move(h); }
   std::uint64_t state_hash() const { return solver_->state_hash(); }
 
   World(Loader load, std::unique_ptr<Solver> s, std::uint64_t tick = 0)
@@ -65,6 +73,7 @@ class World {
 
  private:
   Loader load_;
+  RenderHook render_;
   std::unique_ptr<ReplayLog> log_;
   std::unique_ptr<Solver> solver_;
   std::uint64_t tick_ = 0;
@@ -78,6 +87,11 @@ std::string command_cap(std::string_view command);
 // JSON edge (agent-facing): strict parse of a napl.Envelope, execute, print the napl.Reply.
 // Malformed JSON / unknown fields yield a Reply with ok:false (message carries the parser text).
 std::string execute_json(World& w, std::string_view json, const Session& session);
+
+// Same, with the executor supplied (a Host routes it to its sim thread). `tick` is read only to fill the reply to
+// unparsable JSON.
+using EnvelopeExecutor = std::function<flatbuffers::DetachedBuffer(std::span<const std::uint8_t>)>;
+std::string execute_json(const EnvelopeExecutor& exec, const std::function<std::uint64_t()>& tick, std::string_view json);
 
 // Rebuilds a Solver from Solver::model_bytes().
 using BytesLoader = std::function<std::unique_ptr<Solver>(std::span<const std::byte>)>;
