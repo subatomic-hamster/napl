@@ -43,10 +43,15 @@ def pick(rows, want, why):
     return want
 
 
-def build_scratch(parts=PARTS) -> Design:
+def build_scratch(parts=PARTS, devices="auto", lib=None, leads=False):
+    """-> (design, autowire_all record). devices = "auto": the device bindings come from Design.auto_devices (fill = the
+    values no part carries); "hand": the ~100 lines of bind_devices below. lib = a Library to use instead of `parts` (an
+    in-memory copy); leads = the ports declare their `lead` (with_leads(lib)), so autowire sets included_in itself."""
     d = Design.new(
         "scratch-quad", parts, description="X500-class quad built from an empty design"
     )
+    if lib is not None:
+        d.lib = lib
     lib = d.lib
     # ---- 1. frame: the root plate, then everything snaps to its named open ports ------------------------------------
     plate = pick(
@@ -256,12 +261,9 @@ def build_scratch(parts=PARTS) -> Design:
     for iid, pid in CHIPS.items():
         d.add(pid, id=iid, offboard=True)
     d.add("matek-elrs-r24-s", id="rx", offboard=True)
-    # ---- 5. devices (before the wires: the DRC's current model then sizes every wire) ---------------------------------------
-    bind_devices(d)
-    # ---- 6. wiring: power by autowire_all; the motor leads and the four PWM channels are ambiguous by design (which motor
-    # is which channel is the caller's call), so autowire_all reports them as two decisions and does not guess -----------------
     # datasheet masses that already contain a lead (pack: 120 mm XT60 lead, PM02: pre-soldered leads + BEC cable, ESC: input
-    # cable + signal lead, motor: 150 mm phase leads, GPS: 26 cm cable, radio: its cable): those wires add no mass
+    # cable + signal lead, motor: 150 mm phase leads, GPS: 26 cm cable, radio: its cable): those wires add no mass. With
+    # leads=True the ports say so themselves (`lead`), and autowire sets included_in
     inc = {
         "bat.power_out": "bat",
         "pm02.power_out": "pm02",
@@ -270,10 +272,26 @@ def build_scratch(parts=PARTS) -> Design:
         "sik.telem": "sik",
         **{f"esc{k}.power_in": f"esc{k}" for k in ARM},
     }
-    r = d.autowire_all(included_in=inc).changes[0]
+    own = lambda k, who: {} if leads else {"included_in": who.format(k=k)}
+    if devices == "hand":
+        # ---- 5. devices (before the wires: the DRC's current model then sizes every wire) -----------------------------------
+        bind_devices(d)
+        # ---- 6. wiring: power by autowire_all; the motor leads and the four PWM channels are ambiguous by design (which motor
+        # is which channel is the caller's call), so autowire_all reports them as two decisions and does not guess ------------
+        r = d.autowire_all(included_in=None if leads else inc).changes[0]
+        for k in ARM:
+            d.autowire(f"mot{k}.phase", f"esc{k}.motor_out", **own(k, "mot{k}"))
+            d.autowire(f"fc.pwm{k}", f"esc{k}.signal", **own(k, "esc{k}"))
+        return d, r
+    # ---- 5. auto: the motor leads and PWM channels first (the ESC <-> motor pairing is what auto_devices reads), then the
+    # devices, then the power wires (the DRC's current model sizes them from the ESC devices), then auto_devices again for
+    # what needs the power wires (PM02 / PDB boards, avionics loads). Values no part carries are the `fill`.
     for k in ARM:
-        d.autowire(f"mot{k}.phase", f"esc{k}.motor_out", included_in=f"mot{k}")
-        d.autowire(f"fc.pwm{k}", f"esc{k}.signal", included_in=f"esc{k}")
+        d.autowire(f"mot{k}.phase", f"esc{k}.motor_out", **own(k, "mot{k}"))
+        d.autowire(f"fc.pwm{k}", f"esc{k}.signal", **own(k, "esc{k}"))
+    d.auto_devices(fill=FILL)
+    r = d.autowire_all(included_in=None if leads else inc).changes[0]
+    d.auto_devices()  # nothing to fill again: the first call's fill is carried
     return d, r
 
 
@@ -284,6 +302,83 @@ CHIPS = {
     "gnss_chip": "ublox-neo-m8n",
 }
 REF = "same value as assemblies/x500v2.toml (the reference this build is compared with)"
+# What no part carries (the `fill` of auto_devices; the hand variant writes the same values into its bindings)
+THERMAL = {
+    "motor.c_th": est(
+        25.6, "J/K", "whole 64 g motor at ~0.4 J/(g K); no vendor value. " + REF
+    ),
+    "motor.r_th": derived(
+        0.962,
+        "K/W",
+        "(80 degC vendor surface - 25 degC ambient) / (I_m^2 R(80 degC)) of the napl bench fit; "
+        + REF,
+    ),
+}
+CQ_REF = derived(
+    0.005794,
+    "1",
+    "C_Q(J=0) of the T1045II from the 2216 thrust-stand fit (napl bench); " + REF,
+)
+K_H = est(0.0, "kg", "no H-force data for the T1045II: term off. " + REF)
+RATE = {
+    "imu": est(500.0, "Hz", "every 2nd tick of the 1 ms step"),
+    "baro": est(50.0, "Hz", "every 20th tick; MS5611 OSR 4096 converts in 8.2 ms"),
+    "mag": est(100.0, "Hz", "IST8310 ODR 1-200 Hz; mid value"),
+}
+EARTH = derived(
+    [1.294e-6, 2.1756e-5, -4.3027e-5],
+    "T",
+    "WMM field at 47.3769 N, 8.5417 E (the origin PX4 assumes): H = 21.795 uT, decl 3.40 deg, incl 63.14 deg; "
+    + REF,
+)
+SITE = {
+    "latency_s": est(0.2, "s", "no published output latency; one 5 Hz sample"),
+    "lat0": est(
+        47.3769,
+        "deg",
+        "arbitrary simulation origin (Zurich, as tests/data/devices/all.xml)",
+    ),
+    "lon0": est(8.5417, "deg", "as lat0"),
+    "alt0": est(408.0, "m", "as lat0"),
+    "corr_time_s": est(
+        600.0, "s", "slowly varying GNSS error, minutes (literature range)"
+    ),
+    "corr_frac": est(
+        0.9, "1", "share of the variance that is the Gauss-Markov part; estimate"
+    ),
+}
+# `lead` on a port (parts/README.md): the connector sits on a lead whose mass is inside the part's datasheet mass; length / awg
+# name params of the same part. No part file carries it yet: the tests declare it on an in-memory copy of the library.
+LEADS = {
+    "tattu-4s-5200mah-35c": {
+        "power_out": {"length": "discharge_wire_length", "awg": "discharge_wire_awg"}
+    },
+    "holybro-pm02-v3": {"power_out": {}, "fc_power": {}},
+    "holybro-m8n-gps": {"gps_out": {"length": "cable_length"}},
+    "holybro-sik-telemetry-radio-v3": {"telem": {}},
+    "holybro-x500v2-esc-blheli-s-20a": {"power_in": {}, "signal": {}},
+    "holybro-2216-kv920": {"phase": {"length": "cable_length"}},
+}
+
+
+def with_leads(lib):
+    """The library (modified in place: pass a fresh Library) with LEADS declared on the ports."""
+    for pid, ports in LEADS.items():
+        for p in lib.get(pid).ports:
+            if p["name"] in ports:
+                p["lead"] = ports[p["name"]]
+    return lib
+
+
+FILL = {
+    "esc*": {"set": THERMAL},
+    "rotor*": {"cq_ref": CQ_REF, "set": {"k_h": K_H}},
+    "imu": {"set": {"rate_hz": RATE["imu"]}},
+    "baro": {"set": {"rate_hz": RATE["baro"]}},
+    "mag": {"set": {"rate_hz": RATE["mag"], "earth_field": EARTH}},
+    "gnss": {"set": SITE},
+    "environment": {"set": {"w20": est(0.0, "m/s", "calm air: turbulence off")}},
+}
 
 
 def bind_devices(d):
@@ -385,19 +480,7 @@ def bind_devices(d):
             motor=f"mot{k}",
             joint=f"spin{k}",
             map="esc2216",
-            set={
-                "motor.c_th": est(
-                    25.6,
-                    "J/K",
-                    "whole 64 g motor at ~0.4 J/(g K); no vendor value. " + REF,
-                ),
-                "motor.r_th": derived(
-                    0.962,
-                    "K/W",
-                    "(80 degC vendor surface - 25 degC ambient) / (I_m^2 R(80 degC)) of the napl bench fit; "
-                    + REF,
-                ),
-            },
+            set=THERMAL,
         )
         bind(
             type="rotor",
@@ -409,17 +492,8 @@ def bind_devices(d):
             dir=-1 if REVERSE[k] else 1,
             ground_effect=True,
             reynolds=True,
-            cq_ref=derived(
-                0.005794,
-                "1",
-                "C_Q(J=0) of the T1045II from the 2216 thrust-stand fit (napl bench); "
-                + REF,
-            ),
-            set={
-                "k_h": est(
-                    0.0, "kg", "no H-force data for the T1045II: term off. " + REF
-                )
-            },
+            cq_ref=CQ_REF,
+            set={"k_h": K_H},
         )
     bind(
         type="imu",
@@ -427,7 +501,7 @@ def bind_devices(d):
         instance="icm",
         site="fc",
         map="icm42688",
-        set={"rate_hz": est(500.0, "Hz", "every 2nd tick of the 1 ms step")},
+        set={"rate_hz": RATE["imu"]},
     )
     bind(
         type="baro",
@@ -435,11 +509,7 @@ def bind_devices(d):
         instance="baro_chip",
         site="fc",
         map="ms5611",
-        set={
-            "rate_hz": est(
-                50.0, "Hz", "every 20th tick; MS5611 OSR 4096 converts in 8.2 ms"
-            )
-        },
+        set={"rate_hz": RATE["baro"]},
     )
     bind(
         type="mag",
@@ -447,15 +517,7 @@ def bind_devices(d):
         instance="mag_chip",
         site="gps",
         map="ist8310",
-        set={
-            "rate_hz": est(100.0, "Hz", "IST8310 ODR 1-200 Hz; mid value"),
-            "earth_field": derived(
-                [1.294e-6, 2.1756e-5, -4.3027e-5],
-                "T",
-                "WMM field at 47.3769 N, 8.5417 E (the origin PX4 assumes): H = 21.795 uT, decl 3.40 deg, incl 63.14 deg; "
-                + REF,
-            ),
-        },
+        set={"rate_hz": RATE["mag"], "earth_field": EARTH},
     )
     bind(
         type="gnss",
@@ -464,26 +526,11 @@ def bind_devices(d):
         site="gps",
         map="m8n",
         set={
-            "latency_s": est(0.2, "s", "no published output latency; one 5 Hz sample"),
-            "lat0": est(
-                47.3769,
-                "deg",
-                "arbitrary simulation origin (Zurich, as tests/data/devices/all.xml)",
-            ),
-            "lon0": est(8.5417, "deg", "as lat0"),
-            "alt0": est(408.0, "m", "as lat0"),
+            **SITE,
             "horiz_std": derived(
                 2.1233, "m", "2.5 m CEP / 1.17741 = 2.1233 m per coordinate"
             ),
             "vert_std": derived(3.185, "m", "1.5 x horiz_std"),
-            "corr_time_s": est(
-                600.0, "s", "slowly varying GNSS error, minutes (literature range)"
-            ),
-            "corr_frac": est(
-                0.9,
-                "1",
-                "share of the variance that is the Gauss-Markov part; estimate",
-            ),
         },
     )
     bind(
@@ -513,7 +560,14 @@ def _batteries(d):
 # ---- checks ---------------------------------------------------------------------------------------------------------------------
 @pytest.fixture(scope="module")
 def scratch():
+    """The quad with its device bindings from Design.auto_devices (the default build)."""
     return build_scratch()
+
+
+@pytest.fixture(scope="module")
+def scratch_hand():
+    """The same quad with the hand-written bindings (bind_devices): the ~100 lines auto_devices replaces."""
+    return build_scratch(devices="hand")
 
 
 def _codes(findings, sev):
@@ -545,8 +599,10 @@ def test_built_from_empty_with_no_toml_and_drc_has_no_errors(scratch):
     )  # autowire_all's nine + four motor leads + four PWM channels
 
 
-def test_autowire_all_reports_each_ambiguous_decision_once(scratch):
-    _, r = scratch
+def test_autowire_all_reports_each_ambiguous_decision_once(scratch_hand):
+    _, r = (
+        scratch_hand  # (the auto sequence wires the motor leads and PWM channels first, so nothing is left ambiguous)
+    )
     assert [(x["ports"], x["candidates"]) for x in r["ambiguous"]] == [
         ([f"esc{k}.motor_out" for k in ARM], [f"mot{k}.phase" for k in ARM]),
         ([f"esc{k}.signal" for k in ARM], [f"fc.pwm{k}" for k in ARM]),
@@ -624,12 +680,32 @@ def test_save_and_reload_give_the_identical_drc(scratch, tmp_path):
     assert design.load(p) == d.asm
 
 
+def test_the_auto_devices_are_generated_bindings_with_nothing_left_unset(scratch):
+    d, _ = scratch
+    devs = d.doc["devices"]
+    assert devs and all(b.get("auto") for b in devs)
+    assert {b["type"] for b in devs} == {
+        "battery", "wire", "load", "esc", "rotor", "imu", "baro", "mag", "gnss", "environment",
+    }  # fmt: skip
+    again = d.auto_devices().changes[
+        0
+    ]  # idempotent: every binding unchanged, the fill was carried
+    assert again["summary"] == {
+        "created": 0, "refreshed": 0, "unchanged": len(devs), "kept": 0, "removed": 0, "unset": 0,
+    }, again["summary"]  # fmt: skip
+    d.undo()  # (leave the module-scoped design as it was)
+
+
 @pytest.fixture(scope="module")
-def numbers(scratch, tmp_path_factory):
+def numbers(scratch, scratch_hand, tmp_path_factory):
     d, _ = scratch
     ref = Design.open(X500)
     out = {}
-    for name, des in (("scratch", d), ("x500v2", ref)):
+    for name, des in (
+        ("scratch", d),
+        ("hand", scratch_hand[0]),
+        ("x500v2", ref),
+    ):
         r = des.simulate("hover", out=tmp_path_factory.mktemp(name))
         rep = des.build(tmp_path_factory.mktemp(name + "-b"))["report"]
         wires = sum(w["mass"] or 0.0 for w in rep["wires"] if not w["included_in"])
@@ -641,7 +717,7 @@ def numbers(scratch, tmp_path_factory):
 def test_hover_passes_and_matches_the_reference_assembly(numbers):
     s, x = numbers["scratch"], numbers["x500v2"]
     print()
-    for k in ("scratch", "x500v2"):
+    for k in ("scratch", "hand", "x500v2"):
         n = numbers[k]
         print(
             f"{k:8s} mass {n['mass']:.4f} kg (wires counted {n['wire_mass'] * 1000:.1f} g)  hover current "
@@ -653,3 +729,13 @@ def test_hover_passes_and_matches_the_reference_assembly(numbers):
     # every wire from the DRC current (AWG 8 pack lead, the reference's is AWG 10) and carries a receiver (3 g, offboard here)
     assert abs(s["mass"] / x["mass"] - 1) < 0.01
     assert abs(s["sim"]["hover_current_A"] / x["sim"]["hover_current_A"] - 1) < 0.01
+
+
+@needs_kernel
+def test_the_hand_bound_variant_hovers_like_the_auto_one(numbers):
+    """bind_devices (the hand-written bindings) is kept as one variant: it hovers within 1 % of the reference, and the
+    auto_devices build agrees with it (same values, derived instead of typed)."""
+    h, s, x = numbers["hand"], numbers["scratch"], numbers["x500v2"]
+    assert h["sim"]["pass"], h["sim"]
+    assert abs(h["sim"]["hover_current_A"] / x["sim"]["hover_current_A"] - 1) < 0.01
+    assert abs(s["sim"]["hover_current_A"] / h["sim"]["hover_current_A"] - 1) < 0.005

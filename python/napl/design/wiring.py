@@ -376,17 +376,83 @@ def _probe(d, doc, st, world, f, t, kind, forced_len):
     return spec, dist
 
 
+def _lead(d, doc, lead) -> dict:
+    """Resolve a port's `lead` = {length?, awg?} (each a param name of the part, or a provenance table) ->
+    {inst, what, length (reference string / table or None), length_m, awg, wire (library wire part with that awg, or None)}."""
+    iid, port = lead
+    part = d._part(d._inst(doc, iid)["part"])
+    spec = port["lead"] if isinstance(port["lead"], dict) else {}
+    what = f"lead of {iid}.{port['name']}"
+
+    def val(x, what_):
+        if isinstance(x, str):
+            if part.value(x) is None:
+                raise DesignError(
+                    f"{part.id} port {port['name']}: lead.{what_} names param '{x}', which the part does not have"
+                )
+            return part.value(x)
+        return x.get("value") if isinstance(x, dict) else None
+
+    ln, awg = spec.get("length"), spec.get("awg")
+    n = val(awg, "awg") if awg is not None else None
+    wire = next(
+        (p for p in d.lib.by_category("wire") if n is not None and p.value("awg") == n),
+        None,
+    )
+    return {
+        "inst": iid,
+        "what": what,
+        "length": f"{iid}.{ln}" if isinstance(ln, str) else ln,
+        "length_m": val(ln, "length") if ln is not None else None,
+        "awg": n,
+        "wire": wire.id if wire else None,
+    }
+
+
 def _finish(d, doc, st, rec, current, forced_part, forced_len):
     """Size the probe wire of `rec` in place: part, length, connectors; -> the reasons dict."""
     w, kind = rec["wire"], rec["kind"]
     pk, sus = current if current else (None, None)
     need = max(pk or 0.0, sus or 0.0) or None
-    part, why_part = choose_wire(d, need, kind, forced_part)
-    if current is None and kind == POWER:
+    rated = None
+    if (
+        need is None and kind == POWER
+    ):  # no ESC device yet: a phase lead carries up to the weaker end's rating
+        r = [
+            _num(p.get("i_max"))
+            for _, p in (rec["f"], rec["t"])
+            if p.get("type") == "motor-3phase"
+        ]
+        rated = min((x for x in r if x), default=None)
+        need = rated
+    lead = _lead(d, doc, rec["lead"]) if rec.get("lead") else None
+    lead_part = forced_part is None and lead and lead["wire"]
+    part, why_part = choose_wire(d, need, kind, forced_part or lead_part)
+    if lead_part:
+        why_part = f"{lead['what']} awg {lead['awg']:g}: {part.id}"
+    if rated:
+        why_part += f"; no ESC device yet, so sized for the motor-3phase port rating {rated:g} A (re-run autowire after auto_devices to size from the DRC model)"
+    elif current is None and kind == POWER:
         why_part += "; the wire is in a net with no source yet, so no current is modelled: re-run autowire / swap the wire part after the source is wired"
     reasons = {"part": why_part}
+    if lead:
+        reasons["included_in"] = (
+            f"{lead['what']}: the wire is a lead inside {lead['inst']}'s datasheet mass"
+        )
     w["part"] = part.id
-    if forced_len is None:
+    if forced_len is None and lead and lead["length"] is not None:
+        w["length"] = lead["length"]
+        reasons["length"] = f"the length of {lead['what']}"
+        if (
+            lead["length_m"]
+            and rec["dist"]
+            and rec["dist"] * ROUTING_FACTOR > lead["length_m"]
+        ):
+            reasons["warning"] = (
+                f"the lead ({lead['length_m']:g} m) is shorter than the routed run ({rec['dist'] * ROUTING_FACTOR:.3f} m): "
+                "the rest of the run is not modelled"
+            )
+    elif forced_len is None:
         n, deriv = wire_length(part, rec["dist"])
         w["length"] = {
             "value": n,
@@ -591,6 +657,10 @@ def _run(d, doc, pairs, kind, forced_part, forced_len, many, included_in=None):
                 None,
             )
         )
+        # a port that declares `lead` (parts/README.md) carries its own wire: that wire is already inside the part's mass
+        lead = next(((i, p) for i, p in (f, t) if p.get("lead") is not None), None)
+        if lead and not inc:
+            inc = lead[0]
         if inc:
             d._inst(doc, inc)
             spec["included_in"] = inc
@@ -604,6 +674,7 @@ def _run(d, doc, pairs, kind, forced_part, forced_len, many, included_in=None):
                 "dist": dist,
                 "note": note,
                 "a": a,
+                "lead": lead,
             }
         )
         done |= {(ia, pn), (ti, tn)}

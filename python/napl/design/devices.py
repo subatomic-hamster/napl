@@ -107,6 +107,7 @@ RESERVED = {
     "cells",
     "reynolds",
     "cq_ref",
+    "auto",  # written by Design.auto_devices: this binding is regenerated from the parts
 }
 MAX_NODES = 32
 VEHICLE_GROUP = 4  # MJCF geom group of every vehicle geom; the floor stays in group 0

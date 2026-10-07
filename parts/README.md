@@ -88,6 +88,23 @@ gender = "female"
 level = { value = 5.0, unit = "V", src = "S1", fidelity = "datasheet" }
 ```
 
+**Lead flag (`lead`, power / signal ports).** A part whose datasheet mass already includes a cable permanently attached to a port
+(the pack's XT60 lead, a motor's phase leads, a GPS cable) marks that port machine-readably:
+
+```toml
+[[ports]]
+name = "power_out"
+kind = "power"
+# ...
+lead = { length = "discharge_wire_length", awg = "discharge_wire_awg" }   # both optional; `lead = {}` = flag only
+```
+
+`length` / `awg` are each either the name of a numeric param of the same part (preferred: it keeps the provenance) or an inline
+provenance table `{ value, unit, fidelity, ... }`; a param name the part lacks is an error at autowire time. Effect: `autowire` /
+`autowire_all` set `included_in` to that instance on any wire ending on the port (no `included_in` argument needed), use the lead's
+length instead of the routed one (warning when the routed run is longer), and, when `awg` is given and the library has a wire part
+with that `awg`, use that wire. Only mark a port whose cable mass really is inside the part's `mass`.
+
 Every `mech` port must have `ref` (unit vector perpendicular to `axis`) and `symmetry` (integer >= 1); `tools/check_parts.py`
 enforces it, because snapping needs both. Round shafts (`shaft.<d>`, `prop_adapter`) are axisymmetric: `symmetry = 360`, any
 `ref`. Prop hubs (`bore.<d>`): `ref` along a blade, `symmetry = 1` (the prop spins freely, the builder uses a hinge).

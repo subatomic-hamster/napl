@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from . import assembly as A
+from . import auto_devices as AD
 from . import wiring as W
 from .build import build as _build
 from .build import compute as _compute
@@ -1198,6 +1199,25 @@ class Design:
                             f"device '{d['name']}' {key} = '{pn}': {new.id} has no such port"
                         )
         ch["dangling"] += self._dangling(doc, iid, new)
+        # device bindings whose numbers came from the part that was replaced
+        ch["stale_devices"] = AD.stale(doc, iid)
+        if s.get(
+            "auto"
+        ):  # regenerate the generated bindings in this same edit (explicit ones only with overwrite)
+            ow = (
+                [x["device"] for x in ch["stale_devices"]]
+                if s.get("overwrite")
+                else False
+            )
+            ch["auto_devices"] = AD.auto_devices(
+                self, doc, {"overwrite": ow, "fill": s.get("fill")}
+            )
+        elif ch["stale_devices"] or any(d.get("auto") for d in doc.get("devices", [])):
+            ch["auto_devices_offer"] = {
+                "op": "auto_devices",
+                "note": "re-derives the generated bindings from the new part (hand-written ones are kept; "
+                "overwrite = [device names] replaces them); unset fields are reported, never invented",
+            }
         return ch
 
     @staticmethod
@@ -1290,6 +1310,7 @@ class Design:
             "target": self._op_target,
             "autowire": lambda doc, s: W.autowire(self, doc, s),
             "autowire_all": lambda doc, s: W.autowire_all(self, doc, s),
+            "auto_devices": lambda doc, s: AD.auto_devices(self, doc, s),
         }
         before = self.findings()
         snap = copy.deepcopy(self.doc)
@@ -1351,8 +1372,42 @@ class Design:
     def remove(self, id) -> EditResult:
         return self.edit([{"op": "remove", "id": id}])
 
-    def swap(self, id, new_part) -> EditResult:
-        return self.edit([{"op": "swap", "id": id, "part": new_part}])
+    def swap(self, id, new_part, auto=False, overwrite=False, fill=None) -> EditResult:
+        """Replace the part of instance `id`. The change record lists `stale_devices` (bindings that name the instance).
+        auto = True also regenerates the generated device bindings in the same edit (`changes[0].auto_devices`);
+        overwrite = True lets that replace the stale hand-written ones too; fill = auto_devices' fill."""
+        return self.edit(
+            [
+                {
+                    "op": "swap",
+                    "id": id,
+                    "part": new_part,
+                    "auto": auto,
+                    "overwrite": overwrite,
+                    "fill": fill,
+                }
+            ]
+        )
+
+    def auto_devices(
+        self, scope=None, overwrite=False, fill=None, ocv=None
+    ) -> EditResult:
+        """Derive the device bindings the parts + topology imply (auto_devices.py). scope = instance id(s) (default: all);
+        overwrite = True | [device names]: replace hand-written bindings too (generated ones are always regenerated);
+        fill = {device-name glob: {"set": {field: provenance table}, binding field: value}} for what no part carries;
+        ocv = the OCV curve part for LiPo packs. The change record lists created / refreshed / unchanged / kept / removed,
+        and `unset`: the fields no part provides (never invented)."""
+        return self.edit(
+            [
+                {
+                    "op": "auto_devices",
+                    "scope": scope,
+                    "overwrite": overwrite,
+                    "fill": fill,
+                    "ocv": ocv,
+                }
+            ]
+        )
 
     def mate(self, a, b, k=None, joint=None, fasteners="auto", **kw) -> EditResult:
         return self.edit(

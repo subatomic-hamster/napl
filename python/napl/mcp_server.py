@@ -180,6 +180,10 @@ FASTENERS = {
 }
 
 
+# auto_devices fill: {device-name glob: {"set": {field: provenance table}, binding field: value}}
+FILL = {"type": "object", "additionalProperties": {"type": "object"}}
+
+
 def _op(name: str, props: dict, required=()) -> dict:
     return _obj({"op": {"const": name}, **props}, ["op", *required])
 
@@ -211,6 +215,9 @@ EDIT_OPS = [
         {
             "id": {"anyOf": [_S, {"type": "array", "items": _S, "minItems": 1}]},
             "part": _S,
+            "auto": {"type": "boolean"},
+            "overwrite": {"type": "boolean"},
+            "fill": FILL,
         },
         ["id", "part"],
     ),
@@ -271,6 +278,17 @@ EDIT_OPS = [
     ),
     _op("device", {"device": {"type": "object"}}, ["device"]),
     _op(
+        "auto_devices",
+        {
+            "scope": {"anyOf": [_S, {"type": "array", "items": _S, "minItems": 1}]},
+            "overwrite": {
+                "anyOf": [{"type": "boolean"}, {"type": "array", "items": _S}]
+            },
+            "fill": FILL,
+            "ocv": _S,
+        },
+    ),
+    _op(
         "target",
         {
             "name": _S,
@@ -321,6 +339,11 @@ DESIGN_TOOLS = {
         "rated for the DRC's worst-case current x 1.2, length = port distance x 1.3 rounded up, mating connectors "
         "pinned; the reasons are in changes[].reasons; autowire_all {kind?}: every open port with one sensible target; "
         "changes[] lists wired / ambiguous (not guessed) / unmatched; "
+        "auto_devices {scope?, overwrite?, fill?, ocv?}: derive the simulation device bindings from the parts and the "
+        "topology (battery, ESC + motor, rotor + prop with spin direction, servos, power boards, avionics loads, sensors); "
+        "generated bindings are regenerated, hand-written ones kept unless overwrite; fields no part carries are listed "
+        "under `unset` (supply them with fill = {device glob: {set: {field: provenance table}}}); swap {id, part, auto?} "
+        "lists stale_devices and with auto = true refreshes the generated bindings in the same edit; "
         "set {id, param, value, unit, fidelity, src+quote | derivation | rationale}. Numbers rule: a bare "
         "number is refused; use a provenance table. Returns what changed and the DRC delta (new / resolved / changed "
         "findings).",

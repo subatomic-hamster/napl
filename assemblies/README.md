@@ -328,11 +328,36 @@ power ports the DRC would call floating (not source-role, no wire on their node)
 over unfed non-source power ports with no wire of their own, taking tier-0 targets only (the PM02 the battery just reached now feeds the
 PDB). It returns `wired`, `ambiguous`, `unmatched`. `ambiguous` has ONE entry per decision, `{ports, candidates, why}`: reports that
 share a port or a candidate are the same choice seen from both sides (4 ESC signal ports x 4 PWM channels is one entry, not eight). A
-lead that a datasheet mass already contains (the pack's XT60 lead, a motor's phase leads) must not weigh twice: `autowire(..., included_in
-= "inst")` or `autowire_all(included_in = {"bat.power_out": "bat", ...})` (a wire ending on that port) sets the wire's `included_in`.
+lead that a datasheet mass already contains (the pack's XT60 lead, a motor's phase leads) must not weigh twice: a port carrying the
+machine-readable `lead = {length?, awg?}` flag (parts/README.md) makes `autowire` / `autowire_all` set the wire's `included_in` to its
+instance and use the lead's own length and gauge, with no argument; `autowire(..., included_in = "inst")` or
+`autowire_all(included_in = {"bat.power_out": "bat", ...})` still sets it for ports without the flag.
 Limits: no typed (connector-terminated) cable parts are chosen, only `wire-lead` wires; wiring into a net with no source yet sizes for the
-floor (the reason says so; bind the esc / battery devices first, the DRC current model then sizes every wire); `included_in` is only
-set when the caller says so (no part file marks its own leads machine-readably).
+floor (the reason says so; run `auto_devices` first, the DRC current model then sizes every wire).
+
+**Devices from parts (`auto_devices(scope=None, overwrite=False, fill=None, ocv=None)`, op `auto_devices`).** Writes the `[[devices]]`
++ `[device_maps]` a part swap would otherwise need hand-edited, from parts and topology; every bound field is a map entry to a part
+param (so provenance is the part's own), every computed value is a `set` table with `derivation` / `rationale`; generated bindings
+carry `auto = true`. Rules: battery = pack params (cells, capacity, R0, Thevenin RC) + the OCV table (`ocv`, default
+`lipo-cell-ocv-chen2006`); ESC device = ESC part + the motor on its `motor_out` wire + the prop on that motor's shaft mate (rotor
+table from the prop's `ct_cq_j`, else a one-point static table; `dir` from the world joint axis so that dir x axis points +z); servo
+= servo part on its arm joint (no-load point nearest the bus voltage); PSU / PM02 / PDB internal drop from `r_series` / `r_path`;
+avionics = constant-current loads on the battery side of the BEC; imu / baro / mag / gnss from the FC / GPS parts (host board
+fixed by part). The wire R is gauge x length (the DRC / `wire` devices). A value no part carries (motor `c_th` / `r_th`, sensor
+`rate_hz`, GNSS `lat0` / `lon0` / `alt0`, a servo `pid_scale`, the servo-bus adapter resistance ...) stays unset and is listed in
+the record's `unset` (`[{device, fields}]`); the binding is still written so the DRC works, the sim says what is missing. Supply
+them with `fill = {"esc*": {"set": {"motor.c_th": {value, unit, fidelity, rationale}}}}` (fnmatch on device names; filled values
+persist across regeneration as `carried`). Existing explicit (hand-written) bindings win; `overwrite = true` (or a list of device
+names) replaces them. Idempotent: the record has `created / refreshed / unchanged / kept / removed / unset / notes`. Stripped of
+their device sections, x500v2 / aos5 / so101 / koch reproduce the reference bindings exactly except for the documented rules in
+`tests/python/test_design_devices_auto.py` (`DIFFS`: bench-fit `cq_ref`, rounded literals, LeRobot gains, estimates only the
+reference makes).
+
+**Swap and devices.** `swap` adds `stale_devices` to its change record: bindings naming the swapped instance (`generated` says
+whether `auto_devices` wrote it). A hand-written binding is named, not touched; an `auto_devices_offer` is attached. `swap(...,
+auto=True, overwrite=False, fill=None)` runs `auto_devices` in the same edit (record under `auto_devices`; `overwrite = true`
+also replaces the stale hand-written bindings of that instance), so undo reverts both. After swapping a motor the values filled for the
+old one (`c_th`, `r_th`) are carried over and reported: they describe the old motor.
 
 **From an empty design (`tests/python/test_design_scratch.py`).** `Design.new(name, parts=None, base="free")` has no instances and
 nothing to check; `add(part, root=True)` places the frame (one root, never `to`, never offboard) and every other `add` before it is
