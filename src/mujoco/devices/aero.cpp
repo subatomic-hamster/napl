@@ -3,8 +3,9 @@
 // torque (joint-internal, electrical) and the aero torque (external, on the rotor body) stay distinct.
 //
 // Fidelity notes:
-//  - Rotor: steady-state C_T(J), C_Q(J) tables (quasi-static: no inflow dynamics, no blade flapping, no Reynolds / Mach
-//    dependence, no tip-vortex or wake interaction between rotors). Thrust and aero torque are evaluated from the
+//  - Rotor: steady-state C_T(J), C_Q(J) tables (quasi-static: no inflow dynamics, no blade flapping, no Mach dependence,
+//    no tip-vortex or wake interaction between rotors). Reynolds dependence only when the optional re_x / re_ft / re_fq
+//    tables are given: C *= f(x), x = |n| D^2 (docs/models.md). Thrust and aero torque are evaluated from the
 //    state at the start of the tick (rotor speed, CoM velocity). Below |n| = 1e-9 rev/s J is set to 0 (static values).
 //  - Reverse spin: thrust reverses (T ~ sign(dir w) n^2), J is measured in the thrust direction, and the same C_T, C_Q
 //    tables are used mirrored; a real propeller's reverse-flow performance differs and is not modelled.
@@ -153,8 +154,14 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
       }
     }
     const double d4 = c.diameter * c.diameter * c.diameter * c.diameter;
-    const double thrust = s_dir * interp(c.j, c.ct, adv) * rho * n * n * d4 * ge;
-    const double q_aero = interp(c.j, c.cq, adv) * rho * n * n * d4 * c.diameter;
+    double ft = 1.0, fq = 1.0;  // Reynolds factors (off: exactly 1, results bitwise unchanged)
+    if (!c.re_x.empty()) {
+      const double x = an * c.diameter * c.diameter;
+      ft = interp(c.re_x, c.re_ft, x);
+      fq = interp(c.re_x, c.re_fq, x);
+    }
+    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge;
+    const double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter;
     double* xf = d->xfrc_applied + 6 * c.bid;
     for (int i = 0; i < 3; ++i) {
       xf[i] += thrust * ax[i] - c.k_h * std::abs(w) * vperp[i];

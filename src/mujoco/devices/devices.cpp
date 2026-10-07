@@ -98,8 +98,12 @@ void node_ok(int node, const std::string& dev, int lo = 1) {
   if (node < lo || node > kMaxNodes) fail(dev, "node must be in [" + std::to_string(lo) + ", " + std::to_string(kMaxNodes) + "]");
 }
 MotorCfg motor_of(const fb::MotorParams* mp, const std::string& dev) {  // Esc and Servo
-  const MotorCfg c{mp->kv(), mp->r20(), mp->i0(), mp->rotor_inertia(), mp->w_s(), mp->c_th(), mp->r_th(), mp->t_amb(),
-                   mp->alpha()};
+  MotorCfg c{mp->kv(), mp->r20(), mp->i0(), mp->rotor_inertia(), mp->w_s(), mp->c_th(), mp->r_th(), mp->t_amb(),
+             mp->alpha()};
+  c.i0_w = mp->i0_w(); c.i0_visc = mp->i0_visc(); c.i0_quad = mp->i0_quad();
+  need(std::isfinite(c.i0_w) && c.i0_w >= 0 && c.i0_visc >= 0 && c.i0_quad >= 0 && c.i0_visc + c.i0_quad <= 1.0 &&
+           (c.i0_visc + c.i0_quad == 0 || c.i0_w > 0),
+       dev, "motor i0_visc, i0_quad >= 0 with sum <= 1, and i0_w > 0 when either is set");
   need(c.kv > 0 && c.r20 > 0 && c.inertia > 0 && c.w_s > 0 && c.c_th > 0 && c.r_th > 0, dev,
        "motor kv, r20, rotor_inertia, w_s, c_th, r_th must be > 0");
   need(c.i0 >= 0 && std::isfinite(c.t_amb) && c.alpha >= 0, dev, "motor i0 and alpha must be >= 0, t_amb finite");
@@ -263,6 +267,17 @@ Devices parse(const std::string& json) {
       for (std::size_t k = 0; k < c.j.size(); ++k) {
         need(std::isfinite(c.j[k]) && std::isfinite(c.ct[k]) && std::isfinite(c.cq[k]), n, "j / ct / cq must be finite");
         need(k == 0 || c.j[k] > c.j[k - 1], n, "j must be strictly increasing");
+      }
+      if (r->re_x()) c.re_x.assign(r->re_x()->begin(), r->re_x()->end());
+      if (r->re_ft()) c.re_ft.assign(r->re_ft()->begin(), r->re_ft()->end());
+      if (r->re_fq()) c.re_fq.assign(r->re_fq()->begin(), r->re_fq()->end());
+      need(c.re_x.size() == c.re_ft.size() && c.re_x.size() == c.re_fq.size(), n,
+           "re_x / re_ft / re_fq must be equal-length (or all empty = off)");
+      for (std::size_t k = 0; k < c.re_x.size(); ++k) {
+        need(std::isfinite(c.re_x[k]) && c.re_x[k] > 0 && std::isfinite(c.re_ft[k]) && c.re_ft[k] > 0 &&
+                 std::isfinite(c.re_fq[k]) && c.re_fq[k] > 0,
+             n, "re_x, re_ft, re_fq must be finite and > 0");
+        need(k == 0 || c.re_x[k] > c.re_x[k - 1], n, "re_x must be strictly increasing");
       }
       c.k_h = r->k_h();
       need(c.k_h >= 0 && std::isfinite(c.k_h), n, "k_h must be >= 0");
@@ -594,7 +609,7 @@ namespace {
 template <class S>
 void drive_motor(const MotorCfg& mc, mjModel* m, mjData* d, int dof, double n, double eta, bool open, S& s, double dt) {
   const double kt = mc.ke(), r = mc.r_at(s.temp);
-  const double fric = kt * mc.i0 * std::tanh(s.omega / mc.w_s);
+  const double fric = mc.loss(s.omega);
   const double dq = d->qvel[dof];  // dof_damping was 0 in step1: add the whole -b*qvel to the passive force arrays
   const double tau_m = kt * s.i_m - fric;
   const double g = std::tanh(s.omega / mc.w_s) * (tau_m > 0 ? 1.0 : tau_m < 0 ? -1.0 : 0.0);  // > 0: motor delivers power

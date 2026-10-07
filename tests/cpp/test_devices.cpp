@@ -1566,3 +1566,76 @@ TEST(devices, all_bus_log_and_replay) {
   EXPECT_EQ(r.state_hash(), w.state_hash());
   EXPECT_NE(w.state_hash(), load("all.xml")->state_hash());
 }
+
+// ======== N4b: Reynolds factor of the rotor, speed-dependent motor loss ========
+// (r1) re tables: interpolation inside the table, clamping outside, and the diameter scaling x = |n| D^2 (a prop of half
+// the diameter at 4x the speed sits at the same x, so it gets the same factor). T = C_T f_T rho n^2 D^4, Q = C_Q f_Q rho n^2 D^5.
+TEST(devices, rotor_reynolds_factor_table_and_diameter_scaling) {
+  const double rho = isa(1.0), d_small = 0.127;
+  struct Pt { double x, ft, fq; };
+  // fixture: x = {1, 2, 4}, f_T = {0.9, 1.0, 1.2}, f_Q = {1.0, 1.0, 0.8}
+  for (const Pt& p : {Pt{1.5, 0.95, 1.0}, Pt{3.0, 1.1, 0.9}, Pt{0.5, 0.9, 1.0}, Pt{10.0, 1.2, 0.8}}) {
+    auto s = load("rotor_re.xml");
+    const double n1 = p.x / (kD * kD), n2 = p.x / (d_small * d_small);  // same x on both rotors
+    put_ok(*s, "/world/carrier/rotor/shaft", "qvel", 2 * kPi * n1);
+    put_ok(*s, "/world/carrier/rotor2/shaft2", "qvel", 2 * kPi * n2);
+    ASSERT_EQ(s->step(1), 1);
+    EXPECT_LT(rel(get(*s, "/devices/prop", "thrust"), 0.1 * p.ft * rho * n1 * n1 * std::pow(kD, 4)), 1e-9) << p.x;
+    EXPECT_LT(rel(get(*s, "/devices/prop", "torque"), 0.006 * p.fq * rho * n1 * n1 * std::pow(kD, 5)), 1e-9) << p.x;
+    EXPECT_LT(rel(get(*s, "/devices/small", "thrust"), 0.1 * p.ft * rho * n2 * n2 * std::pow(d_small, 4)), 1e-9) << p.x;
+    EXPECT_LT(rel(get(*s, "/devices/small", "torque"), 0.006 * p.fq * rho * n2 * n2 * std::pow(d_small, 5)), 1e-9) << p.x;
+  }
+}
+
+// (r2) off = unchanged: factors identically 1 reproduce the table-free rotor bitwise (thrust, torque, state hash), and a
+// rotor without re tables (every older fixture) never enters the factor path.
+TEST(devices, rotor_reynolds_unity_matches_off_bitwise) {
+  auto a = load("rotor_free.xml"), b = load("rotor_re_unity.xml");
+  for (auto* s : {a.get(), b.get()}) {
+    put_ok(*s, "/world/carrier/rotor/shaft", "qvel", 431.7);
+    put_ok(*s, "/world/carrier/lift", "qvel", 2.5);
+    ASSERT_EQ(s->step(1), 1);  // the free light rotor diverges within a few ticks at this speed: one tick is enough
+  }
+  for (const char* attr : {"thrust", "torque", "omega", "advance_ratio"})
+    EXPECT_EQ(get(*a, "/devices/prop", attr), get(*b, "/devices/prop", attr)) << attr;
+  EXPECT_EQ(a->state_hash(), b->state_hash());
+}
+
+// (m1) pure viscous loss (i0_visc = 1, w0 = 300 rad/s): steady no-load speed from Ke i_m = Ke I0 w / w0 with
+// i_m = (V - Ke w) / R(T), i.e. w = V / (Ke + R I0 / w0), V and T read from the device.
+TEST(devices, motor_loss_viscous_no_load_speed) {
+  auto s = load("motor_loss_visc.xml");
+  put_ok(*s, "/devices/m1", "throttle", 1.0);
+  ASSERT_EQ(s->step(3000), 3000);
+  const double v = get(*s, "/devices/m1", "voltage"), t = get(*s, "/devices/m1", "temperature");
+  const double want = v / (ke() + r_at(t) * kI0 / 300.0);
+  const double coulomb = (kKv * 2 * kPi / 60) * (v - kI0 * r_at(t));  // what the constant-I0 law would give
+  EXPECT_LT(rel(get(*s, "/devices/m1", "omega"), want), 0.005) << want;
+  EXPECT_GT(rel(coulomb, want), 0.005);  // the law is really different from the constant-friction one
+  EXPECT_FALSE(s->diverged());
+}
+
+// (m2) mixed loss (30 % tanh, 50 % w, 20 % w|w| of Kt I0 at w0): torque balance (V - Ke w) / R = I0 [..], bisection.
+TEST(devices, motor_loss_mixed_no_load_speed) {
+  auto s = load("motor_loss_mix.xml");
+  put_ok(*s, "/devices/m1", "throttle", 1.0);
+  ASSERT_EQ(s->step(3000), 3000);
+  const double v = get(*s, "/devices/m1", "voltage"), r = r_at(get(*s, "/devices/m1", "temperature"));
+  auto f = [&](double w) {
+    return (v - ke() * w) / r - kI0 * (0.3 * std::tanh(w / 5.0) + 0.5 * w / 900.0 + 0.2 * w * w / (900.0 * 900.0));
+  };
+  double lo = 0, hi = v / ke();
+  for (int i = 0; i < 100; ++i) (f(0.5 * (lo + hi)) > 0 ? lo : hi) = 0.5 * (lo + hi);
+  EXPECT_LT(rel(get(*s, "/devices/m1", "omega"), 0.5 * (lo + hi)), 0.005);
+  EXPECT_FALSE(s->diverged());
+}
+
+TEST(devices, motor_loss_needs_reference_speed) {
+  try {
+    load("bad_loss.xml");
+    ADD_FAILURE() << "loaded";
+  } catch (const std::runtime_error& e) {
+    EXPECT_NE(std::string(e.what()).find("m_bad_loss"), std::string::npos) << e.what();
+    EXPECT_NE(std::string(e.what()).find("i0_w"), std::string::npos) << e.what();
+  }
+}

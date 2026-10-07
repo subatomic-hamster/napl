@@ -23,6 +23,15 @@ table MotorParams {
   r_th: double;           // winding-to-ambient thermal resistance, K/W
   t_amb: double = 25.0;   // ambient = initial temperature, degC
   alpha: double = 0.00393;  // copper temperature coefficient, 1/K
+  // Speed-dependent no-load loss. i0 is the loss at the shaft speed i0_w (rad/s, where the datasheet measured it:
+  // (V_test - R i0) / Ke). Loss torque (motor shaft):
+  //   tau_loss(w) = Kt i0 [ (1 - i0_visc - i0_quad) tanh(w / w_s) + i0_visc w / i0_w + i0_quad w |w| / i0_w^2 ].
+  // i0_visc: share of the I0 torque that is viscous (bearing grease + hysteresis iron loss, ~ w); i0_quad: share ~ w |w|
+  // (windage + eddy-current loss). Both 0 (default) = the original constant Coulomb friction Kt i0 tanh(w / w_s).
+  // Needs i0_w > 0 when either is > 0; i0_visc, i0_quad >= 0, sum <= 1.
+  i0_w: double;
+  i0_visc: double;
+  i0_quad: double;
 }
 
 // Thevenin battery: E = OCV(SoC) - v_rc behind r0; one RC pair (r1, c1). ocv_soc strictly increasing in [0,1].
@@ -112,6 +121,11 @@ table Rotor {
   k_h: double;            // H-force: F = -k_h |w| v_perp (units kg), v_perp = in-plane air-relative CoM velocity
   ground_effect: bool;
   ray_groups: uint = 63;
+  // Optional Reynolds / rotor-speed dependence (all three empty = off, the default): C_T(J, n) = C_T(J) f_T(x),
+  // C_Q(J, n) = C_Q(J) f_Q(x), x = |n| D^2 (m^2/s, a Reynolds-number proxy: Re ~ n D^2 (chord / D)), piecewise linear,
+  // clamped at the ends. re_x strictly increasing and > 0; re_ft / re_fq > 0, equal length. The j / ct / cq tables are
+  // then the coefficients at the x where f = 1 (the caller's reference).
+  re_x: [double]; re_ft: [double]; re_fq: [double];
 }
 
 // At most one. World frame, z up; world z = 0 is ground level (AGL for turbulence) and origin_alt metres MSL (ISA).

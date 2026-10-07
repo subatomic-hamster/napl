@@ -6,6 +6,7 @@
 // table, parse(), bind(), step()'s phase list, the attribute tables in devices.cpp.
 #include <mujoco/mujoco.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -37,7 +38,14 @@ struct Meta {
 };
 struct MotorCfg {  // see schema; shared by Esc and Servo
   double kv, r20, i0, inertia, w_s, c_th, r_th, t_amb, alpha;
+  double i0_w = 0, i0_visc = 0, i0_quad = 0;  // speed-dependent no-load loss (schema MotorParams); 0 = constant Coulomb
   double ke() const { return 60.0 / (2.0 * kPi * kv); }  // = Kt in SI
+  // Motor-shaft loss torque at speed w: Kt i0 [(1 - v - q) tanh(w / w_s) + v w / w0 + q w |w| / w0^2].
+  double loss(double w) const {
+    double x = (1.0 - i0_visc - i0_quad) * std::tanh(w / w_s);
+    if (i0_w > 0) x += i0_visc * w / i0_w + i0_quad * w * std::abs(w) / (i0_w * i0_w);
+    return ke() * i0 * x;
+  }
   double r_at(double temp_c) const { return r20 * (1.0 + alpha * (temp_c - 20.0)); }
 };
 struct BatteryCfg {
@@ -59,6 +67,7 @@ struct ServoCfg {
 struct RotorCfg {
   Meta meta; std::string body, joint; double diameter; int dir; std::vector<double> j, ct, cq; double k_h;
   bool ground_effect; unsigned ray_groups;
+  std::vector<double> re_x, re_ft, re_fq;  // optional Reynolds factors over x = |n| D^2 (empty = off)
   int bid = -1, jnt = -1, dof = -1;  // resolved by bind()
 };
 struct EnvCfg {

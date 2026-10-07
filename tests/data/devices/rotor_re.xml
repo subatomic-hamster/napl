@@ -1,0 +1,30 @@
+<!-- Reynolds-factor bench, no ESC: two hinge rotors (10 inch and 5 inch) on a carrier, spun by hand. Both carry the same
+     re tables over x = |n| D^2 (test values, not a part claim); "unity" has all factors 1. -->
+<mujoco model="rotor_re">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="carrier" pos="0 0 1">
+      <joint name="lift" type="slide" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+      <body name="rotor">
+        <joint name="shaft" type="hinge" axis="0 0 1"/>
+        <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+      </body>
+      <body name="rotor2" pos="0.5 0 0">
+        <joint name="shaft2" type="hinge" axis="0 0 1"/>
+        <geom type="sphere" size="0.001" mass="0.01" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "rotors": [
+        {"name": "prop", "body": "rotor", "joint": "shaft", "diameter": 0.254,
+         "j": [0, 0.8], "ct": [0.1, 0.02], "cq": [0.006, 0.002],
+         "re_x": [1, 2, 4], "re_ft": [0.9, 1.0, 1.2], "re_fq": [1.0, 1.0, 0.8]},
+        {"name": "small", "body": "rotor2", "joint": "shaft2", "diameter": 0.127,
+         "j": [0, 0.8], "ct": [0.1, 0.02], "cq": [0.006, 0.002],
+         "re_x": [1, 2, 4], "re_ft": [0.9, 1.0, 1.2], "re_fq": [1.0, 1.0, 0.8]}]
+    }'/>
+  </custom>
+</mujoco>
