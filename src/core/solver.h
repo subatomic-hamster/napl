@@ -26,7 +26,7 @@ struct GeomVisual {
   GeomType type = GeomType::other;
   double size[3] = {0, 0, 0};
   float rgba[4] = {0.5f, 0.5f, 0.5f, 1};
-  int group = 0;            // renderers hide group >= 3 (MuJoCo's default: collision geoms)
+  int group = 0;            // renderers hide group 3 only (collision-only geoms); 4 = design builder's vehicle geoms
   std::vector<float> mesh;  // mesh only: unrolled triangles, per vertex position xyz then normal xyz (geom frame)
 };
 // World pose of a geom frame: position in DOUBLE (the renderer subtracts the camera in double) + row-major 3x3 rotation.

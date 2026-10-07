@@ -11,6 +11,9 @@ density         = { value = 1100, unit = "kg/m3", src = "S1", fidelity = "datash
 youngs_modulus  = { value = 1.962e9, unit = "Pa", src = "S1", fidelity = "datasheet" }
 youngs_modulus_z = { value = 1.699e9, unit = "Pa", src = "S1", fidelity = "datasheet" }
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.82, 0.82, 0.79, 1.0]
+
 [[sources]]
 id = "S1"
 url = "https://www.alloys.com.au/Documents/Ultimaker-ABS-TDS-v5.00.pdf"

@@ -19,6 +19,9 @@ src = "S1"
 fidelity = "derived"
 derivation = "Datasheet gives 29 x 10^6 psi; 1 psi = 6894.757 Pa, so 29e6 x 6894.757 = 1.999e11 Pa."
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.58, 0.60, 0.62, 1.0]
+
 [[sources]]
 id = "S1"
 url = "https://www.protolabs.com/media/tltj24um/2026-026-cnc-material-data-sheet_stainless-steel-304.pdf"

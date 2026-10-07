@@ -1,4 +1,5 @@
-// napl-view <model> [--frames N] [--script "FRAME ACTION ARGS; ..."] [--log OUT] [--root DIR]
+// napl-view <model> [--frames N] [--script "FRAME ACTION ARGS; ..."] [--log OUT] [--root DIR] [--design REPORT.json]
+// A model with <name>.report.json beside it (from `napl design build`) also gets the Design window (--design: other path).
 // Opens the model (MJCF/URDF) in the viewer. --frames N: leave after N frames; --script: UI-equivalent commands issued at
 // given frames (see viewer/viewer.h); --log: write the session's replay log on exit (napl-replay reproduces it).
 // Prints the final tick and state hash, in napl-replay's format.
@@ -15,7 +16,7 @@
 
 namespace {
 int usage() {
-  std::fprintf(stderr, "usage: napl-view <model> [--frames N] [--script \"FRAME ACTION ARGS; ...\"] [--log OUT] [--root DIR]\n");
+  std::fprintf(stderr, "usage: napl-view <model> [--frames N] [--script \"FRAME ACTION ARGS; ...\"] [--log OUT] [--root DIR] [--design REPORT.json]\n");
   return 2;
 }
 }  // namespace
@@ -33,7 +34,12 @@ int main(int argc, char** argv) {
     else if (a == "--script") opts.script = v;
     else if (a == "--log") log_path = v;
     else if (a == "--root") root = v;
+    else if (a == "--design") opts.design_report = v;
     else return usage();
+  }
+  if (opts.design_report.empty()) {  // <name>.xml next to <name>.report.json = built by `napl design build`
+    const auto rep = std::filesystem::path(model).replace_extension(".report.json");
+    if (std::filesystem::is_regular_file(rep)) opts.design_report = rep.string();
   }
   try {
     parse_script(opts.script);  // a bad script fails before anything else happens

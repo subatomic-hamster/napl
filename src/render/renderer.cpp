@@ -674,7 +674,7 @@ struct Renderer::Impl {
       d.first = static_cast<std::uint32_t>(all.size() / 6);
       d.count = static_cast<std::uint32_t>(v.size() / 6);
       std::memcpy(d.rgba, g.rgba, sizeof d.rgba);
-      d.visible = d.count > 0 && g.group < 3 && g.rgba[3] > 0;  // group >= 3: MuJoCo's hidden collision geoms
+      d.visible = d.count > 0 && g.group != 3 && g.rgba[3] > 0;  // group 3: hidden collision geoms (4 = design-builder vehicle geoms: shown)
       all.insert(all.end(), v.begin(), v.end());
     }
     upload(all);

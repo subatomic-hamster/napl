@@ -21,6 +21,9 @@ unit = "Pa"
 fidelity = "estimated"
 rationale = "Woven twill puts half the fibre in warp and half in weft, so in-plane modulus is roughly half of the UD value 134 GPa (S2) minus crimp loss, giving ~55-65 GPa; 60 GPa used. No Holybro datasheet exists for the plate layup."
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.15, 0.15, 0.17, 1.0]
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"

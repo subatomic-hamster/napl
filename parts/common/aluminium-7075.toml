@@ -11,6 +11,9 @@ youngs_modulus  = { value = 71.7e9, unit = "Pa", src = "S1", fidelity = "datashe
 shear_modulus   = { value = 26.9e9, unit = "Pa", src = "S1", fidelity = "datasheet" }
 poisson_ratio   = { value = 0.33, unit = "1", src = "S1", fidelity = "datasheet" }
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.66, 0.68, 0.72, 1.0]
+
 [[sources]]
 id = "S1"
 url = "https://quickparts.com/wp-content/uploads/2024/05/Aluminum-7075.pdf"

@@ -41,7 +41,9 @@ fidelity = "datasheet"
 shape = "cylinder"                  # box | cylinder | mesh
 size = [0.0, 0.0]                   # SI, shape-specific (cylinder: radius, half-height)
 mesh = "meshes/so101/base.stl"      # repo-relative, license noted in sources
-material = "aluminium-6061"         # optional material part id (density etc.)
+material = "aluminium-6061"         # optional material part id (density etc.; its [appearance] rgba colours the geom)
+# Material parts only: [appearance] rgba = [r, g, b, a] is COSMETIC (renderer colour; no physics, no provenance). The builder
+# emits it as the MJCF geom rgba; parts without a material get a colour from the builder's category table (build.py).
 
 [[sources]]
 id = "S1"

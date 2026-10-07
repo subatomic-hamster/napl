@@ -111,14 +111,76 @@ class Sim:
             raise ValueError(r["message"])
         return r
 
+    def body_positions(self) -> dict:
+        """{prim path: world position (3,)} of every body prim (those that answer a `pos` query)."""
+        out = {}
+        for p in self.call({"cmd_type": "Query", "cmd": {"path": ""}}).get("prims", []):
+            try:
+                out[p] = self.query(p, "pos")[0]
+            except (KeyError, ValueError):
+                pass
+        return out
+
+    def orbit_camera(self, preset="orbit", az=45.0, el=25.0, dist=None, target=None):
+        """-> (pos, lookat) for an orbit camera around `target` (body prim path, 3-vector, or None = middle of the
+        bodies' bounding box). az / el in degrees: az 0 looks from +x towards the target, counter-clockwise seen from above; el up.
+        `preset` "iso" | "front" (from -y) | "back" | "left" | "right" | "top" overrides az / el; "orbit" uses them.
+        dist None = fit the bodies' bounding sphere (+ 0.08 m for geom extent) in a 45 degree view."""
+        presets = {
+            "iso": (45, 28),
+            "front": (-90, 8),
+            "back": (90, 8),
+            "left": (180, 8),
+            "right": (0, 8),
+            "top": (-90, 89),
+        }
+        if preset != "orbit":
+            if preset not in presets:
+                raise ValueError(
+                    f"unknown camera preset {preset!r} (orbit, {', '.join(presets)})"
+                )
+            az, el = presets[preset]
+        bodies = None
+        if target is None or dist is None:
+            bodies = np.array(list(self.body_positions().values()) or [[0, 0, 0]])
+        if isinstance(target, str):
+            target = self.query(target, "pos")[0]
+        t = np.asarray(
+            (bodies.min(0) + bodies.max(0)) / 2 if target is None else target,
+            dtype=float,
+        )
+        if dist is None:
+            r = float(np.linalg.norm(bodies - t, axis=1).max()) + 0.08
+            dist = r / np.sin(np.radians(22.5))
+        a, e = np.radians(az), np.radians(el)
+        return t + dist * np.array(
+            [np.cos(e) * np.cos(a), np.cos(e) * np.sin(a), np.sin(e)]
+        ), t
+
     def render(
-        self, pos, lookat, fovy: float = 45.0, width: int = 320, height: int = 240
+        self,
+        pos=None,
+        lookat=None,
+        fovy: float = 45.0,
+        width: int = 320,
+        height: int = 240,
+        *,
+        camera=None,
+        az: float = 45.0,
+        el: float = 25.0,
+        dist=None,
+        target=None,
     ):
         """Offscreen camera image (Render command, read cap; needs a Vulkan 1.3 device). World frame, +z up; fovy is the
         vertical field of view in degrees. -> (rgba uint8 (height, width, 4), depth float32 (height, width)): depth is
         linear metres along the optical axis, +inf where nothing was hit. Lossless (binary reply, not the JSON edge).
         Raises ValueError for invalid arguments and RuntimeError otherwise (e.g. "solver_error: no Vulkan device ...").
-        Images are deterministic per GPU/driver only."""
+        Images are deterministic per GPU/driver only. Either `pos` + `lookat`, or `camera="orbit"` (with az, el, dist,
+        target) / a preset name ("iso", "front", "top", ...): see orbit_camera."""
+        if camera is not None:
+            pos, lookat = self.orbit_camera(camera, az, el, dist, target)
+        elif pos is None or lookat is None:
+            raise ValueError("render needs pos and lookat, or camera=")
         return self._c.render(
             np.asarray(pos, dtype=np.float64).tolist(),
             np.asarray(lookat, dtype=np.float64).tolist(),

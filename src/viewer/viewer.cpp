@@ -18,6 +18,7 @@
 
 #include "napl_generated.h"
 #include "render/window_renderer.h"
+#include "viewer/design.h"
 
 namespace {
 using Env = std::vector<std::uint8_t>;
@@ -164,7 +165,7 @@ struct Orbit {
     double sum[3] = {0, 0, 0};
     int n = 0;
     for (std::size_t i = 0; i < vis.size() && i < poses.size(); ++i)
-      if (vis[i].type != GeomType::plane && vis[i].group < 3) {
+      if (vis[i].type != GeomType::plane && vis[i].group != 3) {
         for (int k = 0; k < 3; ++k) sum[k] += poses[i].pos[k];
         ++n;
       }
@@ -172,7 +173,7 @@ struct Orbit {
     if (n) {
       for (int k = 0; k < 3; ++k) target[k] = sum[k] / n;
       for (std::size_t i = 0; i < vis.size() && i < poses.size(); ++i)
-        if (vis[i].type != GeomType::plane && vis[i].group < 3) {
+        if (vis[i].type != GeomType::plane && vis[i].group != 3) {
           double d2 = 0;
           for (int k = 0; k < 3; ++k) d2 += (poses[i].pos[k] - target[k]) * (poses[i].pos[k] - target[k]);
           radius = std::max(radius, std::sqrt(d2) + std::max({vis[i].size[0], vis[i].size[1], vis[i].size[2]}));
@@ -184,7 +185,12 @@ struct Orbit {
 
 class Viewer {
  public:
-  Viewer(Host& h, const ViewerOptions& o) : host_(h), opts_(o), script_(parse_script(o.script)) {}
+  Viewer(Host& h, const ViewerOptions& o) : host_(h), opts_(o), script_(parse_script(o.script)) {
+    if (!o.design_report.empty()) {
+      design_ = design::load_report(o.design_report);  // throws a plain-language error before any window opens
+      has_design_ = true;
+    }
+  }
 
   void run() {
     GlfwInit glfw;
@@ -213,6 +219,7 @@ class Viewer {
       for (const ScriptCmd& c : script_) {
         if (c.frame != n_frame) continue;
         if (c.action == "select") select(c.args[0]);
+        else if (c.action == "inst") select_instance(c.args[0]);
         else send(script_envelope(c, kSource), c.action);
       }
       Frame f;
@@ -273,8 +280,13 @@ class Viewer {
     if (prims_.valid() && ready(prims_)) {
       const Reply r = prims_.get();
       tree_ = Node{};
+      prim_paths_.clear();
       if (const auto* p = flatbuffers::GetRoot<napl::Reply>(r.data())->prims())
-        for (const auto* s : *p) add_path(tree_, s->str());
+        for (const auto* s : *p) {
+          add_path(tree_, s->str());
+          prim_paths_.push_back(s->str());
+        }
+      if (!pending_body_.empty()) select_instance(pending_body_);
     }
     if (!inspect_.empty() && std::all_of(inspect_.begin(), inspect_.end(), [](auto& p) { return ready(p.second); })) {
       shown_.clear();
@@ -304,6 +316,71 @@ class Viewer {
     selected_ = path;
     shown_.clear();
     inspect_.clear();
+  }
+
+  // A Design-window click: selects the body prim of design instance `inst` (by id or body name). Before the prim list
+  // has arrived the request is parked and retried when it does.
+  void select_instance(const std::string& inst) {
+    std::string body = inst;
+    for (const design::Instance& i : design_.instances)
+      if (i.id == inst) body = i.body;
+    const std::string p = design::body_path(prim_paths_, body);
+    pending_body_ = p.empty() && prim_paths_.empty() ? inst : "";
+    if (!p.empty()) select(p);
+  }
+
+  void design_ui() {
+    ImGui::SetNextWindowPos({10, 440}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({440, 300}, ImGuiCond_FirstUseEver);
+    ImGui::Begin("Design");
+    ImGui::Text("%s   total %.4f kg   %zu instances", design_.assembly.c_str(), design_.mass_total, design_.instances.size());
+    if (ImGui::CollapsingHeader("mass budget")) {
+      for (const auto& [g, m] : design_.by_group) ImGui::Text("%-16s %9.4f kg", g.c_str(), m);
+      for (const design::Target& t : design_.targets) {
+        ImGui::TextColored(t.within ? ImVec4{0.5f, 1, 0.5f, 1} : ImVec4{1, 0.6f, 0.2f, 1}, "target %s: %.4f vs %.4f kg (%+.4f) %s",
+                           t.name.c_str(), t.model, t.target, t.gap, t.within ? "within" : "OUTSIDE");
+      }
+    }
+    if (ImGui::CollapsingHeader("instances", ImGuiTreeNodeFlags_DefaultOpen)) {
+      std::map<std::string, std::vector<const design::Instance*>> by_group;
+      for (const design::Instance& i : design_.instances) by_group[i.group.empty() ? "(none)" : i.group].push_back(&i);
+      for (const auto& [g, list] : by_group) {
+        if (!ImGui::TreeNodeEx(g.c_str(), ImGuiTreeNodeFlags_DefaultOpen, "%s (%zu)", g.c_str(), list.size())) continue;
+        for (const design::Instance* i : list) {
+          const std::string label = i->id + "   " + i->part + "   " + std::to_string(i->mass * 1000).substr(0, 7) + " g";
+          if (ImGui::Selectable(label.c_str(), selected_.size() > i->body.size() && selected_.ends_with("/" + i->body)))
+            select_instance(i->id);
+        }
+        ImGui::TreePop();
+      }
+    }
+    std::size_t errors = 0, warns = 0;
+    for (const design::Finding& f : design_.findings) {
+      if (f.severity == "error") ++errors;
+      else if (f.severity == "warning") ++warns;
+    }
+    if (ImGui::CollapsingHeader(("DRC findings: " + std::to_string(errors) + " errors, " + std::to_string(warns) + " warnings###drc").c_str(),
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+      int n = 0;
+      for (const design::Finding& f : design_.findings) {
+        const ImVec4 col = f.severity == "error" ? ImVec4{1, 0.35f, 0.35f, 1}
+                           : f.severity == "warning" ? ImVec4{1, 0.8f, 0.3f, 1}
+                                                     : ImVec4{0.7f, 0.8f, 1, 1};
+        ImGui::PushID(n++);
+        ImGui::PushStyleColor(ImGuiCol_Text, col);
+        const bool hit = ImGui::Selectable((f.severity + "  " + f.code + "  " + f.message).c_str());
+        ImGui::PopStyleColor();
+        if (hit)
+          for (const std::string& w : f.where)  // selects the first named id that is an instance
+            if (std::any_of(design_.instances.begin(), design_.instances.end(), [&](const design::Instance& i) { return i.id == w; })) {
+              select_instance(w);
+              break;
+            }
+        if (!f.fix.empty()) ImGui::SetItemTooltip("fix: %s", f.fix.c_str());
+        ImGui::PopID();
+      }
+    }
+    ImGui::End();
   }
 
   void draw_node(const std::string& name, const Node& n) {
@@ -367,6 +444,7 @@ class Viewer {
       }
     }
     ImGui::End();
+    if (has_design_) design_ui();
   }
 
   Host& host_;
@@ -376,6 +454,10 @@ class Viewer {
   std::uint64_t scene_ = 0;
   Orbit orbit_;
   Node tree_;
+  design::Report design_;  // read-only: the report of the `napl design build` this model came from
+  bool has_design_ = false;
+  std::vector<std::string> prim_paths_;
+  std::string pending_body_;
   std::string selected_, status_;
   std::vector<Shown> shown_;
   std::vector<std::pair<std::string, std::future<Reply>>> inspect_, cmds_;
@@ -398,8 +480,8 @@ std::vector<ScriptCmd> parse_script(const std::string& script) {
     if (!(words >> c.action)) throw std::runtime_error("script entry '" + entry + "': expected FRAME ACTION [ARGS]");
     c.frame = static_cast<int>(to_double(frame, "frame"));
     for (std::string a; words >> a;) c.args.push_back(a);
-    if (c.action == "select") {  // a UI action with no bus command: selects the prim shown in the inspector
-      if (c.args.size() != 1) throw std::runtime_error("script: select PATH");
+    if (c.action == "select" || c.action == "inst") {  // UI actions with no bus command: select a prim / a design instance's body
+      if (c.args.size() != 1) throw std::runtime_error("script: " + c.action + (c.action == "inst" ? " INSTANCE" : " PATH"));
     } else {
       script_envelope(c);  // validate now: bad scripts fail before a window opens
     }

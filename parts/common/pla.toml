@@ -16,6 +16,9 @@ unit = "1"
 fidelity = "estimated"
 rationale = "FDM parts with ~100% perimeters/infill are a few percent below bulk density because of inter-line voids; 0.95 is a typical figure but no source was fetched. Apply only to bulk density when modelling printed parts; infill percentage overrides it."
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.96, 0.46, 0.08, 1.0]  # SO-101 orange
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopify.com/s/files/1/1223/5992/files/PLA_4043D_TDS.pdf"

@@ -18,6 +18,7 @@
 #include "core/host.h"
 #include "mujoco/mujoco_solver.h"
 #include "napl_generated.h"
+#include "viewer/design.h"
 #include "viewer/viewer.h"
 
 namespace {
@@ -220,4 +221,62 @@ TEST(viewer_smoke, script_parser_and_envelopes) {
   EXPECT_THROW(parse_script("x run 1"), std::runtime_error);
   EXPECT_THROW(parse_script("1 step"), std::runtime_error);
   EXPECT_THROW(parse_script("1 setattr /a b"), std::runtime_error);
+  EXPECT_EQ(parse_script("3 inst arm").at(0).action, "inst");
+  EXPECT_THROW(parse_script("3 inst"), std::runtime_error);
+}
+
+// ---- Design window (report of a `napl design build`) -------------------------------------------------------------------
+const std::string kReport = kData + "/design_demo.report.json";
+
+TEST(viewer_design, report_parses_and_instances_resolve_to_body_prims) {  // no window needed
+  const design::Report r = design::load_report(kReport);
+  EXPECT_EQ(r.assembly, "pendulum_demo");
+  EXPECT_NEAR(r.mass_total, 1.0025, 1e-12);
+  ASSERT_EQ(r.instances.size(), 2u);
+  EXPECT_EQ(r.instances[0].part, "demo-rod");
+  EXPECT_EQ(r.instances[0].body, "pole");
+  EXPECT_NEAR(r.instances[1].mass, 2.5e-3, 1e-15);
+  ASSERT_EQ(r.by_group.size(), 1u);
+  EXPECT_EQ(r.by_group[0].first, "frame");
+  ASSERT_EQ(r.targets.size(), 1u);
+  EXPECT_FALSE(r.targets[0].within);
+  ASSERT_EQ(r.findings.size(), 3u);
+  EXPECT_EQ(r.findings[0].severity, "error");
+  EXPECT_EQ(r.findings[0].code, "DEMO_ERROR");
+  EXPECT_NE(r.findings[0].message.find("\xC3\xA9"), std::string::npos) << "\\u00e9 decodes to UTF-8";
+  EXPECT_EQ(r.findings[0].where, (std::vector<std::string>{"port x", "arm"}));
+  const std::vector<std::string> prims = {"/world", "/world/base", "/world/base/pole", "/world/base/pole/hinge"};
+  EXPECT_EQ(design::body_path(prims, "pole"), "/world/base/pole");
+  EXPECT_EQ(design::body_path(prims, "ole"), "");
+  EXPECT_EQ(design::body_path(prims, "ghost"), "");
+  EXPECT_THROW(design::parse_report("{\"assembly\": "), std::runtime_error);
+  EXPECT_THROW(design::load_report("/no/such/report.json"), std::runtime_error);
+}
+
+TEST(viewer_design, window_opens_with_a_report_and_instance_clicks_do_not_touch_the_sim) {
+  NEED_DISPLAY();
+  const std::string script = "3 inst arm; 10 inst ghost; 20 inst nothing; 30 step 4";
+  Host h(pendulum(), session());
+  ViewerOptions o;
+  o.frames = 60;
+  o.script = script;
+  o.design_report = kReport;
+  run_viewer(h, o);
+  const Outcome with = finish(h);
+  Host bare(pendulum(), session());
+  bare.call(script_envelope(parse_script("0 step 4").at(0), "viewer"));
+  const Outcome ref = finish(bare);
+  std::cout << "[ viewer ] design window, 60 frames: tick=" << with.tick << " hash=" << hex(with.hash) << "\n";
+  EXPECT_EQ(with.tick, 4u);  // only the Step ran: selecting instances is UI state, not a bus command
+  EXPECT_EQ(with.hash, ref.hash);
+  EXPECT_EQ(records(with.log).size(), 1u);
+}
+
+TEST(viewer_design, napl_view_finds_the_report_beside_the_model_and_rejects_a_bad_one) {
+  NEED_DISPLAY();
+  const Out ok = shell(std::string(NAPL_VIEW_EXE) + " " + kModel + " --frames 30 --design " + kReport + " --script '2 inst arm'");
+  EXPECT_EQ(ok.code, 0) << ok.text;
+  const Out bad = shell(std::string(NAPL_VIEW_EXE) + " " + kModel + " --frames 3 --design /no/such.report.json");
+  EXPECT_EQ(bad.code, 1) << bad.text;
+  EXPECT_NE(bad.text.find("design report: cannot read"), std::string::npos) << bad.text;
 }

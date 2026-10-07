@@ -14,6 +14,7 @@
 struct ViewerOptions {
   int frames = 0;                           // > 0: leave after this many frames (smoke tests); 0: until the window closes
   std::string script;                       // UI-equivalent commands issued at given frames, see parse_script
+  std::string design_report;                // optional <name>.report.json of a `napl design build`: shows the Design window
   int width = 1280, height = 720;
   const std::atomic<bool>* stop = nullptr;  // optional: another thread sets it to close the viewer
 };
@@ -26,6 +27,7 @@ void run_viewer(Host& host, const ViewerOptions& opts);
 // Script syntax: "FRAME ACTION [ARGS...]; ..." with ACTION one of
 //   run RATE | pause | step N | setattr PATH ATTR V [V...]   (bus commands, see script_envelope)
 //   select PATH                                              (no command: shows that prim in the inspector)
+//   inst ID                                                  (no command: a Design-window click on that instance)
 // executed (in order) when that frame is reached, exactly like the matching UI control would.
 struct ScriptCmd {
   int frame = 0;

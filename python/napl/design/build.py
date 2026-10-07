@@ -145,6 +145,42 @@ def part_shapes(lib: Library, part) -> list:
     return out
 
 
+# Cosmetic only (renderer colour, never physics): material part `[appearance] rgba`, else this table by the longest
+# matching category prefix, else grey. A pure function of the library, so builds stay deterministic.
+CATEGORY_RGBA = {
+    "motor.servo": (0.07, 0.07, 0.08),
+    "motor": (0.30, 0.31, 0.34),
+    "prop": (0.12, 0.12, 0.13),
+    "esc": (0.10, 0.12, 0.30),
+    "pcb.fc": (0.08, 0.08, 0.09),
+    "pcb": (0.05, 0.38, 0.20),
+    "battery.lipo": (0.08, 0.10, 0.22),
+    "wire": (0.72, 0.42, 0.22),
+    "connector": (0.90, 0.75, 0.10),
+    "fastener": (0.58, 0.60, 0.62),
+    "sensor": (0.09, 0.09, 0.10),
+    "gps": (0.85, 0.85, 0.83),
+}
+
+
+def appearance_rgba(lib: Library, part) -> tuple:
+    mid = part.geometry.get("material")
+    if mid in lib.parts:
+        c = lib.parts[mid].raw.get("appearance", {}).get("rgba")
+        if isinstance(c, list) and len(c) in (3, 4):
+            return tuple(float(x) for x in c[:3]) + (1.0,)
+    best = max(
+        (
+            k
+            for k in CATEGORY_RGBA
+            if part.category == k or part.category.startswith(k + ".")
+        ),
+        key=len,
+        default=None,
+    )
+    return (*CATEGORY_RGBA.get(best, (0.62, 0.63, 0.65)), 1.0)
+
+
 def mass_tol(
     inst, mass: float, fid: str
 ) -> float:  # inst: Inst or Part (anything with .value)
@@ -661,6 +697,7 @@ def compute(asm, parts_dir, out_dir, lib=None):
             T = np.eye(4)
             T[:3, :3], T[:3, 3] = g["R"], g["pos"]
             s += pose_attrs(T)
+        s += f' rgba="{vec(appearance_rgba(lib, lib.get(g["part"])))}"'
         s += f' mass="{f(g["mass"])}" contype="{1 if g["collide"] else 0}" conaffinity="0" group="{VEHICLE_GROUP}"/>'
         geoms[g["name"]] = g["part"]
         return s
@@ -706,7 +743,7 @@ def compute(asm, parts_dir, out_dir, lib=None):
         head.append("  </asset>")
     head += [
         "  <worldbody>",
-        '    <geom name="floor" type="plane" size="0 0 1" contype="1" conaffinity="1" group="0"/>',
+        '    <geom name="floor" type="plane" size="0 0 1" contype="1" conaffinity="1" group="0" rgba="0.80 0.82 0.84 1"/>',
     ]
     tail = ["  </worldbody>"]
     if devices:

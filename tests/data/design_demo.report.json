@@ -1,0 +1,14 @@
+{
+  "assembly": "pendulum_demo",
+  "findings": [
+    {"code": "DEMO_ERROR", "fix": "rename it", "message": "demo error on the pole é", "severity": "error", "where": ["port x", "arm"]},
+    {"code": "DEMO_WARN", "fix": "", "message": "demo warning", "severity": "warning", "where": ["nothing"]},
+    {"code": "DEMO_INFO", "fix": "", "message": "demo info", "severity": "info", "where": []}
+  ],
+  "instances": [
+    {"body": "pole", "group": "frame", "id": "arm", "mass": 1.0, "mass_fidelity": "datasheet", "mass_tol": 0.0, "part": "demo-rod"},
+    {"body": "ghost", "group": "frame", "id": "ghost", "mass": 2.5e-3, "mass_tol": 1e-4, "part": "demo-ghost"}
+  ],
+  "mass": {"by_group": {"frame": 1.0025}, "by_instance": {"arm": 1.0, "ghost": 0.0025}, "total": 1.0025},
+  "targets": [{"all": true, "gap": 0.0025, "model": 1.0025, "name": "total", "target": 1.0, "within": false}]
+}

@@ -12,6 +12,9 @@ youngs_modulus  = { value = 7.6e9, unit = "Pa", src = "S1", fidelity = "datashee
 flexural_modulus = { value = 10.3e9, unit = "Pa", src = "S1", fidelity = "datasheet" }
 tensile_strength = { value = 76e6, unit = "Pa", src = "S1", fidelity = "datasheet" }
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.14, 0.14, 0.15, 1.0]
+
 [[sources]]
 id = "S1"
 url = "https://xometry.asia/wp-content/uploads/2023/06/1773887007-PA12-CF-FDM-Datasheet.pdf"

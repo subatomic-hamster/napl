@@ -11,6 +11,9 @@ density         = { value = 1220, unit = "kg/m3", src = "S1", fidelity = "datash
 youngs_modulus  = { value = 67e6, unit = "Pa", src = "S1", fidelity = "datasheet" }
 youngs_modulus_z = { value = 56e6, unit = "Pa", src = "S1", fidelity = "datasheet" }
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.20, 0.20, 0.22, 1.0]
+
 [[sources]]
 id = "S1"
 url = "https://um-support-files.ultimaker.com/materials/2.85mm/tds/TPU-95A/TDS-TPU95A-V2.01-250915.pdf"

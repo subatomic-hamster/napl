@@ -12,6 +12,9 @@ youngs_modulus  = { value = 1.5e9, unit = "Pa", src = "S1", fidelity = "datashee
 youngs_modulus_vertical = { value = 1.6e9, unit = "Pa", src = "S1", fidelity = "datasheet" }
 flexural_modulus = { value = 1.7e9, unit = "Pa", src = "S1", fidelity = "datasheet" }
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.30, 0.55, 0.75, 1.0]
+
 [[sources]]
 id = "S1"
 url = "https://www.3dprintergear.com.au/assets/files/technical-data-sheet%20(1).pdf"

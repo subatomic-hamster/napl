@@ -23,6 +23,9 @@ unit = "1"
 fidelity = "estimated"
 rationale = "Transverse modulus of UD carbon/epoxy is typically ~8-10 GPa vs 134 GPa axial (~6%); not on the T700S sheet. Only relevant for tube ovalisation, not for bending of the arm."
 
+[appearance]  # cosmetic only: renderer colour, no physics, no provenance. The design builder emits it as the geom rgba.
+rgba = [0.11, 0.11, 0.12, 1.0]
+
 [[sources]]
 id = "S1"
 url = "https://www.toraycma.com/wp-content/uploads/T700S-Data-Sheet.pdf"
