@@ -1,0 +1,46 @@
+<!-- Three STS3215-class servos (part feetech-sts3215-c001, parts/arm/feetech-sts3215-c001.toml) on one 7.4 V supply, each
+     turning a light link about a vertical axis (zero gravity), for the Feetech-protocol pty tests.
+     Numbers from the part file: kv = 60 / (2 pi ke) = 60 / (2 pi 0.003695) = 2584 rpm/V (ke, derived); r20 = r_effective 2.98 ohm
+     (derived); i0 = no_load_current_7v4 0.15 A; rotor_inertia = rotor_inertia_motor 2.35e-7 kg m^2 (estimated); gear_ratio 345;
+     efficiency = gear_efficiency 0.658 (derived); encoder_cpr = encoder_resolution 4096; PSU = v_nominal 7.4 V.
+     firmware_hz 1000 = 1 / position_update_period 0.001 s; deadband 1 count = dead_zone_cw_default; p = reg_p_coefficient_default 32,
+     d = reg_d_coefficient_default 32, i = 0 (reg_i_coefficient_default), max_torque = reg_max_torque_limit_default 1000.
+     TEST VALUES (not in the part): c_th 10 J/K, r_th 15 K/W, w_s 5 rad/s, supply r_series 0.05 ohm, and pid_scale 2048, a
+     calibration knob (the real Feetech register scaling is not public) picked so the 1000-count step settles without
+     overshoot (probe: 1 count short, i.e. inside the deadband, after ~0.3 s). -->
+
+<mujoco model="feetech_arm3">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="l1" pos="0 0 0.1">
+      <joint name="j1" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.01" mass="0.05" contype="0" conaffinity="0"/>
+    </body>
+    <body name="l2" pos="0.3 0 0.1">
+      <joint name="j2" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.01" mass="0.05" contype="0" conaffinity="0"/>
+    </body>
+    <body name="l3" pos="0.6 0 0.1">
+      <joint name="j3" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" fromto="0 0 0 0.1 0 0" size="0.01" mass="0.05" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "psus": [{"name": "bus", "node": 1, "voltage": 7.4, "r_series": 0.05}],
+      "servos": [
+        {"name": "s1", "node": 1, "joint": "j1", "parts": ["feetech-sts3215-c001"],
+         "motor": {"kv": 2584, "r20": 2.98, "i0": 0.15, "rotor_inertia": 2.35e-7, "c_th": 10, "r_th": 15},
+         "gear_ratio": 345, "efficiency": 0.658, "encoder_cpr": 4096, "firmware_hz": 1000,
+         "p": 32, "i": 0, "d": 32, "pid_scale": 2048, "deadband": 1, "max_torque": 1000},
+        {"name": "s2", "node": 1, "joint": "j2", "parts": ["feetech-sts3215-c001"],
+         "motor": {"kv": 2584, "r20": 2.98, "i0": 0.15, "rotor_inertia": 2.35e-7, "c_th": 10, "r_th": 15},
+         "gear_ratio": 345, "efficiency": 0.658, "encoder_cpr": 4096, "firmware_hz": 1000,
+         "p": 32, "i": 0, "d": 32, "pid_scale": 2048, "deadband": 1, "max_torque": 1000},
+        {"name": "s3", "node": 1, "joint": "j3", "parts": ["feetech-sts3215-c001"],
+         "motor": {"kv": 2584, "r20": 2.98, "i0": 0.15, "rotor_inertia": 2.35e-7, "c_th": 10, "r_th": 15},
+         "gear_ratio": 345, "efficiency": 0.658, "encoder_cpr": 4096, "firmware_hz": 1000,
+         "p": 32, "i": 0, "d": 32, "pid_scale": 2048, "deadband": 1, "max_torque": 1000}]
+    }'/>
+  </custom>
+</mujoco>

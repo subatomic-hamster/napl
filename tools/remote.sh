@@ -3,9 +3,11 @@
 #
 #   tools/remote.sh bootstrap         one-time: user-local toolchain venv (cmake, ninja, uv) on the host
 #   tools/remote.sh sync              rsync the working tree to the host
-#   tools/remote.sh run [--gpu] CMD   sync, then run CMD in the remote source dir (blocks, streams output)
+#   tools/remote.sh run [--gpu] [--nolock] CMD
+#                                     sync, then run CMD in the remote source dir (blocks, streams output);
+#                                     holds the CPU lock unless --nolock; killed after NAPL_TIMEOUT s (3600)
 #   tools/remote.sh bg NAME CMD       sync, then run CMD in tmux session napl-NAME; output to logs/NAME.log
-#   tools/remote.sh log NAME          tail that log
+#   tools/remote.sh log NAME [N]      last N lines of that log (no follow) + whether it is still running
 #   tools/remote.sh pull PATH...      copy remote paths (relative to the remote dir) back into ./remote-out/
 #
 # Example:
@@ -47,8 +49,10 @@ sync_tree() {
 }
 
 # Remote shell prefix: toolchain on PATH, thread cap, own CPU lock so napl jobs never stack.
+# lock: 1 = take the CPU lock (default), 0 = --nolock (light commands, long-lived servers).
 prefix() {
-  local gpu=$1 p="cd $DIR/src && export PATH=$DIR/env/bin:\$PATH CMAKE_BUILD_PARALLEL_LEVEL=$JOBS CTEST_PARALLEL_LEVEL=$JOBS && flock $DIR/.cpu.lock"
+  local gpu=$1 lock=${2:-1} p="cd $DIR/src && export PATH=$DIR/env/bin:\$PATH CMAKE_BUILD_PARALLEL_LEVEL=$JOBS CTEST_PARALLEL_LEVEL=$JOBS &&"
+  [[ $lock == 1 ]] && p+=" flock $DIR/.cpu.lock"
   [[ $gpu == 1 && -n $GPU_LOCK ]] && p+=" flock $GPU_LOCK"
   printf '%s' "$p"
 }
@@ -63,9 +67,14 @@ case $cmd in
     ;;
   sync) sync_tree ;;
   run)
-    gpu=0; [[ ${1:-} == --gpu ]] && { gpu=1; shift; }
+    gpu=0 lock=1
+    while [[ ${1:-} == --* ]]; do
+      case $1 in --gpu) gpu=1 ;; --nolock) lock=0 ;; *) echo "unknown option $1" >&2; exit 2 ;; esac; shift
+    done
     sync_tree
-    rssh "$(prefix $gpu) bash -c $(printf '%q' "$*")"
+    # A foreground job never holds the lock past NAPL_TIMEOUT (default 1 h): a hung or
+    # forgotten server must not block every other napl job. Long work belongs in `bg`.
+    rssh "$(prefix $gpu $lock) timeout ${NAPL_TIMEOUT:-3600} bash -c $(printf '%q' "$*")"
     ;;
   bg)
     name=$1; shift
@@ -73,7 +82,7 @@ case $cmd in
     rssh "tmux new -d -s napl-$name $(printf '%q' "$(prefix 0) bash -c $(printf '%q' "$*") >$DIR/logs/$name.log 2>&1")"
     echo "started tmux session napl-$name on $REMOTE; tools/remote.sh log $name"
     ;;
-  log) rssh "tail -n 50 -f $DIR/logs/$1.log" ;;
+  log) rssh "tail -n ${2:-50} $DIR/logs/$1.log; tmux has-session -t napl-$1 2>/dev/null && echo '[running]' || echo '[finished]'" ;;
   pull)
     mkdir -p "$ROOT/remote-out"
     for p in "$@"; do rrsync -az "$REMOTE:$DIR/$p" "$ROOT/remote-out/"; done
