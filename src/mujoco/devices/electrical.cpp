@@ -42,6 +42,7 @@ void gauss_solve(int n, Mat& a, double* x) {
     if (p != k)
       for (int c = k; c <= n; ++c) std::swap(a[p][c], a[k][c]);
     for (int r = k + 1; r < n; ++r) {
+      if (a[r][k] == 0.0) continue;  // block-diagonal networks (several vehicles): skipping a zero multiplier changes no value
       const double f = a[r][k] / a[k][k];
       for (int c = k; c <= n; ++c) a[r][c] -= f * a[k][c];
     }

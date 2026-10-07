@@ -18,7 +18,7 @@
 
 namespace devs {
 
-constexpr int kMaxNodes = 32;  // non-ground electrical nodes (ground = node 0, implicit)
+constexpr int kMaxNodes = 128;  // non-ground electrical nodes (ground = node 0, implicit); 32 per vehicle, several vehicles per scene
 constexpr double kPi = 3.14159265358979323846;
 
 // xoshiro256** seeded through splitmix64; one stream per device that needs noise. gauss() is our own Box-Muller:

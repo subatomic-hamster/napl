@@ -70,8 +70,17 @@ FIELD_UNITS = {
     "i0_visc": {"1": 1.0},
     "i0_quad": {"1": 1.0},
     "i0_w": {"rad/s": 1.0},
+    # launcher / camera (counter-UAS)
+    "muzzle_velocity": {"m/s": 1.0},
+    "pellet_mass": {"kg": 1.0},
+    "v_std": {"m/s": 1.0},
+    "spread_std": {"rad": 1.0},
+    "max_time": {"s": 1.0},
+    "fov_v": {"rad": 1.0},
+    "width": {"px": 1.0},
+    "height": {"px": 1.0},
 }
-INT_FIELDS = {"awg", "encoder_cpr", "bits", "unload_mask"}
+INT_FIELDS = {"awg", "encoder_cpr", "bits", "unload_mask", "width", "height"}
 TYPE_KEY = {
     "battery": "batteries",
     "psu": "psus",
@@ -86,6 +95,8 @@ TYPE_KEY = {
     "gnss": "gnss_receivers",
     "environment": "environments",
     "body_drag": "body_drags",
+    "launcher": "launchers",
+    "camera": "cameras",
 }
 NODE_TYPES = {"battery", "psu", "load", "esc", "servo"}
 RESERVED = {
@@ -109,7 +120,7 @@ RESERVED = {
     "cq_ref",
     "auto",  # written by Design.auto_devices: this binding is regenerated from the parts
 }
-MAX_NODES = 32
+MAX_NODES = 128  # kMaxNodes of the kernel (devices.h)
 VEHICLE_GROUP = 4  # MJCF geom group of every vehicle geom; the floor stays in group 0
 RAY_GROUPS = 63 & ~(
     1 << VEHICLE_GROUP
@@ -586,6 +597,10 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
             )
         if typ == "battery":
             _battery_ocv(ctx, b, d, where, parts)
+        if typ == "launcher":
+            d.setdefault(
+                "ray_groups", 63 & ~(1 << 5)
+            )  # hits the vehicle geoms (group 4); group 5 = the pellet visuals
         if typ == "rotor":
             d.setdefault("ray_groups", RAY_GROUPS)
             if b.get("reynolds"):
