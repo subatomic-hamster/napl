@@ -363,7 +363,8 @@ DESIGN_TOOLS = {
         "read",
         "Ranked library parts for `target`: 'inst.port' = parts (and the port they would use) that mate / connect it, "
         "ratings checked on power ports; 'inst' = replacement candidates for a swap, ranked by fit (mates / wires kept, "
-        "references resolved, ratings, mass delta).",
+        "references resolved, ratings, mass delta); a joint name (a mate with `joint`) = servos ranked by holding-torque "
+        "margin at that joint's worst static pose.",
         _obj(
             {
                 "target": _S,

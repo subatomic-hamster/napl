@@ -64,7 +64,8 @@ rationale = "Underside seat (mates 'gps_mast' of holybro-x500v2-top-plate). The 
 
 [[ports]]
 name = "gps_out"
-kind = "signal"
+lead = { length = "cable_length" }   # pre-attached 26 cm cable (see note)
+kind ="signal"
 type = "jst-gh.10"
 gender = "female"
 note = "Pre-attached 26 cm cable (S1 'Cable Length 26cm') ending in a 10-pin connector for the Pixhawk GPS1 header (10 pins listed on the Holybro Pixhawk 6C ports page, 2026-10-07); JST-GH family and the 10-pin count of the M8N cable are assumed (estimated): the M8N column is missing from the family table. Female cable-side housing mates the Pixhawk gps1 (male). Supply 4.7-5.2 V, < 200 mA (params)."

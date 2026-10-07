@@ -189,9 +189,49 @@ fidelity = "derived"
 src = "S1"
 derivation = "16x16 mm motor pattern (S1 'Motor mount pattern: 16x16mm'; the 4 M3x6 screws per arm are in the airframe doc fastener table). x = 0.17266 m = the STEP motor solid centre radius 177.1 * sqrt(2) = 250.46 mm minus 77.8 mm, so the mated motor lands at the STEP motor position (+-177.1, +-177.1 mm); the motor-base plate bbox centre is 248.8 mm (1.7 mm inboard), whose hole pattern is probably not centred on its bbox. z = 0.027 = top face of the 2 mm motor base on top of the 22 mm arm-end clamp (estimated heights, see header). thickness 0.002 = motor base plate (STEP bbox 2.00 mm)."
 
+# The motor seat accepts more than one hole pattern (ARF page S2: "Motor mount pattern: 16x16mm & 19x19mm"). The extra ports below sit at the
+# SAME place and orientation as `motor` (only one of them is mated at a time); they let a swapped-in motor with another of these
+# patterns re-mate (Design.swap tries the other end's co-located ports).
+[[ports]]
+name = "motor_19"
+kind = "mech"
+type = "bolt-pattern.19x19.m3"
+gender = "neutral"
+pos = [0.17266, 0.0, 0.027]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+thickness = 0.002
+holes = 4
+thread = "m3"
+fidelity = "datasheet"
+src = "S2"
+
+[[ports]]
+name = "motor_16x19"
+kind = "mech"
+type = "bolt-pattern.16x19.m3"
+gender = "neutral"
+pos = [0.17266, 0.0, 0.027]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+thickness = 0.002
+holes = 4
+thread = "m3"
+fidelity = "estimated"
+rationale = "Not published as such. The X500 V2 plate is sold for both a 16 mm and a 19 mm square pattern (S2) and the 2216-class motor drawings read '4-M3, 16, 19' (holybro-2216-kv920); the 16x19 mm rectangle used by KDE2315-class and T-Motor MN2212/MN3110 motors is assumed to seat on the same plate (same M3 screws, same position as `motor`). Verify on a real plate before ordering."
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
 title = "PX4 Development Kit - X500v2 (Holybro docs)"
 accessed = "2026-10-06"
 quote = "Motor mount pattern: 16x16mm"
+
+[[sources]]
+id = "S2"
+url = "https://holybro.com/products/x500-v2-kits"
+title = "Holybro X500 V2 ARF kit page (as quoted in docs/research/x500v2-kit.md)"
+accessed = "2026-10-06"
+quote = "Motor mount pattern: 16x16mm & 19x19mm"

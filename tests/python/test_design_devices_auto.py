@@ -19,11 +19,11 @@ from pathlib import Path
 import napl
 import pytest
 from mcp import Client
-from napl.design import Design, Library
+from napl.design import Design, DesignError, Library
 from napl.design.auto_devices import _key
 from napl.mcp_server import NaplServer
 from test_design_mcp import accept, ok, root  # noqa: F401  (root is a fixture)
-from test_design_scratch import ARM, build_scratch, with_leads
+from test_design_scratch import ARM, FILL, build_scratch, with_leads
 
 REPO = Path(__file__).resolve().parents[2]
 PARTS = REPO / "parts"
@@ -377,8 +377,11 @@ def test_lead_flag_makes_autowire_set_included_in_and_use_the_leads_own_length_a
     inc = lambda d: {w["name"]: w.get("included_in") for w in d.doc["wires"]}
     assert inc(leads) == inc(
         explicit
-    )  # all 17 wires: the same lead-inside-the-datasheet-mass flags, none typed
-    assert all(v for v in inc(leads).values())
+    )  # all 19 wires: the same lead-inside-the-datasheet-mass flags, none typed
+    # ... but the receiver's two pigtails are the user's own cable (the R24 ships none): never inside a datasheet mass
+    own = [n for n in inc(leads) if "rx." in n]
+    assert len(own) == 2 and not any(inc(leads)[n] for n in own)
+    assert all(v for n, v in inc(leads).items() if n not in own)
     bat = next(w for w in leads.doc["wires"] if w["from"] == "bat.power_out")
     assert (
         bat["length"] == "bat.discharge_wire_length"
@@ -392,7 +395,14 @@ def test_lead_flag_makes_autowire_set_included_in_and_use_the_leads_own_length_a
     )  # flag only: routed length
     assert [f for f in leads.check() if f.severity == "error"] == []
     r = leads.build()["report"]
-    assert sum(w["mass"] or 0 for w in r["wires"] if not w["included_in"]) == 0
+    assert (
+        sum(
+            w["mass"] or 0
+            for w in r["wires"]
+            if not w["included_in"] and w["name"] not in own
+        )
+        == 0
+    )
 
 
 def test_lead_with_a_param_the_part_lacks_is_refused():
@@ -400,7 +410,6 @@ def test_lead_with_a_param_the_part_lacks_is_refused():
     for p in lib.get("tattu-4s-5200mah-35c").ports:
         if p["name"] == "power_out":
             p["lead"] = {"length": "no_such_param"}
-    from napl.design import DesignError
 
     with pytest.raises(DesignError, match="no_such_param"):
         build_scratch(lib=lib, leads=True)
@@ -408,13 +417,9 @@ def test_lead_with_a_param_the_part_lacks_is_refused():
 
 # ---- swap -----------------------------------------------------------------------------------------------------------------
 def kde_as_x500_motor(lib):
-    """In-memory: a KDE 2315XF-965 (datasheet j_rotor_bell, thrust table; 4S) with the X500 motor's mount and shaft ports, so the
-    swap can seat it. Not a real fit (the library has no other 16x16 M3 / 3 mm shaft motor): the point is the device refresh."""
-    kde, hb = lib.get("kde-2315xf-965"), lib.get("holybro-2216-kv920")
-    kde.ports[:] = [copy.deepcopy(p) for p in hb.ports if p["kind"] == "mech"] + [
-        p for p in kde.ports if p["name"] == "phase"
-    ]
-    return kde.id
+    """The KDE 2315XF-965 (datasheet j_rotor_bell, thrust table; 4S): its 16x19 M3 pattern and M6 prop adapter seat on the X500 arm
+    connector / prop as they are (D5: no in-memory port patching any more); the point of the tests is the device refresh."""
+    return "kde-2315xf-965"
 
 
 def test_swap_reports_stale_bindings_and_offers_the_refresh(tmp_path):
@@ -452,7 +457,9 @@ def swapped():
     kde = kde_as_x500_motor(lib)
     d, _ = build_scratch(lib=lib)
     before = copy.deepcopy(d.doc["devices"])
-    r = d.swap([f"mot{k}" for k in ARM], kde, auto=True)
+    r = d.swap(
+        [f"mot{k}" for k in ARM], kde, auto=True, rewire=True
+    )  # the Holybro motor's `lead` made autowire name its cable_length; the KDE has none
     return d, before, r, kde
 
 
@@ -519,6 +526,146 @@ def test_swapped_quad_hovers_and_numbers_are_reported(
     assert (
         b["hover_current_A"] != a["hover_current_A"]
     )  # the new motor's numbers are in the loop, not the old ones
+
+
+# ---- D5: interchangeable parts swap without patching ----------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def x500_kde():
+    """The stock X500 with its four motors swapped for the KDE 2315XF-965: unpatched library, rewire + auto devices in the same edits
+    (the thermal pair is the X500 motor's, FILL: the KDE is also a 64 g motor and publishes no c_th / r_th)."""
+    d = Design.open(ASMS / "x500v2.toml")
+    r = d.swap(
+        [f"mot{k}" for k in ARM],
+        "kde-2315xf-965",
+        auto=True,
+        overwrite=True,
+        fill=FILL,
+        rewire=True,
+    )
+    return d, r
+
+
+def test_x500_to_kde_2315_remates_and_rewires(x500_kde):
+    d, r = x500_kde
+    for k, ch in zip(ARM, r.changes):
+        kept = {m["mate"]: m for m in ch["mates"]["kept"]}
+        assert ch["mates"]["lost"] == [] and set(kept) == {f"motor{k}", f"spin{k}"}
+        assert (
+            kept[f"motor{k}"]["new_port"] == "base_16x19_m3"
+        )  # not a name match: the 16x19 pattern
+        assert (
+            kept[f"spin{k}"]["new_port"] == "prop_adapter"
+        )  # M6 adapter, not the 4 mm shaft
+        assert [w["wire"] for w in ch["wires"]["rewired"]] == [f"esc{k}-to-mot{k}"]
+        assert "need_length" not in ch["wires"] and ch["dangling"] == []
+    m1 = next(m for m in d.doc["mates"] if m["name"] == "motor1")
+    assert (
+        m1["a"] == "con1.motor_16x19" and m1["b"] == "mot1.base_16x19_m3"
+    )  # the connector's co-located 16x19 port
+    w = next(w for w in d.doc["wires"] if w["name"] == "esc1-to-mot1")
+    assert w["included_in"] == "mot1" and isinstance(
+        w["length"], (int, float, dict)
+    )  # the lead's mass is the motor's
+
+
+def test_x500_to_kde_2315_without_rewire_names_the_wires():
+    d = Design.open(ASMS / "x500v2.toml")
+    ch = d.swap("mot1", "kde-2315xf-965").changes[0]
+    assert [x["wire"] for x in ch["wires"]["need_length"]] == ["esc1-to-mot1"]
+    assert ch["wires"]["need_length"][0]["missing_param"] == "cable_length"
+    assert (
+        ch["autowire_offer"]["rewire"] is True
+        and "esc1-to-mot1" in ch["autowire_offer"]["note"]
+    )
+
+
+def test_x500_kde_2315_drc_has_no_errors(x500_kde):
+    d, _ = x500_kde
+    errors = [f for f in d.check() if f.severity == "error"]
+    assert errors == [], [(f.code, f.where, f.message[:100]) for f in errors]
+
+
+def test_swap_back_to_the_stock_motor_remates():
+    d = Design.open(ASMS / "x500v2.toml")
+    d.swap("mot1", "kde-2315xf-965", rewire=True)
+    ch = d.swap("mot1", "holybro-2216-kv920").changes[0]
+    assert ch["mates"]["lost"] == []
+    kept = {m["mate"]: m["new_port"] for m in ch["mates"]["kept"]}
+    assert kept == {"motor1": "base", "spin1": "prop_adapter"}
+    m1 = next(m for m in d.doc["mates"] if m["name"] == "motor1")
+    assert m1["a"] == "con1.motor"  # back on the 16x16 seat
+
+
+@pytest.mark.parametrize(
+    "motor, pattern",
+    [
+        ("kde-5215xf-330", "bolt-circle.30.4.m4"),  # 30 mm circle, M4
+        ("tmotor-4214-kv380", "bolt-circle.30.4.m4"),
+        (
+            "tmotor-mn3510-kv700",
+            "bolt-circle.25.4.m3",
+        ),  # 25 mm: not an X500 seat either
+    ],
+)
+def test_swap_to_another_mount_pattern_is_refused_with_the_reason(motor, pattern):
+    d = Design.open(ASMS / "x500v2.toml")
+    before = copy.deepcopy(d.doc)
+    with pytest.raises(
+        DesignError,
+        match=r"refused.*cannot be mounted on con1\.motor.*bolt-pattern\.16x16\.m3",
+    ) as e:
+        d.swap("mot1", motor)
+    assert pattern in str(e.value)
+    assert d.doc == before  # nothing changed
+
+
+def test_swap_to_a_motor_with_16x16_pattern_still_seats():
+    d = Design.open(ASMS / "x500v2.toml")
+    ch = d.swap("mot1", "iflight-xing2-2207-1855kv").changes[
+        0
+    ]  # 16x16 M3 (shaft 5 mm: the prop mate is the reported loss)
+    assert [m["mate"] for m in ch["mates"]["kept"]] == ["motor1"]
+
+
+def test_device_unset_fires_on_a_stripped_thermal_field():
+    d = Design.open(ASMS / "x500v2.toml")
+    assert [
+        f for f in d.check() if f.code == "DEVICE_UNSET"
+    ] == []  # the stock design is complete
+    esc1 = next(b for b in d.doc["devices"] if b["name"] == "esc1")
+    del esc1["set"]["motor.c_th"]
+    fs = [f for f in d.check() if f.code == "DEVICE_UNSET"]
+    assert [(f.severity, f.where) for f in fs] == [("error", ["esc1", "motor.c_th"])]
+    assert (
+        "provenance table" in fs[0].fix
+        and "'esc1'" in fs[0].fix
+        and "simulation run would fail" in fs[0].message
+    )
+
+
+def test_device_unset_after_a_swap_without_the_thermal_fill():
+    d = Design.open(ASMS / "x500v2.toml")
+    d.swap("mot1", "kde-2315xf-965", auto=True, overwrite=True, rewire=True)
+    fs = [(f.where[0], f.where[1]) for f in d.check() if f.code == "DEVICE_UNSET"]
+    assert fs == [
+        ("esc1", "motor.c_th"),
+        ("esc1", "motor.r_th"),
+    ]  # reported before any run, with the fix
+
+
+@needs_kernel
+def test_x500_with_kde_2315_hovers(x500_kde, tmp_path_factory, capsys):
+    d, _ = x500_kde
+    ref = Design.open(ASMS / "x500v2.toml")
+    a = ref.simulate("hover", out=tmp_path_factory.mktemp("stock"))
+    b = d.simulate("hover", out=tmp_path_factory.mktemp("kde"))
+    with capsys.disabled():
+        print(
+            f"\nX500 -> KDE 2315XF-965 (unpatched swap): hover current {a['hover_current_A']:.3f} -> {b['hover_current_A']:.3f} A, "
+            f"throttle {a['hover_throttle']:.3f} -> {b['hover_throttle']:.3f}, T/W {a['thrust_to_weight']:.2f} -> {b['thrust_to_weight']:.2f}"
+        )
+    assert a["pass"] and b["pass"], (a, b)
+    assert b["hover_current_A"] != a["hover_current_A"]
 
 
 # ---- MCP -----------------------------------------------------------------------------------------------------------------

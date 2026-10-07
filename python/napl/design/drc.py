@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .assembly import Assembly, Ctx, load
+from .assembly import UNITS, Assembly, Ctx, load
 from .build import _mate_spec, compute
 from .library import DesignError, Library, genders_ok, types_ok
 from .mass import _STL, mesh_props
@@ -55,6 +55,15 @@ SERVO_MARGIN = 2.0  # stall / worst static holding torque below 2: warning. Serv
 #                     factor 1.5-2 on the static torque (Kpower servo-selection notes, https://www.kpower.com/insight_servo/7642.html);
 #                     DESIGN MARGIN: the top of that range, because a servo holding near stall overheats and the pose grid is a lower bound
 MAX_POSES = 20000  # torque pose grid: n samples per joint with n ** joints <= MAX_POSES (n between 2 and 7)
+SERVO_ID_MAX = 252  # highest usable servo bus ID: Feetech STS 0-253, Dynamixel 0-252 (254 = broadcast); the stricter of the two
+REACH_TOL = 0.005  # m: an ARM_REACH target counts as reached within 5 mm. DESIGN MARGIN: a gripper is not a point, and the STS3215's
+#                    own backlash (0.5 deg) is 2-3 mm at the end of a 0.3 m arm
+REACH_STARTS, REACH_ITERS = (
+    24,
+    80,
+)  # IK: seeded restarts x damped-least-squares steps (the first start is the range middle)
+REACH_DAMPING = 0.05  # m: damping of the IK step (Levenberg-Marquardt lambda, in metres of end-effector error)
+REACH_CONVERGED = 1e-4  # m: an IK run stops at 0.1 mm
 
 RULES = {  # code -> (default severity, what it checks); the long form is the README table
     "BUILD_FAILED": (
@@ -102,6 +111,10 @@ RULES = {  # code -> (default severity, what it checks); the long form is the RE
         "warning",
         "centre of gravity is off the thrust centre (needs trim thrust)",
     ),
+    "DEVICE_UNSET": (
+        "error",
+        "a simulation device binding lacks a field the device validation needs (the run would fail); the fix names the part param or `set` that supplies it",
+    ),
     "THERMAL": (
         "info",
         "motor copper loss at hover (and winding temperature when a device gives r_th)",
@@ -109,6 +122,30 @@ RULES = {  # code -> (default severity, what it checks); the long form is the RE
     "SERVO_TORQUE_MARGIN": (
         "warning",
         "servo stall torque less than 2x the worst static holding torque",
+    ),
+    "SERVO_ID_CONFLICT": (
+        "error",
+        "two servos on one bus declare the same servo_id, or an ID outside 0..252",
+    ),
+    "SERVO_ID_UNSET": (
+        "info",
+        "several servos on one bus and some declare no servo_id (all factory-new servos answer to the same ID)",
+    ),
+    "SERVO_BAUD_MISMATCH": (
+        "error",
+        "servos on one bus have different baud rates (the `baud` override, else the part's baud_default)",
+    ),
+    "SERVO_BUS_CURRENT": (
+        "warning",
+        "all servos of a bus at stall draw more than its driver board's max_continuous_current (error when the holding current does)",
+    ),
+    "SERVO_CHAIN_LENGTH": (
+        "warning",
+        "more servos than the board drives (error), or the cable drop to the farthest servo at all-stall leaves it below its minimum voltage",
+    ),
+    "ARM_REACH": (
+        "warning",
+        "a `reach` / `workspace` target the arm's numerical IK cannot reach within the joint limits (info when all points are reachable)",
     ),
     "WIRE_INVALID": (
         "error",
@@ -1603,6 +1640,54 @@ def _thermal(ctx, units, F):
     _add(F, "THERMAL", "info", msg, [u["motor"].id])
 
 
+def _device_unset(ctx, F):
+    """Device fields the simulator needs (auto_devices.REQUIRED: devices.cpp refuses the run without them) that a binding neither
+    sets, maps nor carries: the stripped `motor.c_th`, or a field a swap to a part without that param left unfed.
+    Error: a run would fail. Never invented here, only named, with where the number can come from."""
+    from . import auto_devices as AD
+
+    feeds = {}
+    for tab in (
+        AD.MOTOR,
+        AD.ESC,
+        AD.SERVO,
+        AD.BATTERY,
+        AD.PSU,
+        AD.ROTOR,
+        AD.IMU,
+        AD.MAG,
+        AD.GNSS,
+    ):
+        for fld, params in tab.items():
+            feeds.setdefault(fld, params)
+    maps = ctx.doc.get("device_maps", {})
+    for b in ctx.doc.get("devices", []):
+        req = AD.REQUIRED.get(b.get("type"), [])
+        have = set(b) | set(b.get("set", {})) | set(maps.get(b.get("map"), {}))
+        for f in [f for f in req if f not in have]:
+            holder = b.get("motor") if f.startswith("motor.") else b.get("instance")
+            pid = ctx.insts[holder].part.id if holder in ctx.insts else "the part"
+            fill = f"design.auto_devices(fill={{'{b['name']}': {{'set': {{'{f}': <provenance table>}}}}}})"
+            if f in feeds:
+                fix = (
+                    f"add a '{feeds[f][0].lstrip('@')}' param to {pid} (or `set` it on '{holder}') and map it with auto_devices, "
+                    f"or supply the number yourself: {fill}"
+                )
+            else:
+                fix = (
+                    f"no part carries it: put `{f}` in the `set` of device '{b['name']}' as a provenance table "
+                    f"(estimated values need a rationale), e.g. {fill}"
+                )
+            _add(
+                F,
+                "DEVICE_UNSET",
+                "error",
+                f"device '{b['name']}' ({b['type']}) has no '{f}': the simulation run would fail",
+                [b["name"], f],
+                fix,
+            )
+
+
 # ---- servo torque ---------------------------------------------------------------------------------------------------------------
 def _servo_points(part):
     """[(V, stall torque N*m, stall current A or None, rated torque N*m or None)] from params stall_torque_<V>v, ... (7v4 -> 7.4)."""
@@ -1640,31 +1725,19 @@ def _samples(rng, n):
     return np.linspace(rng[0], rng[1], n) if rng else np.zeros(1)
 
 
-def _servo_rules(ctx, net, world, F):
-    servos = [
-        d
-        for d in ctx.doc.get("devices", [])
-        if d["type"] == "servo" and d.get("joint") and d.get("instance") in ctx.insts
-    ]
-    jb = {
+def _driven(world):
+    """{joint name: body index} of the ranged hinge joints: the ones a pose grid / IK moves."""
+    return {
         b["joint"]["name"]: i
         for i, b in enumerate(world.bodies)
         if b["joint"] and b["joint"]["type"] == "hinge" and b["joint"]["range"]
     }
-    servos = [d for d in servos if d["joint"] in jb]
-    out = {}
-    if not servos:
-        return out
-    names = [d["joint"] for d in servos]
-    J = len(names)
-    n = int(max(2, min(7, math.floor(MAX_POSES ** (1.0 / J)))))
-    grids = np.meshgrid(
-        *[_samples(world.bodies[jb[j]]["joint"]["range"], n) for j in names],
-        indexing="ij",
-    )
-    Q = np.stack([g.ravel() for g in grids], axis=1)  # (P, J)
-    P = len(Q)
-    nb = len(world.bodies)
+
+
+def _fk(world, jb, names, Q):
+    """Forward kinematics of P poses at once: Q (P, len(names)) angles of the joints `names` (the others stay at 0) ->
+    (T, base), per body the world pose (P, 4, 4) and the pose of its joint frame before the joint turns."""
+    P, nb = len(Q), len(world.bodies)
     T, base = [None] * nb, [None] * nb
     qi = {jb[j]: k for k, j in enumerate(names)}
     for i, b in enumerate(world.bodies):
@@ -1689,7 +1762,11 @@ def _servo_rules(ctx, net, world, F):
             T[i] = base[i] @ Tj
         else:
             T[i] = base[i]
-    kids = {i: [] for i in range(nb)}
+    return T, base
+
+
+def _subtree(world):
+    kids = {i: [] for i in range(len(world.bodies))}
     for i, b in enumerate(world.bodies):
         if b["parent"] is not None:
             kids[b["parent"]].append(i)
@@ -1697,17 +1774,37 @@ def _servo_rules(ctx, net, world, F):
     def subtree(i):
         return [i] + [x for c in kids[i] for x in subtree(c)]
 
-    com = {
-        i: np.einsum("pij,j->pi", T[i], np.append(world.bodies[i]["com"], 1.0))[:, :3]
-        for i in range(nb)
+    return subtree
+
+
+def _com(world, T):
+    return {
+        i: np.einsum("pij,j->pi", T[i], np.append(b["com"], 1.0))[:, :3]
+        for i, b in enumerate(world.bodies)
     }
-    # payload point: farthest collision-geometry point of the deepest driven body, from the first joint's pivot at rest
+
+
+def _gravity_tau(world, jb, base, com, subtree, joint):
+    """Gravity torque (N*m, one per pose) about the axis of `joint` from everything it carries -> (tau, axis, pivot) per pose."""
+    i = jb[joint]
+    j = world.bodies[i]["joint"]
+    Rb, tb = base[i][:, :3, :3], base[i][:, :3, 3]
+    axis = Rb @ (j["axis"] / np.linalg.norm(j["axis"]))
+    piv = Rb @ j["pos"] + tb
+    S = sum(world.bodies[k]["mass"] * (com[k] - piv) for k in subtree(i))
+    return G * (-axis[:, 0] * S[:, 1] + axis[:, 1] * S[:, 0]), axis, piv
+
+
+def _tip(world, jb, first):
+    """(leaf body, tip point in the leaf's frame): the leaf = the deepest driven body; the tip = the farthest collision-geometry
+    point of it from the pivot of joint `first` at rest (the payload point of PAYLOAD_LIMIT, the end effector of ARM_REACH)."""
+    subtree = _subtree(world)
     depth = {i: len(subtree(i)) for i in jb.values()}
     leaf = min(depth, key=lambda i: (depth[i], -i)) if depth else None
     tip_loc = None
     if leaf is not None:
-        piv = world.bodies[jb[names[0]]]["T"] @ np.append(
-            world.bodies[jb[names[0]]]["joint"]["pos"], 1.0
+        piv = world.bodies[jb[first]]["T"] @ np.append(
+            world.bodies[jb[first]]["joint"]["pos"], 1.0
         )
         best = -1.0
         for gi in world.bodies[leaf]["geoms"]:
@@ -1725,6 +1822,35 @@ def _servo_rules(ctx, net, world, F):
                 dd = float(np.linalg.norm(pt - piv[:3]))
                 if dd > best:
                     best, tip_loc = dd, np.linalg.solve(Tb[:3, :3], pt - Tb[:3, 3])
+    return leaf, tip_loc
+
+
+def _servo_rules(ctx, net, world, F):
+    servos = [
+        d
+        for d in ctx.doc.get("devices", [])
+        if d["type"] == "servo" and d.get("joint") and d.get("instance") in ctx.insts
+    ]
+    jb = _driven(world)
+    servos = [d for d in servos if d["joint"] in jb]
+    out = {}
+    if not servos:
+        return out
+    names = [d["joint"] for d in servos]
+    J = len(names)
+    n = int(max(2, min(7, math.floor(MAX_POSES ** (1.0 / J)))))
+    grids = np.meshgrid(
+        *[_samples(world.bodies[jb[j]]["joint"]["range"], n) for j in names],
+        indexing="ij",
+    )
+    Q = np.stack([g.ravel() for g in grids], axis=1)  # (P, J)
+    P = len(Q)
+    nb = len(world.bodies)
+    T, base = _fk(world, jb, names, Q)
+    subtree = _subtree(world)
+
+    com = _com(world, T)
+    leaf, tip_loc = _tip(world, jb, names[0])
     worst_margin, worst, pay_min, pay_who, pay_need = (
         math.inf,
         None,
@@ -1735,12 +1861,7 @@ def _servo_rules(ctx, net, world, F):
     rows = []
     for d in servos:
         i = jb[d["joint"]]
-        j = world.bodies[i]["joint"]
-        Rb, tb = base[i][:, :3, :3], base[i][:, :3, 3]
-        axis = Rb @ (j["axis"] / np.linalg.norm(j["axis"]))
-        piv = Rb @ j["pos"] + tb
-        S = sum(world.bodies[k]["mass"] * (com[k] - piv) for k in subtree(i))
-        tau = G * (-axis[:, 0] * S[:, 1] + axis[:, 1] * S[:, 0])
+        tau, axis, piv = _gravity_tau(world, jb, base, com, subtree, d["joint"])
         k = int(np.argmax(np.abs(tau)))
         tmax = float(abs(tau[k]))
         inst = ctx.insts[d["instance"]]
@@ -1842,6 +1963,386 @@ def _servo_rules(ctx, net, world, F):
                 [pay_who],
             )
     return out
+
+
+# ---- servo bus --------------------------------------------------------------------------------------------------------------------
+def _servo_bus(ctx, net, servo_info, F):
+    """One half-duplex bus = the servos whose power ports are in one net (the 3-pin cable carries supply and signal together).
+    SERVO_ID_CONFLICT / SERVO_BAUD_MISMATCH (error), SERVO_ID_UNSET (info), SERVO_BUS_CURRENT, SERVO_CHAIN_LENGTH."""
+    buses = {}
+    for d in ctx.doc.get("devices", []):
+        inst = ctx.insts.get(d.get("instance")) if d["type"] == "servo" else None
+        if inst is not None:
+            key = (inst.id, d.get("port", "port_a"))
+            if key in net.ports:
+                buses.setdefault(net.nroot(key), []).append((d, inst, key))
+    for members in buses.values():
+        names = [d["name"] for d, _, _ in members]
+        ids = {}
+        for d, inst, _ in members:
+            sid = inst.value("servo_id")
+            if sid is None:
+                continue
+            ids.setdefault(int(sid), []).append(d["name"])
+            if not 0 <= sid <= SERVO_ID_MAX:
+                _add(
+                    F,
+                    "SERVO_ID_CONFLICT",
+                    "error",
+                    f"{d['name']}: servo_id {sid:g} is outside 0..{SERVO_ID_MAX} (254 is the broadcast ID)",
+                    [d["name"]],
+                    f"use an ID in 0..{SERVO_ID_MAX}",
+                )
+        free = [i for i in range(1, SERVO_ID_MAX + 1) if i not in ids]
+        for sid, who in sorted(ids.items()):
+            if len(who) > 1:
+                _add(
+                    F,
+                    "SERVO_ID_CONFLICT",
+                    "error",
+                    f"servos {', '.join(who)} share bus ID {sid}: the bus answers with a collision and the host cannot address them separately",
+                    who,
+                    f"give them different IDs (`set` servo_id on each instance), e.g. {', '.join(str(i) for i in free[: len(who) - 1])} for all but one",
+                )
+        unset = [d["name"] for d, inst, _ in members if inst.value("servo_id") is None]
+        if unset and len(members) > 1:
+            _add(
+                F,
+                "SERVO_ID_UNSET",
+                "info",
+                f"{len(members)} servos share a bus and {', '.join(unset)} declare no servo_id: new servos all answer to the factory ID "
+                "(1 on the STS3215), so each must be given its own ID before the bus works",
+                unset,
+                "`set` a servo_id on every servo instance (e.g. its position along the chain)",
+            )
+        bauds = {}
+        for d, inst, _ in members:
+            b = inst.value("baud") or inst.value("baud_default")
+            if b:
+                bauds.setdefault(int(b), []).append(d["name"])
+        if len(bauds) > 1:
+            _add(
+                F,
+                "SERVO_BAUD_MISMATCH",
+                "error",
+                "servos on one bus run at different baud rates: "
+                + "; ".join(
+                    f"{b} bit/s: {', '.join(w)}" for b, w in sorted(bauds.items())
+                ),
+                names,
+                "set one baud on every servo (`set` baud) or move the odd one to its own bus",
+            )
+        _bus_electrics(ctx, net, servo_info, members, F)
+
+
+def _bus_electrics(ctx, net, servo_info, members, F):
+    """SERVO_BUS_CURRENT: all servos stalled vs the bus driver board's max_continuous_current (the supply: PSU_OVERLOAD).
+    SERVO_CHAIN_LENGTH: servo count vs the board's max_servos, and the cable drop to the farthest servo with all of them
+    stalled vs the servo's minimum operating voltage."""
+    loads, peak, sus = {}, 0.0, 0.0
+    for d, inst, key in members:
+        v = net.voltage(key)
+        pts = _servo_points(inst.part)
+        pk = _at_voltage(pts, v[1], 2) if (pts and v) else None
+        if pk is None:
+            return
+        si = servo_info.get(d["name"])
+        kt, idle = inst.value("kt_output_datasheet"), inst.value("idle_current")
+        su = idle + si["tau"] / kt if (si and kt and idle is not None) else None
+        loads[key] = (pk, su)
+        peak += pk
+        sus = None if (sus is None or su is None) else sus + su
+    root = net.nroot(members[0][2])
+    boards = [
+        (i, i.value("max_continuous_current"))
+        for i in {net.ports[k][0] for k in net.members(members[0][2])}
+        if i.part.category == "pcb.servo_driver"
+    ]
+    for board, cont in boards:
+        sev = _sev(peak, sus, cont, None) if cont else None
+        if sev:
+            _add(
+                F,
+                "SERVO_BUS_CURRENT",
+                "error" if sev == "error" else "warning",
+                f"{board.id}: {len(members)} servos at stall draw {peak:.1f} A"
+                + (f", {sus:.1f} A holding" if sus is not None else "")
+                + f" vs the board's max_continuous_current {cont:g} A",
+                [board.id, *[d["name"] for d, _, _ in members]],
+                f"use a driver board rated >= {peak:.0f} A, split the servos over two boards, or cap the servos' max_torque so they cannot all stall",
+            )
+        if (n := board.value("max_servos")) and len(members) > n:
+            _add(
+                F,
+                "SERVO_CHAIN_LENGTH",
+                "error",
+                f"{len(members)} servos on a bus whose board ({board.id}) drives at most {n:g}",
+                [board.id],
+                "split the servos over a second bus",
+            )
+    # cable drop along the chain: sum over the wires on the path from the source of (current through it x its loop resistance)
+    src = net.sources(members[0][2])
+    if not src:
+        return
+    cur, _ = net.flows(loads)
+    adj = {}
+    for w in net.wires:
+        if net.nroot(w["ka"]) == root and w["i"] in cur:
+            r = _wire_r(ctx, w)
+            if r is None:
+                continue
+            a, b = net.node.find(w["ka"]), net.node.find(w["kb"])
+            adj.setdefault(a, []).append((b, w, r))
+            adj.setdefault(b, []).append((a, w, r))
+    drop, hops, todo = (
+        {net.node.find(src[0]): 0.0},
+        {net.node.find(src[0]): 0},
+        [net.node.find(src[0])],
+    )
+    while todo:
+        n = todo.pop()
+        for m, w, r in adj.get(n, ()):
+            if m not in drop:
+                drop[m], hops[m] = drop[n] + cur[w["i"]][0] * r, hops[n] + 1
+                todo.append(m)
+    vnom = net.voltage(members[0][2])[1]
+    worst = None
+    for d, inst, key in members:
+        node = net.node.find(key)
+        vmin = next(
+            (
+                inst.value(p)
+                for p in (
+                    "v_operating_min",
+                    "reg_min_input_voltage_default",
+                    "reg_min_voltage_limit_default",
+                )
+                if inst.value(p)
+            ),
+            None,
+        )
+        if vmin and node in drop and (worst is None or vnom - drop[node] < worst[0]):
+            worst = (vnom - drop[node], drop[node], hops[node], d["name"], vmin)
+    if worst and worst[0] < worst[4]:
+        v, dr, h, who, vmin = worst
+        _add(
+            F,
+            "SERVO_CHAIN_LENGTH",
+            "warning",
+            f"{who} is {h} cable hops from the bus source: with all {len(members)} servos stalled the cables drop {dr:.2f} V, "
+            f"leaving {v:.2f} V of {vnom:g} V, below the servo's minimum {vmin:g} V (wire runs from the source only: the supply's output resistance and the board's are not counted)",
+            [who],
+            "shorten the chain (feed the bus in the middle or from a second port), use a heavier cable (lower ohm/m), or limit the servos' max_torque",
+        )
+
+
+def _wire_r(ctx, w):
+    """Loop resistance (ohm) of a wire entry: resistance_per_m x length x conductors, or None when the part states no ohm/m."""
+    rpm = w["part"].value("resistance_per_m")
+    if rpm is None:
+        return None
+    try:
+        length, _ = ctx.num(w["w"]["length"], f"wire {w['name']}", UNITS["m"], "length")
+    except DesignError:
+        return None
+    return rpm * length * w["w"].get("conductors", 1)
+
+
+# ---- arm reach ---------------------------------------------------------------------------------------------------------------------
+def _reach_points(ctx, t):
+    """[[x, y, z]] m of a [[targets]] entry that declares `reach` (a list of provenance tables, value = [x, y, z]) or `workspace`
+    (one provenance table, value = [x0, y0, z0, x1, y1, z1], the box is sampled on a 3 x 3 x 3 grid)."""
+    pts = []
+    for k, e in enumerate(t.get("reach", [])):
+        v = ctx.entry(e, f"target {t['name']} reach[{k}]")["value"]
+        if not (isinstance(v, list) and len(v) == 3):
+            raise DesignError(f"target {t['name']} reach[{k}]: value must be [x, y, z]")
+        pts.append([float(x) for x in v])
+    if "workspace" in t:
+        v = ctx.entry(t["workspace"], f"target {t['name']} workspace")["value"]
+        if not (isinstance(v, list) and len(v) == 6):
+            raise DesignError(
+                f"target {t['name']} workspace: value must be [x0, y0, z0, x1, y1, z1]"
+            )
+        g = [np.linspace(v[i], v[i + 3], 3) for i in range(3)]
+        pts += [[x, y, z] for x in g[0] for y in g[1] for z in g[2]]
+    return pts
+
+
+def _ik(world, jb, names, leaf, tip, target, starts=REACH_STARTS):
+    """Damped least squares from `starts` joint-limit-respecting starts (the range middle, then seeded random poses) ->
+    (closest approach in m, joint angles there). The Jacobian is by forward difference of `_fk` (all columns in one batch)."""
+    lo = np.array([world.bodies[jb[j]]["joint"]["range"][0] for j in names])
+    hi = np.array([world.bodies[jb[j]]["joint"]["range"][1] for j in names])
+    rng = np.random.default_rng(0)
+    th, eps = np.append(tip, 1.0), 1e-6
+
+    def pos(Q):
+        T, _ = _fk(world, jb, names, Q)
+        return np.einsum("pij,j->pi", T[leaf], th)[:, :3]
+
+    best = (math.inf, None, None)
+    for s in range(starts):
+        q = (lo + hi) / 2 if s == 0 else rng.uniform(lo, hi)
+        for _ in range(REACH_ITERS):
+            p = pos(np.vstack([q, q + eps * np.eye(len(q))]))
+            e = target - p[0]
+            err = float(np.linalg.norm(e))
+            if err < best[0]:
+                best = (err, q.copy(), p[0].copy())
+            if err < REACH_CONVERGED:
+                break
+            Jm = (p[1:] - p[0]).T / eps
+            dq = Jm.T @ np.linalg.solve(Jm @ Jm.T + REACH_DAMPING**2 * np.eye(3), e)
+            q = np.clip(q + dq, lo, hi)
+        if best[0] < REACH_CONVERGED:
+            break
+    return best
+
+
+def _reach_rules(ctx, world, F):
+    tg = [t for t in ctx.doc.get("targets", []) if "reach" in t or "workspace" in t]
+    jb = _driven(world)
+    if not tg or not jb:
+        return
+    first = next(iter(jb))
+    leaf, tip = _tip(world, jb, first)
+    pivot = (
+        world.bodies[jb[first]]["T"]
+        @ np.append(world.bodies[jb[first]]["joint"]["pos"], 1.0)
+    )[:3]
+    names = [
+        j for j, i in jb.items() if i != leaf
+    ]  # the end effector's own joint (the gripper) does not move its tip point
+    for t in tg:
+        res = [
+            (_ik(world, jb, names, leaf, tip, np.array(p)), p)
+            for p in _reach_points(ctx, t)
+        ]
+        bad = [(r, p) for r, p in res if r[0] > REACH_TOL]
+        if not bad:
+            worst = max((r[0] for r, _ in res), default=0.0)
+            _add(
+                F,
+                "ARM_REACH",
+                "info",
+                f"target '{t['name']}': all {len(res)} point(s) reachable within the joint limits (worst residual {worst * 1000:.1f} mm, tolerance {REACH_TOL * 1000:g} mm)",
+                [t["name"]],
+            )
+            continue
+        (gap, q, near), p = max(bad, key=lambda x: x[0][0])
+        pose = ", ".join(f"{n} {np.degrees(x):.0f} deg" for n, x in zip(names, q))
+        # too far (the closest tip is nearer the shoulder than the target) or too close (the arm cannot fold that tight)?
+        far = np.linalg.norm(np.array(p) - pivot) > np.linalg.norm(near - pivot)
+        mm = f"{gap * 1000:.0f} mm"
+        fix = (
+            f"lengthen a link by about {mm} or mount the base about {mm} closer to the target (a different mount); or move the target inside the workspace"
+            if far
+            else f"the arm cannot fold that close within its joint limits: mount the base about {mm} farther from the target, or move the target outward"
+        )
+        _add(
+            F,
+            "ARM_REACH",
+            "warning",
+            f"target '{t['name']}': {len(bad)} of {len(res)} point(s) out of reach; worst [{p[0]:.3f}, {p[1]:.3f}, {p[2]:.3f}] m, "
+            f"closest approach {gap * 1000:.0f} mm at [{pose}] (end effector = the farthest point of {world.bodies[leaf]['name']}; numerical IK, joint limits on)",
+            [t["name"]],
+            fix,
+        )
+
+
+# ---- servo choice for a joint (Design.suggest) --------------------------------------------------------------------------------------
+def joint_holding(asm, lib, joint):
+    """Servos ranked by holding-torque margin at `joint`: stall torque (at the bus voltage) over the worst static gravity torque
+    the joint carries over the pose grid of SERVO_TORQUE_MARGIN. -> {"joint", "tau", "pose", "vb", "rows"}; best margin first.
+    The servo now on the joint (if any) sets the bus voltage (candidates not operable at it are left out: v_operating_min /
+    max) and the mate-fit check (mates_fit); the rest of the arm keeps its mass, so a heavier servo adds to the torque."""
+    if not isinstance(asm, Assembly):
+        asm = load(asm)
+    ctx = Ctx(asm, lib)
+    xml, _ = compute(asm, lib.dir, lib.root, lib)
+    world = _World(xml, lib.root)
+    jb = _driven(world)
+    if joint not in jb:
+        raise DesignError(
+            f"'{joint}' is not a ranged hinge joint of this design (joints: {', '.join(jb)})"
+        )
+    names = list(jb)
+    n = int(max(2, min(7, math.floor(MAX_POSES ** (1.0 / len(names))))))
+    grids = np.meshgrid(
+        *[_samples(world.bodies[jb[j]]["joint"]["range"], n) for j in names],
+        indexing="ij",
+    )
+    Q = np.stack([g.ravel() for g in grids], axis=1)
+    T, base = _fk(world, jb, names, Q)
+    tau, _, _ = _gravity_tau(world, jb, base, _com(world, T), _subtree(world), joint)
+    k = int(np.argmax(np.abs(tau)))
+    tmax = float(abs(tau[k]))
+    now = next(
+        (
+            d
+            for d in ctx.doc.get("devices", [])
+            if d["type"] == "servo"
+            and d.get("joint") == joint
+            and d.get("instance") in ctx.insts
+        ),
+        None,
+    )
+    vb, mine = None, None
+    if now:
+        mine = ctx.insts[now["instance"]]
+        v = _Net(ctx, _wires(ctx, [])).voltage((mine.id, now.get("port", "port_a")))
+        vb = v[1] if v else None
+    have = (
+        {p.get("type") for p in mine.part.ports if p.get("kind") == "mech"}
+        if mine
+        else None
+    )
+    rows = []
+    for p in lib.by_category("motor.servo"):
+        pts = _servo_points(p)
+        v = vb or p.value("v_nominal")
+        stall = _at_voltage(pts, v, 1) if pts and v else None
+        lo, hi = p.value("v_operating_min"), p.value("v_operating_max")
+        if stall is None or (vb and lo and hi and not lo <= vb <= hi):
+            continue  # no torque table, or not operable at the bus voltage
+        rated = _at_voltage(pts, v, 3)
+        margin = stall / tmax if tmax > 1e-9 else 1e9
+        fits = (
+            None
+            if have is None
+            else have <= {q.get("type") for q in p.ports if q.get("kind") == "mech"}
+        )
+        verdict = (
+            "cannot hold the worst pose"
+            if margin < 1
+            else f"holds, margin below {SERVO_MARGIN:g} (SERVO_TORQUE_MARGIN)"
+            if margin < SERVO_MARGIN
+            else "holds with margin"
+        )
+        if rated is not None and tmax > rated and margin >= 1:
+            verdict += "; above the rated (continuous) torque: it will overheat holding"
+        if mine is not None and p.id == mine.part.id:
+            verdict += "; the servo on this joint now"
+        rows.append(
+            {
+                "part": p.id,
+                "category": p.category,
+                "name": p.raw.get("name", ""),
+                "score": round(margin, 2),
+                "margin": margin,
+                "stall_Nm": stall,
+                "rated_Nm": rated,
+                "voltage_V": v,
+                "tau_worst_Nm": tmax,
+                "mass": p.value("mass"),
+                "mates_fit": fits,
+                "why": [verdict],
+            }
+        )
+    rows.sort(key=lambda r: (-r["margin"], r["part"]))
+    pose = {nm: float(x) for nm, x in zip(names, Q[k])}
+    return {"joint": joint, "tau": tmax, "pose": pose, "vb": vb, "rows": rows}
 
 
 # ---- current rules ---------------------------------------------------------------------------------------------------------------
@@ -2108,7 +2609,11 @@ def check(asm, lib=None, *, model=None, mesh_base=None, diag=None) -> list:
         _guard(F, "cg", _cg_rule, ctx, world, discs, mass, F)
         if net:
             servo_info = _guard(F, "servo", _servo_rules, ctx, net, world, F) or {}
+        _guard(F, "reach", _reach_rules, ctx, world, F)
+    if net:
+        _guard(F, "servo bus", _servo_bus, ctx, net, servo_info, F)
     _guard(F, "thermal", _thermal, ctx, units, F)
+    _guard(F, "devices", _device_unset, ctx, F)
     if net:
         _guard(F, "currents", _current_rules, ctx, net, units, servo_info, F, diag)
     F.sort(key=lambda f: (_RANK[f.severity], f.code, f.where))

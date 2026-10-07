@@ -31,7 +31,8 @@ size_rationale = "Half extents (m) of an assumed 80 x 50 x 34 mm wall-mount adap
 # Electrical only: no mechanical ports (the adapter plugs into a wall socket; not part of the arm assembly).
 [[ports]]
 name = "power_out"
-kind = "power"
+lead = { length = "cable_length" }   # the 150 cm output cable is attached to the adapter (S1 title); the 0.2 kg is an estimate for such an adapter as sold
+kind ="power"
 type = "dc-barrel.5.5x2.1"
 gender = "male"
 role = "source"

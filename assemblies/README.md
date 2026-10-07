@@ -84,7 +84,14 @@ dir = 1                    # flags (complementary, ground_effect, enabled) and `
 name = "takeoff mass"
 groups = ["frame", "power"]            # or all = true
 value = { value = 1.76, unit = "kg", src = "S1", quote = "...", fidelity = "datasheet" }
+
+[[targets]]                            # an arm's reach: points the end effector must reach (DRC `ARM_REACH`); no value / groups / all
+name = "pick zone"
+reach = [{ value = [0.20, -0.05, 0.01], unit = "m", fidelity = "estimated", rationale = "cube" }]   # one table per point, [x, y, z] in the world frame
+workspace = { value = [0.1, -0.1, 0.0, 0.3, 0.1, 0.2], unit = "m", fidelity = "estimated", rationale = "..." }   # or a box [x0, y0, z0, x1, y1, z1] (3 x 3 x 3 grid)
 ```
+A servo's bus ID and baud are instance params set with `set` (provenance tables; no part file carries them): `servo_id` (default: unset =
+factory ID) and `baud` (default: the part's `baud_default`).
 
 ### Numbers rule (enforced by the loader)
 
@@ -248,6 +255,7 @@ Ports that declare `i_peak` (servo sockets) state the device's own draw, not a t
 | `PROP_FRAME_CLASH` | error | a disc (radius D/2, thickness `geom_thickness`, sampled at 3 layers x 4 radii x 16 angles) lies inside the collision box of another instance (not its own prop / motor) | box approximation of other shapes |
 | `PROP_CLEARANCE` | warning / error / info | (a) tip-to-tip gap of two discs in the same plane (centre distance - R1 - R2) under 5 % of the larger diameter; (b) another instance's collision geometry within 5 % of the diameter outside a disc tip (ring at 1.05 R, 3 layers x 16 angles, a thin member between samples is missed); (c) free-base vehicles: lowest disc point above the lowest collision point (z = 0 at rest) under 5 % of D (warning, error when below it); (d) info: Cheeseman-Bennett ground-effect thrust gain 1 / (1 - (R / 4 z)^2) - 1 at rest when above 5 % (z < 1.15 R), no number below z / R = 0.6 where the model is invalid | **5 % of D = design margin** (no standard; builders quote 3 to 35 mm). Ground effect: Cheeseman & Bennett 1955 |
 | `CG_OFFSET` | warning / error | horizontal offset of the centre of gravity (all geom masses, mesh centroids) from the thrust centre; the least-norm change of the equal-throttle thrusts that zeroes the moment about the CG; the message gives the worst-motor extra differential thrust as % of that motor's hover thrust; warning when it uses > 20 % of the per-motor thrust headroom or the differential exceeds 15 % of hover thrust, error when hover needs a thrust above max or below 0 | **20 % headroom and 15 % differential = design margins** (datum: a 50 mm CG shift on an X quad needs a 16-17 % motor speed difference, E-MASS, https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12736611/; thrust ~ speed^2) |
+| `DEVICE_UNSET` | error | a `[[devices]]` binding lacks a field the simulator's device validation needs (`auto_devices.REQUIRED`: e.g. `motor.c_th` / `motor.r_th` on an ESC, `ocv` on a battery) in its own keys, its `set` and its device map, so a run would fail. Typical after a motor swap whose new part carries no thermal numbers. The fix names the part param that would feed it, or the `set` / `auto_devices(fill=...)` entry (a provenance table) that supplies it. |
 | `THERMAL` | info | per motor at hover: winding current I_m = pack current / throttle (ideal ESC), copper loss I_m^2 R_winding as % of V I_pack (worst motor reported; notes when above 20 %). Winding temperature T = 25 degC + r_th P_cu(T), R(T) = R20 (1 + 0.00393 (T - 20)), only when the esc device binding sets `motor.r_th`; otherwise no temperature. No part states a winding limit, so never a warning | **20 % = design margin**; 25 degC and 0.00393 /K as in the `r_th` derivations of the assemblies; r_th only from the device binding (the x500 value is a surface-calibrated lower bound) |
 | `SERVO_TORQUE_MARGIN` | warning | stall torque at the bus voltage / worst static holding torque (same pose grid as `SERVO_TORQUE`) between 1 and 2; below 1 is the `SERVO_TORQUE` error. The static torque is the arm's own weight, a payload adds to it (`PAYLOAD_LIMIT`; no assembly declares a payload) | **2 = design margin**, top of the 1.5-2 safety factor for vertical gravity loads (Kpower servo selection notes, https://www.kpower.com/insight_servo/7642.html) |
 | `WIRE_INVALID` | error | a wire whose end instance / port / part is unknown, or whose ends are not both power or both signal | - |
@@ -266,6 +274,12 @@ Ports that declare `i_peak` (servo sockets) state the device's own draw, not a t
 | `FLIGHT_TIME` | info | capacity x 0.8 / hover current, propulsion only | **0.8 usable = design margin** ("land with 20 % left") |
 | `SERVO_TORQUE` | warning / error / info | gravity torque about each driven hinge, maximised over a pose grid (n samples per joint between the joint limits, n^joints <= 20000), subtree masses and centres from the MJCF; error when stall torque at the bus voltage < torque, warning when above the rated (continuous) torque, info (tightest servo) otherwise | stall / rated torque from the servo's `stall_torque_<V>v` / `rated_torque_<V>v` params: linear between table voltages, proportional to V below the lowest, clamped above the highest |
 | `PAYLOAD_LIMIT` | info / warning | extra mass at the end-effector point (farthest collision-geometry point of the deepest driven body, from the first joint) such that every servo stays within stall torque at every sampled pose; warning when it is 0 | same as `SERVO_TORQUE` |
+| `SERVO_ID_CONFLICT` | error | servos whose power ports are in one net (one half-duplex bus: the 3-pin cable carries supply and signal) declare the same `servo_id`, or an ID outside 0..252 | Feetech STS IDs 0-253, Dynamixel 0-252, 254 = broadcast: the stricter range |
+| `SERVO_ID_UNSET` | info | several servos on one bus, some without `servo_id`: new servos all answer to the factory ID (1 on the STS3215) | datasheet / e-Manual |
+| `SERVO_BAUD_MISMATCH` | error | servos on one bus with different `baud` (instance override, else the part's `baud_default`) | protocol |
+| `SERVO_BUS_CURRENT` | warning / error | sum of the bus servos' stall currents at the bus voltage (`stall_current_<V>v`, as `PSU_OVERLOAD`) vs the bus driver board's (`pcb.servo_driver` on the net) `max_continuous_current`; error when the holding current (idle + torque / kt at the `SERVO_TORQUE` pose) is above it. The supply is `PSU_OVERLOAD`'s | part param (the Waveshare adapter's is an estimate) |
+| `SERVO_CHAIN_LENGTH` | warning / error | error: more servos on a bus than the board's `max_servos`. Warning: with all servos stalled, the drop along the wire runs from the source to the farthest servo, sum(current through the wire x `resistance_per_m` x length x conductors), leaves less than the servo's `v_operating_min` (or its min-voltage register default) of the nominal bus voltage; supply output resistance and board resistance are not counted | part params |
+| `ARM_REACH` | warning / info | each `reach` point / `workspace` grid point is tried with damped-least-squares IK on the built model (24 seeded starts x 80 steps, joint limits clamped, tip = the farthest collision-geometry point of the deepest driven body, its own joint left out): warning when the closest approach is > `REACH_TOL` 5 mm, with the approach and the fix (too far: a longer link / base closer; too close: base farther); info when all are reached | **5 mm = design margin** (a gripper is not a point) |
 
 Limits of the checks, not hidden: a motor without a `thrust_test` table has no thrust / current model (`HOVER_THROTTLE` info);
 avionics current is not in the hover current; the pose grid is a lower bound of the true worst case; interference of meshes is
@@ -281,6 +295,13 @@ d.suggest("con1.motor"); d.suggest("mot1")         # ranked parts for an open po
 d.suggest("tube1.esc", category="esc")             # only that dotted category, filtered before `limit` (a flat seat fits every board)
 d = Design.new("quad")                             # an EMPTY design (also MCP design_open {new}); d.add(frame, root=True) first, then snap
                                                    # everything to named open ports (`add ... to="bottom.arm4"`): no poses, no TOML
+d = Design.new("arm", base="fixed", root_frame="urdf_link")   # an arm: add(servo, to="base.servo_seat", port="base", k=0), then
+                                                   # add(link, to="servo1.output", port="horn_seat", mate="shoulder_pan", joint={"type": "hinge", "range": "link.shoulder_pan_range"})
+                                                   # (the whole SO-101 from nothing: tests/python/test_design_scratch_arm.py)
+d.target("pick zone", reach=[{...}])               # reach / workspace target (see Schema) -> DRC ARM_REACH
+d.suggest("shoulder_lift")                         # a JOINT (a mate with `joint`): servos ranked by stall torque at the bus voltage / the worst static
+                                                   # torque of that joint (SERVO_TORQUE's pose grid); rows: margin, stall_Nm, tau_worst_Nm, mates_fit;
+                                                   # servos not operable at the bus voltage are left out; the arm keeps its mass (a heavier servo adds)
 d.snap("holybro-m8n-gps", to="mast")               # add + mate to the best open compatible port pair; ambiguity -> snap.alternatives
 d.check(); d.build(out); d.simulate("hover" | "hold")   # simulate needs the kernel
 ```

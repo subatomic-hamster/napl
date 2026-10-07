@@ -42,11 +42,12 @@ CUBE_XY, TARGET_XY = (0.20, -0.05), (0.20, 0.04)  # 9 cm apart
 
 
 @functools.cache
-def built(out=None):
-    """assemblies/so101.toml -> (dir, MJCF text, devices dict). compute() = build() without the DRC step (as servo_bench)."""
+def built(out=None, asm=None, parts=None):
+    """assemblies/so101.toml (or the saved design `asm`, same instance / joint names) -> (dir, MJCF text, devices dict).
+    compute() = build() without the DRC step (as servo_bench)."""
     tmp = Path(tempfile.mkdtemp(prefix="so101_pick_")) if out is None else Path(out)
     tmp.mkdir(parents=True, exist_ok=True)
-    text, _ = design.compute(ASM, PARTS, tmp)
+    text, _ = design.compute(asm or ASM, parts or PARTS, tmp)
     root = ET.fromstring(text)
     dev = json.loads(root.find("custom/text[@name='napl.devices']").get("data"))
     return tmp, text, dev
@@ -117,10 +118,10 @@ def _vec(v):
     return " ".join(f"{x:.9g}" for x in v)
 
 
-def scene(cube_xy=None, payload_kg=None, out=None):
+def scene(cube_xy=None, payload_kg=None, out=None, asm=None, parts=None):
     """-> (xml path, table top z). The built MJCF plus table, jaw pads, and (optionally) the cube at cube_xy; or, with payload_kg
     given (0 = none), no table and a payload mass fixed at the TCP (weld = a collision-free box geom in the fixed jaw body)."""
-    tmp, text, _ = built(out)
+    tmp, text, _ = built(out, asm, parts)
     root = ET.fromstring(text)
     poses, _ = mjcf_poses(root)
     wb = root.find("worldbody")
@@ -206,9 +207,10 @@ def scene(cube_xy=None, payload_kg=None, out=None):
     return path, zt
 
 
-def build(outdir):
-    """Scenario hook: the pick scene (table, pads, cube at CUBE_XY) written under outdir -> MJCF path."""
-    path, zt = scene(cube_xy=CUBE_XY, out=outdir)
+def build(outdir, design=None, parts=None):
+    """Scenario hook: the pick scene (table, pads, cube at CUBE_XY) written under outdir -> MJCF path. With a scenario [design]
+    the arm is that saved design (it must use so101.toml's instance and joint names) instead of assemblies/so101.toml."""
+    path, zt = scene(cube_xy=CUBE_XY, out=outdir, asm=design, parts=parts)
     print(f"[scene] table top z = {zt:.6f} m", file=sys.stderr)
     return path
 

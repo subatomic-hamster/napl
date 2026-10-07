@@ -39,7 +39,7 @@ ALLOWED = {
         "included_in",
         "connectors",
     },
-    "targets": {"name", "groups", "all", "value"},
+    "targets": {"name", "groups", "all", "value", "reach", "workspace"},
 }
 JOINT_KEYS = {"type", "range", "reverse", "spin"}
 DEVICE_TYPES = {
@@ -219,7 +219,20 @@ def validate(doc: dict):
                 f'device_maps.{name}: must map field paths to "<param>" or "<field>:<param>" strings'
             )
     for i, t in enumerate(doc.get("targets", [])):
-        _need(t, ["name", "value"], f"[[targets]] {i}")
+        _need(t, ["name"], f"[[targets]] {i}")
+        if ("reach" in t or "workspace" in t) and (
+            "value" in t or "groups" in t or "all" in t
+        ):
+            raise DesignError(
+                f"[[targets]] {i}: a reach / workspace target has no value / groups / all (a mass target does)"
+            )
+        if "reach" in t or "workspace" in t:
+            if not isinstance(t.get("reach", []), list):
+                raise DesignError(
+                    f"[[targets]] {i}: reach = a list of provenance tables, value = [x, y, z] m"
+                )
+            continue
+        _need(t, ["value"], f"[[targets]] {i}")
         if ("groups" in t) == bool(t.get("all")):
             raise DesignError(
                 f"[[targets]] {i}: give exactly one of groups = [...] or all = true"

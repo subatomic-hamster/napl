@@ -38,6 +38,7 @@ size = [0.0665, 0.0225, 0.01675]     # half-extents length/width/height
 
 [[ports]]
 name = "power_out"
+lead = { length = "discharge_wire_length", awg = "discharge_wire_awg" }   # the 120 mm 10 AWG leads are inside the pack mass (see note)
 kind = "power"
 type = "xt60"
 gender = "male"

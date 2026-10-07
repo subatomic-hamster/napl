@@ -492,11 +492,16 @@ def test_servo_torque_with_1kg_on_the_arm(so101, lib):
         ),
         lib,
     )
-    # holding 1 kg also draws more than the PSU / cord can give
+    # holding 1 kg also draws more than the PSU / cord / driver board can give
     f = fires(
         fs,
         "SERVO_TORQUE",
-        also=("INTERFERENCE", "PSU_OVERLOAD", "CURRENT_OVER_RATING"),
+        also=(
+            "INTERFERENCE",
+            "PSU_OVERLOAD",
+            "CURRENT_OVER_RATING",
+            "SERVO_BUS_CURRENT",
+        ),
     )
     assert any(x.severity == "error" and "cannot hold" in x.message for x in f)
     pl = next(x for x in fs if x.code == "PAYLOAD_LIMIT")

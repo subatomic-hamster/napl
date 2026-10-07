@@ -199,9 +199,14 @@ def test_autowire_battery_lead_is_heavier_than_a_signal_lead(x500, lib):
         or lib.get(sg["wire"]["part"]).value("mass_per_m_copper")
     )
     need = pw["reasons"]["current_A"]["peak"]
+    # D5: the pack now declares its `lead` (120 mm 10 AWG, inside its mass), so the pack's own wire is used, not the margin-sized one
     assert (
-        amp_p >= need * design.wiring.WIRE_MARGIN
-    )  # rated for the worst case with the stated margin
+        pw["wire"]["part"] == "awg-10-silicone-wire"
+        and pw["wire"]["included_in"] == "bat"
+    )
+    assert (
+        amp_p < need * design.wiring.WIRE_MARGIN
+    )  # reported by DRC (CURRENT_*) rather than silently up-sized
     assert pw["wire"]["conductors"] == 2 and "conductors" not in sg["wire"]
     print(
         "battery lead:",
@@ -272,7 +277,9 @@ def test_autowire_all_wires_the_unique_and_reports_the_ambiguous(x500):
     assert len(ch["ambiguous"]) == 1
     (dec,) = ch["ambiguous"]
     assert dec["ports"] == ["esc1.signal", "esc2.signal"]
-    assert dec["candidates"] == ["fc.pwm1", "fc.pwm2"]
+    assert {"fc.pwm1", "fc.pwm2"} <= set(
+        dec["candidates"]
+    )  # plus the 6C's other free MAIN / AUX channels
     assert len(x500.doc["wires"]) == n - 2  # nothing was guessed
     with pytest.raises(DesignError, match="equally good"):
         x500.autowire("esc1.signal")

@@ -49,7 +49,8 @@ rationale = "Underside seat (mates 'esc' of holybro-x500v2-arm-tube). Holybro pu
 
 [[ports]]
 name = "power_in"
-kind = "power"
+lead = {}   # the XT30 input cable is part of the 21 g datasheet mass ('Weight (Incl. Cable)'); its length is not published
+kind ="power"
 type = "xt30"
 gender = "male"
 role = "sink"
@@ -68,7 +69,8 @@ note = "Three motor leads (bullet/solder, 'Banana Plug 2.0mm' in the spec) to th
 
 [[ports]]
 name = "signal"
-kind = "signal"
+lead = {}   # the signal lead ships on the ESC and is inside its mass (same datasheet line); length not published
+kind ="signal"
 type = "pwm"
 gender = "neutral"
 note = "Throttle signal 50-600 Hz (S1) from the flight controller FMU PWM Out (S3)."

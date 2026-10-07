@@ -115,11 +115,25 @@ fidelity = "estimated"
 rationale = "Shaft diameter 3 mm is the drawing's 'O3' (S2). Shaft-tip height 42.5 mm above the mounting face assumes the drawing's 42.5 mm overall length is measured from the mounting face to the shaft tip; the transcription of the drawing labels (42.5, 31, 9.5, 6.5) does not say which dimension is which, so the true tip (and thus the prop height) may differ by about 10 mm. Same convention (port at the shaft tip) as the other motors in parts/propulsion. Resolve with the legible Holybro drawing or a caliper. Axis +z (towards the prop), 360 = axisymmetric."
 
 [[ports]]
+name = "prop_adapter"
+kind = "mech"
+type = "shaft.6"
+gender = "male"
+pos = [0.0, 0.0, 0.0425]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Prop seat as the M6 shaft-end thread of the spec drawing ('M6', S2; param prop_thread); the M6 pitch / adapter dimensions are not published. Same place as port 'shaft' (tip height estimated there). It is the family that other M6-adapter motors (KDE2315XF, T-Motor MN) offer, so a prop mated here survives a motor swap."
+
+[[ports]]
 name = "phase"
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
 role = "sink"
+lead = { length = "cable_length" }
 v_max = { value = 16.8, unit = "V", src = "S2", fidelity = "derived", derivation = "4S x 4.2 V/cell = 16.8 V from the spec 'Rated Voltage(Lipo) 4S(4.2V/PC) / 16V'." }
 i_max = { value = 17.0, unit = "A", src = "S2", fidelity = "datasheet" }
 note = "i_max is the 180 s peak current (spec 'Peak Current(180s) 17A'); the cable (150 mm) is part of the motor, three bullet/solder leads to the ESC motor_out"

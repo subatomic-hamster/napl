@@ -109,6 +109,19 @@ thickness = 0.0
 fidelity = "estimated"
 rationale = "Hub bore sits on the 3 mm motor shaft (holybro-2216-kv920 'O3' drawing dimension); Holybro does not publish the hub bore or the prop adapter (the drawing's M6 is the shaft-end thread). Origin at hub centre, axis down the shaft (-z), ref along the blade (+x). Symmetry 1: the 2-blade prop has a blade direction but spins freely about z, so the builder uses a hinge, not k."
 
+[[ports]]
+name = "hub_m6"
+kind = "mech"
+type = "bore.6"
+gender = "female"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "The same hub seen on an M6 prop adapter (the M6 shaft-end thread of the Holybro motor drawing, S1 of holybro-2216-kv920; KDE ships an M6 x 12 mm adapter with the 2315XF). Holybro does not publish the hub bore, so which adapter the hub takes is an assumption: both hub ports sit at the same place and only one is mated. Frame as port 'hub'."
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopify.com/s/files/1/0604/5905/7341/files/X500MotorSpec.png?v=1678791632"

@@ -413,7 +413,9 @@ def test_suggest_power_port_penalises_insufficient_ratings(x500):
 
 
 def test_suggest_swap_ranks_by_fit(x500):
-    rows = x500.suggest("mot1", limit=5)
+    rows = x500.suggest(
+        "mot1", limit=40
+    )  # D5: more motors keep both mates now (16x19 / M6 adapter parts)
     assert rows[0]["part"] == MOTOR_VARIANT  # all ports kept, nothing dangling
     assert (
         rows[0]["mates_kept"] == 2

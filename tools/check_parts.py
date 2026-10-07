@@ -99,8 +99,25 @@ def check(path: pathlib.Path, problems: list[str], tally: collections.Counter) -
             sym = p.get("symmetry")
             if isinstance(sym, bool) or not isinstance(sym, int) or sym < 1:
                 bad(f"{label}: 'symmetry' must be an integer >= 1")
+        lead = p.get("lead")
+        if (
+            lead is not None
+        ):  # parts/README.md "Lead flag": length / awg = a param name of this part, or a provenance table
+            if p.get("kind") not in ("power", "signal") or not isinstance(lead, dict):
+                bad(f"{label}: lead must be a table on a power / signal port")
+            for lk in ("length", "awg"):
+                v = (lead if isinstance(lead, dict) else {}).get(lk)
+                if isinstance(v, str):
+                    if not isinstance(params.get(v), dict):
+                        bad(
+                            f"{label}.lead.{lk}: names param '{v}', which the part lacks"
+                        )
+                elif isinstance(v, dict):
+                    check_entry(f"{label}.lead.{lk}", v, need_unit=True)
+                elif v is not None:
+                    bad(f"{label}.lead.{lk}: param name or provenance table")
         for key, e in p.items():
-            if isinstance(e, dict):
+            if isinstance(e, dict) and key != "lead":
                 check_entry(f"{label}.{key}", e, need_unit=True)
     mesh = doc.get("geometry", {}).get("mesh")
     if mesh and not (path.parents[2] / mesh).exists():

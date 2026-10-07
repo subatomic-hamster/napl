@@ -261,6 +261,11 @@ def build_scratch(parts=PARTS, devices="auto", lib=None, leads=False):
     for iid, pid in CHIPS.items():
         d.add(pid, id=iid, offboard=True)
     d.add("matek-elrs-r24-s", id="rx", offboard=True)
+    # the receiver is offboard (no seat on this frame), so its two pigtails take an explicit length: 5 V from TELEM2 and CRSF on the
+    # same header (Matek: RX -> FC UART_TX, TX -> FC UART_RX, 5V -> FC 5V). The 0.1 m run is a design choice (rx near the FC)
+    rx_len = est(0.1, "m", "receiver zip-tied beside the FC, about 10 cm of pigtail")
+    d.autowire("rx.power_in", b="fc.telem2_vcc", length=rx_len)
+    d.autowire("rx.crsf", b="fc.telem2", length=rx_len)
     # datasheet masses that already contain a lead (pack: 120 mm XT60 lead, PM02: pre-soldered leads + BEC cable, ESC: input
     # cable + signal lead, motor: 150 mm phase leads, GPS: 26 cm cable, radio: its cable): those wires add no mass. With
     # leads=True the ports say so themselves (`lead`), and autowire sets included_in
@@ -595,8 +600,8 @@ def test_built_from_empty_with_no_toml_and_drc_has_no_errors(scratch):
     }
     assert set(n.values()) == {4}
     assert (
-        len(d.doc["wires"]) == 9 + 8
-    )  # autowire_all's nine + four motor leads + four PWM channels
+        len(d.doc["wires"]) == 9 + 8 + 2
+    )  # autowire_all's nine + four motor leads + four PWM channels + the receiver's two pigtails
 
 
 def test_autowire_all_reports_each_ambiguous_decision_once(scratch_hand):
@@ -605,10 +610,15 @@ def test_autowire_all_reports_each_ambiguous_decision_once(scratch_hand):
     )
     assert [(x["ports"], x["candidates"]) for x in r["ambiguous"]] == [
         ([f"esc{k}.motor_out" for k in ARM], [f"mot{k}.phase" for k in ARM]),
-        ([f"esc{k}.signal" for k in ARM], [f"fc.pwm{k}" for k in ARM]),
+        (
+            [
+                f"esc{k}.signal" for k in ARM
+            ],  # the 6C's 8 MAIN + 8 AUX channels: which is the user's call
+            [f"fc.main{i}" for i in range(1, 9)] + [f"fc.pwm{i}" for i in range(1, 9)],
+        ),
     ]
-    # the receiver has no 5 V pad source anywhere in the library (the PM02 BEC is a JST-GH power cable): reported, not guessed
-    assert {x["port"] for x in r["unmatched"]} <= {"rx.power_in"}
+    # the receiver is wired to the FC's TELEM2 5 V + UART by build_scratch itself: nothing is left open
+    assert r["unmatched"] == []
     # the PM02 -> PDB link joins two pass-through ports: wired because the battery already feeds the PM02
     assert {w["wire"]["name"] for w in r["wired"]} >= {"pm02.power_out--pdb.power_in"}
 

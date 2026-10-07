@@ -49,7 +49,8 @@ rationale = "Underside seat (mates 'sik' of holybro-x500v2-top-plate). No mounti
 
 [[ports]]
 name = "telem"
-kind = "signal"
+lead = {}   # the radio part folds its JST-GH cable into this port (see note); the length is not published
+kind ="signal"
 type = "jst-gh.6"
 gender = "neutral"
 note = "6-pin JST-GH, 3.3 V TTL UART (S2); the 5 V supply (S1) arrives through this connector from the Pixhawk TELEM1 (assumed: the page lists a 5 V input and no separate power plug for the 100/500 mW units). Neutral because the radio has a board header and the JST-GH to JST-GH telemetry cable to the Pixhawk TELEM1 is not a filed part; the cable is folded into this port."

@@ -81,6 +81,7 @@ note = "Pre-soldered XT60 + 12 AWG lead to the battery (kit doc, quoted S2: 'rat
 
 [[ports]]
 name = "power_out"
+lead = {}   # pre-soldered XT60 + 12 AWG lead (see note); its length is not published
 kind = "power"
 type = "xt60"
 gender = "male"
@@ -91,6 +92,7 @@ note = "Pre-soldered XT60 + 12 AWG lead to the PDB (XT60 on both ends, kit page)
 
 [[ports]]
 name = "fc_power"
+lead = {}   # the 6-pin JST-GH cable to the Pixhawk POWER1 ships on the module (see note); its length is not published
 kind = "power"
 type = "jst-gh.6"
 gender = "female"

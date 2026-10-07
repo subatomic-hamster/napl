@@ -22,7 +22,7 @@ from . import auto_devices as AD
 from . import wiring as W
 from .build import build as _build
 from .build import compute as _compute
-from .drc import _default_parts, _World, placement_metrics
+from .drc import _default_parts, _World, joint_holding, placement_metrics
 from .drc import check as _check
 from .library import DesignError, Library, Part, genders_ok, types_ok
 from .snap import find_compatible_ports, incompatible, n_mate, symmetry, thread_of
@@ -52,6 +52,10 @@ AMBIG_BAND = 2.0  # another port pair within this many points of the best is rep
 MAX_ROT = 12  # rotations tried per port pair (a 360-fold shaft is sampled every 30 deg)
 MAX_PAIRS = 10  # port pairs evaluated geometrically (best port score first)
 MECH, POWER, SIGNAL = "mech", "power", "signal"
+MOUNT_FAMILIES = (
+    "bolt-pattern.",
+    "bolt-circle.",
+)  # port types of hole patterns: a mount that fits or does not
 
 
 def _split(ref: str):
@@ -134,13 +138,18 @@ class Design:
         return cls(A.load(path), lib, Path(path))
 
     @classmethod
-    def new(cls, name, parts=None, base="free", description="") -> "Design":
+    def new(
+        cls, name, parts=None, base="free", description="", root_frame=None
+    ) -> "Design":
         """An empty design (no instances): the first `add(part, root=True)` is the frame everything else mates to. `base` =
-        'free' (a vehicle) or 'fixed' (welded to the world). Nothing is checked until the root exists."""
+        'free' (a vehicle) or 'fixed' (welded to the world). `root_frame` = 'urdf_link' puts the world at the root part's URDF
+        frame (needs base = 'fixed'; build.py). Nothing is checked until the root exists."""
         lib = Library(parts if parts is not None else _default_parts())
         a = {"name": name, "base": base}
         if description:
             a["description"] = description
+        if root_frame:
+            a["root_frame"] = root_frame
         return cls(A.Assembly({"assembly": a, "instances": []}), lib)
 
     @property
@@ -179,7 +188,11 @@ class Design:
 
     def build(self, out=None) -> dict:
         """-> {"xml": Path, "report_path": Path, "report": dict} (the DRC findings are in report["findings"])."""
-        out = Path(out) if out else Path(tempfile.mkdtemp(prefix="napl-design-"))
+        if not out:  # one scratch dir per Design, reused by every build and removed with the Design
+            if getattr(self, "_tmp", None) is None:
+                self._tmp = tempfile.TemporaryDirectory(prefix="napl-design-")
+            out = self._tmp.name
+        out = Path(out)
         r = _build(self.asm, self.lib.dir, out, lib=self.lib)
         self._findings = None
         return r
@@ -212,8 +225,9 @@ class Design:
                 f"{e}" + _didyoumean(pid, list(self.lib.parts), "part")
             ) from None
 
-    def _ports_used(self, doc) -> set:
-        """{(instance, port)} on mech ports that some mate uses (a bare 'inst' end counts when its pair is unique)."""
+    def _ports_used(self, doc, seats=True) -> set:
+        """{(instance, port)} on mech ports that some mate uses (a bare 'inst' end counts when its pair is unique);
+        seats = True: plus the ports co-located with a used one (the same physical seat)."""
         used = set()
         by_id = {d["id"]: d for d in doc["instances"]}
         for m in doc.get("mates", []):
@@ -234,7 +248,42 @@ class Design:
                     continue
                 pa, pb = c[0]
             used |= {(ia, pa), (ib, pb)}
+        if seats:  # alternative patterns / adapters of one seat (co-located ports) are exclusive: the seat is taken
+            for iid, pn in list(used):
+                p0 = self._part(by_id[iid]["part"]).port(pn)
+                for q in self._part(by_id[iid]["part"]).ports:
+                    alt_fam = (
+                        MOUNT_FAMILIES + ("shaft.", "bore.")
+                    )  # only alternative patterns / adapters; other co-located ports are separate seats
+                    if (
+                        q.get("kind") == MECH
+                        and str(q.get("type", "")).startswith(alt_fam)
+                        and str(p0.get("type", "")).startswith(alt_fam)
+                        and all(
+                            np.allclose(
+                                q.get(k, [0, 0, 0]), p0.get(k, [0, 0, 0]), atol=1e-9
+                            )
+                            for k in ("pos", "axis", "ref")
+                        )
+                    ):
+                        used.add((iid, q["name"]))
         return used
+
+    def _colocated(self, doc, iid, port) -> list:
+        """Other unmated mech ports of instance `iid` at the same place and orientation as `port` (alternative hole patterns)."""
+        part = self._part(self._inst(doc, iid)["part"])
+        used = self._ports_used(doc, seats=False)
+        same = lambda p, k: np.allclose(
+            p.get(k, [0, 0, 0]), port.get(k, [0, 0, 0]), atol=1e-9
+        )
+        return [
+            p
+            for p in part.ports
+            if p.get("kind") == MECH
+            and p["name"] != port["name"]
+            and (iid, p["name"]) not in used
+            and all(same(p, k) for k in ("pos", "axis", "ref"))
+        ]
 
     def _connected(self, doc) -> set:
         root = next(d["id"] for d in doc["instances"] if d.get("root"))
@@ -414,10 +463,19 @@ class Design:
                 + ". Move the obstacle, pick another seat, or pass force=true"
             )
         pair = lambda c: (c["it"]["a"]["name"], c["it"]["b"]["name"])
+        # alternative hole patterns / adapters of one seat (co-located ports on both parts) place the part identically: not a choice
+        seat = lambda p, q: all(
+            np.allclose(p.get(k, [0, 0, 0]), q.get(k, [0, 0, 0]), atol=1e-9)
+            for k in ("pos", "axis", "ref")
+        )
         tied = [
             c
             for c in cands
             if pair(c) != pair(top)
+            and not (
+                seat(c["it"]["a"], top["it"]["a"])
+                and seat(c["it"]["b"], top["it"]["b"])
+            )
             and abs(c["score"] - top["score"]) < AMBIG_BAND
             and c["up"] == top["up"]
         ]
@@ -877,10 +935,24 @@ class Design:
         return {"op": "device", "device": dev}
 
     def _op_target(self, doc, s) -> dict:
-        """target: name + value ('<inst>.<param>' or a provenance table) + groups=[...] | all=True: a mass target."""
-        if not s.get("name") or s.get("value") is None:
-            raise DesignError("target: needs name and value")
+        """target: name + value ('<inst>.<param>' or a provenance table) + groups=[...] | all=True: a mass target; or name +
+        reach = [provenance table with value [x, y, z] m, ...] and / or workspace = one table with [x0, y0, z0, x1, y1, z1] m:
+        points the arm must reach (DRC ARM_REACH)."""
+        if not s.get("name") or (
+            s.get("value") is None and not (s.get("reach") or s.get("workspace"))
+        ):
+            raise DesignError("target: needs name and value (or reach / workspace)")
         t = {"name": s["name"]}
+        if s.get("reach") or s.get("workspace"):
+            if s.get("value") is not None:
+                raise DesignError("target: reach / workspace and value are exclusive")
+            for k in ("reach", "workspace"):
+                if s.get(k):
+                    t[k] = s[k]
+            if s["name"] in {x.get("name") for x in doc.get("targets", [])}:
+                raise DesignError(f"a target named '{s['name']}' already exists")
+            doc.setdefault("targets", []).append(t)
+            return {"op": "target", "target": t}
         if s.get("all"):
             t["all"] = True
         else:
@@ -898,7 +970,9 @@ class Design:
         """Add a device binding: bind(type="esc", name="esc1", instance="esc", port="power_in", motor="mot1", ...)."""
         return self.edit([{"op": "device", "device": device}])
 
-    def target(self, name, value, groups=None, all=False) -> EditResult:
+    def target(
+        self, name, value=None, groups=None, all=False, reach=None, workspace=None
+    ) -> EditResult:
         return self.edit(
             [
                 {
@@ -907,6 +981,8 @@ class Design:
                     "value": value,
                     "groups": groups,
                     "all": all,
+                    "reach": reach,
+                    "workspace": workspace,
                 }
             ]
         )
@@ -1073,6 +1149,26 @@ class Design:
                     m["__lost"] = True
                     continue
                 q, how, alts = self._new_port(new, oldp, oport, opart, MECH)
+                if q is None and oport is not None:
+                    # the other part may offer the same seat in another hole pattern (a motor plate with 16x16 and 19x19 ports)
+                    for ap in self._colocated(doc, oi, oport):
+                        q, how, alts = self._new_port(new, oldp, ap, opart, MECH)
+                        if q is not None:
+                            m[oend] = f"{oi}.{ap['name']}"
+                            oport = ap
+                            break
+                if q is None and oport is not None and s.get("refuse_mount", True):
+                    if str(oport.get("type", "")).startswith(MOUNT_FAMILIES):
+                        pats = [
+                            f"{p['name']} {p['type']}"
+                            for p in new.ports
+                            if str(p.get("type", "")).startswith(MOUNT_FAMILIES)
+                        ]
+                        raise DesignError(
+                            f"swap {iid} -> {new.id} refused: it cannot be mounted on {m[oend]} (seat pattern {oport['type']}); "
+                            f"{new.id} mounts with {', '.join(pats) or 'no hole pattern'}. A different pattern is a different part "
+                            f"(the physical hole spacing / thread must match)"
+                        )
                 if q is None:
                     ch["mates"]["lost"].append(
                         {
@@ -1173,6 +1269,55 @@ class Design:
         if not ov:
             inst.pop("params", None)
         inst["part"] = new.id
+        # wires whose length names a param of this instance that the new part lacks (a motor's `cable_length`): the builder
+        # would fail on them, so name them here; `rewire` drops them and lets autowire size them again (lead / routed length)
+        have = set(new.params) | set(inst.get("params", {}))
+        need = []
+        for w in doc.get("wires", []):
+            mm = re.fullmatch(
+                rf"{re.escape(iid)}\.([A-Za-z0-9_]+)", str(w.get("length"))
+            )
+            if mm and mm.group(1) not in have:
+                need.append((w, mm.group(1)))
+        if need:
+            names = [w.get("name", f"{w['from']}--{w['to']}") for w, _ in need]
+            if s.get("rewire"):
+                ch["wires"]["rewired"] = []
+                for (w, _), nm in zip(need, names):
+                    doc["wires"].remove(w)
+                    spec = {"a": w["from"], "b": w["to"], "part": w.get("part")}
+                    if w.get("included_in"):
+                        spec["included_in"] = w["included_in"]
+                    r = W.autowire(self, doc, spec)
+                    for nw in doc[
+                        "wires"
+                    ]:  # keep the name (the assembly and its devices know the wire by it)
+                        if nw.get("name") == r["wire"]["name"]:
+                            nw["name"] = nm
+                    ch["wires"]["rewired"].append(
+                        {
+                            "wire": nm,
+                            "length": r["wire"].get("length"),
+                            "reasons": r["reasons"].get("length"),
+                        }
+                    )
+            else:
+                ch["wires"]["need_length"] = [
+                    {
+                        "wire": nm,
+                        "length": w["length"],
+                        "missing_param": p,
+                        "ends": [w["from"], w["to"]],
+                    }
+                    for (w, p), nm in zip(need, names)
+                ]
+                ch["autowire_offer"] = {
+                    "op": "swap",
+                    "rewire": True,
+                    "note": f"{new.id} has no param(s) {sorted({p for _, p in need})} that wire(s) {names} take their length from: "
+                    "swap again with rewire = True (drops them and re-runs autowire: a port `lead` length, else the routed run), "
+                    f"or `set` the param on '{iid}' with provenance",
+                }
         # device bindings: port-valued fields on this instance
         for d in doc.get("devices", []):
             if d.get("instance") == iid:
@@ -1372,10 +1517,15 @@ class Design:
     def remove(self, id) -> EditResult:
         return self.edit([{"op": "remove", "id": id}])
 
-    def swap(self, id, new_part, auto=False, overwrite=False, fill=None) -> EditResult:
+    def swap(
+        self, id, new_part, auto=False, overwrite=False, fill=None, rewire=False
+    ) -> EditResult:
         """Replace the part of instance `id`. The change record lists `stale_devices` (bindings that name the instance).
         auto = True also regenerates the generated device bindings in the same edit (`changes[0].auto_devices`);
-        overwrite = True lets that replace the stale hand-written ones too; fill = auto_devices' fill."""
+        overwrite = True lets that replace the stale hand-written ones too; fill = auto_devices' fill.
+        A new part that cannot be mounted where the old one sat (another hole pattern / thread) is refused (DesignError).
+        Wires whose length names a param the new part lacks are listed in `wires.need_length` with an `autowire_offer`;
+        rewire = True drops and re-runs autowire on them in the same edit (`wires.rewired`)."""
         return self.edit(
             [
                 {
@@ -1385,6 +1535,7 @@ class Design:
                     "auto": auto,
                     "overwrite": overwrite,
                     "fill": fill,
+                    "rewire": rewire,
                 }
             ]
         )
@@ -1526,7 +1677,15 @@ class Design:
         """target = 'inst.port': library parts (with the port they would use) that mate / connect that port, best first.
         target = 'inst': replacement candidates for that instance, best fit first (what swap would keep / lose).
         category = a dotted category prefix ('esc', 'motor.bldc', 'pcb'): only parts of that category, applied before `limit`
-        (a flat-mount seat is offered every board in the library; the filter is how a caller asks for "an ESC for this seat")."""
+        (a flat-mount seat is offered every board in the library; the filter is how a caller asks for "an ESC for this seat").
+        target = a joint (a mate that carries `joint`, e.g. 'shoulder_lift'): servos ranked by holding-torque margin at that
+        joint's worst static pose (drc.joint_holding; stall torque at the bus voltage / the gravity torque of the SERVO_TORQUE
+        rule; rows carry margin, stall_Nm, tau_worst_Nm, mates_fit)."""
+        if any(
+            m.get("joint") and m.get("name") == target
+            for m in self.doc.get("mates", [])
+        ):
+            return joint_holding(self.asm, self.lib, target)["rows"][:limit]
         iid, pn = _split(target)
         inst = self._inst(self.doc, iid)
         part = self._part(inst["part"])
@@ -1657,7 +1816,9 @@ class Design:
         for cand in pool:
             doc = copy.deepcopy(self.doc)
             try:
-                ch = self._op_swap(doc, {"id": inst["id"], "part": cand.id})
+                ch = self._op_swap(
+                    doc, {"id": inst["id"], "part": cand.id, "refuse_mount": False}
+                )
             except DesignError:
                 continue
             md = None

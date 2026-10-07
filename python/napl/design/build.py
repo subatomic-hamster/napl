@@ -774,6 +774,10 @@ def compute(asm, parts_dir, out_dir, lib=None):
     total = math.fsum(by_item.values())
     targets = []
     for t in doc.get("targets", []):
+        if (
+            "value" not in t
+        ):  # a reach / workspace target: checked by the DRC (ARM_REACH)
+            continue
         where = f"target {t['name']}"
         tv, _ = ctx.num(t["value"], where, UNITS["kg"], "value")
         scope = "all" if t.get("all") else sorted(t["groups"])
