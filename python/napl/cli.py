@@ -404,6 +404,9 @@ def main(argv=None) -> int:
     from . import bench
 
     bench.add_parser(sub)
+    from . import explore
+
+    explore.add_parser(sub)
     rp = sub.add_parser("report", help="generated reports")
     rsub = rp.add_subparsers(dest="report_cmd", required=True)
     fp = rsub.add_parser(
@@ -421,6 +424,8 @@ def main(argv=None) -> int:
             return render(args)
         if args.cmd == "bench":
             return bench.main_bench(args)
+        if args.cmd == "explore":
+            return explore.main_explore(args)
         if args.cmd == "report":
             from .fidelity import main_report
 

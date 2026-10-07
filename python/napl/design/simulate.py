@@ -25,6 +25,11 @@ G = 9.80665
 CAL_TICKS = 150  # calibration: ticks each throttle level is held
 WN_Z, ZETA_Z = 3.0, 1.0  # altitude loop (rad/s): slow compared with the attitude loop
 WN_R, ZETA_R, KI_R = 20.0, 0.9, 30.0  # attitude loop
+WN_YAW = 6.0  # yaw loop (rad/s)
+WN_XY, ZETA_XY = (
+    1.5,
+    1.0,
+)  # horizontal position loop (hold_xy), slower than the attitude loop
 TILT_ABORT = 1.2  # rad: the vehicle is lost
 
 
@@ -89,9 +94,18 @@ def hover(
     tol=0.3,
     wall_s=120.0,
     control_ticks=4,
+    wind=None,
+    hold_xy=False,
+    max_tilt=0.6,
 ):
     """Climb to `altitude` m above the take-off point in `climb_s`, hold `hold_s` s. Pass = height within +-`tol` m for the
-    whole hold window and the sim did not diverge. Returns the numbers (see keys)."""
+    whole hold window and the sim did not diverge. Returns the numbers (see keys).
+    `wind`: steady world wind (3 m/s, set on the environment device after the calibration; the design needs one).
+    `hold_xy`: also hold the take-off x / y (PD + integral on position -> desired thrust vector, geometric attitude
+    target, thrust vector tilted at most `max_tilt` rad from vertical: past that the position error grows = the vehicle
+    is blown away). Without it the heading is held and level attitude is commanded as before (x / y drift freely).
+    Always reported: horizontal drift `xy_error_max_m` from the take-off point in the hold window, `saturation_pct` (share
+    of hold control ticks with at least one motor commanded at full thrust), `motor_current_max_A`."""
     napl = _kernel()
     dev, paths, joints, dt, root = _model(xml)
     rotors, escs = dev.get("rotors", []), {e["joint"]: e for e in dev.get("escs", [])}
@@ -182,10 +196,22 @@ def hover(
     Rd = _Rz(yaw0)
     kz, kvz = WN_Z**2, 2 * ZETA_Z * WN_Z
     kr, kw = WN_R**2, 2 * ZETA_R * WN_R
+    # yaw: slower loop (the point-mass inertia over-estimates Izz and the yaw torque path is the slow rotor spin-up, so at
+    # WN_R it limit-cycles every control tick); roll / pitch unchanged
+    kr_v = np.array([kr, kr, WN_YAW**2])
+    kw_v = np.array([kw, kw, 2 * ZETA_R * WN_YAW])
+    ki_v = np.array([KI_R, KI_R, KI_R * (WN_YAW / WN_R) ** 2])
     dtc = control_ticks * dt
     nsteps = int(round((climb_s + hold_s) / dtc))
-    iz, ir = 0.0, np.zeros(3)
-    rec = {k: [] for k in ("t", "h", "u", "tilt", "ib", "soc", "im")}
+    iz, ir, ixy = 0.0, np.zeros(3), np.zeros(2)
+    kxy, kvxy = WN_XY**2, 2 * ZETA_XY * WN_XY
+    xy0 = np.array(p0[:2])
+    if wind is not None:
+        envs = dev.get("environments", [])
+        if not envs:
+            raise DesignError("hover: wind needs an environment device in the design")
+        sim.set(f"/devices/{envs[0]['name']}", "wind", [float(x) for x in wind])
+    rec = {k: [] for k in ("t", "h", "u", "tilt", "ib", "soc", "im", "xy", "sat")}
     wall0, reason = time.monotonic(), None
     for k in range(nsteps):
         ts = k * dtc
@@ -198,11 +224,29 @@ def hover(
         )
         iz = float(np.clip(iz + (zref - h) * dtc * 2.0, -3.0, 3.0))
         az = kz * (zref - h) + kvz * (vref - v6[2]) + iz
-        fz = mass * (G + az) / max(R[2, 2], 0.5)
-        eR = 0.5 * _vee(Rd.T @ R - R.T @ Rd)
+        exy = p[:2] - xy0
+        if hold_xy:  # position held from lift-off: switching it on after the climb steps the attitude target
+            ixy = np.clip(ixy - exy * dtc * 0.5, -8.0, 8.0)
+            fv = mass * np.array(
+                [*(-kxy * exy - kvxy * v6[:2] + ixy), G + az]
+            )  # desired thrust vector (N)
+            fh = np.linalg.norm(fv[:2])
+            if fh > fv[2] * math.tan(max_tilt):
+                fv[:2] *= fv[2] * math.tan(max_tilt) / fh
+            b3 = fv / np.linalg.norm(fv)
+            b2 = np.cross(b3, Rd[:, 0])
+            b2 /= np.linalg.norm(b2)
+            Rt = np.column_stack([np.cross(b2, b3), b2, b3])
+            fz = float(fv @ R[:, 2])
+        else:
+            Rt, fz = Rd, mass * (G + az) / max(R[2, 2], 0.5)
+        eR = 0.5 * _vee(Rt.T @ R - R.T @ Rt)
         ir = np.clip(ir + eR * dtc, -0.2, 0.2)
-        tau = inertia * (-kr * eR - kw * v6[3:6] - KI_R * ir)
-        Ti = np.clip(Bp @ np.array([fz, *tau]), 0.0, T[-1])
+        tau = inertia * (-kr_v * eR - kw_v * v6[3:6] - ki_v * ir)
+        Tr = Bp @ np.array([fz, *tau])
+        Ti = np.clip(Tr, 0.0, T[-1])
+        rec["sat"].append(bool(np.any(Tr >= T[-1] - 1e-9)))
+        rec["xy"].append(float(np.linalg.norm(exy)))
         u = np.array([np.interp(Ti[i], T[:, i], levels) for i in range(n)])
         for pth, ui in zip(esc_p, u):
             sim.set(pth, "throttle", float(ui))
@@ -217,7 +261,7 @@ def hover(
         if bats:
             rec["ib"].append(float(q(f"/devices/{bats[0]['name']}", "current")[0]))
             rec["soc"].append(float(q(f"/devices/{bats[0]['name']}", "soc")[0]))
-        if k % 10 == 0:
+        if True:  # every control tick: the window mean / max must not alias a per-tick oscillation
             rec["im"].append([float(q(pth, "current")[0]) for pth in esc_p])
         if sim.diverged or tilt > TILT_ABORT or h < -0.5:
             reason = (
@@ -249,6 +293,11 @@ def hover(
         "hover_throttle": float(u.mean()),
         "hover_throttle_per_motor": [float(x) for x in u.mean(axis=0)],
         "tilt_max_deg": float(math.degrees(max(rec["tilt"]))),
+        "xy_error_max_m": float(np.max(np.array(rec["xy"])[win])),
+        "xy_error_rms_m": float(np.sqrt(np.mean(np.array(rec["xy"])[win] ** 2))),
+        "saturation_pct": float(100.0 * np.mean(np.array(rec["sat"])[win])),
+        "wind_m_s": [float(x) for x in wind] if wind is not None else [0.0, 0.0, 0.0],
+        "hold_xy": bool(hold_xy),
         "sim_s": float(tt[-1] + dtc),
         "calibration": {
             "kq_torque_per_thrust_m": kq,
@@ -257,10 +306,13 @@ def hover(
         },
     }
     if rec["im"]:
-        res["motor_current_A"] = [float(x) for x in np.array(rec["im"]).mean(axis=0)]
+        im = np.array(rec["im"])[win]  # hold window, every control tick
+        res["motor_current_A"] = [float(x) for x in im.mean(axis=0)]
+        res["motor_current_max_A"] = float(im.max())
     if bats:
         ib, soc = np.array(rec["ib"])[win], np.array(rec["soc"])[win]
         res["hover_current_A"] = float(ib.mean())
+        res["battery_current_max_A"] = float(ib.max())
         slope = -float(np.polyfit(tt[win], soc, 1)[0])  # SoC per s
         res.update(
             soc_start=float(soc[0]), soc_end=float(soc[-1]), soc_slope_per_s=slope
