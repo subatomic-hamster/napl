@@ -6,6 +6,7 @@
 // capability-checked, logged and replayable like any other client's.
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,12 @@ struct ViewerOptions {
   int frames = 0;                           // > 0: leave after this many frames (smoke tests); 0: until the window closes
   std::string script;                       // UI-equivalent commands issued at given frames, see parse_script
   std::string design_report;                // optional <name>.report.json of a `napl design build`: shows the Design window
+  // Optional editing backend (python: napl.design.viewer.Backend): JSON request in, JSON reply out (see viewer/design.h
+  // `request`). The viewer holds no design logic: every Design-window edit is one such request, answered by the same
+  // napl.design.Design API the MCP tools use; the viewer then loads the rebuilt model (LoadModel on the bus, source
+  // "viewer", elevated: the person at the window is the approval) keeping the camera. Called on worker threads, one at a
+  // time; blocking is fine.
+  std::function<std::string(const std::string&)> design_api;
   int width = 1280, height = 720;
   const std::atomic<bool>* stop = nullptr;  // optional: another thread sets it to close the viewer
 };
@@ -28,6 +35,14 @@ void run_viewer(Host& host, const ViewerOptions& opts);
 //   run RATE | pause | step N | setattr PATH ATTR V [V...]   (bus commands, see script_envelope)
 //   select PATH                                              (no command: shows that prim in the inspector)
 //   inst ID                                                  (no command: a Design-window click on that instance)
+//   Design-window editing (needs ViewerOptions::design_api; each is the button of the same name, queued in order):
+//     dsuggest TARGET [CATEGORY]   library browser: parts for port 'inst.port' (or swap candidates for 'inst')
+//     dsnap PART TO [ID]           "snap here": add PART to port 'inst.port' / instance TO, best placement
+//     dcycle N                     preview placement alternative N (0 = the chosen one) of the last snap
+//     dswap ID PART                swap, regenerating the device bindings (auto)
+//     dremove ID | dautowire PORT [TO] | dautowire_all | dundo | dredo | dsave [PATH] | dsim hover|hold
+//     dfinding N                   click DRC finding N (selects the instances involved)
+//     dsync                        re-read the design (what a polled change from another client does)
 // executed (in order) when that frame is reached, exactly like the matching UI control would.
 struct ScriptCmd {
   int frame = 0;

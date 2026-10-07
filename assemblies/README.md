@@ -370,6 +370,24 @@ pack, sensors, wires) built this way has 0 DRC errors, hovers, and agrees with `
 female mech port: parts that take it; a power / signal port: open compatible ports in this design to wire to, else library parts that
 have one). A hint from port kinds, not a planner.
 
+**Editing in the viewer (`napl design view x.toml`, `Sim.show(design=Backend)`, `napl mcp --view`).** The viewer's Design window is a
+front end to this same `Design`, not a second editor: each control sends one JSON request (`design_edit` / `design_suggest` /
+`design_undo` / `design_simulate` / `design_save`, the MCP tools' arguments) to `napl.design.viewer.Backend`, which calls the matching
+`Design` method, rebuilds, and answers with the edit's record (`changes`, DRC delta) plus the new state (report, DRC findings, ports,
+undo depth); the window then loads the new MJCF into the World (LoadModel, source `viewer`) keeping the camera and selection. Under
+`napl mcp --view` the backend edits the server's own design under its lock: an agent's `design_edit` shows up in the window within a
+second, and the window's edits are the agent's next state. Controls: *Library* tab = parts for the selected port (category filter;
+`suggest`), "snap here" (placements ranked, `changes[].snap.alternatives` listed with score / why, "< prev / next >" or a row click previews
+one: undo + the add pinned to that port pair and rotation, one undo step), "suggest swaps" + "swap" (device bindings refreshed,
+`auto=True`); *Wiring* tab = autowire the selected port / all, ambiguous decisions listed per port with a candidate picker (each pick is
+`autowire a, b`); *Simulate* tab = `hover` / `hold` (the numbers `Design.simulate` returns); toolbar = undo / redo (depth shown),
+remove selected, refresh, save (path box; writes the TOML, comments of a hand-written file are not kept); *DRC* window = every finding after
+each edit (colour = severity, `*` = new from the last edit, tooltip / line = fix); clicking one selects the instance it involves. Scripted
+for tests as `dremove | dsnap | dcycle | dswap | dautowire | dautowire_all | dundo | dredo | dsave | dsim | dfinding | dsuggest | dsync`
+(`napl-view --script`, `Sim.show(script=...)`). Tests: `tests/python/test_viewer_design.py` (window session == the same ops on the Python
+API, DRC deltas and document revisions compared step by step), `tests/cpp/test_viewer.cpp` `viewer_design.*`; screenshot
+`docs/showcase/design_window.png` from `tools/design_shot.py`.
+
 `simulate("hover")`: built-in controller (not agent code) on ground-truth state, driving only the ESC throttles through the command
 bus: altitude PID on the height above take-off (ramped to `altitude` in `climb_s`) + attitude PD with a small integral,
 rotor mixer from the model's own rotor positions / axes / spin directions, thrust-vs-throttle and torque/thrust calibrated on a

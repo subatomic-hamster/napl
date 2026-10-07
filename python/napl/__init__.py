@@ -53,7 +53,12 @@ class Sim:
         )
 
     def show(
-        self, frames: int = 0, script: str = "", width: int = 1280, height: int = 720
+        self,
+        frames: int = 0,
+        script: str = "",
+        width: int = 1280,
+        height: int = 720,
+        design=None,
     ) -> None:
         """Open the Vulkan viewer on THIS thread and block until the window is closed (or `frames` > 0 frames were
         drawn). The Sim's World runs on a Host thread meanwhile: the UI's pause / run / step / rate and SetAttr
@@ -61,9 +66,11 @@ class Sim:
         for the duration and returned afterwards (state, tick and log carry on). Linux: any thread may call this.
         macOS: GLFW needs the process's MAIN thread (not built there yet). `script` = "FRAME ACTION ARGS; ..." issues
         UI-equivalent commands at given frames (see napl-view --script). Raises RuntimeError with the reason if there
-        is no display, no Vulkan device, or this build has no viewer (`_napl.has_viewer`)."""
+        is no display, no Vulkan device, or this build has no viewer (`_napl.has_viewer`).
+        `design` = a `napl.design.viewer.Backend` (JSON request -> JSON reply): turns the Design window into an editor
+        whose edits are the Design API's (see `napl.design.viewer.view` for the one-call form)."""
         (self._c.view if isinstance(self._c, _napl.Host) else self._c.show)(
-            int(frames), script, int(width), int(height)
+            int(frames), script, int(width), int(height), design
         )
 
     def close_viewer(self) -> None:

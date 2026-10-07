@@ -169,6 +169,21 @@ def design(args) -> int:
                 ):
                     print(f"        {w}")
             return 0
+        if args.design_cmd == "view":
+            from .design import Design
+            from .design.viewer import view
+
+            d = Design.open(args.assembly, parts)
+            try:
+                view(d, args.out)  # blocks until the window closes
+            except (
+                RuntimeError
+            ) as e:  # no display / Vulkan device / viewer in this build
+                raise SpecError(str(e)) from None
+            print(
+                f"{len(d._undo)} edit(s) in the session; not saved unless you pressed save"
+            )
+            return 0
         if args.design_cmd == "check":
             findings = check(args.assembly, Library(parts))
             if args.json:
@@ -311,6 +326,10 @@ def main(argv=None) -> int:
             "suggest",
             "ranked library parts for an open port ('inst.port') or swap candidates for an instance",
         ),
+        (
+            "view",
+            "open the assembly in the Vulkan viewer; its Design window edits it (needs a display + Vulkan)",
+        ),
     ):
         s = dsub.add_parser(name, help=h)
         s.add_argument("assembly")
@@ -332,6 +351,12 @@ def main(argv=None) -> int:
                 "--out",
                 default="build/assemblies",
                 help="output directory (default %(default)s)",
+            )
+        if name == "view":
+            s.add_argument(
+                "--out",
+                default=None,
+                help="where the window's rebuilds go (default: a temp directory)",
             )
     r = sub.add_parser(
         "render",

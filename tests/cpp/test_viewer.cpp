@@ -280,3 +280,72 @@ TEST(viewer_design, napl_view_finds_the_report_beside_the_model_and_rejects_a_ba
   EXPECT_EQ(bad.code, 1) << bad.text;
   EXPECT_NE(bad.text.find("design report: cannot read"), std::string::npos) << bad.text;
 }
+
+// ---- Design editing: the window sends JSON requests to ViewerOptions::design_api and loads what it answers ------------------
+TEST(viewer_design, edit_script_actions_parse_and_need_an_editor) {  // no window needed
+  EXPECT_EQ(parse_script("1 dsnap p a.b id").at(0).args.size(), 3u);
+  EXPECT_EQ(parse_script("1 dautowire_all; 2 dundo").size(), 2u);
+  EXPECT_THROW(parse_script("1 dsnap p"), std::runtime_error);
+  EXPECT_THROW(parse_script("1 dundo x"), std::runtime_error);
+  const Out o = shell(std::string(NAPL_VIEW_EXE) + " " + kModel + " --frames 1 --script '1 dundo'");
+  EXPECT_EQ(o.code, 1) << o.text;
+  EXPECT_NE(o.text.find("needs a design editor"), std::string::npos) << o.text;
+  const design::State s = design::state_from(design::Parser(R"({"rev":"ab","xml":"/m.xml","undo":2,"redo":1,
+      "report":{"assembly":"a","mass":{"total":1.5,"by_group":{"g":1.5}},"instances":[{"id":"i","part":"p","body":"i","mass":1.5}],
+        "targets":[],"findings":[{"code":"C","severity":"error","message":"m","fix":"f","where":["w.x"],"instances":["i"]}]},
+      "ports":{"i":[{"name":"p1","kind":"mech","type":"t","used":true}]}})").parse());
+  EXPECT_EQ(s.rev, "ab");
+  EXPECT_EQ(s.undo, 2);
+  ASSERT_EQ(s.report.findings.size(), 1u);
+  EXPECT_EQ(s.report.findings[0].instances, (std::vector<std::string>{"i"}));
+  EXPECT_TRUE(s.ports.at("i").at(0).used);
+  EXPECT_EQ(design::request("design_edit", "{\"ops\":[]}", true), R"({"tool":"design_edit","args":{"ops":[]},"replace_last":true})");
+  EXPECT_EQ(design::quote("a\"b\\c"), R"("a\"b\\c")");
+}
+
+TEST(viewer_design, scripted_edits_become_ordered_requests_and_a_new_rev_reloads_the_model) {
+  NEED_DISPLAY();
+  std::vector<std::string> seen;
+  int rev = 0;  // bumped by every edit the fake backend "applies"
+  const auto state = [&] {
+    return R"("state":{"rev":"r)" + std::to_string(rev) + R"(","xml":")" + kModel + R"(","build_error":"","path":"","undo":1,"redo":0,
+      "report":{"assembly":"pendulum_demo","mass":{"total":1,"by_group":{}},"instances":[{"id":"arm","part":"demo-rod","group":"frame","body":"pole","mass":1}],
+        "targets":[],"findings":[{"code":"X","severity":"warning","message":"m","fix":"","where":["arm"],"instances":["arm"]}]},
+      "ports":{"arm":[{"name":"p","kind":"mech","type":"t","used":false}]}})";
+  };
+  Host h(pendulum(), session());
+  ViewerOptions o;
+  o.frames = 40;
+  o.width = 320;
+  o.height = 240;
+  o.script = "2 dremove arm; 3 dsnap demo-rod arm.p arm2; 4 dcycle 0; 5 dundo; 6 dfinding 0; 7 dsync";
+  o.design_api = [&](const std::string& req) {
+    const design::Json j = design::Parser(req).parse();
+    const std::string tool = j.s("tool");
+    seen.push_back(req);
+    if (tool == "rev") return R"({"ok":true,"result":{"rev":"r)" + std::to_string(rev) + R"("}})";
+    if (tool != "state") ++rev;
+    const std::string drc = R"("drc":{"before":{"error":0,"warning":0},"after":{"error":0,"warning":1},"new":[],"resolved":[]})";
+    const std::string add = R"({"op":"add","id":"arm2","part":"demo-rod","mate":{"a":"arm.p","b":"arm2.b"},
+      "snap":{"k":0,"score":100,"why":[],"interferes":[],"alternatives":[{"to":"arm.p","port":"b","k":1,"score":90,"why":[],"interferes":[]}]}})";
+    return R"({"ok":true,"result":{"changes":[)" + (tool == "design_edit" && j.at("args").at("ops").arr.at(0).s("op") == "add" ? add : R"({"op":"remove","id":"arm"})") +
+           "]," + drc + "}," + state() + "}";
+  };
+  run_viewer(h, o);
+  const Outcome out = finish(h);
+  std::vector<std::string> tools;
+  for (const std::string& r : seen) {
+    const design::Json j = design::Parser(r).parse();
+    if (j.s("tool") != "rev") tools.push_back(j.s("tool") + (j.at("replace_last").num != 0 ? "+replace_last" : ""));
+  }
+  const std::vector<std::string> want = {"state", "design_edit", "design_edit", "design_edit+replace_last", "design_undo", "state"};
+  EXPECT_EQ(tools, want);
+  std::size_t loads = 0;
+  for (const Rec& r : records(out.log))
+    if (r.type == napl::Command::LoadModel) {
+      EXPECT_EQ(r.source, "viewer");
+      ++loads;
+    }
+  std::cout << "[ viewer ] fake design backend: requests " << tools.size() << " in order, " << loads << " model reloads (one per new revision)\n";
+  EXPECT_EQ(loads, 4u);  // remove, add, cycle, undo each changed the revision; the first state and the final sync did not
+}

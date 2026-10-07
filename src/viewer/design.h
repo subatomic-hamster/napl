@@ -1,7 +1,7 @@
 #pragma once
-// Read-only view of a `napl design build` report (<name>.report.json next to the MJCF): what the viewer's Design window
-// shows. Header-only; a deliberately small JSON reader (the report is machine-written by Python's json.dumps) so the
-// viewer needs no JSON dependency.
+// What the viewer's Design window shows and sends: a `napl design build` report (<name>.report.json next to the MJCF), and the
+// JSON requests / replies of the editing backend (python/napl/design/viewer.py). Header-only; a deliberately small JSON
+// reader (everything is machine-written by Python's json.dumps) so the viewer needs no JSON dependency.
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -173,7 +173,8 @@ struct Instance {
 };
 struct Finding {
   std::string code, severity, message, fix;
-  std::vector<std::string> where;  // instance / port / wire / mate ids
+  std::vector<std::string> where;      // instance / port / wire / mate ids
+  std::vector<std::string> instances;  // the instances `where` refers to (resolved by the Python side; empty in a plain report file)
 };
 struct Target {
   std::string name;
@@ -189,8 +190,7 @@ struct Report {
   std::vector<Finding> findings;
 };
 
-inline Report parse_report(const std::string& text) {
-  const Json j = Parser(text).parse();
+inline Report report_from(const Json& j) {
   if (j.kind != Json::Obj) throw std::runtime_error("design report: not a JSON object");
   Report r;
   r.assembly = j.s("assembly");
@@ -201,11 +201,56 @@ inline Report parse_report(const std::string& text) {
   for (const Json& t : j.at("targets").arr)
     r.targets.push_back({t.s("name"), t.n("model"), t.n("target"), t.n("gap"), t.at("within").kind == Json::Bool && t.at("within").num != 0});
   for (const Json& f : j.at("findings").arr) {
-    Finding x{f.s("code"), f.s("severity"), f.s("message"), f.s("fix"), {}};
+    Finding x{f.s("code"), f.s("severity"), f.s("message"), f.s("fix"), {}, {}};
     for (const Json& w : f.at("where").arr) x.where.push_back(w.str);
+    for (const Json& w : f.at("instances").arr) x.instances.push_back(w.str);
     r.findings.push_back(std::move(x));
   }
   return r;
+}
+
+inline Report parse_report(const std::string& text) { return report_from(Parser(text).parse()); }
+
+// ---- the editing backend (python/napl/design/viewer.py): JSON requests out, replies in -----------------------------------
+inline std::string quote(const std::string& s) {
+  std::string o = "\"";
+  for (const char c : s) {
+    if (c == '"' || c == '\\') (o += '\\') += c;
+    else if (static_cast<unsigned char>(c) < 0x20) o += ' ';
+    else o += c;
+  }
+  return o + '"';
+}
+// {"tool": ..., "args": {...}}; `args` is JSON text. replace_last: undo the last edit, then apply (design_edit only).
+inline std::string request(const std::string& tool, const std::string& args = "{}", bool replace_last = false) {
+  return "{\"tool\":" + quote(tool) + ",\"args\":" + args + (replace_last ? ",\"replace_last\":true" : "") + "}";
+}
+
+struct Port {
+  std::string name, kind, type;
+  bool used = false;
+};
+// What the backend reports about the design as built: the report (mass, instances, DRC findings) plus the model file and ports.
+struct State {
+  std::string rev, xml, build_error, path;  // xml empty: the design does not build (build_error says why)
+  int undo = 0, redo = 0;
+  Report report;
+  std::map<std::string, std::vector<Port>> ports;  // instance id -> its ports
+};
+inline State state_from(const Json& j) {
+  State s;
+  s.rev = j.s("rev");
+  s.xml = j.s("xml");
+  s.build_error = j.s("build_error");
+  s.path = j.s("path");
+  s.undo = static_cast<int>(j.n("undo"));
+  s.redo = static_cast<int>(j.n("redo"));
+  s.report = report_from(j.at("report"));
+  for (const auto& [id, list] : j.at("ports").obj) {
+    std::vector<Port>& v = s.ports[id];
+    for (const Json& p : list.arr) v.push_back({p.s("name"), p.s("kind"), p.s("type"), p.at("used").num != 0});
+  }
+  return s;
 }
 
 inline Report load_report(const std::string& path) {

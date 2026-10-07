@@ -465,6 +465,7 @@ class NaplServer:
         self.model = None
         self.jobs = {}  # run_id -> {"status", "result" | "error"}
         self.design = None  # the working napl.design.Design (one per server)
+        self.design_lock = threading.RLock()  # the viewer's Design window (--view) edits the same Design from its own thread
         self.parts = parts  # default parts directory of design_open (None: <root>/parts if it exists, else the repo's)
         tools = []
         for name, (table, desc) in {
@@ -512,7 +513,7 @@ class NaplServer:
             if (
                 name != "design_save"
             ):  # destructive: built with its approval resolver above
-                fn = self._validated(getattr(self, f"_{name}"), schema)
+                fn = self._validated(self._locked(getattr(self, f"_{name}")), schema)
                 tools.append(self._tool(name, fn, schema, cap, desc))
         self.server = MCPServer("napl", tools=tools)
 
@@ -523,6 +524,13 @@ class NaplServer:
             read_only_hint=cap == "read",
             destructive_hint=cap == "destructive",
         )
+
+    def _locked(self, fn):
+        async def locked(ctx, **args):
+            with self.design_lock:  # no await inside the design tools, so the lock is never held across a suspension
+                return await fn(ctx, **args)
+
+        return locked
 
     @staticmethod
     def _validated(fn, schema):
@@ -880,7 +888,8 @@ class NaplServer:
             raise ToolError("design_save writes a .toml file")
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
-            self._need_design().save(p)
+            with self.design_lock:
+                self._need_design().save(p)
         except (DesignError, OSError) as e:
             raise ToolError(str(e)) from None
         return {"saved": str(p.relative_to(self.root)), "bytes": p.stat().st_size}
@@ -1034,4 +1043,15 @@ def serve(
     threading.Thread(target=serve_mcp, name="napl-mcp", daemon=True).start()
     srv.loaded.wait()
     if srv.sim is not None:
-        srv.sim.show()
+        # The window's Design panel edits the server's own Design (whatever design_open made current), under its lock; a
+        # change the agent makes shows up in the window within a second, and the other way round.
+        from .design.viewer import Backend
+
+        backend = Backend(
+            lambda: srv.design,
+            srv._confine("build/design"),
+            lock=srv.design_lock,
+            save_to=srv._design_save_to,
+            max_wall_s=srv.max_wall_s or 600.0,
+        )
+        srv.sim.show(design=backend)

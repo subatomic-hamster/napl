@@ -15,6 +15,7 @@
 #include <atomic>
 #include <climits>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <tuple>
@@ -250,13 +251,38 @@ void bind_common(nb::class_<T>& c) {
 
 #ifdef NAPL_HAS_VIEWER
 // Runs the viewer on this thread with the GIL released. A Python KeyboardInterrupt is not delivered until it returns.
-void view(Host& host, int frames, const std::string& script, int width, int height, const std::atomic<bool>* stop) {
+// A Python callable (JSON request -> JSON reply, napl.design.viewer.Backend) the viewer calls from its worker threads: each call
+// takes the GIL, and so does dropping the last reference (the viewer runs with the GIL released).
+struct PyApi {
+  std::shared_ptr<nb::object> fn;
+  // ttsr-ignore: cpp/no-raw-new, cpp/no-raw-delete (a shared_ptr with a GIL-taking deleter: the object must die under the GIL)
+  explicit PyApi(nb::object o)
+      : fn(new nb::object(std::move(o)), [](nb::object* p) {
+          nb::gil_scoped_acquire g;
+          delete p;
+        }) {}
+  std::string operator()(const std::string& req) const {
+    nb::gil_scoped_acquire g;
+    try {
+      return nb::cast<std::string>((*fn)(req));
+    } catch (const nb::python_error& e) {
+      std::string m = e.what();
+      for (char& c : m)
+        if (c == '"' || c == '\\' || static_cast<unsigned char>(c) < 0x20) c = ' ';
+      return "{\"ok\":false,\"error\":\"" + m + "\"}";
+    }
+  }
+};
+
+void view(Host& host, int frames, const std::string& script, int width, int height, const std::atomic<bool>* stop,
+          nb::object design) {
   ViewerOptions o;
   o.frames = frames;
   o.script = script;
   o.width = width;
   o.height = height;
   o.stop = stop;
+  if (!design.is_none()) o.design_api = PyApi(std::move(design));
   nb::gil_scoped_release nogil;
   run_viewer(host, o);  // throws std::runtime_error (-> RuntimeError) with the reason: no display, no Vulkan device, ...
 }
@@ -300,7 +326,7 @@ NB_MODULE(_napl, m) {
       // Hands the World to a Host (its own sim thread) and runs the viewer on this thread until the window closes or
       // `frames` frames were drawn; then takes the World back. The session's commands are logged like any Host's.
       .def("show",
-           [](Sim& s, int frames, const std::string& script, int width, int height) {
+           [](Sim& s, int frames, const std::string& script, int width, int height, nb::object design) {
 #ifdef NAPL_HAS_VIEWER
              Host host(std::move(s.w), s.s);
              struct TakeBack {  // also on an exception: the Sim must get its World back
@@ -311,12 +337,12 @@ NB_MODULE(_napl, m) {
                  s.w = std::move(h.world());
                }
              } take_back{s, host};
-             view(host, frames, script, width, height, nullptr);
+             view(host, frames, script, width, height, nullptr, std::move(design));
 #else
              no_viewer();
 #endif
            },
-           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720);
+           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720, "design"_a = nb::none());
 
   // A Sim whose World lives on a Host thread: what `napl mcp --view` serves, with the viewer on the main thread.
   nb::class_<HostSim> host(m, "Host");
@@ -330,14 +356,14 @@ NB_MODULE(_napl, m) {
            "caps"_a = std::vector<std::string>{"read", "control", "destructive"}, "max_steps_per_call"_a = INT_MAX);
   bind_common(host);
   host.def("view",
-           [](HostSim& s, int frames, const std::string& script, int width, int height) {
+           [](HostSim& s, int frames, const std::string& script, int width, int height, nb::object design) {
 #ifdef NAPL_HAS_VIEWER
-             view(*s.h, frames, script, width, height, &s.close);  // request_close() latches: later views return at once
+             view(*s.h, frames, script, width, height, &s.close, std::move(design));  // request_close() latches: later views return at once
 #else
              no_viewer();
 #endif
            },
-           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720)
+           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720, "design"_a = nb::none())
       .def("request_close", [](HostSim& s) { s.close = true; })  // callable from any thread
       .def("stop", [](HostSim& s) {
         nb::gil_scoped_release nogil;
