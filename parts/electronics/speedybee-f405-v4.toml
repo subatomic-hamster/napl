@@ -34,6 +34,17 @@ symmetry = 4
 note = "30.5 x 30.5 mm with 4 mm hole diameter (S1); M3 screws through grommets assumed as for other 30.5 mm FCs"
 
 [[ports]]
+name = "stack_top"
+kind = "mech"
+type = "bolt-pattern.30.5x30.5.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0078]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+note = "Seat on the board top face (height 0.0078 m, S1) for whatever sits above the FC in the stack (top plate on standoffs). Standoff gap and mass are not modelled."
+
+[[ports]]
 name = "vbat_in"
 kind = "power"
 type = "solder-pad"

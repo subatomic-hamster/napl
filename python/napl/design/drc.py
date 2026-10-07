@@ -1225,8 +1225,16 @@ def _prop_rules(ctx, world, discs, F):
             ):
                 continue
             c, R, h = world.obb(gi)
-            q = np.abs((pts - c) @ R) - h
-            if (q <= 0).all(axis=1).any():
+            loc = (pts - c) @ R
+            if (
+                g["kind"] == "cylinder"
+            ):  # exact: the bounding box of a yawed prop disc pokes into its neighbour
+                inside = (np.hypot(loc[:, 0], loc[:, 1]) <= h[0]) & (
+                    np.abs(loc[:, 2]) <= h[2]
+                )
+            else:
+                inside = (np.abs(loc) - h <= 0).all(axis=1)
+            if inside.any():
                 hit[nm] = None
         for nm in sorted(hit):
             _add(
@@ -1551,7 +1559,16 @@ def _current_rules(ctx, net, units, servo_info, F):
         if pk is None:
             continue
         sus = u.get("Ihover")
-        loads[u["key"]] = (pk, sus)
+        if (
+            u["key"] in loads
+        ):  # several motors on one ESC input (4-in-1): the loads add, they do not overwrite
+            opk, osus = loads[u["key"]]
+            loads[u["key"]] = (
+                opk + pk,
+                None if sus is None or osus is None else osus + sus,
+            )
+        else:
+            loads[u["key"]] = (pk, sus)
         for p in u["motor"].part.ports:
             if p.get("kind") == "power" and p.get("role") == "sink":
                 loads[(u["motor"].id, p["name"])] = (pk, sus)

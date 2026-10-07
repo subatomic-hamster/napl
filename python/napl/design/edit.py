@@ -245,8 +245,13 @@ class Design:
                 s += W_SYMMETRY * min(sa, sb) / max(sa, sb)
                 if sa != sb:
                     why.append(f"symmetry {sa} vs {sb}")
-                out.append({"a": pa, "b": pb, "score": s, "why": why, "_o": (i, j)})
-        out.sort(key=lambda r: (-r["score"], r["_o"]))
+                # tie-break, not a score term: +1 when mating leaves the child right side up (its port faces -z where the
+                # parent port faces +z, e.g. a board's `base`), -1 when it would be flipped (a `stack_top` onto a plate)
+                up = pa.get("axis", [0, 0, 0])[2] * -pb.get("axis", [0, 0, 0])[2]
+                out.append(
+                    {"a": pa, "b": pb, "score": s, "why": why, "up": up, "_o": (i, j)}
+                )
+        out.sort(key=lambda r: (-r["score"], -r["up"], r["_o"]))
         return out
 
     def _pick(self, doc, parent_id, parent_port, child_part, child_port, what) -> tuple:
@@ -285,7 +290,11 @@ class Design:
                 f"open ports of {parent_id}: {free or 'none'}. design suggest {parent_id}.<port> lists parts that fit"
             )
         top = pairs[0]
-        tied = [p for p in pairs if abs(p["score"] - top["score"]) < 1e-9]
+        tied = [
+            p
+            for p in pairs
+            if abs(p["score"] - top["score"]) < 1e-9 and p["up"] == top["up"]
+        ]
         alts = [
             {
                 "to": f"{parent_id}.{p['a']['name']}",
@@ -365,7 +374,19 @@ class Design:
                     f"snap is ambiguous (strict): {[info['why']] + info['alternatives']}"
                 )
             pa, pb = self._part(self._inst(doc, tid)["part"]).port(ppn), part.port(cpn)
-            m = self._mate_dict(f"{tid}.{ppn}", f"{iid}.{cpn}", s.get("k"), pa, pb)
+            m = self._mate_dict(
+                f"{tid}.{ppn}",
+                f"{iid}.{cpn}",
+                s.get("k"),
+                pa,
+                pb,
+                fasteners=s.get("fasteners", "auto"),
+                joint=s.get("joint"),
+                nut=s.get("nut"),
+                name=s.get(
+                    "mate"
+                ),  # mate name (device bindings refer to spin mates by it)
+            )
             doc["instances"].append(inst)
             doc.setdefault("mates", []).append(m)
             ch.update(mate=m, snap=info)
@@ -509,7 +530,11 @@ class Design:
                     f"mate {s['a']} / {s['b']}: no compatible open mech port pair"
                 )
             top = pairs[0]
-            tied = [p for p in pairs if abs(p["score"] - top["score"]) < 1e-9]
+            tied = [
+                p
+                for p in pairs
+                if abs(p["score"] - top["score"]) < 1e-9 and p["up"] == top["up"]
+            ]
             pa, pb = top["a"]["name"], top["b"]["name"]
             info = {
                 "score": round(top["score"], 2),
@@ -595,12 +620,66 @@ class Design:
             w["conductors"] = s["conductors"]
         if s.get("included_in"):
             w["included_in"] = s["included_in"]
+        if s.get("connectors"):  # pin the end connector parts: {"from": id, "to": id}
+            w["connectors"] = s["connectors"]
         if w["name"] in {x.get("name") for x in doc.get("wires", [])}:
             raise DesignError(
                 f"a wire named '{w['name']}' already exists (pass a name)"
             )
         doc.setdefault("wires", []).append(w)
         return {"op": "wire", "wire": w}
+
+    def _op_device_map(self, doc, s) -> dict:
+        """device_map: name + map ({"motor.kv": "motor:kv", ...}): a [device_maps.<name>] table, replaced when it exists."""
+        if not s.get("name") or not isinstance(s.get("map"), dict) or not s["map"]:
+            raise DesignError("device_map: needs name and a non-empty map {field: ref}")
+        doc.setdefault("device_maps", {})[s["name"]] = dict(s["map"])
+        return {"op": "device_map", "name": s["name"], "map": dict(s["map"])}
+
+    def _op_device(self, doc, s) -> dict:
+        """device: device = {type, name, instance, port, map, set, ...}: one [[devices]] binding (see assemblies/README.md)."""
+        dev = s.get("device")
+        if not isinstance(dev, dict) or not dev.get("type") or not dev.get("name"):
+            raise DesignError("device: needs device = {type, name, ...}")
+        if dev["name"] in {x.get("name") for x in doc.get("devices", [])}:
+            raise DesignError(f"a device named '{dev['name']}' already exists")
+        doc.setdefault("devices", []).append(copy.deepcopy(dev))
+        return {"op": "device", "device": dev}
+
+    def _op_target(self, doc, s) -> dict:
+        """target: name + value ('<inst>.<param>' or a provenance table) + groups=[...] | all=True: a mass target."""
+        if not s.get("name") or s.get("value") is None:
+            raise DesignError("target: needs name and value")
+        t = {"name": s["name"]}
+        if s.get("all"):
+            t["all"] = True
+        else:
+            t["groups"] = list(s.get("groups") or [])
+        t["value"] = s["value"]
+        if s["name"] in {x.get("name") for x in doc.get("targets", [])}:
+            raise DesignError(f"a target named '{s['name']}' already exists")
+        doc.setdefault("targets", []).append(t)
+        return {"op": "target", "target": t}
+
+    def device_map(self, name, map) -> EditResult:
+        return self.edit([{"op": "device_map", "name": name, "map": map}])
+
+    def bind(self, **device) -> EditResult:
+        """Add a device binding: bind(type="esc", name="esc1", instance="esc", port="power_in", motor="mot1", ...)."""
+        return self.edit([{"op": "device", "device": device}])
+
+    def target(self, name, value, groups=None, all=False) -> EditResult:
+        return self.edit(
+            [
+                {
+                    "op": "target",
+                    "name": name,
+                    "value": value,
+                    "groups": groups,
+                    "all": all,
+                }
+            ]
+        )
 
     def _op_unwire(self, doc, s) -> dict:
         wires = doc.get("wires", [])
@@ -977,6 +1056,9 @@ class Design:
             "wire": self._op_wire,
             "unwire": self._op_unwire,
             "set": self._op_set,
+            "device_map": self._op_device_map,
+            "device": self._op_device,
+            "target": self._op_target,
         }
         before = self.findings()
         snap = copy.deepcopy(self.doc)
@@ -1028,11 +1110,12 @@ class Design:
         )
 
     def snap(
-        self, new_part, to, port=None, k=None, id=None, strict=False
+        self, new_part, to, port=None, k=None, id=None, strict=False, **kw
     ) -> EditResult:
         """add(new_part) mated to the best open compatible port pair of `to` (instance or 'inst.port'); the change record
-        has snap = {score, why, ambiguous, alternatives}; strict=True raises when the best pair is tied."""
-        return self.add(new_part, id=id, to=to, port=port, k=k, strict=strict)
+        has snap = {score, why, ambiguous, alternatives}; strict=True raises when the best pair is tied. Extra keywords
+        (joint=..., fasteners=..., nut=..., group=...) go to the mate / instance like `mate` / `add` take them."""
+        return self.add(new_part, id=id, to=to, port=port, k=k, strict=strict, **kw)
 
     def remove(self, id) -> EditResult:
         return self.edit([{"op": "remove", "id": id}])

@@ -27,6 +27,7 @@ current_rate    = { value = 200, unit = "1", src = "S1", fidelity = "datasheet" 
 [geometry]
 shape = "box"
 size = [0.01525, 0.01525, 0.003]
+pos = [0.0, 0.0, 0.003]   # box centre 3 mm above the base plane: the board spans z = 0 .. 0.006 (origin = underside, header)
 
 [[ports]]
 name = "base"
@@ -38,6 +39,17 @@ axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 4
 note = "30.5 x 30.5 mm per S1; 4 mm hole, M3 screw with grommet assumed (inference)"
+
+[[ports]]
+name = "stack_top"
+kind = "mech"
+type = "bolt-pattern.30.5x30.5.m3"
+gender = "neutral"
+pos = [0.0, 0.0, 0.006]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 4
+note = "Seat for the next board of the stack (flight controller) on the same 30.5 x 30.5 pattern, at the board top face (height 0.006 m, estimated above). A real stack separates boards with ~20 mm standoffs that this model does not carry: the gap and the standoff mass are not modelled (added so a FC can be mated to an ESC at all; the part had a bottom seat only)."
 
 [[ports]]
 name = "power_in"

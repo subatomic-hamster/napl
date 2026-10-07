@@ -15,11 +15,12 @@ motor_mount_pattern = { value = 0.016, unit = "m", src = "S1", fidelity = "datas
 motor_radius = { value = 0.1105, unit = "m", fidelity = "derived", derivation = "Wheelbase 220 mm (S1) is the motor-to-motor diagonal: radius = 0.220 / 2 = 0.110 m; cross-check with the L175 x W135 frame dimension, sqrt(0.175^2 + 0.135^2)/2 = 0.1105 m (S1)." }
 length = { value = 0.0705, unit = "m", fidelity = "estimated", rationale = "Motor radius 0.1105 m (derived from the 220 mm wheelbase) minus the assumed arm-root radius 0.040 m on the bottom plate (root position is not published; 0.040 m puts the root just outside the 30.5 mm stack footprint, half-diagonal 0.0216 m)." }
 width = { value = 0.022, unit = "m", fidelity = "estimated", rationale = "Not published. 22 mm is typical of the root width of 6 mm 5-inch freestyle arms (fits a 16x16 motor pattern plus 2307-class motor bell clearance); resolve from the vendor CAD." }
+mass = { value = 0.0101, unit = "kg", fidelity = "estimated", rationale = "Not published (only 'approx. 120 g with all hardware' for the whole kit, which is not split per part). Estimate, same convention as the plates: 0.0705 x 0.022 m outline x 0.006 m thick x 1550 kg/m3 (carbon-fibre density used in the plate files) = 14.4 g, x 0.70 fill factor for cut-outs / taper = 10.1 g. Plus-or-minus 50%; replace with a weighed value." }
 
 [geometry]
 shape = "box"
 size = [0.03525, 0.011, 0.003]
-offset = [0.03525, 0.0, 0.0]
+pos = [0.03525, 0.0, 0.0]
 material = "carbon-fibre-twill-plate"
 
 [[ports]]

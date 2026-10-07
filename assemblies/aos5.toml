@@ -1,0 +1,386 @@
+# iFlight AOS 5 EVO 5-inch freestyle quad: second real drone of the design system (A2), built from the parts library.
+# PROVENANCE: constructed through the editing API (napl.design.Design: snap / wire / bind / device_map / target, then Design.save), not
+# written by hand; this header is the only hand-written part (save does not keep comments). Syntax: assemblies/README.md.
+#
+# Layout (x forward, y left, z up, bottom-plate centre at the origin). Arms follow the stretched-X layout derived from the published
+# L175 x W135 mm frame: arm1 (+x,+y) front-left, arm2 (-x,+y) rear-left, arm3 (-x,-y) rear-right, arm4 (+x,-y) front-right. Motor / prop
+# numbering is PX4 quad-X (same as x500v2): m1 front-right (arm4) CCW, m2 rear-left (arm2) CCW, m3 front-left (arm1) CW, m4 rear-right
+# (arm3) CW; instances motK / propK belong to motor K.
+# Stack (bottom to top): bottom plate -> BLITZ E55 4-in-1 ESC -> SpeedyBee F405 V4 FC -> top plate -> battery on the top plate. The 30.5 mm
+# stack standoffs, screws, TPU parts, the upper (camera / VTX) plate, the camera, VTX, receiver and antennas are NOT modelled (no parts
+# or no seat in the library), so the frame group sits well under iFlight's 'approx. 120 g with all hardware' and the AUW under a real
+# 5-inch build; the target below reports the gap.
+# Propulsion: XING2 2207 1855KV is the 6S variant; its own thrust table (gemfan-hurricane-51466 prop) was measured at 24 V = 6S, hence the
+# 6S pack. Gemfan 51466 has no measured aerodynamics: its ct/cq are fitted by the repo's thrust-stand bench (see the prop part file).
+# Electrical: the 4-in-1 ESC is one electrical node (esc1..esc4 bind the same power_in), battery lead = the pack's own 12 AWG XT60 lead
+# (included in the pack mass), motor leads = the motors' own 20 AWG leads (included in the motor mass).
+# Not modelled: IMU / baro sensor bindings (the F405 V4 has an ICM42688P), BEC loads, the FC-ESC harness connectors, prop nuts.
+
+[assembly]
+name = "aos5"
+description = "iFlight AOS 5 EVO 5-inch freestyle quad: 4x XING2 2207 1855KV + Gemfan 51466 props, BLITZ E55 4-in-1 ESC, SpeedyBee F405 V4 FC, Tattu R-Line 1400 mAh 6S"
+base = "free"
+timestep = 0.001
+
+[[instances]]
+id = "bottom"
+part = "iflight-aos5evo-bottom-plate"
+root = true
+group = "frame"
+
+[[instances]]
+id = "arm1"
+part = "iflight-aos5evo-arm"
+group = "frame"
+
+[[instances]]
+id = "arm2"
+part = "iflight-aos5evo-arm"
+group = "frame"
+
+[[instances]]
+id = "arm3"
+part = "iflight-aos5evo-arm"
+group = "frame"
+
+[[instances]]
+id = "arm4"
+part = "iflight-aos5evo-arm"
+group = "frame"
+
+[[instances]]
+id = "mot1"
+part = "iflight-xing2-2207-1855kv"
+group = "propulsion"
+
+[[instances]]
+id = "prop1"
+part = "gemfan-hurricane-51466"
+group = "propulsion"
+
+[[instances]]
+id = "mot2"
+part = "iflight-xing2-2207-1855kv"
+group = "propulsion"
+
+[[instances]]
+id = "prop2"
+part = "gemfan-hurricane-51466"
+group = "propulsion"
+
+[[instances]]
+id = "mot3"
+part = "iflight-xing2-2207-1855kv"
+group = "propulsion"
+
+[[instances]]
+id = "prop3"
+part = "gemfan-hurricane-51466"
+group = "propulsion"
+
+[[instances]]
+id = "mot4"
+part = "iflight-xing2-2207-1855kv"
+group = "propulsion"
+
+[[instances]]
+id = "prop4"
+part = "gemfan-hurricane-51466"
+group = "propulsion"
+
+[[instances]]
+id = "esc"
+part = "iflight-blitz-e55-4in1"
+group = "propulsion"
+
+[[instances]]
+id = "fc"
+part = "speedybee-f405-v4"
+group = "avionics"
+
+[[instances]]
+id = "top"
+part = "iflight-aos5evo-top-plate"
+group = "frame"
+
+[[instances]]
+id = "bat"
+part = "tattu-1400mah-6s-150c-xt60"
+group = "power"
+
+[[instances]]
+id = "kit"
+part = "iflight-aos5evo-frame-kit"
+offboard = true
+
+[[mates]]
+a = "bottom.arm1"
+b = "arm1.root"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "bottom.arm2"
+b = "arm2.root"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "bottom.arm3"
+b = "arm3.root"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "bottom.arm4"
+b = "arm4.root"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "arm4.motor_mount"
+b = "mot1.base"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "mot1.shaft"
+b = "prop1.hub"
+name = "spin1"
+rotation = 0
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+a = "arm2.motor_mount"
+b = "mot2.base"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "mot2.shaft"
+b = "prop2.hub"
+name = "spin2"
+rotation = 0
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+a = "arm1.motor_mount"
+b = "mot3.base"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "mot3.shaft"
+b = "prop3.hub"
+name = "spin3"
+rotation = 0
+joint = { type = "hinge", spin = true, reverse = true }
+
+[[mates]]
+a = "arm3.motor_mount"
+b = "mot4.base"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "mot4.shaft"
+b = "prop4.hub"
+name = "spin4"
+rotation = 0
+joint = { type = "hinge", spin = true, reverse = true }
+
+[[mates]]
+a = "bottom.stack_30"
+b = "esc.base"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "esc.stack_top"
+b = "fc.base"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "fc.stack_top"
+b = "top.stack_30"
+rotation = 0
+fasteners = "auto"
+
+[[mates]]
+a = "top.battery_top"
+b = "bat.seat"
+rotation = 0
+
+[[wires]]
+name = "esc-to-mot1"
+from = "esc.motor_out_1"
+to = "mot1.phase"
+part = "awg-20-silicone-wire"
+length = "mot1.lead_length"
+conductors = 3
+included_in = "mot1"
+
+[[wires]]
+name = "esc-to-mot2"
+from = "esc.motor_out_2"
+to = "mot2.phase"
+part = "awg-20-silicone-wire"
+length = "mot2.lead_length"
+conductors = 3
+included_in = "mot2"
+
+[[wires]]
+name = "esc-to-mot3"
+from = "esc.motor_out_3"
+to = "mot3.phase"
+part = "awg-20-silicone-wire"
+length = "mot3.lead_length"
+conductors = 3
+included_in = "mot3"
+
+[[wires]]
+name = "esc-to-mot4"
+from = "esc.motor_out_4"
+to = "mot4.phase"
+part = "awg-20-silicone-wire"
+length = "mot4.lead_length"
+conductors = 3
+included_in = "mot4"
+
+[[wires]]
+name = "bat-to-esc"
+from = "bat.power_out"
+to = "esc.power_in"
+part = "awg-12-silicone-wire"
+length = "bat.discharge_wire_length"
+conductors = 2
+included_in = "bat"
+
+[[wires]]
+name = "bat-to-fc"
+from = "bat.power_out"
+to = "fc.vbat_in"
+part = "awg-24-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Not published: the ESC-to-FC VBAT/GND harness of the stack, ~60 mm for a two-board stack." }
+conductors = 2
+
+[[wires]]
+name = "fc-to-esc-signal"
+from = "fc.esc_out"
+to = "esc.signal"
+part = "awg-30-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Not published: FC-to-ESC signal pigtail of the stack, ~50 mm." }
+
+[device_maps.xing2_esc]
+"motor.kv" = "motor:kv"
+"motor.r20" = "motor:r_winding"
+"motor.i0" = "motor:i0"
+i_limit = "i_cont_per_ch"
+
+[device_maps.gemfan51466]
+diameter = "diameter"
+j = "@ct_cq_j.j"
+ct = "@ct_cq_j.ct"
+cq = "@ct_cq_j.cq"
+
+[device_maps.tattu6s]
+capacity_ah = "capacity_ah"
+r0 = "r_internal_pack"
+
+[[devices]]
+type = "battery"
+name = "battery"
+instance = "bat"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "tattu6s"
+
+[[devices]]
+type = "esc"
+name = "esc1"
+instance = "esc"
+port = "power_in"
+motor = "mot1"
+joint = "spin1"
+map = "xing2_esc"
+set = { "motor.rotor_inertia" = { value = 2.16e-06, unit = "kg*m^2", fidelity = "estimated", rationale = "Not published: rotor-bell inertia estimated as a thin shell of 40 % of the 31.6 g motor mass at 0.45 x the 29.08 mm outer diameter (the thrust-stand bench's estimate for this motor, build/bench/iflight-xing2-2207-1855kv.json j_rotor_bell). Only affects spin-up time." }, "motor.c_th" = { value = 12.64, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 31.6 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix, the convention of assemblies/x500v2.toml): 31.6 g x 0.4 = 12.64 J/K; no vendor value." }, "motor.r_th" = { value = 0.43, unit = "K/W", fidelity = "estimated", rationale = "iFlight prints 55 degC motor temperature at 100 % throttle after 60 s (24 V, 51466, 35.08 A; iflight-xing2-2207-1855kv thrust_test comment). r_th = (55 - 25 degC ambient) / (I^2 R(55 degC)) = 30 / (35.08^2 x 0.05 x (1 + 0.00393 x 35)) = 0.43 K/W. A 60 s reading is not steady state and is a surface temperature, so this is a lower bound; at hover (~2.9 A) it moves the winding by ~0.2 K." } }
+
+[[devices]]
+type = "esc"
+name = "esc2"
+instance = "esc"
+port = "power_in"
+motor = "mot2"
+joint = "spin2"
+map = "xing2_esc"
+set = { "motor.rotor_inertia" = { value = 2.16e-06, unit = "kg*m^2", fidelity = "estimated", rationale = "Not published: rotor-bell inertia estimated as a thin shell of 40 % of the 31.6 g motor mass at 0.45 x the 29.08 mm outer diameter (the thrust-stand bench's estimate for this motor, build/bench/iflight-xing2-2207-1855kv.json j_rotor_bell). Only affects spin-up time." }, "motor.c_th" = { value = 12.64, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 31.6 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix, the convention of assemblies/x500v2.toml): 31.6 g x 0.4 = 12.64 J/K; no vendor value." }, "motor.r_th" = { value = 0.43, unit = "K/W", fidelity = "estimated", rationale = "iFlight prints 55 degC motor temperature at 100 % throttle after 60 s (24 V, 51466, 35.08 A; iflight-xing2-2207-1855kv thrust_test comment). r_th = (55 - 25 degC ambient) / (I^2 R(55 degC)) = 30 / (35.08^2 x 0.05 x (1 + 0.00393 x 35)) = 0.43 K/W. A 60 s reading is not steady state and is a surface temperature, so this is a lower bound; at hover (~2.9 A) it moves the winding by ~0.2 K." } }
+
+[[devices]]
+type = "esc"
+name = "esc3"
+instance = "esc"
+port = "power_in"
+motor = "mot3"
+joint = "spin3"
+map = "xing2_esc"
+set = { "motor.rotor_inertia" = { value = 2.16e-06, unit = "kg*m^2", fidelity = "estimated", rationale = "Not published: rotor-bell inertia estimated as a thin shell of 40 % of the 31.6 g motor mass at 0.45 x the 29.08 mm outer diameter (the thrust-stand bench's estimate for this motor, build/bench/iflight-xing2-2207-1855kv.json j_rotor_bell). Only affects spin-up time." }, "motor.c_th" = { value = 12.64, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 31.6 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix, the convention of assemblies/x500v2.toml): 31.6 g x 0.4 = 12.64 J/K; no vendor value." }, "motor.r_th" = { value = 0.43, unit = "K/W", fidelity = "estimated", rationale = "iFlight prints 55 degC motor temperature at 100 % throttle after 60 s (24 V, 51466, 35.08 A; iflight-xing2-2207-1855kv thrust_test comment). r_th = (55 - 25 degC ambient) / (I^2 R(55 degC)) = 30 / (35.08^2 x 0.05 x (1 + 0.00393 x 35)) = 0.43 K/W. A 60 s reading is not steady state and is a surface temperature, so this is a lower bound; at hover (~2.9 A) it moves the winding by ~0.2 K." } }
+
+[[devices]]
+type = "esc"
+name = "esc4"
+instance = "esc"
+port = "power_in"
+motor = "mot4"
+joint = "spin4"
+map = "xing2_esc"
+set = { "motor.rotor_inertia" = { value = 2.16e-06, unit = "kg*m^2", fidelity = "estimated", rationale = "Not published: rotor-bell inertia estimated as a thin shell of 40 % of the 31.6 g motor mass at 0.45 x the 29.08 mm outer diameter (the thrust-stand bench's estimate for this motor, build/bench/iflight-xing2-2207-1855kv.json j_rotor_bell). Only affects spin-up time." }, "motor.c_th" = { value = 12.64, unit = "J/K", fidelity = "estimated", rationale = "Lumped thermal capacity of the whole 31.6 g motor at ~0.4 J/(g K) (generic copper/steel/aluminium mix, the convention of assemblies/x500v2.toml): 31.6 g x 0.4 = 12.64 J/K; no vendor value." }, "motor.r_th" = { value = 0.43, unit = "K/W", fidelity = "estimated", rationale = "iFlight prints 55 degC motor temperature at 100 % throttle after 60 s (24 V, 51466, 35.08 A; iflight-xing2-2207-1855kv thrust_test comment). r_th = (55 - 25 degC ambient) / (I^2 R(55 degC)) = 30 / (35.08^2 x 0.05 x (1 + 0.00393 x 35)) = 0.43 K/W. A 60 s reading is not steady state and is a surface temperature, so this is a lower bound; at hover (~2.9 A) it moves the winding by ~0.2 K." } }
+
+[[devices]]
+type = "rotor"
+name = "rotor1"
+instance = "prop1"
+body = "prop1"
+joint = "spin1"
+map = "gemfan51466"
+dir = 1
+ground_effect = true
+set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the Gemfan 51466; 0 switches the term off rather than inventing a coefficient." } }
+
+[[devices]]
+type = "rotor"
+name = "rotor2"
+instance = "prop2"
+body = "prop2"
+joint = "spin2"
+map = "gemfan51466"
+dir = 1
+ground_effect = true
+set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the Gemfan 51466; 0 switches the term off rather than inventing a coefficient." } }
+
+[[devices]]
+type = "rotor"
+name = "rotor3"
+instance = "prop3"
+body = "prop3"
+joint = "spin3"
+map = "gemfan51466"
+dir = -1
+ground_effect = true
+set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the Gemfan 51466; 0 switches the term off rather than inventing a coefficient." } }
+
+[[devices]]
+type = "rotor"
+name = "rotor4"
+instance = "prop4"
+body = "prop4"
+joint = "spin4"
+map = "gemfan51466"
+dir = -1
+ground_effect = true
+set = { k_h = { value = 0.0, unit = "kg", fidelity = "estimated", rationale = "No H-force (blade flapping / in-plane drag) data exists for the Gemfan 51466; 0 switches the term off rather than inventing a coefficient." } }
+
+[[targets]]
+name = "frame kit published weight (iFlight 'Approx. 120g with all hardware')"
+groups = ["frame"]
+value = "kit.published_weight"

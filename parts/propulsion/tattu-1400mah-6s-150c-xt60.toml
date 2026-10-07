@@ -33,6 +33,19 @@ shape = "box"
 size = [0.039, 0.0195, 0.021]
 
 [[ports]]
+name = "seat"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, -0.021]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "derived"
+derivation = "Bottom face of the pack: pack height 42 mm (S1) / 2 = 0.021 m below the origin at the pack centre; strapped flat to a frame plate (strap and pad not modelled). Added so the pack can be mated to a flat-mount seat."
+
+[[ports]]
 name = "power_out"
 kind = "power"
 type = "xt60"

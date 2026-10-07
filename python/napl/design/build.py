@@ -121,6 +121,12 @@ def part_shapes(lib: Library, part) -> list:
     for k, s in enumerate(raw):
         where = f"part {part.id} geometry shape {k}"
         kind = s.get("shape")
+        if (
+            "offset" in s
+        ):  # was silently ignored (shape sat at the part origin); the key is `pos`
+            raise DesignError(
+                f"{where}: unknown key 'offset' (shape placement is `pos`)"
+            )
         d = {
             "kind": kind,
             "mass_param": s.get("mass_param"),
