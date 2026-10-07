@@ -1,0 +1,52 @@
+# napl program examples/x500/mission.scenario.toml     (needs PX4 SITL + napl-px4-bridge + mavsdk; see python/napl/px4.py)
+# Real PX4 flies the X500 through the bridge (lockstep, wall = sim time); mission.py is an ordinary MAVSDK script.
+name = "x500-mission"
+
+# the hand-written reference model (tests/data/px4/x500_fixture.xml); mission.asm.scenario.toml flies the parts-built assembly
+[interfaces.px4]
+bridge = "../../px4/bridge_x500.toml"
+
+[program]
+cmd = ["python", "{dir}/mission.py"]
+
+[limits]
+wall_s = 420                             # ~60 s boot + ~120 s flight; the program times its own steps
+cpu_s = 600
+
+# trace columns: x y z (world, m) and the derived alt (z - z at start) / dist_home (horizontal distance from the start).
+[[monitors]]
+name = "max_altitude"                    # takeoff 5 m; ceiling 8 m (PX4's altitude estimate wanders: truth peaked 5.1-6.9 m in 3 runs)
+column = "alt"
+op = "always"
+hi = 8.0
+
+[[monitors]]
+name = "reached_5m"
+column = "alt"
+op = "eventually"
+lo = 4.5
+
+[[monitors]]
+name = "geofence_20m"                    # the 10 m square's far corner is 14.1 m from home
+column = "dist_home"
+op = "always"
+hi = 20.0
+
+[[monitors]]
+name = "flew_the_square"
+column = "dist_home"
+op = "eventually"
+lo = 13.0                                # past the diagonal corner (14.1 m)
+
+[[monitors]]
+name = "landed_within_1p5m_of_home"
+column = "dist_home"
+op = "final"
+hi = 1.5
+
+[[monitors]]
+name = "landed_on_ground"
+column = "alt"
+op = "final"
+lo = -0.2
+hi = 0.2

@@ -109,6 +109,28 @@ def _feetech_port(args) -> int:
     return 0
 
 
+def program(args) -> int:
+    from . import program as prog
+
+    try:
+        res, d = prog.run(args.scenario, args.runs_dir)
+    except (prog.ScenarioError, RuntimeError, ValueError, OSError) as e:
+        raise SpecError(str(e)) from None
+    p = res["program"]
+    print(
+        f"{'PASS' if res['pass'] else 'FAIL'} {res['name']}  (program rc={p['returncode']}"
+        f"{' ' + p['signal'] if p['signal'] else ''}, {p['wall_s']:.1f} s wall"
+        f"{', timeout: ' + p['timeout'] if p['timeout'] else ''})"
+    )
+    for m in res["monitors"]:
+        print(
+            f"  {'ok  ' if m['pass'] else 'FAIL'} {m['name']}: {m.get('op', '')} range [{m.get('min', float('nan')):.4g}, {m.get('max', float('nan')):.4g}] final {m.get('final', float('nan')):.4g}"
+        )
+    print(f"  replay: {res['replay']}")
+    print(f"run dir: {d}")
+    return 0 if res["pass"] else 1
+
+
 def _parts_dir(arg) -> Path:
     if arg:
         return Path(arg)
@@ -178,6 +200,39 @@ def design(args) -> int:
     return 0
 
 
+def render(args) -> int:
+    from . import showcase
+
+    model = Path(args.model)
+    try:
+        if model.suffix == ".toml":
+            from .design import DesignError, build
+
+            try:
+                model = build(model, _parts_dir(args.parts), Path(args.out) / "model")[
+                    "xml"
+                ]
+            except DesignError as e:
+                raise SpecError(str(e)) from None
+        w, h = (int(x) for x in args.size.lower().split("x"))
+        for p in showcase.run(
+            model,
+            args.out,
+            args.views.split(","),
+            (w, h),
+            args.aa,
+            args.frames,
+            args.sweep,
+            args.spin,
+            args.orbit,
+            args.fps,
+        ):
+            print(p)
+    except (RuntimeError, ValueError, OSError) as e:
+        raise SpecError(str(e)) from None
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="napl")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -238,6 +293,12 @@ def main(argv=None) -> int:
     )
     f.add_argument("--baud", type=int, default=1_000_000)
     f.add_argument("--symlink", help="also create this stable symlink to the pty")
+    g = sub.add_parser(
+        "program",
+        help="run a user program against the simulated robot over the real protocol (CLI only, not an MCP tool)",
+    )
+    g.add_argument("scenario", help="scenario .toml (see python/napl/program.py)")
+    g.add_argument("--runs-dir", default="runs")
     d = sub.add_parser(
         "design", help="assemblies: build MJCF + report, mass budget (no kernel needed)"
     )
@@ -272,13 +333,75 @@ def main(argv=None) -> int:
                 default="build/assemblies",
                 help="output directory (default %(default)s)",
             )
+    r = sub.add_parser(
+        "render",
+        help="showcase PNGs / animated PNG of a model (MJCF/URDF) or assembly .toml (needs Vulkan)",
+    )
+    r.add_argument("model", help="MJCF/URDF, or an assembly .toml (built first)")
+    r.add_argument("--out", default="build/render")
+    r.add_argument(
+        "--views", default="iso,front,top", help="camera presets, comma separated"
+    )
+    r.add_argument("--size", default="640x480")
+    r.add_argument(
+        "--aa", type=int, default=2, help="supersampling factor (default %(default)s)"
+    )
+    r.add_argument(
+        "--frames",
+        type=int,
+        default=0,
+        help="also write an animated PNG of this many frames",
+    )
+    r.add_argument(
+        "--sweep",
+        action="append",
+        default=[],
+        metavar="JOINT:LO:HI",
+        help="animate: eased there-and-back, radians",
+    )
+    r.add_argument(
+        "--spin",
+        action="append",
+        default=[],
+        metavar="JOINT:TURNS",
+        help="animate: linear spin",
+    )
+    r.add_argument(
+        "--orbit",
+        type=float,
+        default=0.0,
+        help="animate: camera azimuth sweep, degrees",
+    )
+    r.add_argument("--fps", type=int, default=20)
+    r.add_argument(
+        "--parts", default=None, help="parts directory for an assembly .toml"
+    )
     from . import bench
 
     bench.add_parser(sub)
+    rp = sub.add_parser("report", help="generated reports")
+    rsub = rp.add_subparsers(dest="report_cmd", required=True)
+    fp = rsub.add_parser(
+        "fidelity", help="fidelity report: provenance and validation of every model"
+    )
+    fp.add_argument("--out", default="docs/fidelity.md")
+    fp.add_argument("--json", default="build/fidelity.json")
+    fp.add_argument("--parts", default=None, help="parts directory (default: repo's)")
+    fp.add_argument("--build-dir", default="build/assemblies")
+    fp.add_argument("--date", default=None, help="stamp this date (none by default)")
+    fp.add_argument("--no-servo", action="store_true", help="skip the servo bench")
     try:
         args = p.parse_args(argv)  # argparse itself exits 2 on bad usage
+        if args.cmd == "render":
+            return render(args)
         if args.cmd == "bench":
             return bench.main_bench(args)
+        if args.cmd == "report":
+            from .fidelity import main_report
+
+            return main_report(args)
+        if args.cmd == "program":
+            return program(args)
         if args.cmd == "design":
             return design(args)
         if args.cmd == "feetech-port":

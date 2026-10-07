@@ -1,0 +1,56 @@
+# napl program examples/so101/pick.scenario.toml
+# The SO-101 (assembly + table + PLA cube, see scene.py) on a Feetech STS pty; pick.py moves the cube 9 cm.
+name = "so101-pick"
+
+[model]
+script = "scene.py"                    # build(outdir) -> MJCF: assemblies/so101.toml + table, jaw pads, cube
+
+[interfaces.feetech]
+servos = { 1 = "/devices/servo1", 2 = "/devices/servo2", 3 = "/devices/servo3", 4 = "/devices/servo4", 5 = "/devices/servo5", 6 = "/devices/servo6" }
+baud = 1000000
+
+[[setup]]                              # hold the zero pose from tick 0 (a powered-off arm would fold under gravity)
+paths = ["/devices/servo1", "/devices/servo2", "/devices/servo3", "/devices/servo4", "/devices/servo5", "/devices/servo6"]
+attr = "torque_enable"
+values = [1]
+
+[program]
+cmd = ["python", "{dir}/pick.py"]
+
+[limits]
+wall_s = 90                            # the run is ~30 s real time (sim rate 1.0)
+sim_s = 60
+cpu_s = 120
+
+[[monitors]]
+name = "cube_within_1cm_of_target"
+path = "/world/cube"
+attr = "pos"
+indices = [0, 1]
+ref = [0.20, 0.04]                     # TARGET_XY
+op = "final"
+hi = 0.01
+
+[[monitors]]
+name = "cube_on_table"                 # rests on the table at the end (z = table top -2.4 mm + 10 mm, +-2 mm)
+path = "/world/cube"
+attr = "pos"
+index = 2
+op = "final"
+lo = 0.0056
+hi = 0.0096
+
+[[monitors]]
+name = "cube_was_lifted"
+path = "/world/cube"
+attr = "pos"
+index = 2
+op = "eventually"
+lo = 0.0577                            # centre >= 5 cm above its start (z 0.0077): it was carried, not pushed
+
+[[monitors]]
+name = "no_servo_alarm"
+paths = ["/devices/servo1", "/devices/servo2", "/devices/servo3", "/devices/servo4", "/devices/servo5", "/devices/servo6"]
+attr = "alarm"
+op = "always"
+hi = 0

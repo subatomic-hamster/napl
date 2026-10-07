@@ -12,15 +12,9 @@ IK is damped least squares on the URDF forward kinematics (tools/so101_lib.py), 
 Client: SYNC_WRITE goals + SYNC_READ present values of ids 1..6 at BUS_HZ, 1 Mbaud, port realtime, sim Host at rate 1.0.
 """
 
-import functools
-import json
 import math
-import os
-import select
 import sys
-import tempfile
 import time
-import tty
 import xml.etree.ElementTree as ET
 from math import pi
 from pathlib import Path
@@ -28,13 +22,11 @@ from pathlib import Path
 import napl
 import numpy as np
 import pytest
-from napl import design
 from napl.feetech import FeetechPort
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import so101_lib
 from test_feetech import (
     JOINTS as ARM3_JOINTS,
 )
@@ -42,459 +34,54 @@ from test_feetech import MODEL as ARM3_MODEL
 from test_feetech import SERVOS as ARM3_SERVOS
 from test_feetech import RawBus
 
-ASM, PARTS = REPO / "assemblies" / "so101.toml", REPO / "parts"
-JNAMES = [
-    "shoulder_pan",
-    "shoulder_lift",
-    "elbow_flex",
-    "wrist_flex",
-    "wrist_roll",
-    "gripper",
-]
-CPR = 4096
-BUS_HZ = 50  # LeRobot's control loop default is 30 Hz; 50 Hz is a realistic teleop / policy rate
-P_REG, I_REG, D_REG = 16, 0, 32  # LeRobot SO-101 configure
-GRIP_TORQUE, GRIP_PROT_CURRENT, GRIP_OVERLOAD = 500, 250, 25  # gripper only (LeRobot)
-CURRENT_LSB = 0.0065  # A per count of the present-current register
+# The reusable bits live in examples/so101 (the user program pick.py and the `napl program` scenario use them too).
+sys.path.insert(0, str(REPO / "examples" / "so101"))
+from ik import (
+    ARM,
+    BUS_HZ,
+    G_OPEN,
+    G_REF,
+    HI,
+    JNAMES,
+    LO,
+    fk_tcp,
+    max_reach_pose,
+    plan,
+)
+from scene import (
+    _R,
+    CUBE,
+    CUBE_XY,
+    TARGET_XY,
+    _inv,
+    built,
+    mjcf_poses,
+    scene,
+)
+from sts import (
+    CPR,
+    CURRENT_LSB,
+    D_REG,
+    GRIP_OVERLOAD,
+    GRIP_PROT_CURRENT,
+    GRIP_TORQUE,
+    I_REG,
+    P_REG,
+    Bus,
+    configure,
+    decode,
+    goal_bytes,
+)
+
 I_PROT = GRIP_PROT_CURRENT * CURRENT_LSB  # 1.625 A
 I_STALL = 2.5  # A, datasheet stall current
 SQUEEZE_DUTY = (
     0.15  # gripper duty while holding the cube: below its overload threshold (25 %)
 )
 
-# ---- scene constants -------------------------------------------------------------------------------------------------------
-CUBE = 0.020  # m, edge
-CUBE_DENSITY, MU = (
-    1240.0,
-    0.40,
-)  # PLA (research 5.1), PLA on PLA sliding friction (research 5.2, an assumption)
-FRICTION = f"{MU} 0.005 0.0001"  # sliding, torsional (m), rolling (m): condim 4 gives the cube a torsional grip
-G_REF = 0.05  # rad: gripper angle at which the pads are parallel and 20 mm apart
-G_OPEN = G_REF + 0.25  # about 40 mm between the pads
-PAD_HALF = (0.002, 0.007, 0.008)
-FIXED_PAD_TCP = (
-    0.002,
-    0.0,
-    -0.008,
-)  # pad centres in the TCP frame (x = jaw opening direction, z = out of the jaw tip)
-MOVING_PAD_TCP = (-0.022, 0.0, -0.008)
-GRASP_TCP = np.array(
-    [-0.0115, 0.0, -0.008]
-)  # cube centre in the TCP frame: 1.5 mm from the fixed pad
-HOVER = 0.075  # m above the grasp height (the wrist flex limit stops a top-down pose a little higher)
-CUBE_XY, TARGET_XY = (0.20, -0.05), (0.20, 0.04)  # 9 cm apart
-
-
-# ---- kinematics ------------------------------------------------------------------------------------------------------------
-_, _UJ = so101_lib.parse_urdf()
-ARM = JNAMES[:5]
-LO = np.array([_UJ[j]["lower"] for j in JNAMES])
-HI = np.array([_UJ[j]["upper"] for j in JNAMES])
-
-
-def _rot(axis, q):
-    a = np.array(axis, float) / np.linalg.norm(axis)
-    K = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
-    return np.eye(3) + math.sin(q) * K + (1 - math.cos(q)) * K @ K
-
-
-def fk_tcp(q):
-    """4x4 pose of the URDF gripper_frame (the TCP) in the base_link = world frame; q = the 5 arm joint angles."""
-    T = np.eye(4)
-    for n, v in zip(ARM, q):
-        R = np.eye(4)
-        R[:3, :3] = _rot(_UJ[n]["axis"], v)
-        T = T @ _UJ[n]["T"] @ R
-    return T @ _UJ["gripper_frame_joint"]["T"]
-
-
-def grasp_point(q):
-    T = fk_tcp(q)
-    return T[:3, :3] @ GRASP_TCP + T[:3, 3]
-
-
-def _resid(q, p, xdir):
-    T = fk_tcp(q)
-    # cube centre at p, TCP z axis pointing down, TCP x axis (jaw opening direction) along xdir
-    return np.concatenate(
-        [
-            T[:3, :3] @ GRASP_TCP + T[:3, 3] - p,
-            0.1 * (T[:3, 2] - [0, 0, -1]),
-            0.05 * (T[:3, 0] - xdir),
-        ]
-    )
-
-
-def ik(p, xdir, q0, iters=100):
-    """Damped least squares on the 5 arm joints (finite-difference Jacobian). -> (q, position error m)."""
-    q = np.array(q0, float)
-    for _ in range(iters):
-        e = _resid(q, p, xdir)
-        if np.linalg.norm(e[:3]) < 1e-6 and np.linalg.norm(e[3:]) < 1e-7:
-            break
-        J = np.empty((len(e), 5))
-        for k in range(5):
-            d = np.zeros(5)
-            d[k] = 1e-6
-            J[:, k] = (_resid(q + d, p, xdir) - e) / 1e-6
-        q = np.clip(
-            q - np.linalg.solve(J.T @ J + 1e-4 * np.eye(5), J.T @ e), LO[:5], HI[:5]
-        )
-    return q, float(np.linalg.norm(_resid(q, p, xdir)[:3]))
-
-
-def max_reach_pose():
-    """Arm angles (pan 0, roll 0) maximising the horizontal distance of the TCP from the pan axis: grid over lift / elbow /
-    wrist flex, then coordinate ascent. At the URDF zero pose the upper arm points up, so the maximum is the arm stretched
-    out horizontally (upper arm and forearm level). -> (arm angles, reach m)"""
-    reach = lambda q: float(np.hypot(*fk_tcp(q)[:2, 3]))
-    best, bq = -1.0, None
-    g = np.linspace(-1.5, 1.5, 21)
-    for a in g:
-        for b in g:
-            for c in g:
-                q = np.array([0, a, b, c, 0.0])
-                if reach(q) > best:
-                    best, bq = reach(q), q
-    step = 0.05
-    while step > 1e-4:
-        improved = False
-        for k in (1, 2, 3):
-            for s in (step, -step):
-                q = bq.copy()
-                q[k] = np.clip(q[k] + s, LO[k], HI[k])
-                if reach(q) > best + 1e-12:
-                    best, bq, improved = reach(q), q, True
-        if not improved:
-            step /= 2
-    return bq, best
-
-
-# ---- the built model and the scene ------------------------------------------------------------------------------------------
-@functools.cache
-def built():
-    """assemblies/so101.toml -> (temp dir, MJCF text, devices dict). compute() = build() without the DRC step (as servo_bench)."""
-    tmp = Path(tempfile.mkdtemp(prefix="so101_pick_"))
-    text, _ = design.compute(ASM, PARTS, tmp)
-    root = ET.fromstring(text)
-    dev = json.loads(root.find("custom/text[@name='napl.devices']").get("data"))
-    return tmp, text, dev
-
-
-def _R(q):
-    w, x, y, z = np.array(q, float) / np.linalg.norm(q)
-    return np.array(
-        [
-            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-        ]
-    )
-
-
-def _f(s, n=None):
-    v = np.array([float(x) for x in s.split()])
-    assert n is None or len(v) == n
-    return v
-
-
-def mjcf_poses(root, q=None):
-    """-> ({body name: 4x4 world pose}, {joint name: prim path}) of the MJCF at joint angles q ({joint: rad}, default 0)."""
-    q, poses, paths = q or {}, {}, {}
-
-    def walk(b, T, path):
-        loc = np.eye(4)
-        loc[:3, :3] = _R(_f(b.get("quat", "1 0 0 0"), 4))
-        loc[:3, 3] = _f(b.get("pos", "0 0 0"), 3)
-        T = T @ loc
-        path = f"{path}/{b.get('name')}"
-        for j in b.findall("joint"):
-            paths[j.get("name")] = f"{path}/{j.get('name')}"
-            Rj, p = (
-                _rot(_f(j.get("axis"), 3), q.get(j.get("name"), 0.0)),
-                _f(j.get("pos"), 3),
-            )
-            Tj = np.eye(4)
-            Tj[:3, :3], Tj[:3, 3] = Rj, p - Rj @ p
-            T = T @ Tj
-        poses[b.get("name")] = T
-        for c in b.findall("body"):
-            walk(c, T, path)
-
-    for b in root.find("worldbody").findall("body"):
-        walk(b, np.eye(4), "/world")
-    return poses, paths
-
-
-def _inv(T):
-    o = np.eye(4)
-    o[:3, :3], o[:3, 3] = T[:3, :3].T, -T[:3, :3].T @ T[:3, 3]
-    return o
-
-
-def _tf(p):
-    T = np.eye(4)
-    T[:3, 3] = p
-    return T
-
-
-def _geom(body, **a):
-    return ET.SubElement(body, "geom", {k: str(v) for k, v in a.items()})
-
-
-def _vec(v):
-    return " ".join(f"{x:.9g}" for x in v)
-
-
-def scene(cube_xy=None, payload_kg=None):
-    """-> (xml path, table top z). The built MJCF plus table, jaw pads, and (optionally) the cube at cube_xy; or, with payload_kg
-    given (0 = none), no table and a payload mass fixed at the TCP (weld = a collision-free box geom in the fixed jaw body)."""
-    tmp, text, _ = built()
-    root = ET.fromstring(text)
-    poses, _ = mjcf_poses(root)
-    wb = root.find("worldbody")
-    # table top = the base's bottom plane
-    base = poses["base"]
-    mesh = {m.get("name"): m.get("file") for m in root.iter("mesh")}
-    g = next(g for g in root.iter("geom") if g.get("name") == "base")
-    v = so101_lib.read_stl((tmp / mesh[g.get("mesh")]).resolve()).reshape(-1, 3)
-    zt = float((v @ base[:3, :3].T + base[:3, 3])[:, 2].min())
-    arm_geom = next(g for g in root.iter("geom") if g.get("name") == "fixed_jaw")
-    grp = arm_geom.get("group", "0")
-    for g in root.iter("geom"):
-        if g.get("name") == "floor":
-            g.set("pos", "0 0 -1")  # a far safety floor: the table is the surface
-        if g.get("name") in ("fixed_jaw", "moving_jaw"):
-            g.set("contype", "0")  # the pads below replace the jaw hulls in this scene
-    if (
-        payload_kg is None
-    ):  # the payload sweep holds the arm in free air (no table to rest on)
-        _geom(
-            wb,
-            name="table",
-            type="box",
-            size="0.35 0.35 0.02",
-            pos=_vec([0.1, 0, zt - 0.02]),
-            contype=1,
-            conaffinity=1,
-            friction=FRICTION,
-            condim=4,
-            rgba="0.6 0.5 0.4 1",
-        )
-    # pads, defined in the TCP frame at the reference pose (arm angles 0, gripper G_REF)
-    T_tcp0 = fk_tcp(np.zeros(5))
-    ref, _ = mjcf_poses(root, {"gripper": G_REF})
-    bodies = {b.get("name"): b for b in root.iter("body")}
-    for name, c in (("fixed_jaw", FIXED_PAD_TCP), ("moving_jaw", MOVING_PAD_TCP)):
-        T = _inv(ref[name]) @ T_tcp0 @ _tf(c)
-        _geom(
-            bodies[name],
-            name=f"{name}_pad",
-            type="box",
-            size=_vec(PAD_HALF),
-            pos=_vec(T[:3, 3]),
-            xyaxes=_vec(np.r_[T[:3, 0], T[:3, 1]]),
-            mass="1e-4",
-            contype=1,
-            conaffinity=0,
-            friction=FRICTION,
-            condim=4,
-            group=grp,
-        )
-    if cube_xy is not None:
-        cb = ET.SubElement(
-            wb, "body", name="cube", pos=_vec([*cube_xy, zt + CUBE / 2 + 1e-4])
-        )
-        ET.SubElement(cb, "freejoint", name="cube_free")
-        _geom(
-            cb,
-            name="cube",
-            type="box",
-            size=_vec([CUBE / 2] * 3),
-            density=CUBE_DENSITY,
-            contype=1,
-            conaffinity=1,
-            friction=FRICTION,
-            condim=4,
-            rgba="0.9 0.2 0.2 1",
-        )
-    if payload_kg:
-        pos = (_inv(ref["fixed_jaw"]) @ T_tcp0)[:3, 3]
-        pb = ET.SubElement(bodies["fixed_jaw"], "body", name="payload", pos=_vec(pos))
-        _geom(
-            pb,
-            name="payload",
-            type="box",
-            size="0.01 0.01 0.01",
-            mass=repr(float(payload_kg)),
-            contype=0,
-            conaffinity=0,
-        )
-    out = tmp / f"scene_{os.getpid()}_{int(time.time() * 1e6)}.xml"
-    out.write_text(ET.tostring(root, encoding="unicode"))
-    return out, zt
-
 
 def _servo_cfg():
     return {s["name"]: s for s in built()[2]["servos"]}
-
-
-# ---- the protocol client (written from the Feetech spec: FF FF ID LEN INSTR PARAMS CHK) ---------------------------------------
-class Bus:
-    def __init__(self, path):
-        self.fd = os.open(path, os.O_RDWR | os.O_NOCTTY)
-        tty.setraw(self.fd)
-        self.buf = bytearray()
-        self.errs = []  # nonzero error bytes of status packets: (id, error)
-        self.bad = 0
-
-    def close(self):
-        os.close(self.fd)
-
-    def send(self, sid, instr, params=b""):
-        body = bytes([sid, len(params) + 2, instr]) + bytes(params)
-        os.write(self.fd, b"\xff\xff" + body + bytes([~sum(body) & 0xFF]))
-
-    def recv(self, n, timeout=1.0):
-        """n status packets -> [(id, error, params)] (fewer if the bus goes quiet)."""
-        out, end = [], time.monotonic() + timeout
-        while len(out) < n and time.monotonic() < end:
-            if select.select([self.fd], [], [], 0.005)[0]:
-                self.buf += os.read(self.fd, 512)
-            while len(self.buf) >= 4:
-                if self.buf[:2] != b"\xff\xff":
-                    del self.buf[0]
-                    continue
-                total = self.buf[3] + 4
-                if len(self.buf) < total:
-                    break
-                p = bytes(self.buf[:total])
-                del self.buf[:total]
-                if ~sum(p[2:-1]) & 0xFF != p[-1]:
-                    self.bad += 1
-                    continue
-                out.append((p[2], p[4], p[5:-1]))
-                if p[4]:
-                    self.errs.append((p[2], p[4]))
-        return out
-
-    def write(self, sid, addr, value, n=1):
-        self.send(sid, 3, bytes([addr]) + int(value).to_bytes(n, "little"))
-        (r,) = self.recv(1)
-        assert r[:2] == (sid, 0), r
-
-    def sync_write(self, addr, items):
-        """items {id: bytes}: one broadcast SYNC_WRITE, no reply."""
-        n = len(next(iter(items.values())))
-        self.send(
-            0xFE,
-            0x83,
-            bytes([addr, n]) + b"".join(bytes([i]) + d for i, d in items.items()),
-        )
-
-    def sync_read(self, addr, n, ids):
-        self.send(0xFE, 0x82, bytes([addr, n, *ids]))
-        r = self.recv(len(ids))
-        assert [x[0] for x in r] == list(ids), "sync read incomplete"
-        return {i: d for i, _, d in r}
-
-
-def goal_bytes(counts):
-    """Goal position word: sign-magnitude, bit 15 = negative (the sim's zero pose is count 0, joints cross it)."""
-    v = int(round(counts))
-    return ((-v) | 0x8000 if v < 0 else v).to_bytes(2, "little")
-
-
-def unwrap(pos):
-    return (
-        pos - CPR if pos >= CPR // 2 else pos
-    )  # present position is wrapped to 0..4095
-
-
-def configure(bus, ids=range(1, 7)):
-    """RESET (factory defaults: overload 80 % / 2 s, unload mask, voltage and temperature limits; the so101 build itself leaves
-    every protection off), then LeRobot's SO-101 configure step over the bus, plus open angle limits (multi-turn style:
-    min = max = 0) so that goals on both sides of the zero pose are not clamped."""
-    for i in ids:
-        bus.send(i, 6)  # RESET
-        assert bus.recv(1)[0][:2] == (i, 0)
-        bus.write(i, 55, 0)  # unlock EEPROM
-        bus.write(i, 7, 0)  # return delay
-        bus.write(i, 41, 254)  # acceleration (stored)
-        bus.write(i, 33, 0)  # operating mode: position
-        bus.write(i, 9, 0, 2)
-        bus.write(i, 11, 0, 2)
-        bus.write(i, 21, P_REG)
-        bus.write(i, 23, I_REG)
-        bus.write(i, 22, D_REG)
-        if i == 6:
-            bus.write(i, 16, GRIP_TORQUE, 2)  # max torque limit
-            bus.write(i, 28, GRIP_PROT_CURRENT, 2)  # protection current (stored)
-            bus.write(i, 36, GRIP_OVERLOAD)  # overload torque, % of full duty
-        bus.write(i, 40, 1)  # torque on: holds the present position
-
-
-def decode(d):
-    """The 15 bytes from address 56 -> dict of present values."""
-    w = lambda k: d[k] | d[k + 1] << 8
-    load = w(4)
-    return {
-        "q": unwrap(w(0)) * 2 * pi / CPR,
-        "load": (-(load & ~0x400) if load & 0x400 else load) / 1000,
-        "status": d[9],
-        "current": w(13) * CURRENT_LSB,
-    }
-
-
-# ---- trajectory: Cartesian waypoints -> IK at the bus rate ------------------------------------------------------------------
-def _smooth(s):
-    return s**3 * (10 - 15 * s + 6 * s * s)
-
-
-def plan(c, t, g_squeeze, hz=BUS_HZ):
-    """Per-tick (arm angles, gripper angle, phase) from home to the cube, to the target and back up. c, t: cube centre and target
-    centre at rest (x, y, z). Returns the list and the home angles."""
-    xd = np.array([0.0, 1.0, 0.0])
-    up = np.array([0, 0, HOVER])
-    home_p = (c + t) / 2 + up
-    q, r = ik(home_p, xd, [0.1, -0.2, 0.3, 1.5, -1.3])
-    assert r < 1e-4, f"home pose unreachable ({r})"
-    q_home, rows, g = q.copy(), [], G_OPEN
-    p = home_p
-
-    def move(p1, T, label):
-        nonlocal q, p
-        for k in range(1, round(T * hz) + 1):
-            q, r = ik(p + (p1 - p) * _smooth(k / (T * hz)), xd, q)
-            assert r < 1e-4, f"{label}: IK error {r} m"
-            rows.append((q.copy(), g, label))
-        p = p1
-
-    def grip(g1, T, label):
-        nonlocal g
-        g0 = g
-        for k in range(1, round(T * hz) + 1):
-            g = g0 + (g1 - g0) * _smooth(k / (T * hz))
-            rows.append((q.copy(), g, label))
-
-    def hold(T, label):
-        rows.extend([(q.copy(), g, label)] * round(T * hz))
-
-    hold(1.0, "settle at home")
-    move(c + up, 1.5, "to pre-grasp")
-    move(c, 2.0, "descend")
-    hold(0.5, "settle")
-    grip(g_squeeze, 1.0, "close")
-    hold(0.7, "grip")
-    move(c + up, 1.5, "lift")
-    move(t + up, 2.0, "carry")
-    move(t + [0, 0, 0.0005], 1.5, "lower")
-    hold(0.4, "settle")
-    grip(G_OPEN, 1.0, "open")
-    hold(0.5, "released")
-    move(t + up, 1.5, "retreat")
-    hold(1.5, "cube settles")
-    return rows, q_home
 
 
 # ---- the pick-and-place run ------------------------------------------------------------------------------------------------

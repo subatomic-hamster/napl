@@ -31,7 +31,10 @@ still apply; phase 3 generalises them so the X500 V2 and SO-101 become two examp
    - drone: real PX4 SITL; missions/offboard via MAVLink from user scripts
    - arm: a virtual serial port (pty) speaking the Feetech STS protocol, so unmodified host code
      (Feetech SDK / LeRobot-style bus code) drives the simulated servos
-   - user scripts run as separate sandboxed processes against the bus
+   - user scripts run as separate sandboxed processes against the bus: `napl program <scenario.toml>`
+     (python/napl/program.py; examples/so101, examples/x500). The program is USER CODE run from the CLI only;
+     there is deliberately no MCP tool for it (v1 rule: agents author data - designs, TestSpecs - never code).
+     Limits are rlimits + a process-group kill, not a security sandbox.
 7. **Showcase + report** — benches validated against datasheets, scenario tests, sweeps,
    rendered frames, and a fidelity report listing every model's provenance and error.
 
