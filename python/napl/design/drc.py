@@ -1069,6 +1069,62 @@ def _obb_depth(a, b):
     return best
 
 
+def _pair_depth(world, obbs, gi, gj):
+    """Overlap depth of two collision geoms: the OBB test first (bounding boxes contain the shapes: no overlap there, none for
+    real), then the sampled test for anything that is not box-box. 0 when the OBB depth is within INTERFERENCE_TOL."""
+    dep = _obb_depth(obbs[gi], obbs[gj])
+    if dep <= INTERFERENCE_TOL:
+        return 0.0
+    if world.geoms[gi]["kind"] != "box" or world.geoms[gj]["kind"] != "box":
+        dep = max(
+            _sampled_depth(world, gi, gj, obbs), _sampled_depth(world, gj, gi, obbs)
+        )
+    return dep
+
+
+def _obb_gap(a, b):
+    """Lower bound (m) of the distance between two OBBs: the best separating axis of the SAT; 0 when none separates."""
+    (c1, R1, h1), (c2, R2, h2) = a, b
+    d, best = c2 - c1, 0.0
+    axes = [R1[:, i] for i in range(3)] + [R2[:, i] for i in range(3)]
+    axes += [np.cross(R1[:, i], R2[:, j]) for i in range(3) for j in range(3)]
+    for ax in axes:
+        nrm = np.linalg.norm(ax)
+        if nrm < 1e-9:
+            continue
+        ax = ax / nrm
+        best = max(best, abs(d @ ax) - h1 @ np.abs(R1.T @ ax) - h2 @ np.abs(R2.T @ ax))
+    return best
+
+
+def placement_metrics(world, moved, mated, reach=0.05):
+    """Geometry of newly placed instances against everything else, for choosing between placements.
+    `moved`: instance ids (MJCF body names) just placed; `mated`: {frozenset((id, id))} pairs allowed to touch.
+    -> {"interference": {other id: depth m} (same rule as the INTERFERENCE finding, 1 mm tolerance),
+        "gap": smallest bounding-box clearance (m, a lower bound of the true distance) to a non-mated instance within `reach`
+        of a moved one, or None when nothing is that close}."""
+    obbs = {gi: world.obb(gi) for gi, g in enumerate(world.geoms) if g["collide"]}
+    rad = {gi: float(np.linalg.norm(o[2])) for gi, o in obbs.items()}
+    name = lambda gi: world.bodies[world.geoms[gi]["body"]]["name"]
+    hit, gap = {}, None
+    for gi in obbs:
+        if name(gi) not in moved:
+            continue
+        for gj in obbs:
+            nj = name(gj)
+            if nj in moved or frozenset((name(gi), nj)) in mated:
+                continue
+            if np.linalg.norm(obbs[gi][0] - obbs[gj][0]) > rad[gi] + rad[gj] + reach:
+                continue
+            dep = _pair_depth(world, obbs, gi, gj)
+            if dep > INTERFERENCE_TOL:
+                hit[nj] = max(hit.get(nj, 0.0), dep)
+            else:
+                g = _obb_gap(obbs[gi], obbs[gj])
+                gap = g if gap is None else min(gap, g)
+    return {"interference": hit, "gap": gap}
+
+
 def _interference(ctx, world, specs, F):
     mated = {frozenset((s.a, s.b)) for s in specs.values()}
     mated |= {
@@ -1089,16 +1145,7 @@ def _interference(ctx, world, specs, F):
                 continue
             if np.linalg.norm(obbs[gi][0] - obbs[gj][0]) > rad[gi] + rad[gj]:
                 continue
-            dep = _obb_depth(
-                obbs[gi], obbs[gj]
-            )  # bounding boxes contain the shapes: no overlap here, none for real
-            if dep <= INTERFERENCE_TOL:
-                continue
-            if world.geoms[gi]["kind"] != "box" or world.geoms[gj]["kind"] != "box":
-                dep = max(
-                    _sampled_depth(world, gi, gj, obbs),
-                    _sampled_depth(world, gj, gi, obbs),
-                )
+            dep = _pair_depth(world, obbs, gi, gj)
             if dep > INTERFERENCE_TOL:
                 key = tuple(sorted((ni, nj)))
                 best[key] = max(best.get(key, 0.0), dep)
@@ -1631,7 +1678,7 @@ def _emit_current(F, sev, what, peak, sus, cont, where, fix):
         )
 
 
-def _current_rules(ctx, net, units, servo_info, F):
+def _current_rules(ctx, net, units, servo_info, F, diag=None):
     loads, labels = {}, {}
     for u in units:
         pk = u.get("Ipeak")
@@ -1675,6 +1722,8 @@ def _current_rules(ctx, net, units, servo_info, F):
         if w["i"] not in cur:
             continue
         pk, sus = cur[w["i"]]
+        if diag is not None:
+            diag.setdefault("currents", {})[w["name"]] = (pk, sus)
         if pk <= 0:
             continue
         items = [
@@ -1800,10 +1849,11 @@ def _guard(F, name, fn, *a):
         )
 
 
-def check(asm, lib=None, *, model=None, mesh_base=None) -> list:
+def check(asm, lib=None, *, model=None, mesh_base=None, diag=None) -> list:
     """All design-rule findings for an assembly (Assembly or path), most severe first.
     `lib`: a Library (default <repo>/parts). `model`: (mjcf text, report) of an already computed build (build() passes it);
-    `mesh_base`: the output directory that mesh paths in that MJCF are relative to (default: the repo root, as compute uses)."""
+    `mesh_base`: the output directory that mesh paths in that MJCF are relative to (default: the repo root, as compute uses).
+    `diag`: a dict that receives {"currents": {wire name: (worst-case peak A, sustained A or None)}} from the electrical model."""
     if not isinstance(asm, Assembly):
         asm = load(asm)
     lib = lib or Library(_default_parts())
@@ -1860,6 +1910,6 @@ def check(asm, lib=None, *, model=None, mesh_base=None) -> list:
         if net:
             servo_info = _guard(F, "servo", _servo_rules, ctx, net, world, F) or {}
     if net:
-        _guard(F, "currents", _current_rules, ctx, net, units, servo_info, F)
+        _guard(F, "currents", _current_rules, ctx, net, units, servo_info, F, diag)
     F.sort(key=lambda f: (_RANK[f.severity], f.code, f.where))
     return F

@@ -196,6 +196,7 @@ EDIT_OPS = [
             "group": _S,
             "offboard": {"type": "boolean"},
             "strict": {"type": "boolean"},
+            "force": {"type": "boolean"},
             "joint": JOINT,
             "fasteners": FASTENERS,
             "nut": _S,
@@ -223,6 +224,7 @@ EDIT_OPS = [
             "nut": _S,
             "name": _S,
             "closure": {"type": "boolean"},
+            "force": {"type": "boolean"},
         },
         ["a", "b"],
     ),
@@ -242,6 +244,18 @@ EDIT_OPS = [
         ["from", "to", "part", "length"],
     ),
     _op("unwire", {"name": _S}, ["name"]),
+    _op(
+        "autowire",
+        {
+            "a": _S,
+            "b": _S,
+            "kind": {"enum": ["power", "signal"]},
+            "part": _S,
+            "length": {"anyOf": [_S, PROVENANCE]},
+        },
+        ["a"],
+    ),
+    _op("autowire_all", {"kind": {"enum": ["power", "signal"]}}),
     _op(
         "device_map",
         {"name": _S, "map": {"type": "object", "additionalProperties": _S}},
@@ -286,11 +300,19 @@ DESIGN_TOOLS = {
     "design_edit": (
         "control",
         "Edit the in-memory design: a list of ops applied atomically (all or none), then the design-rule check re-runs. "
-        "ops: add {part, id?, to?, port?, k?}: with `to` ('inst' or 'inst.port') the part snaps to the best open "
-        "compatible port pair and ambiguity is reported as alternatives; remove {id}; swap {id | [ids], part}: re-mates "
+        "ops: add {part, id?, to?, port?, k?, force?}: with `to` ('inst' or 'inst.port') the part snaps to the best "
+        "placement: every open compatible port pair x rotation k is built and scored (interference with non-mated "
+        "instances, clearance, upright, centre of mass inboard); the ranked alternatives with reasons are in "
+        "changes[].snap, and the edit is refused when every placement interferes (force = true places anyway); "
+        "remove {id}; swap {id | [ids], part}: re-mates "
         "by port name then compatible type and reports kept / lost mates + wires and references that no longer "
-        "resolve; mate {a, b, k?, joint?, fasteners?}; unmate {name | a+b}; wire {from, to, part, length}; unwire "
-        "{name}; set {id, param, value, unit, fidelity, src+quote | derivation | rationale}. Numbers rule: a bare "
+        "resolve; mate {a, b, k?, joint?, fasteners?, force?} (k omitted: the best rotation is searched like add); "
+        "unmate {name | a+b}; wire {from, to, part, length}; unwire {name}; autowire {a, b?, kind?, part?, length?}: "
+        "wire the open power / signal port a to the open port that needs it (or b); wire part = lightest library wire "
+        "rated for the DRC's worst-case current x 1.2, length = port distance x 1.3 rounded up, mating connectors "
+        "pinned; the reasons are in changes[].reasons; autowire_all {kind?}: every open port with one sensible target; "
+        "changes[] lists wired / ambiguous (not guessed) / unmatched; "
+        "set {id, param, value, unit, fidelity, src+quote | derivation | rationale}. Numbers rule: a bare "
         "number is refused; use a provenance table. Returns what changed and the DRC delta (new / resolved / changed "
         "findings).",
         _obj(
@@ -474,6 +496,22 @@ class NaplServer:
 
         async def checked(ctx, **args):
             err = best_match(validator.iter_errors(args))
+            if (
+                err is not None
+                and err.validator == "oneOf"
+                and isinstance(err.instance, dict)
+            ):
+                # an edit op: report the violation inside the branch its "op" names, not the oneOf as a whole
+                branch = [
+                    e
+                    for e in err.context
+                    if err.validator_value[e.relative_schema_path[0]]
+                    .get("properties", {})
+                    .get("op", {})
+                    .get("const")
+                    == err.instance.get("op")
+                ]
+                err = best_match(branch) or err
             if err is not None:
                 where = "/".join(str(p) for p in err.absolute_path) or "<arguments>"
                 hint = (

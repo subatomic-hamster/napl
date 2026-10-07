@@ -15,9 +15,13 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from . import assembly as A
+from . import wiring as W
 from .build import build as _build
-from .drc import _default_parts
+from .build import compute as _compute
+from .drc import _default_parts, _World, placement_metrics
 from .drc import check as _check
 from .library import DesignError, Library, Part, genders_ok, types_ok
 from .snap import find_compatible_ports, incompatible, n_mate, symmetry, thread_of
@@ -35,6 +39,17 @@ W_CATEGORY, W_FAMILY_CAT = (
 )  # candidate category seen on ports of this type in the assembly / same top-level family
 W_STOCK = 20  # the part that currently sits on the port
 W_RATING_BAD = -40  # per failed rating (voltage / current) on a power-port candidate
+# placement scoring (geometry of the trial design, added to the port score above; see Design._place). The geometry terms add up
+# to at most 45 < W_FAMILY (50): geometry decides between placements of one port pair and between near-equal pairs, but never
+# outvotes the port-type fit. Interfering placements lose W_INTERFERE, so they rank below every clean one.
+W_CLEAR = 15  # x min(gap, CLEAR_CAP) / CLEAR_CAP: bounding-box clearance to the nearest non-mated instance
+CLEAR_CAP = 0.02  # m: clearance beyond 2 cm earns nothing more (a choice; a hand's width of slack is not "better")
+W_UPRIGHT = 20  # x (z . up + 1) / 2 of the part's own +z axis; skipped for jointed mates (a moving part has no "up")
+W_INBOARD = 10  # x (1 - offset / reach): horizontal distance of the part's CoM from the rest of the vehicle's CoM (free base only)
+W_INTERFERE = 1000  # drc.INTERFERENCE_TOL (1 mm) overlap with a non-mated instance
+AMBIG_BAND = 2.0  # another port pair within this many points of the best is reported as ambiguous
+MAX_ROT = 12  # rotations tried per port pair (a 360-fold shaft is sampled every 30 deg)
+MAX_PAIRS = 10  # port pairs evaluated geometrically (best port score first)
 MECH, POWER, SIGNAL = "mech", "power", "signal"
 
 
@@ -214,7 +229,7 @@ class Design:
             adj.setdefault(b, set()).add(a)
         seen, todo = {root}, [root]
         while todo:
-            for n in adj.get(todo.pop(), ()) - seen:
+            for n in adj.get(todo.pop(), set()) - seen:
                 seen.add(n)
                 todo.append(n)
         return seen
@@ -254,8 +269,181 @@ class Design:
         out.sort(key=lambda r: (-r["score"], -r["up"], r["_o"]))
         return out
 
-    def _pick(self, doc, parent_id, parent_port, child_part, child_port, what) -> tuple:
-        """Best open compatible pair parent.port <-> child.port -> (parent port name, child port name, info dict)."""
+    # ---- placement search --------------------------------------------------------------------------------------------
+    @staticmethod
+    def _ks(n, k):
+        """Rotations to try: the one given, else all of 0..n-1 (n > MAX_ROT, e.g. a 360-fold shaft: MAX_ROT evenly spaced)."""
+        if k is not None:
+            return [k]
+        if n <= MAX_ROT:
+            return list(range(n))
+        return sorted({(i * n) // MAX_ROT for i in range(MAX_ROT)})
+
+    def _geometry(self, doc2, before, jointed):
+        """Build the trial design and measure the instances this edit just connected: -> dict, or {"error": why}."""
+        moved = self._connected(doc2) - before
+        try:
+            xml, _ = _compute(A.Assembly(doc2), self.lib.dir, self.lib.root, self.lib)
+            world = _World(xml, self.lib.root)
+        except (DesignError, KeyError, ValueError, StopIteration) as e:
+            return {"error": str(e).splitlines()[0][:160]}
+        mated = {
+            frozenset((_split(m["a"])[0], _split(m["b"])[0]))
+            for m in doc2.get("mates", [])
+        }
+        out = placement_metrics(world, moved, mated, CLEAR_CAP)
+        bodies = [world.bodies[world.idx[i]] for i in moved if i in world.idx]
+        if not bodies:
+            return {"error": "the moved instances have no body"}
+        out["upright"] = (
+            None if jointed else float(np.mean([b["T"][2, 2] for b in bodies]))
+        )
+        out["com_offset"] = out["radius"] = None
+        if doc2["assembly"].get("base", "free") == "free":
+            rest = [b for b in world.bodies if b["name"] not in moved and b["mass"] > 0]
+            mv = [b for b in bodies if b["mass"] > 0]
+            if rest and mv:
+                at = lambda bs: (
+                    sum(b["mass"] * (b["T"] @ np.append(b["com"], 1.0))[:3] for b in bs)
+                    / sum(b["mass"] for b in bs)
+                )
+                cr, cm = at(rest), at(mv)
+                out["com_offset"] = float(np.linalg.norm((cm - cr)[:2]))
+                out["radius"] = max(
+                    0.05,
+                    max(
+                        float(
+                            np.linalg.norm(
+                                ((b["T"] @ np.append(b["com"], 1.0))[:3] - cr)[:2]
+                            )
+                        )
+                        for b in rest
+                    ),
+                )
+        return out
+
+    def _place(self, doc, items, k, apply, what, *, force=False, jointed=False):
+        """Rank every placement (compatible port pair x rotation k): the port score plus the geometry terms of the trial
+        design built with that placement (see W_* at the top of this file). Refuses when there is a choice (>= 2 placements)
+        and every one interferes (unless `force`); a single determined placement is made, the DRC reports its INTERFERENCE. `apply(doc2, item, k)` writes the placement into a copy of the document.
+        -> (best item, best k, info)."""
+        before = self._connected(doc)
+        cands = []
+        for it in items[:MAX_PAIRS]:
+            for kk in [k(it)] if callable(k) else self._ks(n_mate(it["a"], it["b"]), k):
+                d2 = copy.deepcopy(doc)
+                apply(d2, it, kk)
+                g = self._geometry(d2, before, jointed)
+                s, why, up = it["score"], list(it["why"]), 0
+                if "error" in g:
+                    up = it["up"]
+                    why.append(f"geometry not evaluated ({g['error']})")
+                    hit = {}
+                else:
+                    hit = g["interference"]
+                    if hit:
+                        s -= W_INTERFERE
+                        why += [
+                            f"interferes with {o} by {d * 1000:.1f} mm"
+                            for o, d in sorted(hit.items())
+                        ]
+                    else:
+                        gap = (
+                            CLEAR_CAP if g["gap"] is None else min(g["gap"], CLEAR_CAP)
+                        )
+                        s += W_CLEAR * gap / CLEAR_CAP
+                        why.append(
+                            "no other instance within " + f"{CLEAR_CAP * 1000:.0f} mm"
+                            if g["gap"] is None
+                            else f"clearance >= {g['gap'] * 1000:.1f} mm to the nearest instance"
+                        )
+                    if g["upright"] is not None:
+                        s += W_UPRIGHT * (g["upright"] + 1) / 2
+                        why.append(f"upright {g['upright']:+.2f} (part +z . world up)")
+                    if g["com_offset"] is not None:
+                        s += W_INBOARD * (1 - min(1.0, g["com_offset"] / g["radius"]))
+                        why.append(
+                            f"{g['com_offset'] * 1000:.0f} mm from the rest of the vehicle's centre of mass (reach {g['radius'] * 1000:.0f} mm)"
+                        )
+                cands.append(
+                    {
+                        "it": it,
+                        "k": kk,
+                        "score": s,
+                        "why": why,
+                        "hit": sorted(hit),
+                        "up": up,
+                        "geo": g,
+                    }
+                )
+        cands.sort(
+            key=lambda c: (-round(c["score"], 9), -c["up"], c["it"]["_o"], c["k"])
+        )
+        top = cands[0]
+        evaluated = [c for c in cands if "error" not in c["geo"]]
+        if (
+            len(cands) > 1
+            and evaluated
+            and all(c["hit"] for c in evaluated)
+            and not force
+        ):
+            raise DesignError(
+                f"{what}: refused, all {len(cands)} placements interfere: "
+                + "; ".join(
+                    f"{c['it']['a']['name']}<->{c['it']['b']['name']} k={c['k']}: "
+                    + ", ".join(w for w in c["why"] if w.startswith("interferes"))
+                    for c in cands[:6]
+                )
+                + (" ..." if len(cands) > 6 else "")
+                + ". Move the obstacle, pick another seat, or pass force=true"
+            )
+        pair = lambda c: (c["it"]["a"]["name"], c["it"]["b"]["name"])
+        tied = [
+            c
+            for c in cands
+            if pair(c) != pair(top)
+            and abs(c["score"] - top["score"]) < AMBIG_BAND
+            and c["up"] == top["up"]
+        ]
+        g = top["geo"]
+        info = {
+            "score": round(top["score"], 2),
+            "why": top["why"],
+            "ambiguous": bool(tied),
+            "k": top["k"],
+            "evaluated": len(cands),
+            "interferes": top["hit"],
+            "alternatives": [
+                {
+                    "a": c["it"]["a"]["name"],
+                    "b": c["it"]["b"]["name"],
+                    "k": c["k"],
+                    "score": round(c["score"], 2),
+                    "why": c["why"],
+                    "interferes": c["hit"],
+                }
+                for c in cands[1:7]
+            ],
+        }
+        if "error" not in g:
+            info["clearance_mm"] = (
+                None if g["gap"] is None else round(g["gap"] * 1000, 2)
+            )
+        return top["it"], top["k"], info
+
+    def _pick(
+        self,
+        doc,
+        parent_id,
+        parent_port,
+        child_part,
+        child_port,
+        what,
+        k,
+        apply,
+        **kw,
+    ) -> tuple:
+        """Best open compatible pair parent.port <-> child.port and rotation -> (parent port, child port, k, info dict)."""
         pinst = self._inst(doc, parent_id)
         ppart = self._part(pinst["part"])
         used = self._ports_used(doc)
@@ -289,27 +477,19 @@ class Design:
                 f"{what}: no compatible open mech port pair between {parent_id} ({ppart.id}) and {child_part.id}; "
                 f"open ports of {parent_id}: {free or 'none'}. design suggest {parent_id}.<port> lists parts that fit"
             )
-        top = pairs[0]
-        tied = [
-            p
-            for p in pairs
-            if abs(p["score"] - top["score"]) < 1e-9 and p["up"] == top["up"]
-        ]
-        alts = [
-            {
-                "to": f"{parent_id}.{p['a']['name']}",
-                "port": p["b"]["name"],
-                "score": round(p["score"], 2),
-            }
-            for p in pairs[1:6]
-        ]
-        info = {
-            "score": round(top["score"], 2),
-            "why": top["why"],
-            "ambiguous": len(tied) > 1,
-            "alternatives": alts,
-        }
-        return top["a"]["name"], top["b"]["name"], info
+        it, k, info = self._place(
+            doc,
+            pairs,
+            k,
+            apply,
+            what,
+            **kw,
+        )
+        for alt in info[
+            "alternatives"
+        ]:  # add-style keys: where it would go, which child port
+            alt["to"], alt["port"] = f"{parent_id}.{alt.pop('a')}", alt.pop("b")
+        return it["a"]["name"], it["b"]["name"], k, info
 
     def _mate_dict(
         self,
@@ -366,30 +546,46 @@ class Design:
         ch = {"op": "add", "id": iid, "part": part.id}
         if s.get("to"):
             tid, tport = _split(s["to"])
-            ppn, cpn, info = self._pick(
-                doc, tid, tport, part, s.get("port"), f"add {part.id} to {s['to']}"
+
+            def apply(
+                d2, it, kk
+            ):  # the placement, written into a document (a trial copy or the real one)
+                m = self._mate_dict(
+                    f"{tid}.{it['a']['name']}",
+                    f"{iid}.{it['b']['name']}",
+                    kk,
+                    it["a"],
+                    it["b"],
+                    fasteners=s.get("fasteners", "auto"),
+                    joint=s.get("joint"),
+                    nut=s.get("nut"),
+                    name=s.get(
+                        "mate"
+                    ),  # mate name (device bindings refer to spin mates by it)
+                )
+                d2["instances"].append(copy.deepcopy(inst))
+                d2.setdefault("mates", []).append(m)
+                return m
+
+            ppn, cpn, k, info = self._pick(
+                doc,
+                tid,
+                tport,
+                part,
+                s.get("port"),
+                f"add {part.id} to {s['to']}",
+                s.get("k"),
+                apply,
+                force=bool(s.get("force")),
+                jointed=bool(s.get("joint")),
             )
             if s.get("strict") and info["ambiguous"]:
                 raise DesignError(
                     f"snap is ambiguous (strict): {[info['why']] + info['alternatives']}"
                 )
-            pa, pb = self._part(self._inst(doc, tid)["part"]).port(ppn), part.port(cpn)
-            m = self._mate_dict(
-                f"{tid}.{ppn}",
-                f"{iid}.{cpn}",
-                s.get("k"),
-                pa,
-                pb,
-                fasteners=s.get("fasteners", "auto"),
-                joint=s.get("joint"),
-                nut=s.get("nut"),
-                name=s.get(
-                    "mate"
-                ),  # mate name (device bindings refer to spin mates by it)
-            )
-            doc["instances"].append(inst)
-            doc.setdefault("mates", []).append(m)
-            ch.update(mate=m, snap=info)
+            pa = self._part(self._inst(doc, tid)["part"]).port(ppn)
+            m = apply(doc, {"a": pa, "b": part.port(cpn)}, k)
+            ch.update(mate=m, snap=info, needs=self._needs(doc, part, {cpn}))
         else:
             if s.get("port") or s.get("k") is not None:
                 raise DesignError("add: port / k only apply together with `to`")
@@ -511,88 +707,92 @@ class Design:
         (ia, pa), (ib, pb) = _split(s["a"]), _split(s["b"])
         A_, B_ = self._inst(doc, ia), self._inst(doc, ib)
         partA, partB = self._part(A_["part"]), self._part(B_["part"])
-        info = None
-        if pa is None or pb is None:
+        k = s.get("k")
+        conn = self._connected(doc)
+        swapped = (
+            ia not in conn and ib in conn
+        )  # a = parent: the side already connected to the root
+        if swapped:
+            ia, pa, partA, ib, pb, partB = ib, pb, partB, ia, pa, partA
+        closes = ia in conn and ib in conn
+        if closes and not s.get("closure"):
+            raise DesignError(
+                f"mate {ia}.{pa or ''} / {ib}.{pb or ''}: both are already connected to the root, so this closes a loop; pass closure=true if it is a loop closure"
+            )
+        if pa and pb:  # both ports named: the one pair, whatever else is open
+            porta, portb = partA.port(pa), partB.port(pb)
+            if porta.get("kind") != MECH or portb.get("kind") != MECH:
+                raise DesignError(
+                    f"mate {ia}.{pa} / {ib}.{pb}: both ports must be mech ports"
+                )
+            why = incompatible(porta, portb)
+            if why:
+                raise DesignError(f"mate {ia}.{pa} / {ib}.{pb}: {why}")
+            items = self._pairs([porta], [portb])
+        else:
             used = self._ports_used(doc)
-            ports_a = [
-                p
-                for p in partA.ports
-                if (pa is None or p.get("name") == pa) and (ia, p["name"]) not in used
-            ]
-            ports_b = [
-                p
-                for p in partB.ports
-                if (pb is None or p.get("name") == pb) and (ib, p["name"]) not in used
-            ]
-            pairs = self._pairs(ports_a, ports_b)
-            if not pairs:
+            items = self._pairs(
+                [
+                    p
+                    for p in partA.ports
+                    if (pa is None or p.get("name") == pa)
+                    and (ia, p["name"]) not in used
+                ],
+                [
+                    p
+                    for p in partB.ports
+                    if (pb is None or p.get("name") == pb)
+                    and (ib, p["name"]) not in used
+                ],
+            )
+            if not items:
                 raise DesignError(
                     f"mate {s['a']} / {s['b']}: no compatible open mech port pair"
                 )
-            top = pairs[0]
-            tied = [
-                p
-                for p in pairs
-                if abs(p["score"] - top["score"]) < 1e-9 and p["up"] == top["up"]
-            ]
-            pa, pb = top["a"]["name"], top["b"]["name"]
-            info = {
-                "score": round(top["score"], 2),
-                "ambiguous": len(tied) > 1,
-                "alternatives": [
-                    {"a": f"{ia}.{p['a']['name']}", "b": f"{ib}.{p['b']['name']}"}
-                    for p in pairs[1:6]
-                ],
-            }
-        porta, portb = partA.port(pa), partB.port(pb)
-        if porta.get("kind") != MECH or portb.get("kind") != MECH:
-            raise DesignError(
-                f"mate {ia}.{pa} / {ib}.{pb}: both ports must be mech ports"
-            )
-        why = incompatible(porta, portb)
-        if why:
-            raise DesignError(f"mate {ia}.{pa} / {ib}.{pb}: {why}")
-        k = s.get("k")
-        conn = self._connected(doc)
-        a, b = f"{ia}.{pa}", f"{ib}.{pb}"
-        if (
-            ia not in conn and ib in conn
-        ):  # a = parent: the side already connected to the root
-            a, b, partA, partB, porta, portb, ia, ib = (
-                b,
-                a,
-                partB,
-                partA,
-                portb,
-                porta,
-                ib,
-                ia,
-            )
-            k = (-(k or 0)) % n_mate(porta, portb)
-        elif ia in conn and ib in conn and not s.get("closure"):
-            raise DesignError(
-                f"mate {a} / {b}: both are already connected to the root, so this closes a loop; pass closure=true if it is a loop closure"
-            )
         names = {m.get("name", f"{m['a']}--{m['b']}") for m in doc.get("mates", [])}
-        m = self._mate_dict(
-            a,
-            b,
-            k,
-            porta,
-            portb,
-            s.get("fasteners", "auto"),
-            s.get("joint"),
-            s.get("name"),
-            s.get("nut"),
-            s.get("closure"),
-        )
-        if m.get("name", f"{a}--{b}") in names:
-            raise DesignError(
-                f"a mate named '{m.get('name', f'{a}--{b}')}' already exists (pass a name)"
+
+        def apply(d2, it, kk):
+            m = self._mate_dict(
+                f"{ia}.{it['a']['name']}",
+                f"{ib}.{it['b']['name']}",
+                kk,
+                it["a"],
+                it["b"],
+                s.get("fasteners", "auto"),
+                s.get("joint"),
+                s.get("name"),
+                s.get("nut"),
+                s.get("closure"),
             )
-        doc.setdefault("mates", []).append(m)
+            nm = m.get("name", f"{m['a']}--{m['b']}")
+            if nm in names:
+                raise DesignError(f"a mate named '{nm}' already exists (pass a name)")
+            d2.setdefault("mates", []).append(m)
+            return m
+
+        info = None
+        if (
+            closes
+        ):  # a loop closure is checked against the tree, there is nothing to search
+            it, kk = items[0], (0 if k is None else k)
+        else:
+            if k is not None and swapped:  # k is in the orientation the caller wrote
+                k0 = k
+                k = lambda it: (-k0) % n_mate(it["a"], it["b"])
+            it, kk, info = self._place(
+                doc,
+                items,
+                k,
+                apply,
+                f"mate {s['a']} / {s['b']}",
+                force=bool(s.get("force")),
+                jointed=bool(s.get("joint")),
+            )
+            for alt in info["alternatives"]:
+                alt["a"], alt["b"] = f"{ia}.{alt['a']}", f"{ib}.{alt['b']}"
+        m = apply(doc, it, kk)
         ch = {"op": "mate", "mate": m}
-        if info:
+        if info and not (pa and pb and info["evaluated"] == 1):
             ch["snap"] = info
         return ch
 
@@ -1059,6 +1259,8 @@ class Design:
             "device_map": self._op_device_map,
             "device": self._op_device,
             "target": self._op_target,
+            "autowire": lambda doc, s: W.autowire(self, doc, s),
+            "autowire_all": lambda doc, s: W.autowire_all(self, doc, s),
         }
         before = self.findings()
         snap = copy.deepcopy(self.doc)
@@ -1189,6 +1391,29 @@ class Design:
             ]
         )
 
+    def autowire(self, a, b=None, kind=None, part=None, length=None) -> EditResult:
+        """Wire the open power / signal port `a` ('inst.port') to the open port that needs it (or to `b`): wire part = the
+        lightest library wire rated for the worst-case current x WIRE_MARGIN, length = port distance x ROUTING_FACTOR
+        (rounded up to a stocked length), mating connectors pinned. The change record has wire + reasons. Several equally
+        good targets (not interchangeable outlets of one part) raise; name `b`. `part` / `length` override the choice."""
+        return self.edit(
+            [
+                {
+                    "op": "autowire",
+                    "a": a,
+                    "b": b,
+                    "kind": kind,
+                    "part": part,
+                    "length": length,
+                }
+            ]
+        )
+
+    def autowire_all(self, kind=None) -> EditResult:
+        """Auto-wire every open power / signal port that has one sensible target; the change record lists `wired`,
+        `ambiguous` (several equally good targets: not guessed) and `unmatched` (a floating power port with no target)."""
+        return self.edit([{"op": "autowire_all", "kind": kind}])
+
     def undo(self) -> EditResult:
         return self._travel(self._undo, self._redo, "undo")
 
@@ -1277,7 +1502,15 @@ class Design:
                     }
                 )
         rows.sort(key=lambda r: (-r["score"], r["part"], r["port"]))
-        return rows[:limit]
+        rows = rows[:limit]
+        for (
+            r
+        ) in rows:  # what the part would need next, from the kinds of its other ports
+            r["needs"] = self._needs(self.doc, self.lib.get(r["part"]), {r["port"]})
+        return rows
+
+    def _needs(self, doc, part, skip=()):
+        return W.needs(self, doc, part, skip)
 
     def _score_port(self, port, q, kind):
         if kind == MECH:

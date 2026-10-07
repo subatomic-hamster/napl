@@ -284,6 +284,47 @@ the new part cannot satisfy (`'<inst>.<param>'`, device-map params / table colum
 invents a value: supply it with `set` (unit, fidelity, src+quote | derivation | rationale). Suggest / snap scores are named
 design weights at the top of `design/edit.py`, not physical data.
 
+**Placement search (`snap`, `add ... to`, `mate` with `k` omitted).** Candidates = open compatible port pairs (best 10 by port
+score) x rotations k (all of `0..n-1`; at most 12, evenly spaced, for a 360-fold shaft). Each is built as a trial design
+(`compute` + the DRC's geometry code, `drc.placement_metrics`) and scored: port score (as before) + `W_CLEAR` 15 x clearance
+(bounding-box gap to the nearest non-mated instance, capped at 2 cm) + `W_UPRIGHT` 20 x (z . up + 1) / 2 of the part's own +z (not for
+jointed mates) + `W_INBOARD` 10 x (1 - d / reach), d = horizontal distance of the part's CoM from the rest of the vehicle's (free base
+only), minus `W_INTERFERE` 1000 when it overlaps a non-mated instance by more than 1 mm (same rule as `INTERFERENCE`). The geometry
+terms sum to at most 45 < the 50 points between an exact-type and a paired-family port pair, so geometry picks between rotations and
+near-equal pairs and never overrules the port fit. `changes[].snap` = {score, why, k, evaluated, interferes, clearance_mm,
+ambiguous (another pair within 2 points), alternatives: ranked [{to | a/b, port, k, score, why, interferes}]}. When there is a choice
+(>= 2 placements) and every one interferes the edit is refused, listing why (`force = true` places anyway); a single determined
+placement is made and the DRC reports it. If the trial cannot be built (another instance is still floating) the port score alone ranks,
+and `why` says so.
+
+**Auto-wiring (`autowire(a, b=None, kind=None, part=None, length=None)`, op `autowire`; `autowire_all()`, op `autowire_all`).** An open
+port = a power / signal port no `[[wires]]` entry names. Target: same kind and connector family (`types_ok`; a wire carries its own
+connectors, genders need not complement), power roles must complement (no source-source / sink-sink / passthrough-passthrough), sink
+`v_max` not below the source's; power tier 0 = exactly one of the two nets is fed (the DRC's notion: a battery / psu / source-role port
+reaches it) = the unfed side needs the other; signal ports of the same part never pair (an ESC does not signal an ESC). One target:
+taken. Several: identical outlets of one part (a PDB's `out1..4`) -> the first; anything else (e.g. `fc.pwm1..4` for an ESC: which motor
+is which channel is the user's call) -> `autowire` raises, `autowire_all` reports it under `ambiguous`; nothing is guessed. Direction:
+the fed / supplying end is `from`. **Wire part** = the lightest library wire (`mass_per_m`, else `mass_per_m_copper`) whose `i_max` >=
+need x `WIRE_MARGIN` 1.2, need = max(peak, sustained) current on that wire in the DRC electrical model (a trial design with the wire is
+checked; `check(..., diag=...)`), floor 2 A power / 1 A signal when nothing models a load (the part files' ampacities state no bundling
+condition, hence the 20 % headroom; the floors give a 26 AWG signal lead). **Length** = straight line between the two port positions
+(world poses of the built model) x `ROUTING_FACTOR` 1.3 (leads follow the frame and need slack; no routing is solved), at least 3 cm,
+rounded up to the wire part's `stock_lengths` / `length_default` when it lists them, else to 5 mm; written as a `derived` provenance
+table with the arithmetic. If a port position is unknown (offboard end, design does not build) pass `length`. **Connectors** are pinned
+for every gendered end (the builder would otherwise warn `CONNECTOR_AMBIGUOUS`): candidates are the library parts of category exactly
+`connector` with the opposite-gender port of that type (the builder's rule); preference: (1) the one pinned on that port type + gender on
+another instance of the same part in this design, (2) the one pinned most often on that type + gender, (3) the smallest id (the builder's
+default). `conductors` = 2 for power (supply + return), 3 for `motor-3phase`, 1 for signal. The record has `wire` (the `[[wires]]` entry
+written) and `reasons` (part, length, connector_from / connector_to, current_A, target, warning when a port's own `i_max` is below the
+need); the DRC delta is the edit's, as always. `autowire_all` initiators: every open signal port, any port with `required = true`, and
+power ports the DRC would call floating (not source-role, no wire on their node); it returns `wired`, `ambiguous`, `unmatched`.
+Limits: no typed (connector-terminated) cable parts are chosen, only `wire-lead` wires; wiring into a net with no source yet sizes for the
+floor (the reason says so, re-run after the source is wired); `included_in` is not set.
+
+`suggest("inst.port")` rows and the `add ... to` change record carry `needs`: up to four hints from the part's other ports (a male /
+female mech port: parts that take it; a power / signal port: open compatible ports in this design to wire to, else library parts that
+have one). A hint from port kinds, not a planner.
+
 `simulate("hover")`: built-in controller (not agent code) on ground-truth state, driving only the ESC throttles through the command
 bus: altitude PID on the height above take-off (ramped to `altitude` in `climb_s`) + attitude PD with a small integral,
 rotor mixer from the model's own rotor positions / axes / spin directions, thrust-vs-throttle and torque/thrust calibrated on a
