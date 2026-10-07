@@ -19,6 +19,7 @@ from .snap import (
     inv_T,
     nut_height,
     port_frame,
+    pose_matrix,
     select_fasteners,
     solve_tree,
 )
@@ -409,7 +410,12 @@ def compute(asm, parts_dir, out_dir, lib=None):
         if s.name in seen:
             raise DesignError(f"duplicate mate name '{s.name}'")
         seen.add(s.name)
-    tree = solve_tree(root, onboard, specs)
+    placed = {
+        i: pose_matrix(x.pos, x.rpy)
+        for i, x in ctx.insts.items()
+        if x.placed and not x.offboard and not x.root
+    }
+    tree = solve_tree(root, onboard, specs, placed=placed)
     used = {
         u.name: u for _, u in tree.parent.values()
     }  # mate name -> MateSpec as placed (a = parent)
@@ -706,7 +712,13 @@ def compute(asm, parts_dir, out_dir, lib=None):
             T = np.eye(4)
             T[:3, :3], T[:3, 3] = g["R"], g["pos"]
             s += pose_attrs(T)
-        s += f' rgba="{vec(appearance_rgba(lib, lib.get(g["part"])))}"'
+        rgba = appearance_rgba(lib, lib.get(g["part"]))
+        owner = ctx.insts.get(g["name"]) or ctx.insts.get(g["name"].rpartition(":")[0])
+        if (
+            owner is not None and owner.color
+        ):  # instance colour override: cosmetic, the part's own geoms only
+            rgba = (*owner.color[:3], owner.color[3] if len(owner.color) > 3 else 1.0)
+        s += f' rgba="{vec(rgba)}"'
         if g.get(
             "friction"
         ):  # priority 1: this geom's friction replaces the floor's (MuJoCo default is the max of the two)

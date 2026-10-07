@@ -15,7 +15,15 @@ from .library import DesignError, Library, Part
 
 FIDELITY = {"datasheet", "literature", "measured", "derived", "estimated"}
 SOURCED = {"datasheet", "literature", "measured"}
-BARE_OK = {"rotation", "count", "conductors", "dir"}
+BARE_OK = {
+    "rotation",
+    "count",
+    "conductors",
+    "dir",
+    "pos",
+    "rpy",
+    "color",
+}  # pos / rpy / color: instance placement + cosmetics
 TOP = ["assembly", "instances", "mates", "wires", "device_maps", "devices", "targets"]
 ALLOWED = {
     "assembly": {
@@ -27,7 +35,17 @@ ALLOWED = {
         "mesh_inertia",
         "root_frame",
     },
-    "instances": {"id", "part", "root", "group", "offboard", "params"},
+    "instances": {
+        "id",
+        "part",
+        "root",
+        "group",
+        "offboard",
+        "params",
+        "pos",
+        "rpy",
+        "color",
+    },
     "mates": {"name", "a", "b", "rotation", "fasteners", "nut", "joint", "closure"},
     "wires": {
         "name",
@@ -161,6 +179,26 @@ def validate(doc: dict):
         ids.add(it["id"])
         if it.get("root"):
             roots.append(it)
+        for k, ok in (("pos", (3,)), ("rpy", (3,)), ("color", (3, 4))):
+            v = it.get(k)
+            if v is None:
+                continue
+            if (
+                not isinstance(v, list)
+                or len(v) not in ok
+                or not all(_is_num(x) for x in v)
+            ):
+                raise DesignError(
+                    f"instance '{it['id']}' {k}: a list of {' or '.join(map(str, ok))} numbers"
+                )
+            if k == "color" and not all(0 <= x <= 1 for x in v):
+                raise DesignError(
+                    f"instance '{it['id']}' color: rgb(a) components in 0..1"
+                )
+        if it.get("root") and ("pos" in it or "rpy" in it):
+            raise DesignError(
+                f"instance '{it['id']}': the root defines the frame, it has no pos / rpy"
+            )
         for k, v in it.get("params", {}).items():
             if not isinstance(v, dict) or not {"value", "unit", "fidelity"} <= v.keys():
                 raise DesignError(
@@ -324,6 +362,10 @@ class Inst:
         self.offboard = bool(d.get("offboard"))
         self.root = bool(d.get("root"))
         self.overrides = d.get("params", {})
+        self.color = d.get("color")  # cosmetic rgb(a) override, never physics
+        # free-placed: welded to the root at pos / rpy (root frame; rpy = URDF fixed-axis roll, pitch, yaw), no mate needed
+        self.placed = "pos" in d or "rpy" in d
+        self.pos, self.rpy = d.get("pos", [0, 0, 0]), d.get("rpy", [0, 0, 0])
 
     def entry(self, name: str):
         return self.overrides.get(name, self.part.params.get(name))

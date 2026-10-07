@@ -152,6 +152,49 @@ class MateSpec:
         return mate_transform(np.eye(4), self.pa, self.pb, self.rotation)
 
 
+def rpy_matrix(rpy) -> np.ndarray:
+    """URDF fixed-axis rpy (radians): R = Rz(yaw) Ry(pitch) Rx(roll)."""
+    r, p, y = (float(x) for x in rpy)
+    cr, sr, cp, sp, cy, sy = (
+        math.cos(r),
+        math.sin(r),
+        math.cos(p),
+        math.sin(p),
+        math.cos(y),
+        math.sin(y),
+    )
+    return (
+        np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
+        @ np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
+        @ np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
+    )
+
+
+def matrix_rpy(R: np.ndarray) -> list:
+    """Inverse of rpy_matrix (pitch in [-pi/2, pi/2]; at gimbal lock roll = 0)."""
+    sp = -R[2, 0]
+    p = math.asin(max(-1.0, min(1.0, sp)))
+    if abs(sp) > 1 - 1e-9:
+        return [0.0, p, math.atan2(-R[0, 1], R[1, 1])]
+    return [math.atan2(R[2, 1], R[2, 2]), p, math.atan2(R[1, 0], R[0, 0])]
+
+
+def pose_matrix(pos, rpy) -> np.ndarray:
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = rpy_matrix(rpy), pos
+    return T
+
+
+@dataclass
+class PoseSpec(MateSpec):
+    """A free-placed instance (`pos` / `rpy` on the instance) as a tree edge from the root: not a mate, no ports."""
+
+    T: np.ndarray = None
+
+    def matrix(self) -> np.ndarray:
+        return self.T
+
+
 @dataclass
 class Tree:
     T: dict  # instance id -> 4x4 world pose (root = identity)
@@ -174,10 +217,16 @@ def _chain(parent: dict, x: str) -> list:
 
 
 def solve_tree(
-    root: str, ids: list, mates: list, tol_pos: float = 1e-6, tol_rot: float = 1e-6
+    root: str,
+    ids: list,
+    mates: list,
+    tol_pos: float = 1e-6,
+    tol_rot: float = 1e-6,
+    placed: dict | None = None,
 ) -> Tree:
     """Place every instance from `root`. A mate between two already placed instances is a cycle (error naming the loop)
-    unless it is flagged `closure`, in which case it is only checked against the tree."""
+    unless it is flagged `closure`, in which case it is only checked against the tree. `placed` = {id: 4x4 pose in the root
+    frame} of free-placed instances: each is a tree child of the root, mates may continue from it."""
     known = set(ids)
     for m in mates:
         for end in (m.a, m.b):
@@ -190,6 +239,12 @@ def solve_tree(
     T = {root: np.eye(4)}
     parent: dict = {}
     order = [root]
+    for pid, PT in (placed or {}).items():
+        if pid not in known or pid == root:
+            continue
+        T[pid] = PT
+        parent[pid] = (root, PoseSpec(f"{pid}:pose", root, pid, {}, {}, T=PT))
+        order.append(pid)
     pending = [m for m in mates if not m.closure]
     while pending:
         rest, progress = [], False
