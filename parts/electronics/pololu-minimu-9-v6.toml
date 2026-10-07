@@ -1,0 +1,55 @@
+id = "pololu-minimu-9-v6"
+name = "Pololu MinIMU-9 v6 gyro, accelerometer and compass carrier (LSM6DSO + LIS3MDL)"
+category = "sensor.imu"
+vendor = "Pololu (ST LSM6DSO, LIS3MDL)"
+part_number = "Pololu item 2862"
+url = "https://www.pololu.com/product/2862"
+
+# Frame: origin at the board centre on the component face; +z out of the component face. The axis orientation of the sensor on the board is not on the page text.
+# Only the sensitivity (full-scale) ranges and supply are on the page; noise, bandwidth and ODR need the ST datasheets, which were not read.
+[params]
+length              = { value = 0.020, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.013, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.003, unit = "m", src = "S1", fidelity = "datasheet" }
+mass                = { value = 0.0007, unit = "kg", src = "S1", fidelity = "datasheet" }  # without header pins
+supply_voltage_min  = { value = 2.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max  = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current      = { value = 0.004, unit = "A", src = "S1", fidelity = "datasheet" }
+gyro_range_max      = { value = 34.907, unit = "rad/s", src = "S1", fidelity = "datasheet" }  # +-2000 deg/s, selectable down to +-125 deg/s
+accel_range_max     = { value = 156.93, unit = "m/s^2", src = "S1", fidelity = "datasheet" }  # +-16 g, selectable down to +-2 g
+mag_range_max_gauss = { value = 16, unit = "gauss", src = "S1", fidelity = "datasheet" }  # +-16 gauss, selectable down to +-4 gauss
+adc_bits            = { value = 16, unit = "1", src = "S1", fidelity = "datasheet" }  # one 16-bit reading per axis for each sensor
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "board.20x13-header"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Two mounting holes for #2 or M2 screws exist but their spacing is not stated on the page; opaque board-outline tag."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "header-0.1in"
+gender = "neutral"
+role = "sink"
+v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 2.5, unit = "V", src = "S1", fidelity = "datasheet" }
+note = "VIN; supply current 4 mA."
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://www.pololu.com/product/2862"
+title = "Pololu item 2862 product page (MinIMU-9 v6 Gyro, Accelerometer, and Compass (LSM6DSO and LIS3MDL Carrier)), Specifications"
+accessed = "2026-10-07"
+quote = "Dimensions: 0.8″ × 0.5″ × 0.1″ (20 mm × 13 mm × 3 mm) | Weight without header pins: 0.7 g (0.02 oz) | Operating voltage: 2.5 V to 5.5 V | Supply current: 4 mA | Output format (I²C): Gyro: one 16-bit reading per axis | Accelerometer: one 16-bit reading per axis | Magnetometer: one 16-bit reading per axis | Sensitivity range: Gyro: ±125, ±250, ±500, ±1000, or ±2000°/s | Accelerometer: ±2, ±4, ±8, or ±16 g | Magnetometer: ±4, ±8, ±12, or ±16 gauss | The board features two mounting holes that work with #2 or M2 screws (not included)."

@@ -1,0 +1,56 @@
+id = "pololu-d24v5f5"
+name = "Pololu 5 V, 0.5 A step-down regulator D24V5F5"
+category = "pcb.bec"
+vendor = "Pololu"
+part_number = "D24V5F5 (item 2843)"
+url = "https://www.pololu.com/product/2843"
+
+# Efficiency, dropout and max current versus load are published as graphs only (images), so only the headline numbers are recorded.
+# The current is the title/Features figure: 'Maximum output current' for the D24V10/D24V5 families, 'typical maximum continuous' for the rest.
+[params]
+length = { value = 0.013, unit = "m", src = "S1", fidelity = "datasheet" }
+width = { value = 0.01, unit = "m", src = "S1", fidelity = "datasheet" }
+height = { value = 0.003, unit = "m", src = "S1", fidelity = "datasheet" }
+input_voltage_max = { value = 36, unit = "V", src = "S1", fidelity = "datasheet" }
+output_voltage = { value = 5, unit = "V", src = "S1", fidelity = "datasheet" }
+output_current_typ_max = { value = 0.5, unit = "A", src = "S1", fidelity = "datasheet" }
+efficiency_min = { value = 0.8, unit = "1", src = "S1", fidelity = "datasheet" }
+efficiency_max = { value = 0.93, unit = "1", src = "S1", fidelity = "datasheet" }
+quiescent_current = { value = 0.0002, unit = "A", src = "S1", fidelity = "datasheet" }
+switching_frequency = { value = 500000, unit = "Hz", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "board.13x10-header"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "No mounting holes: the board is held by its header pins (no mounting holes are listed in the page features); opaque board-outline tag"
+
+[[ports]]
+name = "vin"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+v_max = { value = 36, unit = "V", src = "S1", fidelity = "datasheet" }
+role = "sink"
+
+[[ports]]
+name = "vout"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+v_max = { value = 5, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 0.5, unit = "A", src = "S1", fidelity = "datasheet" }
+role = "source"
+note = "Thermally limited; see the Pololu efficiency / maximum-current graphs"
+
+[[sources]]
+id = "S1"
+url = "https://www.pololu.com/product/2843"
+title = "Pololu 5V, 500mA Step-Down Voltage Regulator D24V5F5 (Pololu product page)"
+accessed = "2026-10-07"
+quote = "Input voltage: | 3 V to 36 V for output voltages of 1.8 V and 2.5 V | [ | output voltage + dropout voltage | ] to 36 V for output voltages of 3.3 V and higher (see below for more information on dropout voltage) | Fixed 1.8 V, 2.5 V, 3.3 V, 5 V, 6 V, 9 V, 12 V, or 15 V output (depending on regulator version) with 4% accuracy | Maximum output current: 500 mA | Typical efficiency of 80% to 93% | 500 kHz switching frequency (when not in power-save mode) | 200 μA typical no-load quiescent current | Over-current and short-circuit protection, over-temperature shutoff | Small size:  0.5″ × 0.4″ × 0.1″ (13 mm × 10 mm × 3 mm)"

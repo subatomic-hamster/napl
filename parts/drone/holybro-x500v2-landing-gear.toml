@@ -257,10 +257,10 @@ thickness = 0.0
 holes = 4
 thread = "m3"
 tapped = true
-thread_depth = 0.0046
+thread_depth = 0.0062
 hole_pos = [[0.0135, -0.014], [-0.0135, -0.014], [0.0135, 0.011], [-0.0135, 0.011]]
 fidelity = "derived"
-derivation = "Underside of the bottom plate, 6.5 mm above the pole top end centre (pole_top_below_plate). The 4 screws per leg are the guide's step-4 'Socket Cap Screw M3*8 8pcs' (4 per leg): in the STEP they are 8 GB70-M3-8 at x = +-13.5 mm, z = 43 and 68 mm (= -14 / +11 mm from the pole top end centre along the lean), screwing up through the plate into the clamp (shank tip 4.6 mm below the plate underside: thread_depth 0.0046, tapped into the clamp). The 'mount.x500v2-landing-gear' family has no other hole data."
+derivation = "Underside of the bottom plate, 6.5 mm above the pole top end centre (pole_top_below_plate). The 4 screws per leg are the guide's step-4 'Socket Cap Screw M3*8 8pcs' (4 per leg): in the STEP they are 8 GB70-M3-8 at x = +-13.5 mm, z = 43 and 68 mm (= -14 / +11 mm from the pole top end centre along the lean), screwing up through the plate into the clamp (shank tip 6.2 mm below the plate underside: thread_depth 0.0062, tapped into the clamp; re-measured with OpenCascade on x500v2-frame.step: the 8 GB70-M3-8-DING solids have bbox y = -6.2 .. +4.7 mm with the plate underside at y = 0 and the 2.0 mm plate at y = 0 .. 2.0, i.e. head 2.7 mm on the plate top (4.7 - 2.0), plate 2.0 mm, 6.2 mm of shank below the underside; an earlier 4.6 mm value was wrong and implied a 3.4 mm clamped thickness, while the plate port thickness is 2.0 mm). The 'mount.x500v2-landing-gear' family has no other hole data."
 
 [[sources]]
 id = "S1"

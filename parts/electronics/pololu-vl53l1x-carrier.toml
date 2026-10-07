@@ -1,0 +1,62 @@
+id = "pololu-vl53l1x-carrier"
+name = "Pololu VL53L1X time-of-flight distance sensor carrier with voltage regulator (400 cm)"
+category = "sensor.rangefinder"
+vendor = "Pololu (ST VL53L1X)"
+part_number = "Pololu item 3415"
+url = "https://www.pololu.com/product/3415"
+
+# Frame: origin at the board centre on the component face; +z out of the sensor window (the sensor looks along +z).
+# Distances are the page's favourable-condition ranges (dark, high-reflectivity target); the effective range depends on ambient light and configuration.
+[params]
+length              = { value = 0.018, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.013, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.002, unit = "m", src = "S1", fidelity = "datasheet" }
+mass                = { value = 0.0005, unit = "kg", src = "S1", fidelity = "datasheet" }  # without header pins
+supply_voltage_min  = { value = 2.6, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max  = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_typ  = { value = 0.020, unit = "A", src = "S1", fidelity = "datasheet" }  # typical active ranging
+supply_current_peak = { value = 0.040, unit = "A", src = "S1", fidelity = "datasheet" }
+range_max_long      = { value = 4.0, unit = "m", src = "S1", fidelity = "datasheet" }  # long mode, in the dark
+range_max_medium    = { value = 3.0, unit = "m", src = "S1", fidelity = "datasheet" }  # medium mode, in the dark
+range_max_short     = { value = 1.3, unit = "m", src = "S1", fidelity = "datasheet" }  # short mode, ~130 cm
+range_min           = { value = 0.04, unit = "m", src = "S1", fidelity = "datasheet" }  # below this, detected but not accurate
+resolution          = { value = 0.001, unit = "m", src = "S1", fidelity = "datasheet" }
+frame_rate_short    = { value = 50, unit = "Hz", src = "S1", fidelity = "datasheet" }
+frame_rate_long     = { value = 30, unit = "Hz", src = "S1", fidelity = "datasheet" }
+fov                 = { value = 0.4712, unit = "rad", src = "S1", fidelity = "datasheet" }  # 27 deg typical full field of view
+wavelength          = { value = 940e-9, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.12.7.m2"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Two mounting holes spaced 0.5 in (12.7 mm) apart for #2 or M2 screws; their orientation on the board is not stated on the page."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "header-0.1in"
+gender = "neutral"
+role = "sink"
+v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 2.6, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 0.040, unit = "A", src = "S1", fidelity = "datasheet" }  # peak current
+note = "VIN through the on-board 2.8 V regulator; the regulator output on VDD can supply around 100 mA to external devices."
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://www.pololu.com/product/3415"
+title = "Pololu item 3415 product page (VL53L1X Time-of-Flight Distance Sensor Carrier with Voltage Regulator, 400cm Max)"
+accessed = "2026-10-07"
+quote = "Dimensions: 0.5″ × 0.7″ × 0.085″ (13 mm × 18 mm × 2 mm) | Weight without header pins: 0.5 g (0.02 oz) | Operating voltage: 2.6 V to 5.5 V | Typical active-ranging supply current: 20 mA | Varies with configuration, target, and environment; peak current can reach 40 mA | Short: up to ~130 cm, 50 Hz max sampling rate | Medium: up to ~300 cm in the dark, 30 Hz max sampling rate | Long: up to 400 cm in the dark, 30 Hz max sampling rate | Minimum range: 4 cm (objects under this range are detected, but measurements are not accurate) | Emitter: 940 nm invisible Class 1 VCSEL | Typical full field of view (FoV): 27° | The board has two mounting holes spaced 0.5″ apart that work with #2 and M2 screws (not included)."

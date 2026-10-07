@@ -111,7 +111,14 @@ def thrust_tables(part: dict) -> dict:
 
 
 def tabled_motors() -> list:
-    return [pid for pid, p in sorted(_library().parts.items()) if thrust_tables(p.raw)]
+    """Motors whose vendor tables are bench-validated: those with a transcribed vendor temperature (VENDOR_TEMP_C),
+    which the thermal calibration needs. Other parts with thrust tables (the DRC reads them) are not benched."""
+    curated = {m for m, _ in VENDOR_TEMP_C}
+    return [
+        pid
+        for pid, p in sorted(_library().parts.items())
+        if pid in curated and thrust_tables(p.raw)
+    ]
 
 
 @functools.cache
@@ -163,11 +170,12 @@ def prop_for(table: dict, prop_id: str | None) -> dict:
         d = _LABEL_D[label]
         flags["diameter"] = "estimated: 5.1 in from the Gemfan label digits"
     else:
-        mt = re.search(r"(?:^|[\s-])[A-Za-z]?(\d+(?:\.\d+)?)\*", label)
+        # T-MOTOR "12*4CF" or KDE "KDE 15.5 in x 5.3 ..." (diameter x pitch, inches)
+        mt = re.search(r"(?:^|[\s-])[A-Za-z]?(\d+(?:\.\d+)?)(?:\*| in x )", label)
         if not mt:
             raise ValueError(f"cannot read a diameter from prop label '{label}'")
         d = float(mt.group(1)) * IN
-        flags["diameter"] = "estimated: nominal inches from the T-MOTOR label"
+        flags["diameter"] = "estimated: nominal inches from the vendor prop label"
     m = 0.013 * (d / 0.381) ** 1.5  # CF-prop mass trend of the tmotor-ns* parts
     flags["j_prop"] = (
         "estimated: mass trend of tmotor-ns* props, rod m D^2/12 (no effect on steady state)"

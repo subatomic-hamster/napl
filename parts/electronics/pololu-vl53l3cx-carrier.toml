@@ -1,0 +1,57 @@
+id = "pololu-vl53l3cx-carrier"
+name = "Pololu VL53L3CX time-of-flight multi-target distance sensor carrier (500 cm)"
+category = "sensor.rangefinder"
+vendor = "Pololu (ST VL53L3CX)"
+part_number = "Pololu item 3416"
+url = "https://www.pololu.com/product/3416"
+
+# Frame: origin at the board centre on the component face; +z out of the sensor window (the sensor looks along +z).
+[params]
+length              = { value = 0.018, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.013, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.002, unit = "m", src = "S1", fidelity = "datasheet" }
+mass                = { value = 0.0005, unit = "kg", src = "S1", fidelity = "datasheet" }  # without header pins
+supply_voltage_min  = { value = 2.6, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max  = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_typ  = { value = 0.020, unit = "A", src = "S1", fidelity = "datasheet" }  # typical active ranging
+supply_current_peak = { value = 0.040, unit = "A", src = "S1", fidelity = "datasheet" }
+range_max           = { value = 5.0, unit = "m", src = "S1", fidelity = "datasheet" }
+range_min           = { value = 0.010, unit = "m", src = "S1", fidelity = "datasheet" }
+resolution          = { value = 0.001, unit = "m", src = "S1", fidelity = "datasheet" }
+fov                 = { value = 0.4363, unit = "rad", src = "S1", fidelity = "datasheet" }  # 25 deg typical full field of view
+wavelength          = { value = 940e-9, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.12.7.m2"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Two mounting holes spaced 0.5 in (12.7 mm) apart for #2 or M2 screws; their orientation on the board is not stated on the page."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "header-0.1in"
+gender = "neutral"
+role = "sink"
+v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 2.6, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 0.040, unit = "A", src = "S1", fidelity = "datasheet" }  # peak current
+note = "VIN through the on-board regulator."
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://www.pololu.com/product/3416"
+title = "Pololu item 3416 product page (VL53L3CX Time-of-Flight Multi-Target Distance Sensor Carrier with Voltage Regulator, 500cm Max)"
+accessed = "2026-10-07"
+quote = "Dimensions: 0.5″ × 0.7″ × 0.085″ (13 mm × 18 mm × 2 mm) | Weight without header pins: 0.5 g (0.02 oz) | Operating voltage: 2.6 V to 5.5 V | Typical active-ranging supply current: 20 mA | Varies with configuration, target, and environment; peak current can reach 40 mA | Maximum range: 5 m (16 ft) | Resolution: 1 mm | Minimum range: 10 mm (0.4 in) | Emitter: 940 nm invisible Class 1 VCSEL | Typical full field of view (FoV): 25° | The board has two mounting holes spaced 0.5″ apart that work with #2 and M2 screws (not included)."

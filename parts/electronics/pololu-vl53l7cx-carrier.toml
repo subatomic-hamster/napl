@@ -1,0 +1,58 @@
+id = "pololu-vl53l7cx-carrier"
+name = "Pololu VL53L7CX time-of-flight 8x8-zone wide-FOV distance sensor carrier (350 cm)"
+category = "sensor.rangefinder"
+vendor = "Pololu (ST VL53L7CX)"
+part_number = "Pololu item 3418"
+url = "https://www.pololu.com/product/3418"
+
+# Frame: origin at the board centre on the component face; +z out of the sensor window (the sensor looks along +z).
+[params]
+length              = { value = 0.018, unit = "m", src = "S1", fidelity = "datasheet" }
+width               = { value = 0.013, unit = "m", src = "S1", fidelity = "datasheet" }
+height              = { value = 0.003, unit = "m", src = "S1", fidelity = "datasheet" }
+mass                = { value = 0.0005, unit = "kg", src = "S1", fidelity = "datasheet" }  # without header pins
+supply_voltage_min  = { value = 2.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_voltage_max  = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_typ  = { value = 0.100, unit = "A", src = "S1", fidelity = "datasheet" }  # typical active ranging
+supply_current_peak = { value = 0.150, unit = "A", src = "S1", fidelity = "datasheet" }
+range_max           = { value = 3.5, unit = "m", src = "S1", fidelity = "datasheet" }
+range_min           = { value = 0.020, unit = "m", src = "S1", fidelity = "datasheet" }
+resolution          = { value = 0.001, unit = "m", src = "S1", fidelity = "datasheet" }  # depth resolution
+zones_max           = { value = 64, unit = "1", src = "S1", fidelity = "datasheet" }  # 8x8 (also 4x4)
+fov_diagonal        = { value = 1.5708, unit = "rad", src = "S1", fidelity = "datasheet" }  # 90 deg diagonal (60 deg horizontal/vertical)
+wavelength          = { value = 940e-9, unit = "m", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "bolt-pattern.12.7.m2"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Two mounting holes spaced 0.5 in (12.7 mm) apart for #2 or M2 screws; their orientation on the board is not stated on the page."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "header-0.1in"
+gender = "neutral"
+role = "sink"
+v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
+v_min = { value = 2.5, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 0.150, unit = "A", src = "S1", fidelity = "datasheet" }  # peak current
+note = "VIN through the on-board regulator."
+
+[[ports]]
+name = "i2c"
+kind = "signal"
+type = "i2c"
+gender = "neutral"
+
+[[sources]]
+id = "S1"
+url = "https://www.pololu.com/product/3418"
+title = "Pololu item 3418 product page (VL53L7CX Time-of-Flight 8×8-Zone Wide FOV Distance Sensor Carrier with Voltage Regulator, 350cm Max)"
+accessed = "2026-10-07"
+quote = "Dimensions: 0.5″ × 0.7″ × 0.1″ (13 mm × 18 mm × 3 mm) | Weight without header pins: 0.5 g (0.02 oz) | Operating voltage: 2.5 V to 5.5 V | Typical active-ranging supply current: 100 mA | Varies with configuration, target, and environment; peak current can reach 150 mA | Maximum range: 3.5 m (11 ft) | Resolution: 1 mm depth, 4×4 or 8×8 sensor zones | Minimum range: 20 mm (0.8 in) | Typical full field of view (FoV): 90° diagonal (60° horizontal/vertical) | The board has two mounting holes spaced 0.5″ apart that work with #2 and M2 screws (not included)."
