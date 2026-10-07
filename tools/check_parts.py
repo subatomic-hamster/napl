@@ -63,6 +63,33 @@ def check(path: pathlib.Path, problems: list[str], tally: collections.Counter) -
         for i, row in enumerate(t.get("rows", [])):
             if len(row) != len(cols):
                 bad(f"table {name} row {i}: {len(row)} values for {len(cols)} columns")
+    names = set()
+    for i, p in enumerate(doc.get("ports", [])):
+        label = f"port {p.get('name', i)}"
+        if not p.get("name") or p["name"] in names:
+            bad(f"{label}: missing or duplicate name")
+        names.add(p.get("name"))
+        if p.get("kind") not in ("mech", "power", "signal"):
+            bad(f"{label}: kind '{p.get('kind')}' not mech|power|signal")
+        if not p.get("type"):
+            bad(f"{label}: missing type")
+        if p.get("gender", "neutral") not in ("male", "female", "neutral"):
+            bad(f"{label}: gender '{p.get('gender')}'")
+        if p.get("kind") == "mech":
+            for key in ("pos", "axis"):
+                v = p.get(key)
+                if not (isinstance(v, list) and len(v) == 3):
+                    bad(f"{label}: '{key}' must be 3 numbers")
+            axis = p.get("axis")
+            if (
+                isinstance(axis, list)
+                and len(axis) == 3
+                and abs(sum(a * a for a in axis) - 1) > 1e-6
+            ):
+                bad(f"{label}: axis not unit length")
+        for key, e in p.items():
+            if isinstance(e, dict):
+                check_entry(f"{label}.{key}", e, need_unit=True)
     mesh = doc.get("geometry", {}).get("mesh")
     if mesh and not (path.parents[2] / mesh).exists():
         bad(f"mesh '{mesh}' not found")

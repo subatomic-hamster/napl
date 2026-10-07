@@ -52,6 +52,54 @@ quote = "verbatim text (or table cell text) the value came from"
 license = "..."                     # only for sources whose files we copy into the repo
 ```
 
+## Ports (interfaces for snapping, wiring and design-rule checks)
+
+Every part that connects to anything declares its interfaces. The builder snaps parts together
+by mating compatible ports; the design-rule checker (DRC) uses port ratings.
+
+```toml
+[[ports]]
+name = "base"                          # unique within the part
+kind = "mech"                          # mech | power | signal
+type = "bolt-pattern.16x16.m3"         # interface family (see table below)
+gender = "female"                      # male | female | neutral (mech holes = neutral)
+pos = [0.0, 0.0, 0.0]                  # m, part frame
+axis = [0.0, 0.0, -1.0]                # unit outward normal: mating parts face opposite axes
+ref = [1.0, 0.0, 0.0]                  # unit in-plane reference (orientation about axis)
+symmetry = 4                           # n-fold rotations about axis that still fit
+thickness = 0.002                      # m of material clamped at this port (fastener stack)
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "xt60"                          # connector family
+gender = "male"
+v_max = { value = 25.2, unit = "V", src = "S1", fidelity = "datasheet" }
+i_max = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }   # continuous
+role = "sink"                          # source | sink | passthrough
+
+[[ports]]
+name = "bus"
+kind = "signal"
+type = "feetech-ttl"                   # pwm | dshot | uart | i2c | can | feetech-ttl | usb
+gender = "female"
+level = { value = 5.0, unit = "V", src = "S1", fidelity = "datasheet" }
+```
+
+Mate compatibility: same `type`, and genders male+female or either neutral. Two mated mech
+ports coincide in position, have opposite axes, and their `ref`s align up to the `symmetry`
+rotations. Interface families in use (extend as needed, keep names stable):
+
+| type | meaning |
+|---|---|
+| `bolt-pattern.<a>x<b>.<thread>` | rectangular hole pattern, centre-to-centre mm (e.g. 16x16.m3, 30.5x30.5.m3) |
+| `bolt-circle.<d>.<n>.<thread>` | n holes on a d-mm circle |
+| `shaft.<d>` / `bore.<d>` | round shaft and matching bore, mm |
+| `tube.<od>` / `tube-clamp.<od>` | tube and the clamp that holds it |
+| `servo-horn.<spline>` | servo output spline (e.g. 25t) |
+| `thread.<m>` | single threaded hole or stud (fastener seat) |
+| `xt30`, `xt60`, `xt90`, `jst-gh.<n>`, `jst-ph.<n>`, `servo-3pin`, `solder-pad` | connectors |
+
 Fidelity tags:
 - `datasheet`: stated by the manufacturer/vendor for this exact part.
 - `literature`: peer-reviewed or well-known reference measurement of this part or exact model.
