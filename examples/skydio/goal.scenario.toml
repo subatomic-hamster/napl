@@ -1,0 +1,51 @@
+# napl program examples/skydio/goal.scenario.toml --runs-dir <dir>
+# Mission (a): the vision-only quadrotor (assemblies/skydio.toml) takes off, maps the seeded forest / wall-with-doorway / arch from its depth camera
+# alone and flies to the goal 58 m away at >= 4 m/s where the way is clear. The program (fly.py) OWNS the World; the runner judges trace.csv and
+# re-runs the replay log for the state-hash match. CPU only, about 25 s of wall time per run. See README.md.
+name = "skydio-goal"
+
+[model]
+script = "scene_goal.py"                     # build(out) -> scene.xml (skydio composed with forest.py's obstacles; SKYDIO_SEED picks the forest)
+
+[interfaces.native]                          # the program steps the World itself; the runner judges trace.csv and the replay hash
+
+[program]
+cmd = ["python", "{dir}/fly.py"]
+env = { SKYDIO_MISSION = "goal", SKYDIO_SEED = "1" }
+
+[limits]
+wall_s = 600
+cpu_s = 600
+address_space_mb = 16384
+
+# --- monitors: columns of <run dir>/trace.csv, one row per 4 ms of sim time ------------------------------------------------------------
+[[monitors]]
+name = "no_collision"                        # the MuJoCo contact sensor on the airframe subtree vs the obstacle body: zero contacts, ever
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "clearance_positive"                  # exact analytic distance to the nearest obstacle surface minus the 0.40 m airframe bounding sphere
+column = "clearance_m"
+op = "always"
+lo = 0.05
+
+[[monitors]]
+name = "reaches_goal_within_45s"
+column = "dist_goal"
+op = "eventually"
+hi = 1.5
+to = 45
+
+[[monitors]]
+name = "cruises_at_4mps_where_clear"
+column = "speed"
+op = "eventually"
+lo = 4.0
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45

@@ -24,9 +24,11 @@ rms_error_frac  = { value = 0.02, unit = "1", src = "S1", fidelity = "datasheet"
 spec_range      = { value = 2.0, unit = "m", src = "S1", fidelity = "datasheet" }
 max_range       = { value = 10.0, unit = "m", fidelity = "estimated", rationale = "The datasheet qualifies accuracy only out to 2 m; beyond it the stereo error grows with Z^2 / (f B). 10 m is the usable-range cut-off used by the simulator (not a datasheet figure); rays that miss within it read 0 (invalid)." }
 
+# The 90 mm width runs along part y (image right-left); +x is image up, so the 25 mm height is along x. (Until 2026-10-08 this box had its long side
+# along x, a vertical bar on a level-mounted camera; no assembly depended on it: the depth bench only uses the sensor frame.)
 [[geometry.shapes]]
 shape = "box"
-size = [0.045, 0.0125, 0.0125]
+size = [0.0125, 0.045, 0.0125]
 pos = [0.0, 0.0, 0.0125]
 
 [[ports]]
