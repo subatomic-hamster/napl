@@ -69,7 +69,7 @@ UI = {
     "ui-drag-ghost": (
         "2 dremove pdb; 4 uicam iso",
         1,
-        1.7,  # the window polls ui events once a second, then the ghost flies for 1.2 s: this lands mid-flight
+        1.1,  # the window polls ui events once a second, then the ghost flies for 1.2 s: this lands mid-flight
         [
             {
                 "tool": "library.drag",
