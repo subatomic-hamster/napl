@@ -65,6 +65,11 @@ const std::string& Devices::name(int slot) const {
     case Slot::gnss: return gnss.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::launcher: return launcher.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::camera: return camera.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::motor: return motor.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::airframe: return airframe.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::sea: return sea.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::vessel: return vessel.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::range: return range.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::esc: break;
   }
   return esc.cfg[static_cast<std::size_t>(s.i)].meta.name;
@@ -140,6 +145,7 @@ void sensor_ok(const std::string& dev, const std::string& site, double rate_hz) 
 void std_ok(const std::string& dev, double sd, const char* what) { need(sd >= 0 && std::isfinite(sd), dev, what); }
 // Seed of device slot k: its own `seed` if given, else derived from the top-level seed and the slot index.
 std::uint64_t seed_of(std::uint64_t own, std::uint64_t top, std::size_t slot) { return own ? own : top + slot; }
+constexpr double kG0 = 9.80665;  // standard gravity: wave dispersion (the sea's g, not the model's)
 }  // namespace
 
 Devices parse(const std::string& json) {
@@ -291,6 +297,7 @@ Devices parse(const std::string& json) {
       c.ground_effect = r->ground_effect();
       c.ray_groups = r->ray_groups();
       need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
+      c.water = r->water();
       slot(Devices::Slot::rotor, static_cast<int>(dv.rotor.cfg.size()));
       dv.rotor.cfg.push_back(std::move(c));
     }
@@ -469,6 +476,220 @@ Devices parse(const std::string& json) {
       slot(Devices::Slot::camera, static_cast<int>(dv.camera.cfg.size()));
       dv.camera.cfg.push_back(std::move(c));
     }
+  if (root->solid_motors())
+    for (const fb::SolidMotor* sm : *root->solid_motors()) {
+      SolidMotorCfg c{};
+      c.meta = meta_of(sm->name(), sm->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.body = sm->body()->str(); c.site = sm->site()->str();
+      need(!c.body.empty() && !c.site.empty(), n, "body and site must be non-empty");
+      need(sm->time() && sm->thrust() && sm->time()->size() == sm->thrust()->size() && sm->time()->size() >= 2, n,
+           "time / thrust must be equal-length curves of at least 2 points");
+      c.t.assign(sm->time()->begin(), sm->time()->end());
+      c.f.assign(sm->thrust()->begin(), sm->thrust()->end());
+      if (c.t.front() > 0) {  // RASP files leave the (0, 0) start implied
+        c.t.insert(c.t.begin(), 0.0);
+        c.f.insert(c.f.begin(), 0.0);
+      }
+      need(c.t.front() == 0, n, "time must start at 0 (or after 0: then (0, 0) is implied)");
+      c.cum.assign(c.t.size(), 0.0);
+      for (std::size_t k = 0; k < c.t.size(); ++k) {
+        need(std::isfinite(c.t[k]) && std::isfinite(c.f[k]) && c.f[k] >= 0, n, "time / thrust must be finite, thrust >= 0");
+        need(k == 0 || c.t[k] > c.t[k - 1], n, "time must be strictly increasing");
+        if (k) c.cum[k] = c.cum[k - 1] + 0.5 * (c.f[k] + c.f[k - 1]) * (c.t[k] - c.t[k - 1]);
+      }
+      need(c.f.back() == 0, n, "the last thrust point must be 0 (burnout)");
+      c.i_total = c.cum.back();
+      need(c.i_total > 0, n, "the curve has no impulse");
+      c.prop_mass = sm->propellant_mass(); c.total_mass = sm->total_mass(); c.diameter = sm->diameter(); c.length = sm->length();
+      c.delay = sm->ignition_delay(); c.scale0 = sm->thrust_scale();
+      need(c.prop_mass > 0 && c.total_mass > c.prop_mass && std::isfinite(c.total_mass), n,
+           "propellant_mass must be > 0 and total_mass > propellant_mass");
+      need(c.diameter > 0 && c.length > 0 && std::isfinite(c.diameter + c.length), n, "diameter and length must be > 0");
+      need(c.delay >= 0 && std::isfinite(c.delay), n, "ignition_delay must be >= 0");
+      need(c.scale0 >= 0 && c.scale0 <= 2, n, "thrust_scale must be in [0, 2]");
+      slot(Devices::Slot::motor, static_cast<int>(dv.motor.cfg.size()));
+      dv.motor.cfg.push_back(std::move(c));
+    }
+  if (root->airframes())
+    for (const fb::Airframe* a : *root->airframes()) {
+      AirframeCfg c{};
+      c.meta = meta_of(a->name(), a->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.body = a->body()->str(); c.site = a->site()->str();
+      need(!c.body.empty() && !c.site.empty(), n, "body and site must be non-empty");
+      c.s_ref = a->s_ref(); c.cd0 = a->cd0(); c.cd_rev = a->cd_rev() > 0 ? a->cd_rev() : a->cd0();
+      c.cn_alpha = a->cn_alpha(); c.x_cp = a->x_cp(); c.s_plan = a->s_plan(); c.cd_cross = a->cd_cross();
+      need(c.s_ref > 0 && std::isfinite(c.s_ref), n, "s_ref must be > 0");
+      need(c.cd0 >= 0 && c.cd_rev >= 0 && c.cn_alpha >= 0 && c.s_plan >= 0 && c.cd_cross >= 0 &&
+               std::isfinite(c.cd0 + c.cd_rev + c.cn_alpha + c.s_plan + c.cd_cross + c.x_cp),
+           n, "cd0, cd_rev, cn_alpha, s_plan, cd_cross must be finite and >= 0, x_cp finite");
+      slot(Devices::Slot::airframe, static_cast<int>(dv.airframe.cfg.size()));
+      dv.airframe.cfg.push_back(std::move(c));
+    }
+  if (root->seas())
+    for (const fb::Sea* sea : *root->seas()) {
+      SeaCfg c{};
+      c.meta = meta_of(sea->name(), sea->parts(), seen);
+      const std::string& n = c.meta.name;
+      need(dv.sea.cfg.empty(), n, "only one sea device is allowed");
+      c.rho = sea->rho(); c.level = sea->level(); c.depth = sea->depth();
+      need(c.rho > 0 && std::isfinite(c.rho + c.level) && c.depth >= 0 && std::isfinite(c.depth), n,
+           "rho must be > 0, level finite, depth >= 0 (0 = deep water)");
+      vec3_of(sea->current(), c.current0, n, "current needs 3 finite values (or none)");
+      auto add_wave = [&](double a, double period, double dir, double phase) {
+        need(a >= 0 && period > 0 && std::isfinite(a + period + dir + phase), n, "wave amplitude >= 0, period > 0, all finite");
+        const double w = 2.0 * kPi / period;
+        double k = w * w / kG0;  // deep water
+        if (c.depth > 0)         // finite depth: w^2 = g k tanh(k h), Newton from the deep-water k, fixed iteration count
+          for (int it = 0; it < 60; ++it) {
+            const double th = std::tanh(k * c.depth), ch = std::cosh(k * c.depth);
+            k -= (kG0 * k * th - w * w) / (kG0 * th + kG0 * k * c.depth / (ch * ch));
+          }
+        c.waves.push_back({a, k, w, dir, phase});
+      };
+      if (sea->waves())
+        for (const fb::Wave* w : *sea->waves()) add_wave(w->amplitude(), w->period(), w->direction(), w->phase());
+      if (const fb::Jonswap* js = sea->jonswap()) {
+        need(js->hs() > 0 && js->tp() > 0 && js->gamma() >= 1 && js->n() >= 1 && js->n() <= kMaxWaves - 16 &&
+                 std::isfinite(js->hs() + js->tp() + js->gamma() + js->direction()),
+             n, "jonswap: hs > 0, tp > 0, gamma >= 1, n in [1, 48]");
+        Rng rng;
+        rng.seed(seed_of(js->seed(), top, 7000));
+        const double wp = 2.0 * kPi / js->tp(), lo = 0.5 * wp, dw = 3.0 * wp / js->n();
+        std::vector<double> ws, ss;
+        double m0 = 0;
+        for (int i = 0; i < js->n(); ++i) {  // one frequency per bin, uniformly drawn (avoids a periodic surface)
+          const double w = lo + (i + rng.uniform()) * dw, sg = w <= wp ? 0.07 : 0.09;
+          const double r = std::exp(-(w - wp) * (w - wp) / (2.0 * sg * sg * wp * wp));
+          const double s = std::pow(w, -5.0) * std::exp(-1.25 * std::pow(wp / w, 4.0)) * std::pow(js->gamma(), r);
+          ws.push_back(w); ss.push_back(s); m0 += s * dw;
+        }
+        const double norm = js->hs() * js->hs() / 16.0 / m0;  // Hm0 = hs exactly for the synthesised sum
+        for (int i = 0; i < js->n(); ++i)
+          add_wave(std::sqrt(2.0 * ss[static_cast<std::size_t>(i)] * norm * dw), 2.0 * kPi / ws[static_cast<std::size_t>(i)], js->direction(),
+                   2.0 * kPi * rng.uniform());
+      }
+      need(c.waves.size() <= static_cast<std::size_t>(kMaxWaves), n, "at most 64 wave components");
+      slot(Devices::Slot::sea, static_cast<int>(dv.sea.cfg.size()));
+      dv.sea.cfg.push_back(std::move(c));
+    }
+  if (root->vessels())
+    for (const fb::Vessel* v : *root->vessels()) {
+      VesselCfg c{};
+      c.meta = meta_of(v->name(), v->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.body = v->body()->str();
+      need(!c.body.empty(), n, "body must be non-empty");
+      need(v->hulls() && v->hulls()->size() >= 1, n, "at least one hull");
+      for (const fb::Hull* h : *v->hulls()) {
+        const std::string shape = h->shape() ? h->shape()->str() : "box";
+        need(shape == "box" || shape == "cylinder", n, "hull shape must be 'box' or 'cylinder'");
+        need(h->pos() && h->pos()->size() == 3 && h->size() && h->size()->size() == 3, n, "hull pos and size need 3 values");
+        int cells[3] = {8, 4, 4};
+        if (h->n() && h->n()->size()) {
+          need(h->n()->size() == 3, n, "hull n needs 3 values (or none)");
+          for (int k = 0; k < 3; ++k) cells[k] = h->n()->Get(static_cast<flatbuffers::uoffset_t>(k));
+        }
+        double pos[3], size[3];
+        for (int k = 0; k < 3; ++k) {
+          pos[k] = h->pos()->Get(static_cast<flatbuffers::uoffset_t>(k));
+          size[k] = h->size()->Get(static_cast<flatbuffers::uoffset_t>(k));
+          need(std::isfinite(pos[k]) && size[k] > 0 && std::isfinite(size[k]), n, "hull size must be > 0 and finite, pos finite");
+          need(cells[k] >= 1 && cells[k] <= 64, n, "hull n must be in [1, 64] per axis");
+        }
+        const bool cyl = shape == "cylinder";
+        const double vol = cyl ? kPi / 4.0 * size[0] * size[1] * size[2] : size[0] * size[1] * size[2];
+        const double e[3] = {size[0] / cells[0], size[1] / cells[1], size[2] / cells[2]};
+        std::vector<Cell> mine;
+        for (int i = 0; i < cells[0]; ++i)
+          for (int j = 0; j < cells[1]; ++j)
+            for (int k = 0; k < cells[2]; ++k) {
+              Cell cell{};
+              cell.c[0] = pos[0] + (i + 0.5) * e[0] - 0.5 * size[0];
+              cell.c[1] = pos[1] + (j + 0.5) * e[1] - 0.5 * size[1];
+              cell.c[2] = pos[2] + (k + 0.5) * e[2] - 0.5 * size[2];
+              if (cyl) {
+                const double y = (cell.c[1] - pos[1]) / (0.5 * size[1]), z = (cell.c[2] - pos[2]) / (0.5 * size[2]);
+                if (y * y + z * z > 1.0) continue;
+              }
+              cell.v = e[0] * e[1] * e[2];
+              std::copy(e, e + 3, cell.e);
+              mine.push_back(cell);
+            }
+        need(!mine.empty(), n, "hull has no cells (n too small for the section)");
+        double sum = 0;
+        for (const Cell& cell : mine) sum += cell.v;
+        for (Cell& cell : mine) cell.v *= vol / sum;  // the cells carry exactly the analytic volume
+        c.cells.insert(c.cells.end(), mine.begin(), mine.end());
+        c.volume += vol;
+      }
+      auto six = [&](const flatbuffers::Vector<double>* x, double out[6], const char* what) {
+        need(!x || x->size() == 0 || x->size() == 6, n, what);
+        for (int k = 0; k < 6; ++k) {
+          out[k] = x && x->size() ? x->Get(static_cast<flatbuffers::uoffset_t>(k)) : 0.0;
+          need(std::isfinite(out[k]) && out[k] >= 0, n, what);
+        }
+      };
+      six(v->added_mass(), c.a, "added_mass needs 6 finite values >= 0 (or none)");
+      six(v->damp_lin(), c.dl, "damp_lin needs 6 finite values >= 0 (or none)");
+      six(v->damp_quad(), c.dq, "damp_quad needs 6 finite values >= 0 (or none)");
+      for (double x : c.a) c.has_a = c.has_a || x > 0;
+      slot(Devices::Slot::vessel, static_cast<int>(dv.vessel.cfg.size()));
+      dv.vessel.cfg.push_back(std::move(c));
+    }
+  if (root->rangefinders())
+    for (const fb::Rangefinder* rf : *root->rangefinders()) {
+      RangefinderCfg c{};
+      c.meta = meta_of(rf->name(), rf->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.site = rf->site()->str(); c.rate_hz = rf->rate_hz(); c.seed = rf->seed();
+      sensor_ok(n, c.site, c.rate_hz);
+      c.proj = rf->projection() ? rf->projection()->str() : "pinhole";
+      if (c.proj.empty()) c.proj = "pinhole";
+      need(c.proj == "pinhole" || c.proj == "spherical", n, "projection must be 'pinhole' or 'spherical'");
+      c.pinhole = c.proj == "pinhole";
+      c.fov_h = rf->fov_h(); c.fov_v = rf->fov_v(); c.n_h = rf->n_h(); c.n_v = rf->n_v();
+      need(c.n_h >= 1 && c.n_v >= 1 && static_cast<long long>(c.n_h) * c.n_v <= 4000000, n, "n_h, n_v must be >= 1 (at most 4e6 rays)");
+      need(std::isfinite(c.fov_h + c.fov_v) && c.fov_h > 0 && c.fov_v > 0, n, "fov_h, fov_v must be > 0");
+      need(c.pinhole ? (c.fov_h < kPi && c.fov_v < kPi) : (c.fov_h <= 2.0 * kPi && c.fov_v <= kPi), n,
+           "pinhole: fov_h, fov_v < pi; spherical: fov_h <= 2 pi, fov_v <= pi");
+      c.min_r = rf->min_range(); c.max_r = rf->max_range();
+      need(c.min_r >= 0 && c.max_r > c.min_r && std::isfinite(c.max_r), n, "need 0 <= min_range < max_range");
+      c.s0 = rf->sigma0(); c.s1 = rf->sigma1(); c.s2 = rf->sigma2(); c.res = rf->resolution(); c.dropout = rf->dropout();
+      need(c.s0 >= 0 && c.s1 >= 0 && c.s2 >= 0 && c.res >= 0 && std::isfinite(c.s0 + c.s1 + c.s2 + c.res), n,
+           "sigma0..2 and resolution must be finite and >= 0");
+      need(c.dropout >= 0 && c.dropout <= 1, n, "dropout must be in [0, 1]");
+      c.ray_groups = rf->ray_groups();
+      need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
+      const std::size_t cnt = static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v);
+      c.dir.resize(3 * cnt);
+      c.scale.resize(cnt);
+      const double tu = std::tan(0.5 * c.fov_h), tv = std::tan(0.5 * c.fov_v);
+      double smin = 1.0;
+      for (int i = 0; i < c.n_v; ++i)
+        for (int j = 0; j < c.n_h; ++j) {
+          const std::size_t k = static_cast<std::size_t>(i) * static_cast<std::size_t>(c.n_h) + static_cast<std::size_t>(j);
+          double x, y, z, sc = 1.0;
+          if (c.pinhole) {
+            x = tv * (1.0 - 2.0 * (i + 0.5) / c.n_v);
+            y = tu * (2.0 * (j + 0.5) / c.n_h - 1.0);
+            z = 1.0;
+            const double nrm = std::sqrt(x * x + y * y + 1.0);
+            x /= nrm; y /= nrm; z /= nrm; sc = z;  // z-depth = range * z
+          } else {
+            const double az = c.fov_h * ((j + 0.5) / c.n_h - 0.5), el = c.fov_v * (0.5 - (i + 0.5) / c.n_v);
+            x = std::sin(el); y = std::cos(el) * std::sin(az); z = std::cos(el) * std::cos(az);
+          }
+          c.dir[3 * k] = x; c.dir[3 * k + 1] = y; c.dir[3 * k + 2] = z;
+          c.scale[k] = sc;
+          smin = std::min(smin, sc);
+        }
+      need(smin > 1e-6, n, "field of view too wide for the pinhole projection");
+      c.cutoff = c.max_r / smin;
+      slot(Devices::Slot::range, static_cast<int>(dv.range.cfg.size()));
+      dv.range.cfg.push_back(std::move(c));
+    }
   if (dv.slots.empty()) throw std::runtime_error("napl.devices: no devices declared");
 
   // Initial state. RNG stream k uses the device's flat slot index (battery, psu, wire, load, esc order).
@@ -538,6 +759,34 @@ Devices parse(const std::string& json) {
     dv.launcher.st.push_back(s);
   }
   dv.camera.st.assign(dv.camera.cfg.size(), CameraState{});
+  // Phase 5 devices: their RNG streams (rangefinders only) come after every earlier slot, so the older streams are unchanged.
+  for (const SolidMotorCfg& c : dv.motor.cfg) {
+    SolidMotorState s{};
+    s.thrust_scale = c.scale0;
+    s.mass = c.total_mass;
+    dv.motor.st.push_back(s);
+  }
+  dv.airframe.st.assign(dv.airframe.cfg.size(), AirframeState{});
+  for (const SeaCfg& c : dv.sea.cfg) {
+    SeaState s{};
+    s.wave_scale = 1.0;
+    std::copy(c.current0, c.current0 + 3, s.current);
+    s.n_waves = static_cast<double>(c.waves.size());
+    for (std::size_t w = 0; w < c.waves.size(); ++w) {
+      const WaveCfg& x = c.waves[w];
+      const double row[5] = {x.a, x.k, x.w, x.th, x.phi};
+      std::copy(row, row + 5, s.waves + 5 * w);
+    }
+    dv.sea.st.push_back(s);
+  }
+  dv.vessel.st.assign(dv.vessel.cfg.size(), VesselState{});
+  for (const RangefinderCfg& c : dv.range.cfg) {
+    RangefinderState s{};
+    s.rng.seed(seed_of(c.seed, top, k++));
+    dv.range.st.push_back(s);
+    dv.range_img.emplace_back(static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v), 0.0);
+  }
+  if (!dv.sea.cfg.empty()) dv.sea.st[0].eta0 = sea_eta(dv, 0.0, 0.0);
   return dv;
 }
 
@@ -632,6 +881,37 @@ void bind(mjModel* m, Devices& dv) {
     }
   }
   for (CameraCfg& c : dv.camera.cfg) c.sid = site_id(c.meta.name, c.site);
+  for (SolidMotorCfg& c : dv.motor.cfg) {
+    c.bid = body_id(c.meta.name, c.body);
+    c.sid = site_id(c.meta.name, c.site);
+    if (m->site_bodyid[c.sid] != c.bid) fail(c.meta.name, "site '" + c.site + "' is not on body '" + c.body + "'");
+    // The device owns the body's inertia: the model must hold the motor and nothing else (the mass lies between the casing alone
+    // and the loaded motor whatever burn state a cloned / reloaded model was saved in).
+    const double mb = m->body_mass[c.bid], mcase = c.total_mass - c.prop_mass;
+    if (!(mb >= 0.98 * mcase && mb <= 1.02 * c.total_mass))
+      fail(c.meta.name, "body '" + c.body + "' has mass " + std::to_string(mb) + " kg, but the motor weighs " + std::to_string(mcase) +
+                            " (empty) to " + std::to_string(c.total_mass) + " kg: the motor body must hold the motor only");
+    for (int dof = 0; dof < m->nv; ++dof)  // a "simple" dof reads its inertia from dof_M0 (fixed at compile time)
+      if (m->dof_bodyid[dof] == c.bid && m->dof_simplenum[dof] != 0)
+        fail(c.meta.name, "body '" + c.body + "' is a MuJoCo 'simple' body (a hinge directly under a static body): its inertia cannot "
+                          "change; put the motor on a body with a child, or below a moving body");
+  }
+  for (AirframeCfg& c : dv.airframe.cfg) {
+    c.bid = body_id(c.meta.name, c.body);
+    c.sid = site_id(c.meta.name, c.site);
+    if (m->site_bodyid[c.sid] != c.bid) fail(c.meta.name, "site '" + c.site + "' is not on body '" + c.body + "'");
+  }
+  for (VesselCfg& c : dv.vessel.cfg) {
+    c.bid = body_id(c.meta.name, c.body);
+    if (dv.sea.cfg.empty()) fail(c.meta.name, "a vessel needs a sea device");
+  }
+  for (const RotorCfg& c : dv.rotor.cfg)
+    if (c.water && dv.sea.cfg.empty()) fail(c.meta.name, "a water rotor needs a sea device");
+  for (RangefinderCfg& c : dv.range.cfg) {
+    c.sid = site_id(c.meta.name, c.site);
+    c.body = m->site_bodyid[c.sid];
+    c.period = period_of(c.meta.name, "rate_hz", c.rate_hz, "sample");
+  }
   // Only after every check passed: model edits. SET (not added), so rebinding a reloaded / recompiled model is
   // idempotent. The rotor inertia of an ESC motor is the dof armature (N = 1); a servo reflects it to the gear output:
   // J_rotor N^2, large next to the load.
@@ -703,6 +983,7 @@ void step(mjModel* m, mjData* d, Devices& dv) {
   // b_old = 0 whatever a restore / clone left in the (unsaved) model array. Restored runs are then bitwise identical.
   for (const EscCfg& c : dv.esc.cfg) m->dof_damping[c.dof] = 0;
   for (const ServoCfg& c : dv.servo.cfg) m->dof_damping[c.dof] = 0;
+  prepare_motors(m, dv);  // burn state -> mass / inertia of the motor bodies, before step1 builds the composite inertias
   mj_step1(m, d);
   mju_zero(d->qfrc_applied, m->nv);  // devices own the applied forces entirely
   mju_zero(d->xfrc_applied, 6 * m->nbody);
@@ -739,11 +1020,15 @@ void step(mjModel* m, mjData* d, Devices& dv) {
   // 5. aero / forces: environment (turbulence), rotors, body drag.
   step_forces(m, d, dv);
   step_launchers(m, d, dv);  // camera pose, muzzle, pellets (kinematics of step1)
+  step_motors(m, d, dv);     // solid rocket motors (thrust at the nozzle sites)
+  step_airframes(m, d, dv);  // rocket airframe aerodynamics
+  step_vessels(m, d, dv);    // LAST force phase: needs every force of the tick for the added-mass solve; then the sea clock advances
   if (!dv.imu.cfg.empty()) dv.qvel_k.assign(d->qvel, d->qvel + m->nv);  // the IMU acceleration needs s_k's qvel
   mj_step2(m, d);
 
   // 6. post-step hook: sensors sample the derived data of s_k (sensors.cpp).
   sample_sensors(m, d, dv);
+  sample_ranges(m, d, dv);
 }
 
 // ---- state block ----
@@ -764,6 +1049,11 @@ template <class D, class F> void for_groups(D& dv, F&& f) {
   f(dv.gnss);
   f(dv.launcher);
   f(dv.camera);
+  f(dv.motor);
+  f(dv.airframe);
+  f(dv.sea);
+  f(dv.vessel);
+  f(dv.range);
 }
 template <class G> constexpr bool pod_ok = std::is_trivially_copyable_v<typename G::State> && sizeof(typename G::State) % 8 == 0;
 }  // namespace
@@ -885,6 +1175,24 @@ constexpr Attr3<LauncherState> kLauncher3[] = {{"muzzle_pos", "m", &LauncherStat
 constexpr Attr3<CameraState> kCamera3[] = {{"pos", "m", &CameraState::pos}, {"fwd", "1", &CameraState::fwd},
                                           {"up", "1", &CameraState::up}};
 
+// Phase 5. Solid motor: `ignite` is the only command (consumed by the next tick); phase 0 idle / 1 delay / 2 burning / 3 burnt out.
+constexpr Attr<SolidMotorState> kMotor[] = {
+    {"ignite", "1", &SolidMotorState::ignite, true, true, 0, 1}, {"thrust_scale", "1", &SolidMotorState::thrust_scale, true, false, 0, 2},
+    {"phase", "1", &SolidMotorState::phase}, {"time", "s", &SolidMotorState::t_ign}, {"burn_time", "s", &SolidMotorState::t_burn},
+    {"impulse", "N*s", &SolidMotorState::impulse}, {"progress", "1", &SolidMotorState::progress},
+    {"burned_mass", "kg", &SolidMotorState::burned}, {"mass", "kg", &SolidMotorState::mass}, {"thrust", "N", &SolidMotorState::thrust}};
+constexpr Attr3<SolidMotorState> kMotor3[] = {{"pos", "m", &SolidMotorState::pos}, {"dir", "1", &SolidMotorState::dir}};
+constexpr Attr<AirframeState> kAirframe[] = {{"alpha", "rad", &AirframeState::alpha}, {"speed", "m/s", &AirframeState::speed}};
+constexpr Attr3<AirframeState> kAirframe3[] = {{"force", "N", &AirframeState::force}};
+constexpr Attr<SeaState> kSea[] = {{"time", "s", &SeaState::time}, {"wave_scale", "1", &SeaState::wave_scale, true, false, 0, 10},
+                                   {"eta_origin", "m", &SeaState::eta0}, {"n_waves", "1", &SeaState::n_waves}};
+constexpr Attr3<SeaState> kSea3[] = {{"current", "m/s", &SeaState::current, true, -20, 20}};
+constexpr Attr<VesselState> kVessel[] = {{"submerged", "m^3", &VesselState::submerged}, {"wetted", "1", &VesselState::wetted},
+                                         {"eta", "m", &VesselState::eta}};
+constexpr Attr3<VesselState> kVessel3[] = {{"buoyancy", "N", &VesselState::buoyancy}, {"hydro", "N", &VesselState::hydro}};
+constexpr Attr<RangefinderState> kRange[] = {{"frames", "1", &RangefinderState::frames}, {"valid", "1", &RangefinderState::valid},
+                                             {"t", "s", &RangefinderState::t}};
+
 template <class P> struct Found { P p; const char* unit; bool rw, bin; double lo, hi; std::size_t n = 1; };
 template <class D> auto locate(D& dv, int slot, const std::string& attr) {
   using P = std::conditional_t<std::is_const_v<D>, const double*, double*>;
@@ -926,6 +1234,22 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
       break;
     }
     case Devices::Slot::camera: pick3(kCamera3, dv.camera.st); break;
+    case Devices::Slot::motor: pick(kMotor, dv.motor.st); pick3(kMotor3, dv.motor.st); break;
+    case Devices::Slot::airframe: pick(kAirframe, dv.airframe.st); pick3(kAirframe3, dv.airframe.st); break;
+    case Devices::Slot::sea: {
+      pick(kSea, dv.sea.st);
+      pick3(kSea3, dv.sea.st);
+      auto& st = dv.sea.st[static_cast<std::size_t>(s.i)];
+      if (attr == "waves") f = {st.waves, "m,rad/m,rad/s,rad,rad", false, false, 0, 0, static_cast<std::size_t>(5 * st.n_waves)};
+      break;
+    }
+    case Devices::Slot::vessel: pick(kVessel, dv.vessel.st); pick3(kVessel3, dv.vessel.st); break;
+    case Devices::Slot::range: {
+      pick(kRange, dv.range.st);
+      auto& img = dv.range_img[static_cast<std::size_t>(s.i)];
+      if (attr == "range") f = {img.data(), "m", false, false, 0, 0, img.size()};
+      break;
+    }
   }
   return f;
 }
