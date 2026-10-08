@@ -6,7 +6,7 @@ autonomy never does (it only sees the depth image).
     f.clearance(p)                            # distance from point p to the nearest obstacle SURFACE (m), exact
     f.footprints()                            # (circles, boxes) in the ground plane, for the subject's path planner
 
-Shapes are exact primitives, the same ones that become MJCF geoms (scene.py): vertical cylinders (trunks, poles, arch posts), spheres (canopies,
+Shapes are exact primitives, the same ones that become MJCF geoms (skydio_scene.py): vertical cylinders (trunks, poles, arch posts), spheres (canopies,
 boulders) and yawed boxes (wall segments, the arch lintel). The ground is the MJCF floor plane z = 0.
 
 World layout (x forward): start (0, 0) at the ground; forest between x = 4 and x = 62, |y| <= 14; goal near x = 58. `goal` mission: wall with a

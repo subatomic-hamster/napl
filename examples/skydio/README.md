@@ -46,7 +46,7 @@ the subject walks between). Likely cause of the early failure (inferred from the
 | stage | file | what it does |
 |---|---|---|
 | vehicle | `build_design.py` -> `assemblies/skydio.toml` | x500v2 + D435i + Pi 5 + 5 V regulator, wires and power load, `depth` rangefinder device on the camera's optical frame |
-| world | `forest.py`, `scene.py` | seeded obstacle field as exact primitives (cylinders, spheres, yawed boxes) -> MJCF geoms (collide, visible to the rays) and a contact sensor |
+| world | `forest.py`, `skydio_scene.py` | seeded obstacle field as exact primitives (cylinders, spheres, yawed boxes) -> MJCF geoms (collide, visible to the rays) and a contact sensor |
 | depth -> map | `mapping.py` | pinhole back-projection, log-odds voxel grid (0.2 m, 32 m torus around the drone), free-space carving along rays, separable Euclidean distance field |
 | plan | `planner.py` | 400+ velocity-ramp primitives per replan; a primitive is flown only if its whole path including the braking tail keeps 0.62 m from every occupied voxel and stays inside space the camera has already seen to be free; goal / follow objective picks among the safe ones; fallbacks brake, escape, scan |
 | follow | `follow.py` | simulated person detector (pixel box with jitter, 3 % misses, occlusion by depth) + depth-based alpha-beta tracker; the walking subject itself |

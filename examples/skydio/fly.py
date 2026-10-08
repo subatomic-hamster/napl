@@ -469,7 +469,7 @@ T_MAX = {"goal": 70.0, "follow": 60.0}
 def run_mission(mission, seed, out, cal_dir=None, t_max=None, params=None):
     """Build the scene for (mission, seed) under `out`/model and fly it, writing the artefacts into `out`. -> summary dict. (`napl program` does
     the same in two steps: the runner builds the model, this file's main() flies it.)"""
-    import scene
+    import skydio_scene as scene
 
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)

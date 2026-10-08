@@ -14,7 +14,7 @@ CENTRE_Z = 1.0  # m: height of the box centre (torso)
 
 
 class Subject:
-    """Pure-pursuit walker along a polyline, driven through the velocity actuators `subject_vx / vy / wz` of scene.py."""
+    """Pure-pursuit walker along a polyline, driven through the velocity actuators `subject_vx / vy / wz` of skydio_scene.py."""
 
     def __init__(self, sim, path, speed=SPEED):
         self.sim, self.path, self.speed = sim, np.array(path, float), speed
