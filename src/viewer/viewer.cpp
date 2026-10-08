@@ -597,6 +597,10 @@ class Viewer {
     const design::Json& res = j.at("result");
     if (rq.kind == "rev") {
       flat_.poll(static_cast<int>(res.n("flat_rev")));
+      if (const int tr = static_cast<int>(res.n("thumb_rev")); tr != thumb_rev_) {  // library thumbnails landed: ask the library again
+        thumb_rev_ = tr;
+        lib_.dirty = true;
+      }
       if (!res.at("rev").str.empty() && res.at("rev").str != dstate_.rev) d_state(true);
       return;
     }
@@ -1023,7 +1027,15 @@ class Viewer {
     pane_l_ = l;
     pane_r_ = r;
     full_page_ = mode_ == Mode::Wiring || mode_ == Mode::Program;
-    vp_ = full_page_ ? ImVec4{0, 0, 0, 0} : mode_ == Mode::Library ? ImVec4{l, kTop, W, H - kStatus} : ImVec4{l, kTop, W - r, H - kStatus};
+    vp_goal_ = full_page_ ? ImVec4{0, kTop, W, H - kStatus} : mode_ == Mode::Library ? ImVec4{l, kTop, W, H - kStatus} : ImVec4{l, kTop, W - r, H - kStatus};
+  }
+  // The 3D viewport follows its goal with an ease (~0.2 s), so the scene glides when a mode change opens or closes side panels.
+  void smooth_viewport(float dt) {
+    const float k = vp_init_ ? 1.f - std::exp(-14.f * std::min(dt, 0.1f)) : 1.f;
+    const float* g = &vp_goal_.x;
+    float* v = &vp_.x;
+    for (int i = 0; i < 4; ++i) v[i] = std::abs(g[i] - v[i]) < 0.5f ? g[i] : v[i] + (g[i] - v[i]) * k;
+    vp_init_ = true;
   }
   Camera view_camera(double W, double H) const {
     Camera c = orbit_.camera();
@@ -1115,6 +1127,15 @@ class Viewer {
     dl->AddText({16, y}, theme::u32(theme::kText), left.c_str());
     std::string msg = !dstatus_.empty() ? dstatus_ : !dstate_.build_error.empty() ? "does not build: " + dstate_.build_error : !status_.empty() ? status_ : dfut_.valid() ? "working: " + dcur_.kind + " ..." : "";
     if (msg.empty() && !edit_summary_.empty()) msg = edit_summary_;
+    if (msg.empty() && has_design_ && W > 1000) {  // keyboard hints of the page, while nothing else needs the space
+      const char* hint = mode_ == Mode::Build     ? "G MOVE   R ROTATE   F FRAME   1-4 VIEWS   DEL REMOVE   CTRL+Z UNDO"
+                         : mode_ == Mode::Library ? "CLICK A CARD FOR DETAILS   DRAG ONE INTO THE 3D VIEW"
+                         : mode_ == Mode::Wiring  ? "DRAG PIN TO PIN   WHEEL ZOOMS   MIDDLE DRAG PANS   DEL REMOVES THE SELECTED WIRE"
+                                                  : "";
+      dl->PushClipRect({W * 0.30f, 0}, {W * 0.70f, H}, true);
+      dl->AddText({W * 0.30f, y}, theme::u32(theme::kDim, 0.65f), hint);
+      dl->PopClipRect();
+    }
     if (!msg.empty()) {
       const bool bad = !dstatus_.empty() || !status_.empty() || !dstate_.build_error.empty();
       dl->PushClipRect({W * 0.30f, 0}, {W * 0.70f, H}, true);
@@ -1168,8 +1189,8 @@ class Viewer {
 
   void inspector_pane(float W, float ph) {
     begin_pane("##right", pane_pos(true, W), {pane_r_, ph});
-    static const char* const tabs[] = {"INSPECT", "PARTS", "DRC", "PLACE"};
-    const int hit = theme::tabs(tabs, 4, right_tab_, 18.f);
+    static const char* const tabs[] = {"INSPECT", "PARTS", "DRC", "PLACE", "HISTORY"};
+    const int hit = theme::tabs(tabs, 5, right_tab_, 13.f);
     if (hit >= 0) right_tab_ = hit;
     ImGui::SetCursorPos({ImGui::GetStyle().WindowPadding.x, ImGui::GetCursorPosY() + 30});  // theme::tabs leaves the cursor on its row
     ImGui::BeginChild("##rbody", {0, 0});
@@ -1177,12 +1198,51 @@ class Viewer {
     if (right_tab_ == 0) inspect_tab(sel);
     else if (right_tab_ == 1) instance_list();
     else if (right_tab_ == 2) drc_body(true);
+    else if (right_tab_ == 4) history_tab();
     else {
       if (place_.alts.empty()) ImGui::TextDisabled("Snap a part to see its placement alternatives here.");
       placement_ui();
     }
     ImGui::EndChild();
     ImGui::End();
+  }
+
+  // Undo history (python Design._undo_notes): the steps behind the document, newest last, then the steps UNDO took back. A click
+  // on a row travels there (one undo / redo request per step).
+  void history_tab() {
+    theme::caption("EDIT HISTORY");
+    if (dstate_.hist_undo.empty() && dstate_.hist_redo.empty()) {
+      ImGui::Spacing();
+      ImGui::TextDisabled("No edits yet. Add, move or wire a part and each step is listed here.");
+      ImGui::TextDisabled("Ctrl+Z undoes the last one, Ctrl+Shift+Z brings it back.");
+      return;
+    }
+    const int n = static_cast<int>(dstate_.hist_undo.size());
+    const int total = dstate_.undo;  // steps older than the list (the backend keeps the last 14)
+    if (total > n) ImGui::TextDisabled("... %d earlier steps", total - n);
+    for (int i = 0; i < n; ++i) {
+      const bool last = i == n - 1;
+      ImGui::PushID(i);
+      ImGui::PushStyleColor(ImGuiCol_Text, last ? theme::kText : theme::kDim);
+      const std::string row = std::to_string(total - n + i + 1) + "   " + dstate_.hist_undo[i];
+      if (ImGui::Selectable(row.c_str(), last)) {
+        for (int k = 0; k < n - 1 - i; ++k) d_undo(false);  // back to just after this step
+      }
+      ImGui::PopStyleColor();
+      ImGui::PopID();
+    }
+    if (!dstate_.hist_redo.empty()) {
+      ImGui::Spacing();
+      theme::caption("UNDONE (CTRL+SHIFT+Z)");
+      for (std::size_t i = 0; i < dstate_.hist_redo.size(); ++i) {
+        ImGui::PushID(1000 + static_cast<int>(i));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{theme::kDim.x, theme::kDim.y, theme::kDim.z, 0.6f});
+        if (ImGui::Selectable(dstate_.hist_redo[i].c_str(), false))
+          for (std::size_t k = 0; k <= i; ++k) d_undo(true);
+        ImGui::PopStyleColor();
+        ImGui::PopID();
+      }
+    }
   }
 
   // The primary selection's pose in the document's terms: world position (mm) and rpy (deg).
@@ -1427,6 +1487,13 @@ class Viewer {
     ImGui::TextDisabled("|");
     ImGui::SameLine();
     if (ImGui::SmallButton("FRAME")) frame_selection();
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, emph_wires_ ? theme::kAccent : theme::kDim);
+    if (ImGui::SmallButton("WIRES")) emph_wires_ = !emph_wires_;
+    ImGui::PopStyleColor();
+    ImGui::SetItemTooltip("emphasise cables: at least 4 px wide at any zoom (their true diameter is unchanged)");
     ImGui::End();
   }
 
@@ -1544,11 +1611,15 @@ class Viewer {
 
   // ---------------------------------------- WIRING / SIMULATE / PROGRAM ------------------------------------------------------
   void wiring_page(float W, float H) {
-    begin_pane("##wiring_side", {0, kTop}, {300, H - kTop - kStatus});
-    theme::caption("AUTOWIRE");
-    wiring_tab(sel_instance());
-    ImGui::End();
-    const ImVec2 pos{300, kTop}, size{W - 300, H - kTop - kStatus};
+    const float lw = flat_.active() ? 0.f : 300.f;  // the flattened canvas takes the whole page; the autowire panel belongs to the picker
+    if (lw > 0) {
+      begin_pane("##wiring_side", {0, kTop}, {lw, H - kTop - kStatus});
+      theme::caption("AUTOWIRE");
+      wiring_tab(sel_instance());
+      ImGui::End();
+    }
+    flat_.set_tooltips(tip_mode_);
+    const ImVec2 pos{lw, kTop}, size{W - lw, H - kTop - kStatus};
     begin_pane("##wire2d", pos, size, true);
     ImGui::SetCursorPos({0, 0});
     flat_.page(size, dstate_, sel_.empty() ? "" : sel_.back());  // the picker, or the flattened canvas (wire2d.cpp)
@@ -1730,7 +1801,16 @@ class Viewer {
     const double now = ImGui::GetTime();
     if (cam_anim_.active) step_cam_anim(now);
     layout(W, H);
+    smooth_viewport(io.DeltaTime);
     view_cam_ = view_camera(W, H);
+    if (opts_.design_api) {  // cables stay visible at any zoom in the design views; SIMULATE shows true widths
+      const float want = emph_wires_ && mode_ != Mode::Simulate ? 4.f : 0.f;
+      RenderStyle st = default_render_style();
+      if (st.wire_px != want) {
+        st.wire_px = want;
+        set_default_render_style(st);
+      }
+    }
     libui::Actions la;
     if (!pending_mode_.empty() && set_mode(pending_mode_)) pending_mode_.clear();
     libui::tick_typing(lib_, now, la);
@@ -1792,6 +1872,7 @@ class Viewer {
       // hover + selection marks
       if (free_mouse && !gizmo_.dragging() && !nav_drag_) hover_inst_ = b3::pick(cam, m, scene_).id;
       else if (!free_mouse && !gizmo_.dragging()) hover_inst_.clear();
+      if (tip_force_until_ > now && scene_.count(tip_force_)) hover_inst_ = tip_force_;  // scripted ui.hover
       if (hover_inst_ != hover_prev_) { hover_prev_ = hover_inst_; hover_since_ = now; }
       for (const auto& [id, g] : scene_) {
         const bool s = is_selected(id), h = id == hover_inst_;
@@ -1813,7 +1894,18 @@ class Viewer {
     }
     // navigation + picking
     if (!go.hot || !build) navigation(cam, free_mouse);
-    if (build && !hover_inst_.empty() && !go.dragging && now - hover_since_ > 0.35 && !nav_drag_ && free_mouse) hover_tip();
+    if (m.x != mouse_prev_.x || m.y != mouse_prev_.y) mouse_move_t_ = now;
+    mouse_prev_ = m;
+    if (build && !hover_inst_.empty() && !go.dragging && !go.hot && now - hover_since_ > 0.35 && !part_drag_active()) {
+      const bool forced = tip_force_until_ > now && hover_inst_ == tip_force_;
+      if (forced) {  // anchored at the part, offset up and to the right so the card does not hide it
+        const auto g = scene_.find(hover_inst_);
+        ImVec2 s;
+        if (g != scene_.end() && cam.project((g->second.lo + g->second.hi) * 0.5, s)) hover_tip({s.x + 20, s.y - 60});
+      } else if (tip_allowed(now) && !nav_drag_ && free_mouse) {
+        hover_tip(m);
+      }
+    }
     drag_drop_layer(cam, dl, now);
     dl->PopClipRect();
     if (build) shortcuts();
@@ -1870,30 +1962,45 @@ class Viewer {
     set_sel(next);
   }
 
-  void hover_tip() {
+  // Compact hover card: name, "id . mass", three key parameters; offset from `anchor` (the cursor, or the part for a scripted hover) so it
+  // never sits under the pointer. When it is shown at all: tip_mode_ (ui.view) and tip_allowed().
+  void hover_tip(ImVec2 anchor) {
     const auto it = std::find_if(design_.instances.begin(), design_.instances.end(), [&](const design::Instance& i) { return i.id == hover_inst_; });
     if (it == design_.instances.end()) return;
     want_info(it->part);
-    ImGui::BeginTooltip();
     const auto inf = lib_.infos.find(it->part);
-    ImGui::PushFont(nullptr, 15.f);
-    ImGui::TextUnformatted(inf != lib_.infos.end() && !inf->second.name.empty() ? inf->second.name.c_str() : it->part.c_str());
+    std::string name = inf != lib_.infos.end() && !inf->second.name.empty() ? inf->second.name : it->part;
+    if (name.size() > 34) name = name.substr(0, 33) + "...";
+    ImGui::SetNextWindowPos({anchor.x + 18, anchor.y + 22});
+    ImGui::SetNextWindowSizeConstraints({0, 0}, {250, 1e4f});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10, 7});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8, 3});
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0.045f, 0.045f, 0.052f, 0.93f});
+    ImGui::BeginTooltip();
+    ImGui::PushFont(nullptr, 14.f);
+    ImGui::TextUnformatted(name.c_str());
     ImGui::PopFont();
-    ImGui::TextDisabled("%s   %s", it->id.c_str(), it->part.c_str());
-    ImGui::TextDisabled("%.1f g%s", it->mass * 1000, it->group.empty() ? "" : ("   " + it->group).c_str());
+    ImGui::PushFont(nullptr, 12.f);
+    ImGui::TextDisabled("%s  |  %.1f g", it->id.c_str(), it->mass * 1000);
     if (inf != lib_.infos.end()) {
       int shown = 0;
       for (const libui::ParamRow& p : inf->second.params) {
-        if (shown >= 5) break;
+        if (shown >= 3) break;
         if (p.name == "mass" || p.value == "(table)" || p.value.empty()) continue;
         ImGui::Text("%s", p.name.c_str());
-        ImGui::SameLine(110);
+        ImGui::SameLine(112);
         ImGui::TextDisabled("%s %s", p.value.c_str(), p.unit.c_str());
         ++shown;
       }
     }
+    ImGui::PopFont();
     ImGui::EndTooltip();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(3);
   }
+  // Hover cards appear for a person who is moving the mouse (auto), always (on) or never (off); a scripted ui.hover overrides.
+  bool tip_allowed(double now) const { return tip_mode_ == 1 || (tip_mode_ == 0 && now - mouse_move_t_ < 10.0); }
 
   void shortcuts() {
     const ImGuiIO& io = ImGui::GetIO();
@@ -2137,6 +2244,17 @@ class Viewer {
     } else if (cmd == "gizmo") {
       const std::string m = e.s("mode");
       gizmo_.mode = m == "rotate" ? b3::Gizmo::Rotate : m == "none" ? b3::Gizmo::Off : b3::Gizmo::Move;
+    } else if (cmd == "view") {
+      const std::string t = e.s("tooltips");
+      tip_mode_ = t == "on" ? 1 : t == "off" ? 2 : 0;
+      emph_wires_ = e.at("emphasise_wires").kind == design::Json::Bool || e.at("emphasise_wires").kind == design::Json::Num ? e.at("emphasise_wires").num != 0 : emph_wires_;
+    } else if (cmd == "toast") {
+      flat_.notify(e.s("text"), e.at("bad").num != 0);
+    } else if (cmd == "hover") {
+      tip_force_ = e.s("instance");
+      tip_force_until_ = now + e.n("seconds", 6.0);
+      hover_since_ = now - 1;
+      if (mode_ != Mode::Build) set_mode("build");
     } else if (cmd == "guides") snap_.guides = e.at("on").num != 0;
     else if (cmd == "snap") {
       snap_.grid = e.n("grid_m", snap_.grid), snap_.angle = e.n("angle_deg", snap_.angle);
@@ -2287,7 +2405,9 @@ class Viewer {
   int cycling_ = -1, finding_ = -1;
   // ---- the split UI (modes, panes, library, 3D interaction) ----
   Mode mode_ = Mode::Simulate;
-  ImVec4 vp_{0, 0, 0, 0};  // viewport rectangle x0 y0 x1 y1 (window pixels)
+  ImVec4 vp_{0, 0, 0, 0};  // viewport rectangle x0 y0 x1 y1 (window pixels), eased toward vp_goal_
+  ImVec4 vp_goal_{0, 0, 0, 0};
+  bool vp_init_ = false;
   float pane_l_ = 0, pane_r_ = 0;
   bool full_page_ = false;
   Camera view_cam_;
@@ -2303,6 +2423,12 @@ class Viewer {
   std::vector<std::string> sel_, sel_synced_;
   std::string hover_inst_, hover_prev_;
   double hover_since_ = 0;
+  int tip_mode_ = 0;  // ui.view tooltips: 0 auto (while a person moves the mouse), 1 on, 2 off
+  std::string tip_force_;  // ui.hover: this instance's card is shown until tip_force_until_
+  double tip_force_until_ = 0, mouse_move_t_ = -1e9;
+  ImVec2 mouse_prev_{-1, -1};
+  bool emph_wires_ = true;  // ui.view emphasise_wires: cables >= 4 px wide in BUILD / LIBRARY / WIRING (SIMULATE keeps true widths)
+  int thumb_rev_ = 0;       // backend: library thumbnails finished so far (changes -> ask the library again)
   bool press_ = false, press_moved_ = false, pan_ = false, nav_drag_ = false;
   ImVec2 press_pos_{0, 0};
   std::vector<b3::Guide> flash_guides_;

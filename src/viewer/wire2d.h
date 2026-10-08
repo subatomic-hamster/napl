@@ -32,6 +32,9 @@ struct Wire {
   double awg = 0, length = 0;
   int conductors = 1;
   double born = -1e9;  // ImGui time its draw animation starts (far past: no animation)
+  std::vector<ImVec2> route;  // canvas units: orthogonal polyline from the `from` pin to the `to` pin (the backend routes it, wire2d_route.py)
+  std::string label;          // gauge text and where it goes (canvas centre); empty = no free spot
+  ImVec2 label_at{0, 0}, label_size{0, 0};
 };
 
 class Canvas {
@@ -41,6 +44,10 @@ class Canvas {
   explicit Canvas(Send send) : send_(std::move(send)) {}
 
   bool active() const { return active_; }
+  // Hover cards / hover highlight of the canvas: 0 auto (only while a person moves the mouse), 1 always, 2 never (ui.view tooltips).
+  void set_tooltips(int mode) { tip_mode_ = mode; }
+  // A message for the canvas's toast strip (a refusal of an op a scripted agent sent: the window never saw that reply).
+  void notify(const std::string& text, bool bad) { toast(text, bad); }
   // Inside the viewer's WIRING pane window (cursor at the pane's top-left, `size` = its content area): the component /
   // terminal picker, or the flattened canvas + side panel. `selected`: the instance selected in the viewer ("" = none).
   void page(ImVec2 size, const design::State& st, const std::string& selected);
@@ -63,6 +70,10 @@ class Canvas {
   const Card* card(const std::string& id) const;
   bool pin_pos(const Card& c, const Pin& p, float& x, float& y) const;
   void toast(const std::string& s, bool bad);
+  // The wire's screen polyline (corners rounded). While one of its cards is being dragged the backend's route is stale: a plain
+  // Z-route between the two pins is drawn until the card is dropped and the backend routes again.
+  std::vector<ImVec2> wire_path(const Wire& w, ImVec2* label_c, bool* has_label) const;
+  void legend(ImDrawList* dl, ImVec2 org, ImVec2 size, float a) const;
 
   Send send_;
   bool active_ = false;            // the backend's flatten mode
@@ -80,6 +91,8 @@ class Canvas {
   bool toast_bad_ = false;
   double toast_t_ = -1e9;
   double new_wire_slot_ = 0;       // staggers the draw animations of wires that arrive together
+  int tip_mode_ = 0;
+  double move_t_ = -1e9;           // last time the mouse moved
   // selection (3D mode)
   std::map<std::string, std::set<std::string>> pick_;  // instance -> chosen terminals
   char filter_[64] = "";

@@ -124,3 +124,133 @@ def test_wire_direction_pushes_the_target_card_right(pair):
     f = ask(b, "flatten.layout")["flatten"]
     x = {c["id"]: c["x"] for c in f["cards"]}
     assert x["esc1"] > x["pdb"]
+
+
+def test_wiring_relays_out_until_a_card_is_moved_by_hand(pair):
+    _, _, b = pair
+    begin(b)
+    f = ask(b, "flatten.wire", {"from": PAIR[0], "to": PAIR[1]})["flatten"]
+    x = {c["id"]: c["x"] for c in f["cards"]}
+    assert x["esc1"] > x["pdb"]  # no layout call: the wire alone moved the cards
+    ask(b, "flatten.move_card", {"id": "pdb", "x": 5.0, "y": 5.0})
+    f = ask(b, "flatten.unwire", {"name": f["wires"][0]["name"]})["flatten"]
+    assert next(c for c in f["cards"] if c["id"] == "pdb")["x"] == 5.0
+
+
+# ---- layout and routing -----------------------------------------------------------------------------------------------------------
+def _all_wired(tmp_path, asm="x500v2"):
+    d = Design.open(X500.with_name(f"{asm}.toml"))
+    b = Backend(lambda: d, tmp_path)
+    ids = sorted(
+        {w[e].partition(".")[0] for w in d.doc["wires"] for e in ("from", "to")}
+    )
+    ports = [w[e] for w in d.doc["wires"] for e in ("from", "to")]
+    r = ask(b, "flatten.begin", {"instances": ids, "ports": sorted(set(ports))})
+    assert r["ok"], r
+    return r["flatten"]
+
+
+def _inside(p, q, c):
+    """Does the axis-parallel segment p-q enter the interior of card c (shrunk by 0.1: routes are rounded to 0.01)?"""
+    (x0, y0), (x1, y1) = p, q
+    lo_x, hi_x, lo_y, hi_y = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
+    l, t, r, b = (
+        c["x"] + 0.1,
+        c["y"] + 0.1,
+        c["x"] + c["w"] - 0.1,
+        c["y"] + c["h"] - 0.1,
+    )
+    return (
+        lo_x < r
+        and hi_x > l
+        and lo_y < b
+        and hi_y > t
+        and not (x0 == x1 and not l < x0 < r)
+        and not (y0 == y1 and not t < y0 < b)
+    )
+
+
+ASMS = ["x500v2", "so101", "koch", "rover", "car4", "aos5", "turret"]
+
+
+@pytest.mark.parametrize("asm", ASMS)
+def test_layout_cards_do_not_overlap_and_flow_left_to_right(tmp_path, asm):
+    f = _all_wired(tmp_path, asm)
+    cards = f["cards"]
+    assert len(cards) >= 3
+    for i, a in enumerate(cards):
+        for b in cards[i + 1 :]:
+            assert not (
+                a["x"] < b["x"] + b["w"]
+                and b["x"] < a["x"] + a["w"]
+                and a["y"] < b["y"] + b["h"]
+                and b["y"] < a["y"] + a["h"]
+            ), (a["id"], b["id"])
+    if asm == "x500v2":
+        x = {c["id"]: c["x"] for c in cards}
+        assert (
+            x["bat"] < x["pdb"] < x["esc1"] < x["mot1"]
+        )  # sources -> distribution -> ESCs -> loads
+        assert x["esc1"] == x["esc2"] and x["mot1"] == x["mot2"]  # one layer each
+
+
+@pytest.mark.parametrize("asm", ASMS)
+def test_pins_sit_on_the_side_facing_their_peer_and_wires_avoid_cards(tmp_path, asm):
+    f = _all_wired(tmp_path, asm)
+    cards = {c["id"]: c for c in f["cards"]}
+    assert f["wires"]
+    for w in f["wires"]:
+        (ia, _, pa), (ib, _, pb) = w["from"].partition("."), w["to"].partition(".")
+        ca, cb = cards[ia], cards[ib]
+        sa = {p["name"]: p["side"] for p in ca["pins"]}[pa]
+        sb = {p["name"]: p["side"] for p in cb["pins"]}[pb]
+        if ca["band"] == cb["band"] and ca["layer"] != cb["layer"]:
+            lo, hi = (sa, sb) if ca["layer"] < cb["layer"] else (sb, sa)
+            assert (lo, hi) == ("right", "left"), (w["name"], sa, sb)
+        r = w["route"]
+        assert len(r) >= 2
+        for p, q in zip(r, r[1:]):
+            assert p[0] == q[0] or p[1] == q[1], (w["name"], "not orthogonal")
+            for c in cards.values():
+                assert not _inside(p, q, c), (w["name"], "passes through", c["id"])
+
+
+@pytest.mark.parametrize("asm", ASMS)
+def test_labels_and_card_widths_leave_no_overlap(tmp_path, asm):
+    f = _all_wired(tmp_path, asm)
+    boxes = []
+    for w in f["wires"]:
+        lab = w["label"]
+        if lab is not None:
+            boxes.append(
+                (
+                    lab["x"] - lab["w"] / 2,
+                    lab["y"] - lab["h"] / 2,
+                    lab["x"] + lab["w"] / 2,
+                    lab["y"] + lab["h"] / 2,
+                )
+            )
+    assert len(boxes) >= len(f["wires"]) * 0.8  # nearly every wire is labelled
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1 :]:
+            assert not (a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3])
+        for c in f["cards"]:
+            assert not (
+                a[0] < c["x"] + c["w"]
+                and c["x"] < a[2]
+                and a[1] < c["y"] + c["h"]
+                and c["y"] < a[3]
+            )
+    for c in f[
+        "cards"
+    ]:  # wide enough for the widest left pin text plus the widest right pin text
+        for side in ("left", "right"):
+            need = max(
+                (
+                    len(p["name"]) * 7.6 + len(p["type"]) * 6.0
+                    for p in c["pins"]
+                    if p["side"] == side
+                ),
+                default=0,
+            )
+            assert c["w"] >= need

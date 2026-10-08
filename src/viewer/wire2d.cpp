@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "viewer/theme.h"
+
 namespace wire2d {
 namespace {
 constexpr float kHeadH = 30, kPad = 10, kRowH = 22;  // mirror python/napl/design/wire2d.py
@@ -52,18 +54,61 @@ Bez make_bez(ImVec2 a, bool a_right, ImVec2 b, bool b_right, float zoom) {
   const float k = std::max(50.f * zoom, std::abs(b.x - a.x) * 0.5f);
   return {{a, {a.x + (a_right ? k : -k), a.y}, {b.x + (b_right ? k : -k), b.y}, b}};
 }
-float dist_to_bez(const Bez& b, ImVec2 m) {
+float dist_to_poly(const std::vector<ImVec2>& pts, ImVec2 m) {
   float best = 1e9f;
-  ImVec2 prev = b.at(0);
-  for (int i = 1; i <= 32; ++i) {
-    const ImVec2 q = b.at(i / 32.f);
+  for (std::size_t i = 1; i < pts.size(); ++i) {
+    const ImVec2 prev = pts[i - 1], q = pts[i];
     const float vx = q.x - prev.x, vy = q.y - prev.y, wx = m.x - prev.x, wy = m.y - prev.y;
     const float len2 = vx * vx + vy * vy, t = len2 > 0 ? std::clamp((vx * wx + vy * wy) / len2, 0.f, 1.f) : 0.f;
     const float dx = prev.x + t * vx - m.x, dy = prev.y + t * vy - m.y;
     best = std::min(best, std::sqrt(dx * dx + dy * dy));
-    prev = q;
   }
   return best;
+}
+// Corners of an orthogonal polyline rounded with radius <= r (a quadratic curve through each corner), flattened.
+std::vector<ImVec2> round_path(const std::vector<ImVec2>& p, float r) {
+  std::vector<ImVec2> o;
+  if (p.size() < 3) return p;
+  o.push_back(p[0]);
+  for (std::size_t i = 1; i + 1 < p.size(); ++i) {
+    const ImVec2 a = p[i - 1], b = p[i], c = p[i + 1];
+    const float la = std::hypot(b.x - a.x, b.y - a.y), lc = std::hypot(c.x - b.x, c.y - b.y);
+    const float k = std::min({r, la / 2, lc / 2});
+    if (k < 1) {
+      o.push_back(b);
+      continue;
+    }
+    const ImVec2 s{b.x + (a.x - b.x) / la * k, b.y + (a.y - b.y) / la * k}, e{b.x + (c.x - b.x) / lc * k, b.y + (c.y - b.y) / lc * k};
+    for (int j = 0; j <= 6; ++j) {
+      const float t = j / 6.f, u = 1 - t;
+      o.push_back({u * u * s.x + 2 * u * t * b.x + t * t * e.x, u * u * s.y + 2 * u * t * b.y + t * t * e.y});
+    }
+  }
+  o.push_back(p.back());
+  return o;
+}
+float poly_len(const std::vector<ImVec2>& p) {
+  float l = 0;
+  for (std::size_t i = 1; i < p.size(); ++i) l += std::hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y);
+  return l;
+}
+// The first `f` (0..1) of the polyline by length.
+std::vector<ImVec2> prefix(const std::vector<ImVec2>& p, float f) {
+  if (f >= 1 || p.size() < 2) return p;
+  const float want = poly_len(p) * f;
+  std::vector<ImVec2> o{p[0]};
+  float acc = 0;
+  for (std::size_t i = 1; i < p.size(); ++i) {
+    const float l = std::hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y);
+    if (acc + l >= want) {
+      const float t = l > 0 ? (want - acc) / l : 0;
+      o.push_back({p[i - 1].x + (p[i].x - p[i - 1].x) * t, p[i - 1].y + (p[i].y - p[i - 1].y) * t});
+      return o;
+    }
+    acc += l;
+    o.push_back(p[i]);
+  }
+  return o;
 }
 }  // namespace
 
@@ -77,6 +122,34 @@ bool Canvas::pin_pos(const Card& c, const Pin& p, float& x, float& y) const {
   x = ox_ + (c.x + (p.side == "right" ? c.w : 0)) * zoom_;
   y = oy_ + (c.y + kHeadH + kPad * 0.5f + (static_cast<float>(p.row) + 0.5f) * kRowH) * zoom_;
   return true;
+}
+
+std::vector<ImVec2> Canvas::wire_path(const Wire& w, ImVec2* label_c, bool* has_label) const {
+  *has_label = !w.label.empty();
+  const bool stale = drag_.kind == Drag::on_card && (w.from.rfind(drag_.card + ".", 0) == 0 || w.to.rfind(drag_.card + ".", 0) == 0);
+  std::vector<ImVec2> pts;
+  if (!stale && w.route.size() >= 2) {
+    for (const ImVec2& p : w.route) pts.push_back({ox_ + p.x * zoom_, oy_ + p.y * zoom_});
+    *label_c = {ox_ + w.label_at.x * zoom_, oy_ + w.label_at.y * zoom_};
+    return pts;
+  }
+  ImVec2 a[2];
+  bool right[2] = {false, false}, ok[2] = {false, false};
+  const std::string* refs[2] = {&w.from, &w.to};
+  for (int k = 0; k < 2; ++k) {
+    const std::size_t dot = refs[k]->find('.');
+    const Card* c = card(refs[k]->substr(0, dot));
+    if (!c) continue;
+    for (const Pin& p : c->pins)
+      if (p.name == refs[k]->substr(dot + 1)) pin_pos(*c, p, a[k].x, a[k].y), right[k] = p.side == "right", ok[k] = true;
+  }
+  if (!ok[0] || !ok[1]) return pts;
+  const float st = 16 * zoom_;
+  const ImVec2 s0{a[0].x + (right[0] ? st : -st), a[0].y}, s1{a[1].x + (right[1] ? st : -st), a[1].y};
+  const float mx = (s0.x + s1.x) / 2;
+  pts = {a[0], s0, {mx, s0.y}, {mx, s1.y}, s1, a[1]};
+  *label_c = {mx, (s0.y + s1.y) / 2};
+  return pts;
 }
 
 void Canvas::toast(const std::string& s, bool bad) {
@@ -118,6 +191,10 @@ void Canvas::apply(const design::Json& f) {
     Wire n;
     n.name = w.s("name"), n.from = w.s("from"), n.to = w.s("to"), n.part = w.s("part"), n.kind = w.s("kind");
     n.awg = w.n("awg"), n.length = w.n("length"), n.conductors = static_cast<int>(w.n("conductors", 1));
+    for (const design::Json& p : w.at("route").arr)
+      if (p.arr.size() >= 2) n.route.push_back({static_cast<float>(p.arr[0].num), static_cast<float>(p.arr[1].num)});
+    if (const design::Json& l = w.at("label"); l.kind == design::Json::Obj)
+      n.label = l.s("text"), n.label_at = {static_cast<float>(l.n("x")), static_cast<float>(l.n("y"))}, n.label_size = {static_cast<float>(l.n("w")), static_cast<float>(l.n("h"))};
     if (known.count(n.name)) {
       for (const Wire& o : wires_)
         if (o.name == n.name) n.born = o.born;
@@ -133,6 +210,13 @@ void Canvas::apply(const design::Json& f) {
     for (Wire& w : wnext) w.born = -1e9;
     new_wire_slot_ = 0;
   }
+  auto moved = [&](const std::vector<Card>& o) {  // the backend re-laid-out the cards (a hand move already updated the local ones)
+    if (o.size() != next.size()) return false;
+    for (size_t i = 0; i < o.size(); ++i)
+      if (std::abs(o[i].x - next[i].x) + std::abs(o[i].y - next[i].y) + std::abs(o[i].w - next[i].w) > 1.f) return true;
+    return false;
+  };
+  if (was && active_ && drag_.kind == Drag::none && moved(cards_)) fit_pending_ = true;
   cards_ = std::move(next);
   wires_ = std::move(wnext);
   hidden_wires_ = static_cast<int>(f.n("hidden_wires"));
@@ -171,24 +255,34 @@ void Canvas::fit() {
 
 // ---- 3D mode: choose components and terminals ----------------------------------------------------------------------------
 void Canvas::select_ui(const design::State& st, const std::string& selected) {
-  ImGui::SetCursorPos({24, 24});
+  ImGui::SetCursorPos({28, 24});
   ImGui::BeginGroup();
   ImGui::PushItemWidth(std::min(360.f, sz_.x - 80));
-  ImGui::TextWrapped("Pick components and the terminals to wire, then flatten them into a 2D wiring canvas.");
-  ImGui::InputText("filter", filter_, sizeof filter_);
-  if (ImGui::Button("add selected") && !selected.empty()) {
+  theme::caption("2D WIRING");
+  ImGui::PushFont(nullptr, 18.f);
+  ImGui::TextUnformatted("Wire components on a flat canvas");
+  ImGui::PopFont();
+  ImGui::PushStyleColor(ImGuiCol_Text, theme::kDim);
+  ImGui::PushTextWrapPos(std::min(420.f, sz_.x - 60));
+  ImGui::TextWrapped("Pick the components and the terminals to wire, then flatten them: sources sit on the left, loads on the right, and dragging a pin onto another one lays the wire.");
+  ImGui::PopTextWrapPos();
+  ImGui::PopStyleColor();
+  ImGui::Spacing();
+  ImGui::InputTextWithHint("##filter", "filter components", filter_, sizeof filter_);
+  ImGui::Spacing();
+  if (theme::button("ADD SELECTED") && !selected.empty()) {
     auto it = st.ports.find(selected);
     if (it != st.ports.end())
       for (const design::Port& p : it->second)
         if (p.kind == "power" || p.kind == "signal") pick_[selected].insert(p.name);
     pick_[selected];
   }
-  ImGui::SetItemTooltip("the instance selected in the Design window (all its power / signal terminals)");
+  ImGui::SetItemTooltip("the instance selected in BUILD (all its power / signal terminals)");
   ImGui::SameLine();
-  if (ImGui::Button("clear")) pick_.clear();
+  if (theme::button("CLEAR")) pick_.clear();
   ImGui::SameLine();
   ImGui::BeginDisabled(pick_.empty());
-  if (ImGui::Button("flatten >")) {
+  if (theme::button("FLATTEN", true)) {
     std::string ids, ports;
     for (const auto& [id, ps] : pick_) {
       ids += (ids.empty() ? "" : ",") + design::quote(id);
@@ -199,6 +293,10 @@ void Canvas::select_ui(const design::State& st, const std::string& selected) {
     send_("flatten.begin", "{\"instances\":[" + ids + "],\"ports\":{" + ports + "}}", false);
   }
   ImGui::EndDisabled();
+  std::size_t terminals = 0;
+  for (const auto& [id, ps] : pick_) terminals += ps.size();
+  if (pick_.empty()) ImGui::TextDisabled("Nothing picked yet: tick components below, or select one in BUILD and press ADD SELECTED.");
+  else ImGui::TextDisabled("%zu component%s, %zu terminal%s picked", pick_.size(), pick_.size() == 1 ? "" : "s", terminals, terminals == 1 ? "" : "s");
   ImGui::Separator();
   ImGui::BeginChild("pick", {std::min(520.f, sz_.x - 48), sz_.y - ImGui::GetCursorPosY() - 16});
   const std::string f = filter_;
@@ -291,34 +389,35 @@ void Canvas::canvas_ui() {
       }
     return false;
   };
+  if (io.MouseDelta.x != 0 || io.MouseDelta.y != 0) move_t_ = now;
+  const bool tips = tip_mode_ == 1 || (tip_mode_ == 0 && now - move_t_ < 10.0);  // a still pointer (recordings) hovers nothing
   hover_wire_.clear();
-  if (!hp && drag_.kind == Drag::none) {
+  if (tips && !hp && drag_.kind == Drag::none) {
     float best = 7;
     for (const Wire& w : wires_) {
-      ImVec2 p0, p1;
-      bool r0, r1;
-      if (!pos_of(w.from, p0, r0) || !pos_of(w.to, p1, r1)) continue;
-      const float d = dist_to_bez(make_bez(p0, r0, p1, r1, zoom_), io.MousePos);
+      ImVec2 lc;
+      bool hl;
+      const std::vector<ImVec2> pts = wire_path(w, &lc, &hl);
+      const float d = dist_to_poly(pts, io.MousePos);
       if (d < best) best = d, hover_wire_ = w.name;
     }
   }
 
-  // wires (under the cards)
+  // wires (under the cards): orthogonal routes from the backend, rounded corners, an arrow into the target pin
+  std::vector<std::pair<const Wire*, std::pair<ImVec2, bool>>> labels;
   for (const Wire& w : wires_) {
-    ImVec2 p0, p1;
-    bool r0, r1;
-    if (!pos_of(w.from, p0, r0) || !pos_of(w.to, p1, r1)) continue;
-    const Bez b = make_bez(p0, r0, p1, r1, zoom_);
+    ImVec2 lc{0, 0};
+    bool has_label = false;
+    const std::vector<ImVec2> raw = wire_path(w, &lc, &has_label);
+    if (raw.size() < 2) continue;
+    const std::vector<ImVec2> path = round_path(raw, 9 * zoom_);
     const double t = (now - w.born) / kWireAnim;
     const bool drawing = t >= 0 && t < 1;
     if (t < 0) continue;  // queued behind another wire's animation
     const float f = drawing ? static_cast<float>(ease_out(t)) : 1.f;
     const bool sel = w.name == sel_wire_, hov = w.name == hover_wire_;
-    const float th = (sel ? 5.f : hov ? 4.5f : 3.f) * std::max(0.7f, zoom_);
-    ImVec2 prev = b.at(0);
-    const int n = std::max(2, static_cast<int>(40 * f));
-    std::vector<ImVec2> pts{prev};
-    for (int i = 1; i <= n; ++i) pts.push_back(b.at(f * i / n));
+    const float th = (sel ? 4.5f : hov ? 4.f : 2.6f) * std::max(0.75f, zoom_);
+    const std::vector<ImVec2> pts = prefix(path, f);
     if (sel) dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), IM_COL32(255, 255, 255, static_cast<int>(200 * a)), 0, th + 3);
     dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), kind_col(w.kind, static_cast<int>(240 * a)), 0, th);
     if (drawing) {  // the cursor that "drags" the wire
@@ -326,14 +425,20 @@ void Canvas::canvas_ui() {
       dl->AddCircleFilled(tip, 7 * zoom_, IM_COL32(255, 255, 255, 230));
       dl->AddCircle(tip, 11 * zoom_, kind_col(w.kind, 220), 0, 2);
     } else {
-      const ImVec2 mid = b.at(0.5f);
-      char lab[64];
-      if (w.awg > 0) std::snprintf(lab, sizeof lab, "%.0f AWG", w.awg);
-      else std::snprintf(lab, sizeof lab, "%s", w.part.c_str());
-      const ImVec2 ts = font->CalcTextSizeA(fs * 0.85f, 1e9f, 0, lab);
-      dl->AddRectFilled({mid.x - ts.x / 2 - 4, mid.y - ts.y / 2 - 2}, {mid.x + ts.x / 2 + 4, mid.y + ts.y / 2 + 2}, IM_COL32(10, 12, 16, 220), 3);
-      dl->AddText(font, fs * 0.85f, {mid.x - ts.x / 2, mid.y - ts.y / 2}, IM_COL32(230, 232, 238, 255), lab);
+      const ImVec2 e = path.back(), q = path[path.size() - 2];
+      const float l = std::max(1e-3f, std::hypot(e.x - q.x, e.y - q.y)), ux = (e.x - q.x) / l, uy = (e.y - q.y) / l, s = 5.5f * std::max(0.75f, zoom_);
+      const ImVec2 base{e.x - ux * (6 * zoom_ + 1), e.y - uy * (6 * zoom_ + 1)};  // stops short of the pin dot
+      dl->AddTriangleFilled({base.x + ux * s, base.y + uy * s}, {base.x - uy * s * 0.7f, base.y + ux * s * 0.7f}, {base.x + uy * s * 0.7f, base.y - ux * s * 0.7f},
+                            kind_col(w.kind, static_cast<int>(240 * a)));
+      if (has_label) labels.push_back({&w, {lc, sel}});
     }
+  }
+  for (const auto& [w, at] : labels) {  // gauge labels on top of every wire (positions chosen by the backend: no overlaps)
+    const ImVec2 ts = font->CalcTextSizeA(fs * 0.8f * std::max(0.8f, zoom_), 1e9f, 0, w->label.c_str());
+    const ImVec2 c = at.first;
+    dl->AddRectFilled({c.x - ts.x / 2 - 5, c.y - ts.y / 2 - 2}, {c.x + ts.x / 2 + 5, c.y + ts.y / 2 + 2}, IM_COL32(14, 17, 22, 235), 4);
+    dl->AddRect({c.x - ts.x / 2 - 5, c.y - ts.y / 2 - 2}, {c.x + ts.x / 2 + 5, c.y + ts.y / 2 + 2}, kind_col(w->kind, 150), 4, 0, 1.f);
+    dl->AddText(font, fs * 0.8f * std::max(0.8f, zoom_), {c.x - ts.x / 2, c.y - ts.y / 2}, IM_COL32(230, 232, 238, 255), w->label.c_str());
   }
 
   // cards
@@ -414,13 +519,25 @@ void Canvas::canvas_ui() {
   }
   if (!sel_wire_.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete) && !io.WantTextInput)
     send_("flatten.unwire", str_args({{"name", design::quote(sel_wire_)}}), false);
-  if (hp && drag_.kind == Drag::none) {
+  if (tips && hp && drag_.kind == Drag::none) {
     ImGui::BeginTooltip();
     ImGui::Text("%s.%s", hc->id.c_str(), hp->name.c_str());
     ImGui::TextDisabled("%s  %s  %s%s%s", hp->kind.c_str(), hp->type.c_str(), hp->gender.c_str(), hp->role.empty() ? "" : "  ", hp->role.c_str());
     ImGui::TextDisabled("drag to another pin to wire");
     ImGui::EndTooltip();
   }
+
+  if (!hover_wire_.empty() && !hp && drag_.kind == Drag::none) {
+    for (const Wire& w : wires_)
+      if (w.name == hover_wire_) {
+        ImGui::BeginTooltip();
+        ImGui::Text("%s", w.name.c_str());
+        ImGui::TextDisabled("%s -> %s", w.from.c_str(), w.to.c_str());
+        ImGui::TextDisabled("%s%s", w.part.c_str(), w.awg > 0 ? (",  " + std::to_string(static_cast<int>(w.awg)) + " AWG").c_str() : "");
+        ImGui::EndTooltip();
+      }
+  }
+  legend(dl, org_, cs, a);
 
   // title strip + toast
   const float x0 = org_.x, y0 = org_.y;
@@ -443,25 +560,45 @@ void Canvas::canvas_ui() {
   dl->PopClipRect();
 }
 
+// Bottom-right key of the canvas: wire kinds, pin states, the flow arrow, the gauge label.
+void Canvas::legend(ImDrawList* dl, ImVec2 org, ImVec2 size, float a) const {
+  ImFont* font = ImGui::GetFont();
+  const float fs = ImGui::GetFontSize() * 0.8f, w = 168, h = 112, x = org.x + size.x - w - 14, y = org.y + size.y - h - 14;
+  const auto al = [&](int v) { return static_cast<int>(v * a); };
+  dl->AddRectFilled({x, y}, {x + w, y + h}, IM_COL32(8, 10, 14, al(225)), 6);
+  dl->AddRect({x, y}, {x + w, y + h}, IM_COL32(120, 130, 148, al(90)), 6);
+  dl->AddText(font, fs * 0.92f, {x + 10, y + 7}, IM_COL32(150, 160, 178, al(255)), "LEGEND");
+  const auto row = [&](float yy, const char* text) { dl->AddText(font, fs, {x + 52, yy - fs / 2}, IM_COL32(220, 224, 232, al(255)), text); };
+  float yy = y + 30;
+  dl->AddLine({x + 10, yy}, {x + 42, yy}, kind_col("power", al(240)), 2.6f), row(yy, "power wire");
+  yy += 18;
+  dl->AddLine({x + 10, yy}, {x + 42, yy}, kind_col("signal", al(240)), 2.6f), row(yy, "signal wire");
+  yy += 18;
+  dl->AddCircleFilled({x + 20, yy}, 5, IM_COL32(150, 150, 160, al(255)));
+  dl->AddCircle({x + 36, yy}, 5, IM_COL32(150, 150, 160, al(255)), 0, 2);
+  row(yy, "wired / open pin");
+  yy += 18;
+  dl->AddTriangleFilled({x + 42, yy}, {x + 34, yy - 4}, {x + 34, yy + 4}, IM_COL32(150, 150, 160, al(255)));
+  dl->AddLine({x + 10, yy}, {x + 34, yy}, IM_COL32(150, 150, 160, al(255)), 2.f);
+  row(yy, "flow: source to load");
+}
+
 void Canvas::side_ui() {
   ImGui::SetCursorScreenPos({org_.x + sz_.x - kSideW + 10, org_.y + 44});
   ImGui::BeginChild("wiring tools", {kSideW - 20, sz_.y - 60});
-  if (ImGui::Button("< back to 3D")) send_("flatten.end", "{}", false);
+  if (theme::button("< BACK TO 3D")) send_("flatten.end", "{}", false);
   ImGui::SameLine();
-  if (ImGui::Button("auto layout")) {
+  if (theme::button("AUTO LAYOUT")) {
     send_("flatten.layout", "{}", false);
     fit_pending_ = true;
   }
   ImGui::SameLine();
-  if (ImGui::Button("fit")) fit();
-  ImGui::Separator();
-  ImGui::TextWrapped("Drag from a pin to another pin to wire them. Drag a card by its header. Wheel zooms, middle mouse pans.");
-  ImGui::Separator();
-  ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kind_col("power")), "power");
-  ImGui::SameLine();
-  ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kind_col("signal")), "signal");
-  ImGui::SameLine();
-  ImGui::TextDisabled("(filled pin = wired)");
+  if (theme::button("FIT")) fit();
+  ImGui::Spacing();
+  ImGui::TextDisabled("Drag from a pin onto another pin to wire them.");
+  ImGui::TextDisabled("Drag a card by its header. Wheel zooms,");
+  ImGui::TextDisabled("middle mouse pans. Del removes the selected wire.");
+  ImGui::Spacing();
   ImGui::Separator();
   const Wire* sel = nullptr;
   for (const Wire& w : wires_)
@@ -491,7 +628,8 @@ void Canvas::side_ui() {
     ImGui::TextDisabled("click a wire to edit it");
   }
   ImGui::Separator();
-  ImGui::Text("wires");
+  theme::caption("WIRES");
+  if (wires_.empty()) ImGui::TextDisabled("none yet: drag a pin onto another pin");
   ImGui::BeginChild("wl", {0, 0});
   for (const Wire& w : wires_) {
     std::string row = w.name + (w.awg > 0 ? "  " + std::to_string(static_cast<int>(w.awg)) + "AWG" : "");

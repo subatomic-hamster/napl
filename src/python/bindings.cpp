@@ -310,7 +310,7 @@ NB_MODULE(_napl, m) {
           const RenderStyle s = parse_render_style(words, default_render_style());
           set_default_render_style(s);
           return std::string(s.sky == RenderStyle::Sky::studio ? "studio" : "outdoor") + (s.edges ? ",edges" : "") +
-                 (s.shadows ? "" : ",noshadows") + (s.tubes ? "" : ",nowires");
+                 (s.shadows ? "" : ",noshadows") + (s.tubes ? "" : ",nowires") + (s.wire_px > 0 ? ",boldwires" : "");
         },
         "words"_a = "");
   m.attr("schema_json") = kSchemaJson;  // flatc --jsonschema output, embedded at build time

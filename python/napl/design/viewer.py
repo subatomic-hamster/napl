@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 from .library import DesignError
+from .thumbjob import ThumbJob
 from .uiops import UI_TOOLS, UiOps
 from .wire2d import Flatten
 
@@ -62,7 +63,11 @@ class Backend(UiOps):
             "angle_deg": 15.0,
             "snap_edges": True,
             "snap_ports": True,
+            "tooltips": "auto",
+            "emphasise_wires": True,
         }
+        self.thumbs = ThumbJob(lambda: self._design().lib, self._thumb_priority)
+        self.auto_thumbs = False  # True (napl design view, the MCP window, the screenshot / record tools): the first ui_poll starts it
         self.events = []
         self.attached = False  # set by the first ui_poll: a window is watching, animated ops queue instead of committing
 
@@ -75,10 +80,19 @@ class Backend(UiOps):
                 reply = self._dispatch(req)
         except DesignError as e:
             reply = {"ok": False, "error": str(e)}
+            if str(req.get("tool", "")).startswith("flatten.") and self.attached:
+                # a refusal of a scripted flatten op changes no state, so the window would never hear of it: toast it
+                msg = f"{req['tool'].partition('.')[2]}: {e}"
+                self.events.append({"cmd": "toast", "text": msg, "bad": True})
         except Exception as e:  # never let an exception cross into the viewer thread
             reply = {"ok": False, "error": f"{type(e).__name__}: {e}"}
         self.log.append((req, reply))
         return json.dumps(reply, default=str)
+
+    def _thumb_priority(self):
+        """Parts to render first: those of the open design (the BUILD view), then the library's default listing order."""
+        d = self.get_design()
+        return sorted({i["part"] for i in d.doc["instances"]}) if d is not None else []
 
     def _design(self):
         d = self.get_design()
@@ -101,9 +115,12 @@ class Backend(UiOps):
                 "result": {
                     "rev": self.rev_of(d) if d is not None else None,
                     "flat_rev": self.flat.rev,
+                    "thumb_rev": self.thumbs.rev,
                 },
             }
         if tool == "ui_poll":
+            if self.auto_thumbs and not self.thumbs.settled:
+                self.thumbs.start()  # a window polls: render the library thumbnails that are missing, in the background
             self.attached = True
             ev, self.events = self.events, []
             return {"ok": True, "result": {"events": ev}}
@@ -228,7 +245,15 @@ class Backend(UiOps):
                 ],
             }
             self._cache = (d, rev, st)
-        return {**st, "undo": len(d._undo), "redo": len(d._redo)}
+        return {
+            **st,
+            "undo": len(d._undo),
+            "redo": len(d._redo),
+            "history": {  # the HISTORY tab: the last undo steps (oldest first), the redo steps (next first)
+                "undo": d._undo_notes[-14:],
+                "redo": d._redo_notes[::-1][:6],
+            },
+        }
 
 
 def view(design, out=None, **show_kw):
@@ -239,6 +264,7 @@ def view(design, out=None, **show_kw):
 
     out = Path(out) if out else Path(tempfile.mkdtemp(prefix="napl-view-"))
     backend = Backend(lambda: design, out)
+    backend.auto_thumbs = True
     st = backend.state(design)
     if st["xml"] is None:
         raise DesignError(f"the design does not build: {st['build_error']}")

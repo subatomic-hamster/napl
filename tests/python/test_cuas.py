@@ -321,6 +321,38 @@ def test_native_scenario_judges_trace_monitors_and_replay(tmp_path):
         )
 
 
+def test_turret_pi_sits_on_the_base_plate_on_four_standoffs():
+    """The Pi 5 is seated on the plate (inside its 200 x 200 mm footprint, clear of the pan servo), raised by four M2.5 standoffs
+    that stand at its four holes; the design checks clean."""
+    from napl.design import Design
+
+    d = Design.open(REPO / "assemblies" / "turret.toml")
+    T = d.poses()
+    pi = d._part("raspberry-pi-5")
+    L, W = pi.value("length"), pi.value("width")
+    R, o = T["pi"][:3, :3], T["pi"][:3, 3]
+    world = (
+        np.array([[sx * L / 2, sy * W / 2, 0] for sx in (-1, 1) for sy in (-1, 1)])
+        @ R.T
+        + o
+    )
+    assert np.abs(world[:, :2]).max() <= 0.100 - 0.005  # 5 mm in from every plate edge
+    assert world[:, 0].max() < -0.020  # clear of the pan servo (body from x = -0.011)
+    holes = (
+        np.array([[sx * 0.029, sy * 0.0245, 0] for sx in (-1, 1) for sy in (-1, 1)])
+        @ R.T
+        + o
+    )
+    assert abs(o[2] - 0.014) < 1e-9  # the board rests on the 14 mm standoff bodies
+    by_id = {i["id"]: i for i in d.doc["instances"]}
+    posts = np.array([by_id[f"pi_so{k}"]["pos"][:2] for k in range(1, 5)])
+    for h in holes[:, :2]:
+        assert (
+            np.linalg.norm(posts - h, axis=1).min() < 1e-3
+        )  # a standoff under every hole
+    assert not [f for f in d.check() if f.severity in ("error", "warning")]
+
+
 def test_native_scenario_validation(tmp_path):
     f = tmp_path / "bad.scenario.toml"
     f.write_text(

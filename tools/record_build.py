@@ -231,6 +231,11 @@ def _build(oplog, out, fb, expect, ui=True):
     d = Design.new(NAME, REPO / "parts", description=DESC)
     work = Path(tempfile.mkdtemp(prefix="napl-rec-"))
     b = Backend(lambda: d, work / "build")
+    b.auto_thumbs = (
+        True  # real library thumbnails in the recording (cached in build/thumbs)
+    )
+    b.thumbs.start()  # first run: rendered now, before the recording starts, so the library page is complete from frame 1
+    b.thumbs.wait(900)
     blank = work / "blank.xml"
     blank.write_text(BLANK)
     sim = Sim.load(

@@ -344,6 +344,30 @@ def test_group_gizmo_silent_preview_and_program_text(be):
     assert t.startswith("[assembly]") and 'part = "holybro-m8n-gps"' in t
 
 
+def test_view_hover_ops_and_undo_history(be):
+    b, d = be
+    ask(b, "ui_poll")  # a window attaches
+    r = ask(b, "ui.view", {"tooltips": "off", "emphasise_wires": False})
+    assert r["ok"] and r["result"] == {"tooltips": "off", "emphasise_wires": False}
+    assert not ask(b, "ui.view", {"tooltips": "sometimes"})["ok"]
+    assert ask(b, "ui.state")["result"]["tooltips"] == "off"
+    assert ask(b, "ui.hover", {"instance": "pdb", "seconds": 3})["ok"]
+    assert not ask(b, "ui.hover", {"instance": "nope"})["ok"]
+    ev = ask(b, "ui_poll")["result"]["events"]
+    assert [e["cmd"] for e in ev] == ["view", "hover"] and ev[1]["instance"] == "pdb"
+    # the undo history the HISTORY tab lists: one note per step, kept in step with undo / redo
+    assert ask(b, "state")["state"]["history"] == {"undo": [], "redo": []}
+    ask(b, "design_edit", {"ops": [{"op": "remove", "id": "gps"}]})
+    ask(b, "design_edit", {"ops": [{"op": "unwire", "name": "pdb-to-esc1"}]})
+    h = ask(b, "state")["state"]["history"]
+    assert h["undo"] == ["remove gps", "unwire pdb-to-esc1"] and h["redo"] == []
+    ask(b, "design_undo")
+    h = ask(b, "state")["state"]["history"]
+    assert h == {"undo": ["remove gps"], "redo": ["unwire pdb-to-esc1"]}
+    ask(b, "design_undo", {"redo": True})
+    assert ask(b, "state")["state"]["history"]["undo"][-1] == "unwire pdb-to-esc1"
+
+
 def test_pose_and_color_schema_checks():
     doc = A.load(X500).doc
     bad = copy.deepcopy(doc)
