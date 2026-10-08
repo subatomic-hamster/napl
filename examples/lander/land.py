@@ -18,8 +18,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 
 import napl
+from flight import DEFAULTS, Flight
 from flight import DT as CTRL_DT
-from flight import Flight
 from napl import params as nparams
 from napl.marine import write_native
 from vehicle import GIMBAL_LIMIT
@@ -111,9 +111,8 @@ def fly(seed, p, model, run_dir=None, log=True, telemetry=True, max_s=45.0):
     sim.set("/devices/motor_a", "thrust_scale", [h["scale_a"]])
     sim.set("/devices/motor_b", "thrust_scale", [h["scale_b"]])
     fl = Flight(
-        t_launch=p["t_launch"], aim_bias=p["aim_bias_m"], v_target=p["v_target"], wn_att=p["wn_att"], kp_pos=p["kp_pos"], kd_vel=p["kd_vel"],
-        kd_land=p["kd_land"], z_slow=p["z_slow"], td_gimbal_deg=p["td_gimbal_deg"], tilt_cmd_max_deg=p["tilt_cmd_max_deg"],
-    )  # fmt: skip
+        **{k: p[k] for k in DEFAULTS if k in p}
+    )  # every flight-software tunable that the scenario declares as a parameter
     z0 = q(sim, "/world/tube", "pos", 2)
     x0, y0 = q(sim, "/world/tube", "pos", 0), q(sim, "/world/tube", "pos", 1)
     pending = []  # (tick, motor): pyro commands in flight (igniter delay beyond the motor's own)
@@ -214,7 +213,7 @@ def fly(seed, p, model, run_dir=None, log=True, telemetry=True, max_s=45.0):
         seed=seed, state=fl.state, apogee_m=fl.z_apogee, max_ascent_tilt=max_tilt_ascent, sat_frac=sat_n / max(pow_n, 1),
         t_end=sim.tick * SIM_DT, diverged=bool(sim.diverged), events=fl.events, hidden=h, d_learned=fl.d_est,
     )  # fmt: skip
-    return dict(res=res, rows=rows, sim=sim)
+    return dict(res=res, rows=rows, sim=sim, fl=fl)
 
 
 def _record(fl, sim, t, zt, vz, tl, thrust, x0, y0, h):
@@ -225,6 +224,7 @@ def _record(fl, sim, t, zt, vz, tl, thrust, x0, y0, h):
         mots[k] = dict(
             phase=["idle", "delay", "burning", "spent"][int(q(sim, d, "phase"))],
             thrust_N=round(q(sim, d, "thrust"), 3),
+            scale_est=e.get(f"scale_{k}"),
         )
     return dict(
         t=round(t, 3),
@@ -259,6 +259,8 @@ def _record(fl, sim, t, zt, vz, tl, thrust, x0, y0, h):
         landing=dict(
             ign_margin_m=e.get("ign_margin_m"),
             pred_touchdown_ms=e.get("pred_touchdown_ms"),
+            dump_deg=e.get("dump_deg"),
+            apogee_pred_m=e.get("apogee_pred_m"),
         ),
         truth=dict(
             alt_m=round(zt, 3),

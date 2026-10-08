@@ -6,8 +6,10 @@ at the instant the thrust curve starts (curve time tau = 0), integrate
 to the end of the burn; every time z reaches 0 going down is a contact and the HARDEST one is the metric (near hover the vehicle can
 re-lift and fall back). `touchdown_speed` does it for a whole vector of onset heights at once (explicit Euler, dt = 2 ms), `ignition_table` finds for
 each onset speed the lowest onset height that still touches down no faster than `v_target` (the knife edge: a few tenths of a metre higher the
-vehicle is stopped above the ground and falls back, a few lower it hits hard), and `Planner` turns the table into the ignition rule used by flight.py.
-`analytic_constant_thrust` is the closed-form solution the unit test compares against."""
+vehicle is stopped above the ground and falls back, a few lower it hits hard), and `Planner` turns the table into the first revision's ignition rule.
+Since the second revision flight.py uses only `ballistic` from here: the ignition rule and the landing plan are energy.py (onboard predictor + tilt dump); this
+module stays as the reference integrator (`touchdown_speed`, dt 2 ms) that tests/python/test_lander.py checks energy.rollout against, with the table / planner
+tests. `analytic_constant_thrust` is the closed-form solution the unit test compares against."""
 
 import numpy as np
 from vehicle import CDA_DOWN, RHO0, G, Motor
