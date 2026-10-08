@@ -279,7 +279,7 @@ void page(Model& m, Thumbs& th, ImVec2 pos, ImVec2 size, const std::string& sele
   ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::kBg);
   ImGui::Begin("##library_page", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
   ImGui::PopStyleColor();
-  const float lw = 214, rw = std::min(340.f, size.x * 0.34f);
+  const float lw = 214, rw = std::min(300.f, size.x * 0.3f);
   ImGui::BeginChild("filters", {lw, 0});
   categories(m);
   ImGui::Spacing();
@@ -292,7 +292,7 @@ void page(Model& m, Thumbs& th, ImVec2 pos, ImVec2 size, const std::string& sele
   ImGui::PopFont();
   ImGui::TextDisabled("%d part%s", m.total, m.total == 1 ? "" : "s");
   ImGui::BeginChild("cards", {0, 0});
-  const float cw = 152, ch = 142, gap = 8;
+  const float cw = 132, ch = 130, gap = 8;
   const int cols = std::max(1, static_cast<int>((ImGui::GetContentRegionAvail().x + gap) / (cw + gap)));
   int k = 0;
   for (const Hit& h : m.hits) {

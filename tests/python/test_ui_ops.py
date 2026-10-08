@@ -28,7 +28,12 @@ def be(tmp_path):
 
 
 def body_rgba(xml, name):
-    m = re.search(rf'<geom name="{name}"[^>]*rgba="([^"]+)"', Path(xml).read_text())
+    """rgba of what is drawn for an instance: its cosmetic visual geom ("<id>:v0") when the part has one (the plain geom is then
+    hidden: alpha 0), else the plain geom."""
+    txt = Path(xml).read_text()
+    m = re.search(rf'<geom name="{name}:v0"[^>]*rgba="([^"]+)"', txt) or re.search(
+        rf'<geom name="{name}"[^>]*rgba="([^"]+)"', txt
+    )
     return [float(x) for x in m.group(1).split()]
 
 

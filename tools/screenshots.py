@@ -69,7 +69,7 @@ UI = {
     "ui-drag-ghost": (
         "2 dremove pdb; 4 uicam iso",
         1,
-        0.5,
+        1.7,  # the window polls ui events once a second, then the ghost flies for 1.2 s: this lands mid-flight
         [
             {
                 "tool": "library.drag",
@@ -582,7 +582,7 @@ def main(argv=None):
             "\nquad: scratch-quad-hover",
         )
     elif a.cmd == "_ui":
-        xvfb_png(a.out, *UI[a.name], a.fbdir)
+        xvfb_png(a.out, *UI[a.name][:3], a.fbdir, *UI[a.name][3:])
     elif a.cmd == "all":
         a.names = []
         for f in (cmd_scenarios, cmd_frames, cmd_quad, cmd_ui):

@@ -750,6 +750,7 @@ class Viewer {
       return;
     }
     design_ = dstate_.report;
+    if (!has_design_ && mode_ == Mode::Simulate && pending_mode_.empty()) mode_ = Mode::Build;  // an editable design opens on BUILD
     has_design_ = true;
     rebuild_scene();
     for (auto& [part, t] : targets_) t.requested = false;  // the open ports changed: ghost targets are asked again on the next drag
@@ -1001,7 +1002,7 @@ class Viewer {
     float l = 0, r = 0;
     switch (mode_) {
       case Mode::Build: l = narrow ? 0 : 272, r = narrow ? 0 : 322; break;
-      case Mode::Library: l = std::round(W * 0.64f); break;
+      case Mode::Library: l = std::round(W * 0.78f); break;
       case Mode::Simulate: l = narrow ? 0 : 300, r = narrow ? 0 : 300; break;
       default: break;
     }
@@ -1156,7 +1157,7 @@ class Viewer {
     static const char* const tabs[] = {"INSPECT", "PARTS", "DRC", "PLACE"};
     const int hit = theme::tabs(tabs, 4, right_tab_, 18.f);
     if (hit >= 0) right_tab_ = hit;
-    ImGui::Dummy({0, 2});
+    ImGui::SetCursorPos({ImGui::GetStyle().WindowPadding.x, ImGui::GetCursorPosY() + 30});  // theme::tabs leaves the cursor on its row
     ImGui::BeginChild("##rbody", {0, 0});
     const design::Instance* sel = sel_instance();
     if (right_tab_ == 0) inspect_tab(sel);

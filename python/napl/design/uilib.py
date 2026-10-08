@@ -25,7 +25,11 @@ FIELDS = (  # (field, weight of a substring hit, weight of a word-prefix hit)
     ("id", 60, 80),
     ("name", 50, 65),
     ("vendor", 40, 55),
-    ("category", 40, 50),
+    (
+        "category",
+        40,
+        85,
+    ),  # "motor" lists the motors before parts whose id merely mentions a motor
     ("part_number", 35, 45),
 )
 
