@@ -286,7 +286,12 @@ def test_mass_budget_and_urdf_target(built):
 # ---- 4. every geom is a real part --------------------------------------------------------------------------------------------
 def test_every_geom_maps_to_a_library_part(built):
     _, _, geoms = mjcf_tree(built["xml"])
-    names = [g.get("name") for g in geoms if g.get("name") != "floor"]
+    names = [
+        g.get("name")
+        for g in geoms
+        if g.get("name") != "floor"
+        and ":v" not in g.get("name", "")  # not cosmetic "<iid>:vK"
+    ]
     assert len(names) == len(set(names)) and len(names) > 50
     rep = built["report"]["geoms"]
     lib = design.Library(PARTS)

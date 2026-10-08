@@ -258,6 +258,7 @@ def test_every_geom_maps_to_a_part(built):
         g.get("name")
         for g in ET.parse(xml_path).getroot().iter("geom")
         if g.get("name") != "floor"
+        and ":v" not in g.get("name", "")  # not cosmetic "<iid>:vK"
     }
     assert names and names == set(report["geoms"])
     lib = Library(PARTS)
