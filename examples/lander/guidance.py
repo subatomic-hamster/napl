@@ -3,7 +3,8 @@
 Model (vertical axis, thrust along the vertical, tail-first quadratic drag): from the onset state (height z0 above the standing height, vertical speed v0)
 at the instant the thrust curve starts (curve time tau = 0), integrate
     m dv/dt = F(tau) - m g - 0.5 rho CdA v |v|,     m = m0 - burned(tau)
-until the feet touch (z = 0). `touchdown_speed` does it for a whole vector of onset heights at once (explicit Euler, dt = 2 ms), `ignition_table` finds for
+to the end of the burn; every time z reaches 0 going down is a contact and the HARDEST one is the metric (near hover the vehicle can
+re-lift and fall back). `touchdown_speed` does it for a whole vector of onset heights at once (explicit Euler, dt = 2 ms), `ignition_table` finds for
 each onset speed the lowest onset height that still touches down no faster than `v_target` (the knife edge: a few tenths of a metre higher the
 vehicle is stopped above the ground and falls back, a few lower it hits hard), and `Planner` turns the table into the ignition rule used by flight.py.
 `analytic_constant_thrust` is the closed-form solution the unit test compares against."""
