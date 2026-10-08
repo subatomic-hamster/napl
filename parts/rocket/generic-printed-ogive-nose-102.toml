@@ -50,6 +50,12 @@ symmetry = 360
 fidelity = "estimated"
 rationale = "Base plane on the tube's forward end (shoulder fit not modelled)."
 
+[visual]
+rationale = "Design of this repo: the tangent-ogive profile of the part's derivation (R, L, wall) revolved as a hollow printed shell, white PLA."
+
+[[visual.elements]]
+gen = "ogive_nose"
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopify.com/s/files/1/1223/5992/files/PLA_4043D_TDS.pdf"

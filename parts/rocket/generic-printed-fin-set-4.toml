@@ -55,6 +55,13 @@ symmetry = 4
 fidelity = "estimated"
 rationale = "Root-chord trailing-edge plane on the tube's aft end (the fins are bonded to the tube wall; fillets not modelled)."
 
+[visual]
+rationale = "Design of this repo: swept trapezoidal fins from the part's own root / tip chord, span, sweep and thickness, bonded to a thin printed collar over the tube (the collar is cosmetic, outside the mass model)."
+
+[[visual.elements]]
+gen = "fin_set"
+params = { tube_radius = 0.0508 }
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopify.com/s/files/1/1223/5992/files/PLA_4043D_TDS.pdf"

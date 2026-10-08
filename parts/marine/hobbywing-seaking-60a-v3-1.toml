@@ -69,6 +69,12 @@ type = "pwm"
 gender = "neutral"
 note = "Throttle signal; the series page does not state the frequency or pulse range."
 
+[visual]
+rationale = "Waterproof marine ESC: sealed black case of the part's size_length / size_width / size_height with a label and side cooling ribs (approximate; the open-PCB board_esc default does not fit a sealed unit)."
+
+[[visual.elements]]
+gen = "esc_sealed"
+
 [[sources]]
 id = "S1"
 url = "https://www.hobbywing.com/en/products/seaking-v3-series75"

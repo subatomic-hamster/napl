@@ -46,6 +46,12 @@ thickness = 0.003
 fidelity = "estimated"
 rationale = "Fixed to a bracket on the airframe's outer wall (no hinge DOF, the leg is rigid); a placeholder interface family."
 
+[visual]
+rationale = "Design of this repo: 10 x 8 mm carbon tube at the part's splay, TPU ball foot, small aluminium hinge block on the tube side."
+
+[[visual.elements]]
+gen = "landing_leg"
+
 [[sources]]
 id = "S1"
 url = "https://www.easycomposites.eu/10mm-8mm-woven-finish-carbon-fibre-tube"

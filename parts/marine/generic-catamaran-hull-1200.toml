@@ -132,6 +132,13 @@ thickness = 0.0
 fidelity = "estimated"
 rationale = "As battery_seat on the starboard hull."
 
+[visual]
+src = "S1"
+note = "BlueBoat look: two deep orange hulls with flat inner walls, a hatch lid on each, aluminium cross-members between them (S1 product page text; hull colour choices are Mariner Blue / Garibaldi Orange / Moray Green / Axolotl Pink, orange drawn)."
+
+[[visual.elements]]
+gen = "catamaran_hull"
+
 [[sources]]
 id = "S1"
 url = "https://bluerobotics.com/store/boat/blueboat/blueboat/"

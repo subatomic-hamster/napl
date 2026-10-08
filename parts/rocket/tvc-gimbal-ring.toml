@@ -59,6 +59,13 @@ thickness = 0.0027
 fidelity = "estimated"
 rationale = "Inner face of the +x servo arm (0.0469 m = hub plane 0.021 + 0.0259 servo height), centred 7.5 mm along z so that the servo's output hub lands on the yaw axis."
 
+[visual]
+rationale = "Design of this repo: printed pitch ring with trunnion bosses on +-y and the yaw-servo bracket on +x."
+
+[[visual.elements]]
+gen = "tvc_gimbal"
+params = { kind = "ring" }
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopify.com/s/files/1/1223/5992/files/PLA_4043D_TDS.pdf"

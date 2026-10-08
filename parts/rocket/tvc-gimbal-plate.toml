@@ -62,6 +62,13 @@ thickness = 0.0027
 fidelity = "estimated"
 rationale = "Inner face of the servo arm (0.0469 m = hub plane 0.021 + 0.0259 servo height), centred 7.5 mm along z so that the servo's output hub lands on the pitch axis (the XL330 base port is offset 7.5 mm from the body centre)."
 
+[visual]
+rationale = "Design of this repo: printed tube bulkhead with the stepped pitch-servo arm on +y and a bearing boss at the servo seat."
+
+[[visual.elements]]
+gen = "tvc_gimbal"
+params = { kind = "plate" }
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopify.com/s/files/1/1223/5992/files/PLA_4043D_TDS.pdf"

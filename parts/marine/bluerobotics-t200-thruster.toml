@@ -75,6 +75,12 @@ role = "sink"
 lead = { length = "cable_length" }
 note = "The 1 m cable (S1 'with 1m cable') carries the three phase leads to the ESC and is inside the 427 g datasheet mass."
 
+[visual]
+rationale = "T200 shape from the part's own diameter and body length: dark motor can with a rounded nose inside a short shroud held by four struts (approximate, not copied from CAD)."
+
+[[visual.elements]]
+gen = "ducted_thruster"
+
 [[sources]]
 id = "S1"
 url = "https://bluerobotics.com/store/thrusters/t200-thruster-r2-rp/"
