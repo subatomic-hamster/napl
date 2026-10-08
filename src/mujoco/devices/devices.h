@@ -71,7 +71,8 @@ struct RotorCfg {
   bool ground_effect; unsigned ray_groups;
   bool water = false;                      // marine propeller (schema Rotor.water)
   std::vector<double> re_x, re_ft, re_fq;  // optional Reynolds factors over x = |n| D^2 (empty = off)
-  int bid = -1, jnt = -1, dof = -1;  // resolved by bind()
+  std::string stator_body; double swirl_recovery = 0;  // EDF stator: share of the fan's torque handed to stator_body (schema Rotor)
+  int bid = -1, jnt = -1, dof = -1, stator_bid = -1;  // resolved by bind()
 };
 struct EnvCfg {
   Meta meta; double origin_alt, wind0[3], w20; std::uint64_t seed; std::string ref_body; double ref_height;
@@ -119,6 +120,10 @@ struct SolidMotorCfg {
 struct AirframeCfg {
   Meta meta; std::string body, site; double s_ref, cd0, cd_rev, cn_alpha, x_cp, s_plan, cd_cross;
   int bid = -1, sid = -1;
+};
+struct JetVaneCfg {
+  Meta meta; std::string body, site, rotor; double area, exit_area, cn_alpha, cn_max, cd0, jet_factor;
+  int bid = -1, sid = -1, rot = -1;  // resolved by bind(): plate body, aero-centre site, index of the rotor device
 };
 struct WaveCfg { double a, k, w, th, phi; };  // amplitude m, wave number rad/m, angular frequency rad/s, direction rad, phase rad
 struct SeaCfg {
@@ -240,6 +245,8 @@ struct SolidMotorState {
 };
 // Airframe outputs of the last tick: the aerodynamic force (world, N), the angle of attack (rad, 0 without airflow) and the CP air speed.
 struct AirframeState { double force[3], alpha, speed; };
+// Jet vane outputs of the last tick: the aerodynamic force (world, N), the angle of attack (rad) and the jet speed at the vane (m/s).
+struct JetVaneState { double force[3], alpha, speed; };
 // Sea: its own clock (s), the wave amplitude multiplier and the current (inputs; the vertical current is ignored).
 // The wave table is a copy of the (constant) config, [amplitude, k, w, direction, phase] per component, so that clients can read the
 // exact surface function (napl.hydro re-implements it) and it is part of the saved state.
@@ -283,10 +290,11 @@ struct Devices {
   Group<SeaCfg, SeaState> sea;  // 0 or 1 element
   Group<VesselCfg, VesselState> vessel;
   Group<RangefinderCfg, RangefinderState> range;
+  Group<JetVaneCfg, JetVaneState> vane;  // last group: older state layouts and hashes are unchanged
   int n_nodes = 0;  // highest node id used
   struct Slot {
     enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss, launcher, camera, motor, airframe, sea,
-                vessel, range } type;
+                vessel, range, vane } type;
     int i;
   };
   std::vector<Slot> slots;  // prim order: type by type, config order within a type
@@ -330,6 +338,8 @@ void step_launchers(const mjModel* m, mjData* d, Devices& dv);
 void prepare_motors(mjModel* m, Devices& dv);
 void step_motors(const mjModel* m, mjData* d, Devices& dv);
 void step_airframes(const mjModel* m, mjData* d, Devices& dv);
+// Jet vanes (vane.cpp): plates in the exhaust of a rotor, after the rotor forces of the same tick.
+void step_vanes(const mjModel* m, mjData* d, Devices& dv);
 
 // Water (vessel.cpp). Surface elevation at (x, y) at the sea's clock, 0-level plane without a sea; the current (world, horizontal).
 double sea_eta(const Devices& dv, double x, double y);

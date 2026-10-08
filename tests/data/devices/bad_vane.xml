@@ -1,0 +1,15 @@
+<!-- Rejected: the jet vane names a rotor device that does not exist. -->
+<mujoco model="bad_vane">
+  <worldbody>
+    <body name="plate" pos="0 0 1">
+      <joint name="flap" type="hinge" axis="0 1 0"/>
+      <geom type="sphere" size="0.001" mass="0.01"/>
+      <site name="aero"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "jet_vanes": [{"name": "vane_bad", "body": "plate", "site": "aero", "rotor": "no_such_rotor", "area": 0.001, "exit_area": 0.004}]
+    }'/>
+  </custom>
+</mujoco>

@@ -104,6 +104,11 @@ FIELD_UNITS = {
     "dropout": {"1": 1.0},
     "level": {"m": 1.0},
     "depth": {"m": 1.0},
+    "exit_area": {"m^2": 1.0},  # jet vane
+    "cn_max": {"1": 1.0},
+    "jet_factor": {"1": 1.0},
+    "swirl_recovery": {"1": 1.0},  # rotor with a stator (EDF)
+    "k_h": {"kg": 1.0},  # rotor H-force coefficient
     "n_h": {"px": 1.0},
     "n_v": {"px": 1.0},
 }
@@ -138,6 +143,7 @@ TYPE_KEY = {
     "sea": "seas",
     "vessel": "vessels",
     "rangefinder": "rangefinders",
+    "jet_vane": "jet_vanes",
 }
 NODE_TYPES = {"battery", "psu", "load", "esc", "servo"}
 RESERVED = {
@@ -153,6 +159,8 @@ RESERVED = {
     "backlash_joint",
     "body",
     "ref_body",
+    "stator_body",  # rotor: the housing instance that takes the swirl torque back
+    "rotor",  # jet_vane: the name of the rotor device whose exhaust it sits in
     "site",
     "site_port",
     "ocv",
@@ -579,7 +587,9 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
                         f"{where}: {k} '{b[k]}' is not a mate with a joint"
                     )
                 d[k] = joint_of[b[k]]
-        for k in ("body", "ref_body"):
+        if typ == "jet_vane":
+            d["rotor"] = b["rotor"]
+        for k in ("body", "ref_body", "stator_body"):
             if k in b:
                 bi = ctx.inst(b[k], where)
                 if bi.offboard:

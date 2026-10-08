@@ -584,6 +584,15 @@ class _Net:
         vnom = []
         for k in self.sources(key):
             inst, p = self.ports[k]
+            up_key = (k[0], p["v_from"]) if p.get("v_from") else None
+            if up_key in self.ports and up_key != k:
+                # a converter-less output (an ESC's motor leads) swings no higher than the net on its input port `v_from`
+                up = self.voltage(up_key)
+                if up:
+                    hi = _n(p.get("v_max"))
+                    vmax.append(min(hi, up[0]) if hi else up[0])
+                    vnom.append(up[1])
+                    continue
             hi = (
                 _n(p.get("v_max"))
                 or inst.value("v_full")

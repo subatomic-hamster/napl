@@ -70,6 +70,7 @@ const std::string& Devices::name(int slot) const {
     case Slot::sea: return sea.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::vessel: return vessel.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::range: return range.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::vane: return vane.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::esc: break;
   }
   return esc.cfg[static_cast<std::size_t>(s.i)].meta.name;
@@ -298,6 +299,10 @@ Devices parse(const std::string& json) {
       c.ray_groups = r->ray_groups();
       need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
       c.water = r->water();
+      if (r->stator_body()) c.stator_body = r->stator_body()->str();
+      c.swirl_recovery = r->swirl_recovery();
+      need(c.swirl_recovery >= 0 && c.swirl_recovery <= 1, n, "swirl_recovery must be in [0, 1]");
+      need(c.swirl_recovery == 0 || !c.stator_body.empty(), n, "swirl_recovery needs a stator_body");
       slot(Devices::Slot::rotor, static_cast<int>(dv.rotor.cfg.size()));
       dv.rotor.cfg.push_back(std::move(c));
     }
@@ -690,6 +695,22 @@ Devices parse(const std::string& json) {
       slot(Devices::Slot::range, static_cast<int>(dv.range.cfg.size()));
       dv.range.cfg.push_back(std::move(c));
     }
+  if (root->jet_vanes())
+    for (const fb::JetVane* jv : *root->jet_vanes()) {
+      JetVaneCfg c{};
+      c.meta = meta_of(jv->name(), jv->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.body = jv->body()->str(); c.site = jv->site()->str(); c.rotor = jv->rotor()->str();
+      need(!c.body.empty() && !c.site.empty() && !c.rotor.empty(), n, "body, site and rotor must be non-empty");
+      c.area = jv->area(); c.exit_area = jv->exit_area(); c.cn_alpha = jv->cn_alpha(); c.cn_max = jv->cn_max();
+      c.cd0 = jv->cd0(); c.jet_factor = jv->jet_factor();
+      need(c.area > 0 && c.exit_area > 0 && c.cn_max > 0 && std::isfinite(c.area + c.exit_area + c.cn_max), n,
+           "area, exit_area and cn_max must be finite and > 0");
+      need(c.cn_alpha >= 0 && c.cd0 >= 0 && c.jet_factor >= 0 && std::isfinite(c.cn_alpha + c.cd0 + c.jet_factor), n,
+           "cn_alpha, cd0 and jet_factor must be finite and >= 0");
+      slot(Devices::Slot::vane, static_cast<int>(dv.vane.cfg.size()));
+      dv.vane.cfg.push_back(std::move(c));
+    }
   if (dv.slots.empty()) throw std::runtime_error("napl.devices: no devices declared");
 
   // Initial state. RNG stream k uses the device's flat slot index (battery, psu, wire, load, esc order).
@@ -786,6 +807,7 @@ Devices parse(const std::string& json) {
     dv.range.st.push_back(s);
     dv.range_img.emplace_back(static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v), 0.0);
   }
+  dv.vane.st.assign(dv.vane.cfg.size(), JetVaneState{});
   if (!dv.sea.cfg.empty()) dv.sea.st[0].eta0 = sea_eta(dv, 0.0, 0.0);
   return dv;
 }
@@ -846,6 +868,7 @@ void bind(mjModel* m, Devices& dv) {
     if (m->jnt_type[c.jnt] != mjJNT_HINGE) fail(c.meta.name, "joint '" + c.joint + "' is not a hinge");
     if (m->jnt_bodyid[c.jnt] != c.bid) fail(c.meta.name, "joint '" + c.joint + "' is not on body '" + c.body + "'");
     c.dof = m->jnt_dofadr[c.jnt];
+    c.stator_bid = c.stator_body.empty() ? -1 : body_id(c.meta.name, c.stator_body);
   }
   for (EnvCfg& c : dv.env.cfg) c.bid = c.ref_body.empty() ? -1 : body_id(c.meta.name, c.ref_body);
   for (DragCfg& c : dv.drag.cfg) c.bid = body_id(c.meta.name, c.body);
@@ -900,6 +923,15 @@ void bind(mjModel* m, Devices& dv) {
     c.bid = body_id(c.meta.name, c.body);
     c.sid = site_id(c.meta.name, c.site);
     if (m->site_bodyid[c.sid] != c.bid) fail(c.meta.name, "site '" + c.site + "' is not on body '" + c.body + "'");
+  }
+  for (JetVaneCfg& c : dv.vane.cfg) {
+    c.bid = body_id(c.meta.name, c.body);
+    c.sid = site_id(c.meta.name, c.site);
+    if (m->site_bodyid[c.sid] != c.bid) fail(c.meta.name, "site '" + c.site + "' is not on body '" + c.body + "'");
+    c.rot = -1;
+    for (std::size_t r = 0; r < dv.rotor.cfg.size(); ++r)
+      if (dv.rotor.cfg[r].meta.name == c.rotor) c.rot = static_cast<int>(r);
+    if (c.rot < 0) fail(c.meta.name, "rotor '" + c.rotor + "' is not a rotor device");
   }
   for (VesselCfg& c : dv.vessel.cfg) {
     c.bid = body_id(c.meta.name, c.body);
@@ -1022,6 +1054,7 @@ void step(mjModel* m, mjData* d, Devices& dv) {
   step_launchers(m, d, dv);  // camera pose, muzzle, pellets (kinematics of step1)
   step_motors(m, d, dv);     // solid rocket motors (thrust at the nozzle sites)
   step_airframes(m, d, dv);  // rocket airframe aerodynamics
+  step_vanes(m, d, dv);      // jet vanes in the rotors' exhaust (after the rotor forces of this tick)
   step_vessels(m, d, dv);    // LAST force phase: needs every force of the tick for the added-mass solve; then the sea clock advances
   if (!dv.imu.cfg.empty()) dv.qvel_k.assign(d->qvel, d->qvel + m->nv);  // the IMU acceleration needs s_k's qvel
   mj_step2(m, d);
@@ -1054,6 +1087,7 @@ template <class D, class F> void for_groups(D& dv, F&& f) {
   f(dv.sea);
   f(dv.vessel);
   f(dv.range);
+  f(dv.vane);
 }
 template <class G> constexpr bool pod_ok = std::is_trivially_copyable_v<typename G::State> && sizeof(typename G::State) % 8 == 0;
 }  // namespace
@@ -1184,6 +1218,8 @@ constexpr Attr<SolidMotorState> kMotor[] = {
 constexpr Attr3<SolidMotorState> kMotor3[] = {{"pos", "m", &SolidMotorState::pos}, {"dir", "1", &SolidMotorState::dir}};
 constexpr Attr<AirframeState> kAirframe[] = {{"alpha", "rad", &AirframeState::alpha}, {"speed", "m/s", &AirframeState::speed}};
 constexpr Attr3<AirframeState> kAirframe3[] = {{"force", "N", &AirframeState::force}};
+constexpr Attr<JetVaneState> kVane[] = {{"alpha", "rad", &JetVaneState::alpha}, {"jet_speed", "m/s", &JetVaneState::speed}};
+constexpr Attr3<JetVaneState> kVane3[] = {{"force", "N", &JetVaneState::force}};
 constexpr Attr<SeaState> kSea[] = {{"time", "s", &SeaState::time}, {"wave_scale", "1", &SeaState::wave_scale, true, false, 0, 10},
                                    {"eta_origin", "m", &SeaState::eta0}, {"n_waves", "1", &SeaState::n_waves}};
 constexpr Attr3<SeaState> kSea3[] = {{"current", "m/s", &SeaState::current, true, -20, 20}};
@@ -1244,6 +1280,7 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
       break;
     }
     case Devices::Slot::vessel: pick(kVessel, dv.vessel.st); pick3(kVessel3, dv.vessel.st); break;
+    case Devices::Slot::vane: pick(kVane, dv.vane.st); pick3(kVane3, dv.vane.st); break;
     case Devices::Slot::range: {
       pick(kRange, dv.range.st);
       auto& img = dv.range_img[static_cast<std::size_t>(s.i)];

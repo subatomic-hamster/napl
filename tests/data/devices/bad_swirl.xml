@@ -1,0 +1,15 @@
+<!-- Rejected: a swirl-recovery share without a stator body. -->
+<mujoco model="bad_swirl">
+  <worldbody>
+    <body name="rotor" pos="0 0 1">
+      <joint name="shaft" type="hinge" axis="0 0 1"/>
+      <geom type="sphere" size="0.001" mass="0.01"/>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "rotors": [{"name": "fan_bad", "body": "rotor", "joint": "shaft", "diameter": 0.08,
+                  "j": [0], "ct": [1.0], "cq": [0.1], "swirl_recovery": 0.5}]
+    }'/>
+  </custom>
+</mujoco>

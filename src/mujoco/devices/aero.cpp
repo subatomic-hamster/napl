@@ -174,6 +174,10 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
       xf[i] += thrust * ax[i] - c.k_h * std::abs(w) * vperp[i];
       xf[3 + i] += -sgn(w) * q_aero * ax[i];
     }
+    if (c.stator_bid > 0) {  // EDF stator vanes hand the recovered share of the fan's swirl torque back to the housing
+      double* xs = d->xfrc_applied + 6 * c.stator_bid;
+      for (int i = 0; i < 3; ++i) xs[3 + i] += c.swirl_recovery * sgn(w) * q_aero * ax[i];
+    }
     s.omega = w; s.thrust = thrust; s.torque = q_aero; s.advance_ratio = adv; s.ge_ratio = c.water ? imm : ge; s.rho = rho;  // damage is an input: keep
   }
 
