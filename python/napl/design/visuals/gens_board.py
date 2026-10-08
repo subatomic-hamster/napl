@@ -17,7 +17,6 @@ from .mesh import (
     revolve,
     rot,
     rrect,
-    tube,
 )
 
 PI = math.pi
@@ -377,73 +376,6 @@ def gnss_puck(c, **_):
     return {"base": base, "ring": ring, "top": top}
 
 
-@gen(
-    "camera_module",
-    pcb="soldermask-green",
-    lens="plastic-black",
-    glass="glass-dark",
-    conn="plastic-white",
-    chip="ic-black",
-)
-def camera_module(c, **_):
-    """Camera board with a round lens barrel and a flex-cable connector (Pi Camera Module 3 proportions)."""
-    L = c.p("length", default=0.025)
-    W = c.p("width", default=0.024)
-    H = c.p("height", default=0.0115)
-    T = 0.0016
-    pcb = extrude(
-        rrect(L, W, 0.002, 4),
-        0,
-        T,
-        [
-            circle(0.001, 12, (x, y))
-            for x in (-L / 2 + 0.002, L / 2 - 0.002)
-            for y in (-W / 2 + 0.002, W / 2 - 0.002)
-        ],
-    )
-    barrel = merge(
-        [
-            rbox([0.0085, 0.0085, 0.0022], 0.0004, 1).at([0, 0, T + 0.0011]),
-            tube(0.0042, 0.0, 0.0, 8, 0)
-            if False
-            else cylinder(0.0042, H - T - 0.0022, 32, T + 0.0022),
-        ]
-    )
-    glass = cylinder(0.0028, 0.0004, 24, H - 0.0004 + 0.0002)
-    conn = rbox([0.0025, 0.0165, 0.0027], 0.0003, 1).at(
-        [-L / 2 + 0.0035, 0, T + 0.00135]
-    )
-    chip = rbox([0.004, 0.004, 0.0009], 0.0002, 1).at(
-        [L / 2 - 0.005, 0.004, T + 0.00045]
-    )
-    return {"pcb": pcb, "lens": barrel, "glass": glass, "conn": conn, "chip": chip}
-
-
-@gen(
-    "sensor_module",
-    body="plastic-black",
-    lens="glass-dark",
-    pcb="soldermask-black",
-    label="label-white",
-)
-def sensor_module(c, **_):
-    """Small sensor housing (rangefinder / optical flow): rounded box with two window circles on the front."""
-    L = c.p("length", default=0.04)
-    W = c.p("width", default=0.02)
-    H = c.p("height", default=0.015)
-    body = rbox([L, W, H], min(0.002, 0.15 * min(L, W, H)), 2).at([0, 0, H / 2])
-    r = 0.3 * min(W, H)
-    lens = merge(
-        [
-            cylinder(r, 0.0006, 24)
-            .at([0, 0, 0], R=rot([0, 1, 0], PI / 2))
-            .at([L / 2 - 0.0002, s * 0.55 * W / 2, H / 2])
-            for s in (-1, 1)
-        ]
-    )
-    return {"body": body, "lens": lens}
-
-
 @gen("box_device", body="plastic-black", label="label-white", conn="steel")
 def box_device(c, **_):
     """Enclosed device (PSU brick, DC-DC): rounded box with a label and a barrel / terminal at one end."""
@@ -457,33 +389,3 @@ def box_device(c, **_):
         .at([0, 0, 0], R=rot([0, 1, 0], PI / 2))
         .at([L / 2, 0, H / 2]),
     }
-
-
-_XT = {
-    "xt30": (0.0105, 0.0105, 0.0100),
-    "xt60": (0.0158, 0.0083, 0.0156),
-    "xt90": (0.0225, 0.0105, 0.0240),
-}
-
-
-@gen("connector", body="plastic-yellow", pins="gold")
-def connector(c, **_):
-    """Connector housing by family: XT30/60/90 (yellow, chamfered, two pins), JST (white shell), else a plain block."""
-    t = c.part.id.lower() + " " + c.part.raw.get("name", "").lower()
-    m = re.search(r"xt(30|60|90)", t)
-    if m:
-        w, h, l = _XT["xt" + m[1]]
-        body = rbox([l, w, h], 0.0008, 1).at([0, 0, h / 2])
-        pins = merge(
-            [
-                cylinder(0.0016 if m[1] != "30" else 0.001, 0.0006)
-                .at([0, 0, 0], R=rot([0, 1, 0], PI / 2))
-                .at([l / 2, s * w * 0.22, h / 2])
-                for s in (-1, 1)
-            ]
-        )
-        return {"body": body, "pins": pins}
-    p = c.p("pitch", default=0.00125)
-    n = 4
-    body = rbox([n * p + 0.002, 0.005, 0.004], 0.0003, 1).at([0, 0, 0.002])
-    return {"body": body}

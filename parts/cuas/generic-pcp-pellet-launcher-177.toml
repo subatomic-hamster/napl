@@ -20,6 +20,12 @@ min_shot_interval = { value = 0.5, unit = "s", fidelity = "estimated", rationale
 bore_diameter   = { value = 4.5e-3, unit = "m", fidelity = "estimated", rationale = "Nominal .177 calibre (4.5 mm); the pellet part carries the head size used for drag." }
 barrel_length   = { value = 0.26, unit = "m", fidelity = "estimated", rationale = "Compact carbine barrel; geometry only." }
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+rationale = "Generic air-rifle-class PCP module, deliberately without any maker's styling: black anodised receiver with a Picatinny-style top rail (the camera seat), air reservoir bottle with a pressure gauge under the barrel, shrouded barrel with a muzzle crown, side bolt handle with a ball knob, clamp plate on the horn side. Proportions follow the [geometry] receiver box and barrel."
+
+[[visual.elements]]
+gen = "pcp_launcher"
+
 [[geometry.shapes]]
 shape = "box"
 size = [0.10, 0.025, 0.035]

@@ -56,6 +56,13 @@ unit = "kg"
 fidelity = "estimated"
 rationale = "Clamp +-13 % of 1.96 g (plastic grade) = 0.25 g plus ring +-30 % of 2.2 g (elastomer grade) = 0.66 g. Nothing weighed."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+rationale = "Black glass-filled nylon clamp (the kit's other plastic parts are black); the [geometry] boxes with softened edges."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "plastic-dark" }
+
 [geometry]
 # Part frame: origin = the centre of the clamp's TOP face (against the plate underside), z up, x along the rail. Solid boxes; mass is
 # carried by mass_param, not by shape volume * density. The rail rod passes through the real hanger (axis z = -0.013, rod radius
