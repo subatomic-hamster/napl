@@ -5,13 +5,23 @@
 name = "skydio-goal"
 
 [model]
-script = "scene_goal.py"                     # build(out) -> scene.xml (skydio composed with forest.py's obstacles; SKYDIO_SEED picks the forest)
+script = "scene_goal.py"                     # build(out) -> scene.xml (skydio composed with forest.py's obstacles; the `seed` parameter below picks the forest)
 
 [interfaces.native]                          # the program steps the World itself; the runner judges trace.csv and the replay hash
 
 [program]
 cmd = ["python", "{dir}/fly.py"]
-env = { SKYDIO_MISSION = "goal", SKYDIO_SEED = "1" }
+env = { SKYDIO_MISSION = "goal" }              # the seed comes from the `seed` parameter below (NAPL_PARAMS='{"seed": 109}'), for the model script and fly.py alike
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the forest / wall / arch layout, the goal, the wind turbulence, the IMU / VIO / baro noise: one seed, one flight (same seed, same state hash)."
 
 [limits]
 wall_s = 600

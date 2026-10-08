@@ -46,6 +46,7 @@ from planner import (
     follow_objective,
     goal_objective,
 )
+from search import Belief, visible
 
 CTL_TICKS = 4  # control period: 4 ms
 LATENCY_S = 0.06  # depth frame sampled -> map + plan available (USB transfer, stereo matching, voxelising, planning on the companion computer: estimate)
@@ -65,6 +66,14 @@ FOLLOW_PULL = (
     1.2,
     2.5,
 )  # 1/s: gains of the extra "subject velocity + pull toward the spot behind it" candidates
+LOST_STANDOFF = 0.5  # extra standoff (m) per metre of belief spread while the subject is unseen (capped at 2 m of spread)
+LOOK_OFF = math.radians(
+    45
+)  # yaw may point this far from the flight direction toward the belief
+T_VIS, W_VIS = (
+    1.5,
+    5.0,
+)  # s ahead where a primitive's viewpoint is scored for seeing the belief; cost (m-equivalent) of seeing none of it
 ARRIVE_M = 1.0  # m: the goal counts as reached inside this horizontal distance
 MODES = ("track", "brake", "escape", "scan")
 IMU_TICKS = 2  # the imu device samples every 2nd 1 ms tick (500 Hz): the loop advances in 2-tick blocks and reads each sample
@@ -175,6 +184,10 @@ class Skydio:
             self.subject = F.Subject(self.sim, self.forest.path)
             self.det = PersonDetector(self.cam)
             self.trk = Tracker(keep_s=float(os.environ.get("SKYDIO_KEEP_S", 5.0)))
+            self.belief = Belief(np.random.default_rng(seed + 3000))
+        self.last_visible = False  # evaluation only: was the true subject in the depth image (set by _score)
+        self.cam_frame = None  # (t, camera position, camera rotation) of the depth frame being planned on
+        self.belief_t = None
         self.last_det, self.last_dets, self.last_flags, self.det_stats = (
             None,
             [],
@@ -321,13 +334,16 @@ class Skydio:
             want = self.yaw_sp + self.scan_dir * 2.0
         elif plan and plan.mode == "scan":
             want = self.yaw_sp + self.scan_dir * 2.0  # turn on the spot to look around
-        elif (
-            self.mission == "follow"
-            and self.est is not None
-            and (self.est[2] or np.linalg.norm(v) < 0.5)
-        ):  # unseen and moving: look where we fly (a camera swept sideways sees no free path ahead: tried, the follower stalled more often)
+        elif self.mission == "follow" and self.est is not None:
             d = self.est[0] - self.flyer.last[0][:2]
             want = math.atan2(d[1], d[0])
+            if (
+                not self.est[2] and np.linalg.norm(v) >= 0.5
+            ):  # unseen and moving: look at the belief, but at most LOOK_OFF off the flight direction (a camera swept further sideways sees no free path ahead: the follower stalled)
+                fly_dir = math.atan2(v[1], v[0])
+                want = fly_dir + float(
+                    np.clip(wrap(want - fly_dir), -LOOK_OFF, LOOK_OFF)
+                )
         elif np.linalg.norm(v) > 0.7:
             want = math.atan2(v[1], v[0])
         else:
@@ -391,6 +407,7 @@ class Skydio:
             patch = img[max(r - 1, 0) : r + 2, max(q - 1, 0) : q + 2]
             d = np.nanmedian(patch) if np.isfinite(patch).any() else np.nan
             visible = bool(np.isfinite(d) and abs(d - z) < 0.8)
+        self.last_visible = visible
         if self.phase not in ("fly", "arrived"):
             return flags
         self.det_stats["frames"] += 1
@@ -417,6 +434,7 @@ class Skydio:
             if box is not None:
                 ignore = F.subject_mask(self.cam, box)
             self.est = None if r is None else (r[0], r[1], r[2], r[3])
+            self.cam_frame = (t_s, cam_pos, cam_R)
         self.map.integrate(img, self.cam, cam_pos, cam_R, ignore)
         self.depth_log.append((t_s, img.astype(np.float16)))
         if self.phase in ("fly", "arrived"):
@@ -464,6 +482,7 @@ class Skydio:
     def _follow_target(self, p, win):
         """-> (bearing, objective, extra candidate velocities): aim FOLLOW_DIST behind the subject's PREDICTED position (the track is as old as the
         depth frame, LATENCY_S), and add velocity candidates that match the subject's velocity plus a proportional pull toward that spot."""
+        self._belief_update(win)
         if self.est is None:
             return None, None, (), None
         vs = self.est[1]
@@ -481,7 +500,16 @@ class Skydio:
             self.aim_off = float(
                 np.clip(self.aim_off - AIM_KI * gap * self.dtc * 10, -1.0, 0.5)
             )  # 10 control periods per depth frame
-        des = ps + (FOLLOW_DIST + self.aim_off) * back
+        lost = not self.est[2]
+        des = (
+            ps
+            + (
+                FOLLOW_DIST
+                + self.aim_off
+                + (LOST_STANDOFF * min(self.est[3], 2.0) if lost else 0.0)
+            )
+            * back
+        )  # lost: hold a wider standoff
         field = GoalField(win, des)
         vz = float(np.clip(self.z_c - p[2], -1.2, 1.2))
         extra_v = []
@@ -493,7 +521,51 @@ class Skydio:
         moving = [
             (ps, vs, SUBJECT_KEEP_OUT if self.est[2] else SUBJECT_KEEP_OUT_UNSEEN)
         ]  # the person is not in the map (masked): keep clear of its predicted track
-        return field.bearing(p), follow_objective(des, vs, field=field), extra_v, moving
+        vis = self._vis_cost(win) if self.belief.active else None
+        return (
+            field.bearing(p),
+            follow_objective(des, vs, field=field, extra=vis),
+            extra_v,
+            moving,
+        )
+
+    def _belief_update(self, win):
+        """While the subject is unseen: advance the search belief (search.py) to this frame, remove the mass the camera could have seen, and let its
+        mean / velocity / spread stand in for the tracker's coasting estimate. A detection (or no track at all) switches it off."""
+        b, r = self.belief, self.est
+        if r is None or r[2] or self.cam_frame is None:
+            b.stop()
+            return
+        t_s, cam_pos, cam_R = self.cam_frame
+        if not b.active:
+            b.start(self.trk.x, self.trk.P)
+            self.belief_t = t_s
+        b.predict(max(t_s - self.belief_t, 0.0), win)
+        self.belief_t = t_s
+        b.observe_unseen(win, cam_pos, cam_R)
+        m, v, sg = b.estimate()
+        self.est = (m, v, False, sg)
+
+    def _vis_cost(self, win):
+        """Objective term: the fraction of the belief a primitive's point `T_VIS` s ahead would NOT see (camera turned to the belief's mean, range band
+        and field of view of search.visible, line of sight through the map). Positions are quantised to 0.4 m x 0.5 m so a few dozen rays cover all candidates."""
+        xy, vel = self.belief.sample(60)
+
+        def cost(P, times, vdes):
+            k = int(np.argmin(np.abs(times - T_VIS)))
+            E = P[:, k, :]
+            key = np.round(E / np.array([0.4, 0.4, 0.5])).astype(int)
+            _, first, inv = np.unique(
+                key, axis=0, return_index=True, return_inverse=True
+            )
+            views = E[first]
+            tgt = xy + vel * times[k]
+            face = tgt.mean(0)[None, :] - views[:, :2]
+            face /= np.maximum(np.linalg.norm(face, axis=1, keepdims=True), 1e-6)
+            f = visible(win, views, tgt, face).mean(1)
+            return W_VIS * (1.0 - f[inv.ravel()])
+
+        return cost
 
     # ---- records ----------------------------------------------------------------------------------------------------------------------
     def _telemetry(self, p, v, R, plan, win):
@@ -512,13 +584,15 @@ class Skydio:
             setpoint=dict(pos=np.round(pp, 3).tolist(), vel=np.round(vv, 3).tolist(), yaw=round(self.yaw_sp, 4), vdes=np.round(plan.vdes, 3).tolist()),
             chosen=np.round([plan.at(x)[0] for x in taus], 3).tolist(), chosen_dt=0.1, chosen_cost=None if not np.isfinite(plan.cost) else round(plan.cost, 3),
             candidates=plan.telemetry["candidates"], n_candidates=plan.telemetry["n"], n_safe=plan.telemetry["n_safe"],
-            map=dict(voxels=self.map.n_occupied, frames=self.map.frames, clearance_est=round(float(win.clearance(p[None])[0]), 3)),
+            map=dict(voxels=self.map.n_occupied, frames=self.map.frames, clearance_est=round(float(win.clearance(p[None])[0]), 3), openness=round(self.planner.free, 3)),
             min_clearance=round(self.forest.clearance(pt) - R_BOUND, 3), goal=self.goal.tolist(), depth_index=len(self.depth_log) - 1,
         )  # fmt: skip
         if self.mission == "follow":
             rec["subject"] = dict(est=None if self.est is None else np.round(self.est[0], 3).tolist(), est_vel=None if self.est is None else np.round(self.est[1], 3).tolist(),
                                   seen=bool(self.est and self.est[2]), box=None if self.last_det is None else {k: round(float(self.last_det[k]), 2) for k in ("row", "col", "half_h", "half_w")},
-                                  truth=np.round(self.subject.pos(), 3).tolist(), sigma=None if self.est is None else round(float(self.est[3]), 3),
+                                  truth=np.round(self.subject.pos(), 3).tolist(), visible=self.last_visible,
+                                  search=None if not self.belief.active else dict(particles=np.round(self.belief.xy[:: max(1, self.belief.n // 40)], 2).tolist(), spread=round(float(self.est[3]), 2)),
+                                  sigma=None if self.est is None else round(float(self.est[3]), 3),
                                   detections=[dict(row=round(d["row"], 1), col=round(d["col"], 1), half_h=round(d["half_h"], 1), half_w=round(d["half_w"], 1),
                                                    range=round(d["range"], 2), score=round(d["score"], 2), xy=np.round(d["xy"], 2).tolist(), z_top=round(d["z_top"], 2), width=round(d["width"], 2), on_subject=ok) for d, ok in zip(self.last_dets, self.last_flags)])  # fmt: skip
         self.tele.write(json.dumps(rec, separators=(",", ":")) + "\n")
@@ -715,8 +789,10 @@ def run_mission(mission, seed, out, cal_dir=None, t_max=None, params=None):
 
 
 def main():
+    import skydio_scene as scene
+
     mission = os.environ.get("SKYDIO_MISSION", "goal")
-    seed = int(os.environ.get("SKYDIO_SEED", 1))
+    seed = scene.seed(mission)  # the same function the scenario's model script calls
     cal_dir = os.environ.get("SKYDIO_CAL")
     if "NAPL_MODEL" in os.environ:  # under `napl program`
         run = Skydio(

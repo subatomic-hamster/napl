@@ -40,6 +40,15 @@ class Params:
     )
     w_alt: float = 0.5  # per m of altitude error at the end of the plan
     speeds: tuple = (1.0, 2.5, 4.0, 5.0)
+    w_commit: float = 3.0  # cost of switching the dodge side (see plan); m-equivalent like the objectives
+    commit_t: float = 1.0  # s: the point of a primitive whose lateral offset from the goal line defines its side
+    commit_lat: float = 0.7  # m: offsets below this are "straight on", they neither set nor break a commitment
+    commit_steps: int = (
+        25  # replans (1 s at 25 Hz) a commitment lasts without being re-confirmed
+    )
+    v_lo: float = 5.0  # m/s: fastest primitive in the most cluttered surroundings (openness <= free_lo)
+    free_lo: float = 0.7  # m: openness (mean saturated clearance ahead, Planner.openness) at / below which the speed limit is v_lo
+    free_hi: float = 1.3  # m: openness at / above which the full v_cruise is allowed
     az_goal: tuple = tuple(
         np.radians([0, 6, 12, 19, 27, 36, 46, 58, 72, 90, 115, 150, 180])
     )
@@ -133,6 +142,12 @@ class Planner:
     def __init__(self, prm: Params = None):
         self.prm = prm or Params()
         self.prev_vdes = None
+        self.side, self.side_step, self.step = (
+            0.0,
+            0,
+            0,
+        )  # committed dodge side (+1 left / -1 right of the bearing), step it was last confirmed, step counter
+        self.free = 1.6
 
     def candidates(self, p, v, yaw, bearing, extra=()):
         """Target velocities (C, 3): directions fanned around the bearing to the goal and around the camera heading, four speeds, three climb rates."""
@@ -150,13 +165,35 @@ class Planner:
         out += [np.asarray(e, float) for e in extra]
         return np.array(out)
 
+    def openness(self, p, v, bearing, win: Window):
+        """Mean clearance (m, saturated at 1.6) of the map at 28 points in a +-60 deg sector, 1.5-6 m ahead, about the direction of travel (the bearing
+        when slow): a clutter measure that falls as trunks crowd the way. Also kept for the telemetry."""
+        sp = float(np.linalg.norm(v[:2]))
+        h = float(np.arctan2(v[1], v[0])) if sp > 1.0 else bearing
+        az = h + np.radians([-60, -40, -20, 0, 20, 40, 60])
+        r = np.array([1.5, 3.0, 4.5, 6.0])
+        xy = p[:2] + r[:, None, None] * np.stack([np.cos(az), np.sin(az)], -1)[None]
+        pts = np.concatenate([xy.reshape(-1, 2), np.full((28, 1), p[2])], 1)
+        self.free = float(np.minimum(win.clearance(pts), 1.6).mean())
+        return self.free
+
     def plan(self, p, v, yaw, win: Window, bearing, objective, extra=(), moving=None):
         """-> Plan. `objective(P, times, vdes)` -> cost (C,) over the safe candidates' paths (lower is better). `extra`: more candidate velocities.
         `moving`: [(position xy, velocity xy, radius m)] of moving obstacles (the followed person): every sample of a primitive, braking tail
         included, must stay `radius` from its constant-velocity prediction at the same time (a static sphere at its current position would force the
         follower to hang back by the horizon's travel distance)."""
         prm = self.prm
+        self.step += 1
         vdes = self.candidates(p, v, yaw, bearing, extra)
+        free = self.openness(p, v, bearing, win)
+        v_cap = (
+            prm.v_lo
+            + (prm.v_cruise - prm.v_lo)
+            * float(
+                np.clip((free - prm.free_lo) / (prm.free_hi - prm.free_lo), 0.0, 1.0)
+            )
+        )  # clutter-scaled speed limit: the less open space ahead, the lower the fastest primitive
+        vdes = vdes[np.linalg.norm(vdes[:, :2], axis=1) <= max(v_cap, 1.0) + 1e-6]
         P, times = rollout(p, v, vdes, prm)
         C, K, _ = P.shape
         flat = P.reshape(-1, 3)
@@ -206,8 +243,22 @@ class Planner:
                 c = c + prm.w_smooth * np.linalg.norm(
                     vdes[idx] - self.prev_vdes, axis=1
                 )
+            # decision hysteresis: a dodge to one side of the line to the goal is a homotopy class; flipping to the other side between replans (as a
+            # late-resolved trunk shifts the costs by a hair) swings the vehicle across the gap at speed. Switching costs w_commit, scaled with speed.
+            kc = min(int(round(prm.commit_t / prm.dt)), K - 1)
+            u = np.array([np.cos(bearing), np.sin(bearing)])
+            lat = u[0] * (P[:, kc, 1] - p[1]) - u[1] * (
+                P[:, kc, 0] - p[0]
+            )  # signed lateral offset of each candidate's point at commit_t
+            if self.side != 0.0 and self.step - self.side_step <= prm.commit_steps:
+                flip = lat[idx] * self.side < -prm.commit_lat
+                c = c + prm.w_commit * flip * np.minimum(
+                    np.linalg.norm(vdes[idx, :2], axis=1) / 2.5, 1.5
+                )
             cost[idx] = c
             best = int(idx[np.argmin(c)])
+            if abs(lat[best]) > prm.commit_lat:
+                self.side, self.side_step = float(np.sign(lat[best])), self.step
         else:  # no safe primitive at all: the one with the most clearance that slows down (escape), or hold still (scan)
             # escape: clearance 0.8 s in (must grow) + the worst clearance from 0.2 s on (must not shrink on the way). The plain path minimum is the
             # start point inside the margin, identical for every candidate, so it left the vehicle hovering next to the obstacle for 20 s.
@@ -219,6 +270,10 @@ class Planner:
                 - 5.0 * (~alt_ok)
             )
             best = int(np.argmax(score)) if mode == "escape" else 0
+            if mode == "scan" and np.linalg.norm(v[:2]) > 1.5:
+                # nothing is safe and the vehicle is FAST: holding still means braking in a straight line, wherever that leads. Take the primitive
+                # (dodges included) whose path keeps the most clearance instead.
+                best = int(np.argmax(min_clear - 5.0 * (~alt_ok)))
         self.prev_vdes = vdes[best].copy()
         plan = Plan(
             p.copy(),
@@ -347,7 +402,9 @@ def goal_objective(goal, z_goal, field: GoalField = None):
     return cost
 
 
-def follow_objective(des_xy, subject_v_xy, t_c=1.5, field: GoalField = None):
+def follow_objective(
+    des_xy, subject_v_xy, t_c=1.5, field: GoalField = None, extra=None
+):
     """Distance, t_c seconds ahead, between the primitive and the desired spot (behind the subject), which moves with the subject's velocity; plus
     the mismatch to the subject's velocity so the drone settles instead of overshooting. With a `field` (GoalField to des_xy) the distance is the
     map-aware cost-to-go, so a tree line between drone and subject is routed around instead of nosed into."""
@@ -364,6 +421,7 @@ def follow_objective(des_xy, subject_v_xy, t_c=1.5, field: GoalField = None):
             if field is not None
             else np.linalg.norm(P[:, k, :2] - (des + shift), axis=1)
         )
-        return d + 0.4 * np.linalg.norm(vdes[:, :2] - vs, axis=1)
+        c = d + 0.4 * np.linalg.norm(vdes[:, :2] - vs, axis=1)
+        return c if extra is None else c + extra(P, times, vdes)
 
     return cost

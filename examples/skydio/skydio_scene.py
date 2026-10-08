@@ -1,7 +1,8 @@
 """Scene of the Skydio-style demo: assemblies/skydio.toml composed (python/napl/cuas/scene.py) with the seeded obstacle field of forest.py and, in the
 `follow` mission, a walking subject. `napl program` calls build(outdir) -> path of the MJCF (scenario [model] script).
 
-Environment: SKYDIO_MISSION = goal | follow (default goal), SKYDIO_SEED (default 1; seeds the forest, the wind turbulence and the sensor noise).
+Environment: SKYDIO_MISSION = goal | follow (default goal); the seed (`seed()` below: NAPL_PARAMS "seed", else SKYDIO_SEED, else 1) seeds the forest,
+the wind turbulence and the sensor noise.
 
 Obstacles are static geoms of one body, `obstacles`: contype / conaffinity 1 (they collide with the airframe and the subject) and in geom group 0
 (the depth camera's rays see group 0-4, so they are visible to the rangefinder). A `contact` sensor on the airframe's subtree counts its contacts with
@@ -17,8 +18,10 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE))
 from forest import generate
+from napl import params as nparams
 from napl.cuas.scene import Environment, Vehicle, compose
 
 WIND = (
@@ -28,14 +31,25 @@ WIND = (
 )  # m/s steady, plus Dryden turbulence W20 below: a light breeze in a forest
 W20 = 1.0
 SUBJECT_HEIGHT = 1.75
+FOLLOW_CAM_LOWER_DEG = (
+    18.0  # follow mission: camera 10 deg up (assembly) -> 8 deg down, see tilt_camera
+)
 
 
 def mission():
     return os.environ.get("SKYDIO_MISSION", "goal")
 
 
-def seed():
-    return int(os.environ.get("SKYDIO_SEED", 1))
+def seed(mission_name=None):
+    """The one seed of a run (forest, wind turbulence, sensor noise, detector misses), read the same way by this scene builder and by fly.py:
+    NAPL_PARAMS {"seed": n} (napl.params; what a UI or `napl program` caller sets) > SKYDIO_SEED (standalone runs, montecarlo.py) > the `seed`
+    parameter's default in <mission>.scenario.toml (1)."""
+    sc = HERE / f"{mission_name or mission()}.scenario.toml"
+    if "seed" in nparams.env_overrides():
+        return nparams.values(sc)["seed"]
+    if "SKYDIO_SEED" in os.environ:
+        return int(os.environ["SKYDIO_SEED"])
+    return nparams.resolve(sc)["seed"]
 
 
 def _f(v):
@@ -147,10 +161,26 @@ def add_subject(root, start):
         )
 
 
+def tilt_camera(root, lower_deg):
+    """Lower the D435i's optical axis by `lower_deg` (about the airframe's y axis) in the generated MJCF: the follow mission's mount angle. The assembly
+    (assemblies/skydio.toml) has the camera 10 deg UP, which keeps the view level when the quad pitches nose down at 4-5 m/s on the goal mission; following
+    a person at 2.4 m/s the quad pitches +-15 deg while accelerating and braking, and with the camera up a braking (nose-up) quad loses the person's
+    legs below the 58 deg field of view (detection rate 0.67 at 2-12 deg nose up against 0.95 nose down, flights of seeds 1, 111, 302, 100, 117, 205).
+    -8 deg (18 deg lower) keeps head and knees in view over the whole +-15 deg pitch range at 4-7 m."""
+    body = next(b for b in root.iter("body") if b.get("name", "").endswith("/cam"))
+    w, x, y, z = (float(v) for v in body.get("quat").split())
+    c, s = (
+        math.cos(math.radians(lower_deg) / 2),
+        math.sin(math.radians(lower_deg) / 2),
+    )  # left-multiply by Ry(+lower): nose-down rotation of the mount
+    q = (c * w - s * y, c * x + s * z, c * y + s * w, c * z - s * x)
+    body.set("quat", " ".join(f"{v:.9g}" for v in q))
+
+
 def build(out, mission_name=None, seed_value=None):
     mission_name, sd = (
         mission_name or mission(),
-        seed_value if seed_value is not None else seed(),
+        seed_value if seed_value is not None else seed(mission_name),
     )
     forest = generate(sd, mission_name)
     res = compose(
@@ -166,6 +196,7 @@ def build(out, mission_name=None, seed_value=None):
     add_obstacles(root.find("worldbody"), forest)
     if mission_name == "follow":
         add_subject(root, forest.path[0])
+        tilt_camera(root, FOLLOW_CAM_LOWER_DEG)
     sensors = ET.SubElement(root, "sensor")
     ET.SubElement(
         sensors,
