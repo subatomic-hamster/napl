@@ -4,7 +4,7 @@
 # Unlike the solid-motor TVC lander (assemblies/tvc-lander.toml) the thrust is throttled (the ESC duty), so it can hover, climb, divert and land with the same propellant.
 #
 # FRAME. Origin on the vehicle axis in the TOP face of the deck, +z up. The exit tube of the duct passes through the deck opening (exit plane 0.030 m under the deck), the fan plane is 0.045 m above the
-# deck, the vane hinges 0.045 m under it (vane top edge 4 mm under the exit plane), the feet 0.239 m under it. The battery (+x), the ESC (-x), two regulators (+-y), the flight computer and the sensor sled are on the
+# deck, the vane hinges 0.100 m under it (vane top edge 0.0505 m under the exit plane: inside the jet's potential core, 0.10 m lever arm to the centre of mass), the feet 0.239 m under it. The battery (+x), the ESC (-x), two regulators (+-y), the flight computer and the sensor sled are on the
 # deck; the lidar is on the underside at x = +0.095 m looking down.
 # JET VANES. Vane k (k = 1..4: +x, +y, -x, -y) turns about its radial hinge; its normal force is along the tangential direction: vane +x / -x force along y (roll about x with the lever arm below the centre of mass,
 # yaw with +-r), vane +y / -y force along x (pitch about y, yaw). The allocation is in examples/hopper/control.py (docstring). The jet_vane device is the plate's force model (schema/devices.fbs).
@@ -51,7 +51,7 @@ group = "propulsion"
 id = "batt"
 part = "tattu-2200mah-6s-95c-xt60"
 group = "power"
-pos = [0.062, 0.0, 0.01925]
+pos = [0.062, 0.0148, 0.01925]  # 14.8 mm along its long axis (y): balances the y offset of the centre of mass
 rpy = [0.0, 0.0, 1.5707963267948966]
 
 [[instances]]

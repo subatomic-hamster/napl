@@ -87,6 +87,6 @@ def hopper_frame(c, **_):
     arms = merge(
         arm.at(R=rot([0, 0, 1], math.pi / 4 + k * math.pi / 2)) for k in range(4)
     )
-    br = rbox((0.003, 0.032, 0.0535), 0.0005).at((0.0674, 0, -t - 0.02675))
+    br = rbox((0.003, 0.032, 0.1085), 0.0005).at((0.0674, 0, -t - 0.05425))
     brackets = merge(br.at(R=rot([0, 0, 1], k * math.pi / 2)) for k in range(4))
     return {"frame": merge([deck, arms, brackets])}
