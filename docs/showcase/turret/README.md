@@ -55,7 +55,7 @@ density around the two kills (drone3 at 7.5 s, drone4 at 18 s); quiet stretches 
 | `napl program` | PASS, 60 s of sim, 117 s wall |
 | rounds / hits on a drone | 13 / 3 (hit rate 23 %; a drone and its pellet are both physical, so most pellets miss) |
 | drones destroyed | 2 of 4 (drone3 at 8.0 s, drone4 at 20.7 s); fires without authorization: 0 |
-| replay hash | `10ba0ae29d1f4ae0` at tick 60000: the viewer replay ends on exactly this hash (MATCH). Same hash as the run on the reference `assemblies/turret.toml`, as it must be for an identical design |
+| replay hash | `10ba0ae29d1f4ae0` at tick 60000: the viewer replay ends on exactly this hash (MATCH). The reference `assemblies/turret.toml` gives `59fe2bdd7b2009c8` (examples/cuas/README.md) with the same rounds / hits / kills: the built design has the same parts, poses and mass but lists its instances in build order, so the MJCF bodies (and the state vector the hash runs over) come in a different order |
 
 ## How the video is made
 
