@@ -409,10 +409,6 @@ def main():
     )
     a = ap.parse_args()
     if a.cmd == "encode":
-        a.out, a.dirs = (
-            a.dirs[-1],
-            a.dirs[:-1],
-        )  # the last positional is the output file
         cmd_encode(a)
     elif a.cmd == "_frames":
         _frames(a)

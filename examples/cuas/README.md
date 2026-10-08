@@ -21,6 +21,19 @@ python examples/cuas/report.py remote-out remote-out/report     # laptop: annota
 `cuas.scenario.toml` on `trace.csv`, and re-runs `replay.naplog` through `napl-replay` to check the state hash. Rendered media is never
 committed: frames and plots stay in the run dir on hfbox and in `remote-out/` (gitignored).
 
+### Watch / record it in the viewer (HUD)
+
+`tools/record_sim.py` replays a finished run's `replay.naplog` on a Host and attaches the viewer in `clean` mode with the HUD of
+`python/napl/cuas/hudview.py` (stage tabs + status, ROUNDS / HITS / DESTROYED, "A 24 m" labels over the tracks, tracers, the TURRET
+CAMERA picture-in-picture with track boxes, crosshair and zoomed crop, OPERATOR AUTHORIZED / hit / destroyed flashes); the replay's
+final state hash is checked against `native.json`. Camera: `--camera overview|chase|target|top|free` or a schedule `0:overview,22:chase`.
+
+```sh
+tools/record_sim.py play <run dir> --rate 1                                # live window (a display + GPU)
+tools/remote.sh run --gpu '.venv/bin/python tools/record_sim.py frames <run dir> <out>/vid --t0 0 --t1 15 --start-index 0'   # xvfb, 15 s chunks, repeat
+<throwaway venv with av + pillow>/bin/python tools/record_sim.py encode <out>/vid <out>/cuas.webm   # OpenH264 / VP9; --gpl for libx264
+```
+
 ## Result of the committed configuration (seed 7, 60 s of sim, hfbox, Mesa RADV)
 
 | | |
