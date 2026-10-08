@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Visual coverage of the parts library by category prefix (first two category segments).
+"""Visual coverage of the whole parts library by category prefix (first two category segments).
 
-A geometry-bearing part is 'covered' when it has an explicit [visual], or its category default is a purpose-built family
-(anything but the `shapes` fallback that only redraws the primitives with soft edges). Parts without [geometry] are exempt
-and listed with --exempt. Exit 1 when coverage of geometry-bearing parts is below --min (percent).
+A part is 'covered' when a build draws it with a purpose-built visual: an explicit [visual], a category-default family
+(anything but the `shapes` fallback that only redraws bare primitives) or a redrawn vendor mesh. That holds for parts with and
+without [geometry] (a part without one is drawn from its params at the instance frame). Exempt = true non-objects with
+nothing to draw: raw materials, OCV curves, wires (drawn as tubes by the wire layer) and aggregate frame-kit data records.
+`was` = what a build drew before geometry-less parts were drawn (covered AND has [geometry], or an explicit [visual]).
 
     .venv/bin/python tools/visual_coverage.py [--min 95] [--exempt] [--uncovered]
 """
@@ -18,17 +20,39 @@ sys.path.insert(0, str(REPO / "python"))
 from napl.design import visuals
 from napl.design.library import Library
 
+EXEMPT_CATS = (
+    "material",
+    "battery.cell_curve",
+    "wire",
+    "frame",
+)  # `frame` = the two frame-kit data records, no shape
+
+
+def has_geometry(part):
+    g = part.geometry
+    return bool(g.get("shapes") or "shape" in g)
+
 
 def classify(part):
+    """explicit / family (covered), fallback (primitives only), missing (no geometry and nothing to draw), exempt."""
     g = part.geometry
     if part.raw.get("visual") is not None:
         return "explicit"
+    if part.category in EXEMPT_CATS or part.category.startswith("wire"):
+        return "exempt"
     fam = visuals.default_family(part)
     if fam and fam != "shapes":
-        return "family"  # (a part without [geometry] is drawn by thumbnails / library page only, never in a build)
+        return "family"
     if any(s.get("shape") == "mesh" for s in g.get("shapes") or [g]):
-        return "family"  # vendor / printed-part CAD mesh redrawn with a print finish: the real shape already
-    return "fallback" if (g.get("shapes") or "shape" in g) else "exempt"
+        return "family"  # vendor / printed-part CAD mesh redrawn with a finish: the real shape already
+    return "fallback" if has_geometry(part) else "missing"
+
+
+def was_drawn(part):
+    """Whether a build drew a purpose-built visual for the part before geometry-less parts were drawn."""
+    return classify(part) in ("explicit", "family") and (
+        part.raw.get("visual") is not None or has_geometry(part)
+    )
 
 
 def main():
@@ -42,31 +66,37 @@ def main():
     lists = defaultdict(list)
     for p in lib.parts.values():
         k = classify(p)
-        cat = ".".join(p.category.split(".")[:2])
-        rows[cat][k] += 1
-        rows["TOTAL"][k] += 1
+        for cat in (".".join(p.category.split(".")[:2]), "TOTAL"):
+            rows[cat][k] += 1
+            rows[cat]["was"] += was_drawn(p)
         lists[k].append(f"{p.id} [{p.category}]")
     print(
-        f"{'category':28s} {'explicit':>8s} {'family':>7s} {'fallback':>8s} {'exempt':>6s}  covered%"
+        f"{'category':26s} {'explicit':>8s} {'family':>6s} {'fallback':>8s} {'missing':>7s} {'exempt':>6s}  {'was':>5s} {'now':>5s}  covered%"
     )
     for cat in sorted(rows, key=lambda c: (c == "TOTAL", c)):
         r = rows[cat]
-        geo = r["explicit"] + r["family"] + r["fallback"]
-        pct = 100.0 * (r["explicit"] + r["family"]) / geo if geo else 100.0
+        obj = r["explicit"] + r["family"] + r["fallback"] + r["missing"]
+        now = r["explicit"] + r["family"]
+        pct = 100.0 * now / obj if obj else 100.0
         print(
-            f"{cat:28s} {r['explicit']:8d} {r['family']:7d} {r['fallback']:8d} {r['exempt']:6d}  {pct:5.1f}"
+            f"{cat:26s} {r['explicit']:8d} {r['family']:6d} {r['fallback']:8d} {r['missing']:7d} {r['exempt']:6d}  {r['was']:5d} {now:5d}  {pct:5.1f}"
         )
+    r = rows["TOTAL"]
+    obj = r["explicit"] + r["family"] + r["fallback"] + r["missing"]
+    print(
+        f"\nobjects {obj} (exempt {r['exempt']}): drawn before {r['was']} = {100.0 * r['was'] / obj:.1f} %, "
+        f"now {r['explicit'] + r['family']} = {100.0 * (r['explicit'] + r['family']) / obj:.1f} %"
+    )
     if a.exempt:
-        print("\nexempt (no [geometry]):", *lists["exempt"], sep="\n  ")
+        print("\nexempt (not an object):", *lists["exempt"], sep="\n  ")
     if a.uncovered:
+        print("\nmissing (no geometry, no visual):", *lists["missing"], sep="\n  ")
         print(
             "\nfallback (geometry, no purpose-built visual):",
             *lists["fallback"],
             sep="\n  ",
         )
-    r = rows["TOTAL"]
-    geo = r["explicit"] + r["family"] + r["fallback"]
-    pct = 100.0 * (r["explicit"] + r["family"]) / geo
+    pct = 100.0 * (r["explicit"] + r["family"]) / obj
     if pct < a.min:
         print(f"coverage {pct:.1f}% < {a.min}%")
         sys.exit(1)

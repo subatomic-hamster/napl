@@ -351,6 +351,17 @@ def board_sbc(c, **_):
 def gnss_puck(c, **_):
     """Round GNSS module: lipped base, bevelled cap, patch-antenna top."""
     b = c.bounds()
+    if c.p("diameter", "diameter_v1") is None and c.p("length") and c.p("width"):
+        # square module (Matek M9N / M10Q-5883): small board under a ceramic patch antenna
+        L, W, H = c.p("length"), c.p("width"), c.p("height") or 0.01
+        a = c.p("antenna_size_xy") or 0.8 * min(L, W)
+        ta = c.p("antenna_thickness") or 0.004
+        tb = max(0.0016, H - ta)
+        return {
+            "base": _pcb(L, W, tb, [], 0.001),
+            "ring": Mesh(),
+            "top": rbox([a, a, ta], 0.0004, 1).at([0, 0, tb + ta / 2]),
+        }
     d = c.p("diameter", "diameter_v1") or (
         2 * min(b[1][0], b[1][1]) if b is not None else 0.04
     )

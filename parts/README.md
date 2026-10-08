@@ -166,15 +166,20 @@ A generator returns one mesh per **slot** (motor: `base bell stator copper magne
 finish and `colors` overrides it. A material is `(rgb, specular, shininess, metallic, roughness)` = the MuJoCo `<material>`
 attributes (all 0..1; `metallic` / `roughness` exist in MuJoCo 3.7); the named finishes are in
 `python/napl/design/visuals/materials.py`. A part without `[visual]` still gets its category's default family
-(`visuals.DEFAULTS`, e.g. `motor.bldc` -> `bldc_outrunner`) when it has `[geometry]`; a part with neither draws nothing in a
-build (the thumbnail tool draws the family default anyway).
+(`visuals.DEFAULTS`, e.g. `motor.bldc` -> `bldc_outrunner`). A part without `[geometry]` is drawn too: the family reads its
+dimensions from the part's own params (length / width / height, diameter, `package_*`, `envelope_*` ...) and draws at the
+instance frame (the part frame the ports define; boards and packs with their underside at z = 0) on the zero-mass point body the
+builder gives such an instance, so physics is unchanged. Where a part publishes no dimension, give an explicit `[visual]` with
+`params = { size = [...] }` (sensor_ic) or a family's own params and a cited source. Not drawn: raw materials, OCV curves, wires
+(the wire layer) and frame-kit data records.
 
 Generator frames (an element `pos` is only needed when a part deviates): motor mounting face at z = 0, shaft +z; propeller hub
 underside at z = 0; gearmotor / stepper / actuator output face at z = 0, body towards -z; boards, packs, pucks, camera / sensor
 modules sit with their underside on the underside of the `[geometry]` bounds, centred in x, y; plates, tubes and the `shapes`
 fallback are drawn in the part frame from `[geometry]`. Families: `bldc_outrunner propeller lipo_pack cell_18650 cf_tube
 board_generic board_esc board_fc board_power board_sbc gnss_puck camera_module sensor_module box_device connector servo_case
-gearmotor wheel_tyre stepper_nema qdd_actuator bearing standoff screw pulley shaft_collar plate_outline shapes`.
+gearmotor wheel_tyre stepper_nema qdd_actuator bearing standoff screw heat_insert diabolo_pellet pulley hub_disc shaft_collar
+plate_outline shapes` (plus the structure / servo / launcher families listed in `visuals/__init__.py`).
 
 Vendor CAD as a visual: `mesh = "meshes/..."` (binary or ASCII STL, one slot `body`, finish from `colors.body`). Only files whose
 licence allows redistribution in a proprietary product belong in the repo (record it in the source's `license`); today that is

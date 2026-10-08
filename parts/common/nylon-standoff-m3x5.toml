@@ -49,6 +49,13 @@ length = 0.005
 fidelity = "estimated"
 rationale = "Bore at the top end (z = 0.005 = standoff length, S1), same assumption as thread_bottom."
 
+[visual]                            # cosmetic only: a hex spacer of the stated length; hex size and colour are not published
+rationale = "Holybro lists only 'Nylon Standoff M3*5'; drawn as a natural-nylon hex spacer, 5 mm long (generator default 5 mm across flats)."
+
+[[visual.elements]]
+gen = "standoff"
+colors = { body = "plastic-white" }
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopifycdn.net/s/files/1/0604/5905/7341/files/X500_V2_Assembly_Guide_en.pdf?v=1720853913"

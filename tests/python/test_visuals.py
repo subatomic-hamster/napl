@@ -64,6 +64,40 @@ def test_visuals_do_not_change_physics(path, tmp_path, lib):
     )
     assert extra, "assembly has no visual geoms"
 
+    # stronger: with the visual layer stripped (extra geoms, assets, colours) the two models are the same text
+    def physics_only(x):
+        x = re.sub(r"<asset>.*?</asset>\s*", "", x, flags=re.DOTALL)
+        x = re.sub(r"\s*<geom name=\"[^\"]*:v\d+\"[^>]*/>", "", x)
+        return re.sub(r' rgba="[^"]*"', "", x)
+
+    assert physics_only(xml_v) == physics_only(xml_p)
+
+
+@pytest.mark.parametrize("path", ASSEMBLIES, ids=lambda p: p.stem)
+def test_every_instance_in_every_assembly_is_drawn(path, tmp_path, lib):
+    """Each onboard instance whose part has a visual (also a part without [geometry], e.g. the turret's Raspberry Pi 5) gets
+    visual geoms; the only undrawn onboard instances are those of parts with nothing to draw."""
+    xml, rep = compute(path, PARTS, tmp_path, lib, visual=True)
+    undrawn = [
+        f"{r['id']} ({r['part']})"
+        for r in rep["instances"]
+        if r.get("body")
+        and f'name="{r["id"]}:v0"' not in xml
+        and visuals.applies(lib.get(r["part"]))
+    ]
+    assert not undrawn, undrawn
+    nothing = [
+        r["part"]
+        for r in rep["instances"]
+        if r.get("body") and not visuals.applies(lib.get(r["part"]))
+    ]
+    assert not nothing, f"onboard instances of parts with no visual: {nothing}"
+
+
+def test_geometry_less_part_is_drawn_in_the_build(tmp_path, lib):
+    xml, _ = compute(ASSEMBLIES[0].parent / "turret.toml", PARTS, tmp_path, lib)
+    assert 'name="pi:v0"' in xml and lib.get("raspberry-pi-5").geometry == {}
+
 
 @needs_kernel
 @pytest.mark.parametrize("path", ASSEMBLIES, ids=lambda p: p.stem)
@@ -84,15 +118,44 @@ def test_visual_build_replays_identically(path, tmp_path, lib):
     assert hashes[0] == hashes[1]
 
 
-def test_geometry_bearing_parts_are_95_percent_covered(lib):
-    """Every part with [geometry] draws a purpose-built visual (explicit [visual], family default, or a vendor mesh redrawn);
-    only the `shapes` fallback on bare primitives counts as uncovered. Wires are drawn by the wire layer, not here."""
+@needs_kernel
+def test_cuas_scene_visuals_do_not_change_physics(tmp_path):
+    """The composed counter-UAS scene (turret + x500v2) replays with identical state hashes with and without the visual layer."""
+    from napl.cuas.scene import Environment, Vehicle, compose
+
+    hashes = []
+    for vis in (True, False):
+        vs = [
+            Vehicle("turret", "turret", pos=(0, 0, 1.0), pedestal=1.0),
+            Vehicle("drone1", "x500v2", pos=(30, 0, 12), yaw=0),
+        ]
+        sc = compose(
+            tmp_path / str(vis),
+            vs,
+            Environment(wind=(2.0, -1.0, 0.0)),
+            seed=3,
+            visual=vis,
+        )
+        s = napl.Sim.load(sc["model"])
+        hs = []
+        for _ in range(5):
+            s.step(100)
+            hs.append(s.state_hash())
+        hashes.append(hs)
+    assert hashes[0] == hashes[1]
+
+
+def test_parts_are_95_percent_covered(lib):
+    """Every part that is an object (all but raw materials, OCV curves, wires, frame-kit data records) draws a purpose-built
+    visual in a build: explicit [visual], family default, or a vendor mesh redrawn; also parts without [geometry]. The `shapes`
+    fallback on bare primitives counts as uncovered."""
     import sys
 
     sys.path.insert(0, str(REPO / "tools"))
     from visual_coverage import classify
 
-    kinds = [classify(p) for p in lib.parts.values() if p.category != "wire"]
-    geo = [k for k in kinds if k != "exempt"]
-    cov = sum(k != "fallback" for k in geo) / len(geo)
-    assert cov >= 0.95, f"{cov:.1%} of geometry-bearing parts have a visual"
+    kinds = [classify(p) for p in lib.parts.values()]
+    obj = [k for k in kinds if k != "exempt"]
+    cov = sum(k in ("explicit", "family") for k in obj) / len(obj)
+    assert cov >= 0.95, f"{cov:.1%} of parts have a visual"
+    assert "missing" not in obj, "a part without [geometry] has nothing to draw"

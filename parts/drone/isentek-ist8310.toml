@@ -25,6 +25,21 @@ unit = "T"
 fidelity = "estimated"
 rationale = "IST8310 datasheet v1.2 gives resolution 0.3 uT/LSB and says low noise is obtained by soft averaging but publishes no noise figure. One LSB (0.3 uT) is used as the rms noise per sample at default averaging, which is a conservative upper-ish bound for a 16-bit AMR sensor; replace if a measured noise (e.g. PX4 log of a static 6C) is found."
 
+[visual]                            # cosmetic only: the bare LGA package, size from the datasheet
+src = "V1"
+note = "3.0 x 3.0 x 1.0 mm 16-pin LGA (datasheet)."
+
+[[visual.elements]]
+gen = "sensor_ic"
+params = { size = [0.003, 0.003, 0.001] }
+
+[[sources]]
+id = "V1"
+url = "https://wmsc.lcsc.com/wmsc/upload/file/pdf/v2/lcsc/2407090929_iSentek-IST8310_C2683055.pdf"
+title = "IST8310 3D Magnetometer Datasheet Version 1.2 (package size)"
+accessed = "2026-10-08"
+quote = "iSentek IST8310 is a 3-axis digital magnetometer with 3.0x3.0x1.0mm3, 16-pin LGA package."
+
 [[sources]]
 id = "S1"
 url = "https://wmsc.lcsc.com/wmsc/upload/file/pdf/v2/lcsc/2407090929_iSentek-IST8310_C2683055.pdf"

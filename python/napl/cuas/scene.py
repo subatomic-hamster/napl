@@ -102,7 +102,13 @@ def _prefix_vehicle(root, p):
 
 
 def compose(
-    outdir, vehicles, env=None, parts=REPO / "parts", seed=1, floor_size=(0, 0, 1)
+    outdir,
+    vehicles,
+    env=None,
+    parts=REPO / "parts",
+    seed=1,
+    floor_size=(0, 0, 1),
+    visual=True,
 ) -> dict:
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
@@ -118,7 +124,7 @@ def compose(
                 f"vehicle name {v.name!r}: unique, no '/', not starting with '_'"
             )
         taken.add(v.name)
-        text, report = design.compute(_asm_path(v.assembly), parts, out)
+        text, report = design.compute(_asm_path(v.assembly), parts, out, visual=visual)
         tree = ET.fromstring(text)
         d = json.loads(tree.find("custom/text").get("data"))
         _prefix_vehicle(tree, v.name)
