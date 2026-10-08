@@ -7,9 +7,10 @@ estimated from the box size, a world position estimated from (pixel ray x range)
     tr = Tracker(cam)                                 # IDs "A", "B", ... never reused
     tracks = tr.update(det, frame)                    # confirmed + coasting tracks, nearest-neighbour association in pixel space
 
-Detection. The sky of the renderer is a flat colour; its value is taken per frame as the median of the pixels above the horizon (so a
-different sky, a gradient-free dusk, works too). Foreground = pixels whose colour differs from it by more than `thr` (sum of absolute channel
-differences), above the horizon row (computed from the camera pitch, minus a margin) and outside the static mask of the turret's own barrel,
+Detection. The sky is not flat (gradient, warm horizon band, haze, clouds), so its colour is estimated per pixel as the local mean over a
+SKY_WINDOW_PX window (an integral image); smooth sky structure cancels, a small dark drone does not. Foreground = pixels darker than
+that local sky by more than `thr` (sum of RGB) AND below DARK_RATIO of it: drones are dark silhouettes against the sky, while the blue next
+to a bright cloud is only slightly darker than its cloud-lifted local mean, above the horizon row (computed from the camera pitch, minus a margin) and outside the static mask of the turret's own barrel,
 which the camera sees at the bottom of the image. Foreground pixels are dilated by 2 px so that thin props / arms join their body, then
 labelled (4-connected, a small flood fill: foreground is a few hundred pixels), boxes taken from the undilated pixels.
 
@@ -27,7 +28,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 ASSUMED_SIZE_M = 0.55  # m: characteristic size (the largest box side) of a small quad, for range from apparent size
-SKY_THR = 18  # sum |dRGB| from the sky colour
+SKY_THR = 18  # sum of RGB below the local sky's
+DARK_RATIO = 0.75  # and darker than this fraction of it: a drone is a dark silhouette, a cloud edge only a little darker than its mean
+SKY_WINDOW_PX = 61  # local sky = mean over this window: follows the gradient, haze and soft clouds, not a drone (a few to tens of px)
 HORIZON_MARGIN_PX = 6
 BARREL_MASK = (
     0.43,
@@ -53,14 +56,22 @@ def horizon_row(cam, fr):
     return cam.h / 2 + cam.f_px * np.tan(el)
 
 
+def _local_mean(img, k):
+    """Per-pixel mean over a k x k window (edge-padded), all channels: an integral image, O(pixels)."""
+    r = k // 2
+    p = np.pad(img, ((r + 1, r), (r + 1, r), (0, 0)), mode="edge").cumsum(0).cumsum(1)
+    h, w = img.shape[:2]
+    return (p[k:k + h, k:k + w] - p[:h, k:k + w] - p[k:k + h, :w] + p[:h, :w]) / (k * k)  # fmt: skip
+
+
 def detect(rgb, horizon, thr=SKY_THR, min_area=8, mask=BARREL_MASK):
     h, w, _ = rgb.shape
     top = int(min(h, max(0, horizon - HORIZON_MARGIN_PX)))
     if top < 8:
         return []
-    sky = np.median(rgb[:top].reshape(-1, 3), axis=0)
-    diff = np.abs(rgb[:top].astype(np.int16) - sky.astype(np.int16)).sum(axis=2)
-    fg = diff > thr
+    lum = rgb[:top].astype(np.float32).sum(axis=2)
+    sky = _local_mean(lum[..., None], SKY_WINDOW_PX)[..., 0]
+    fg = (sky - lum > thr) & (lum < DARK_RATIO * sky)
     if mask:
         fg[int(h * mask[1]) :, int(w * mask[0]) : int(w * mask[2])] = False
     if (
