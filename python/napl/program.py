@@ -638,7 +638,9 @@ def run(scenario, runs_dir="runs") -> tuple:
     sc = load_scenario(scenario)
     ifs = sc["interfaces"]
     lim, kind = sc["limits"], ("combo" if len(ifs) > 1 else next(iter(ifs)))
-    run_dir = Path(runs_dir) / f"{sc['name']}-{time.strftime('%Y%m%d-%H%M%S')}"
+    run_dir = (
+        Path(runs_dir).resolve() / f"{sc['name']}-{time.strftime('%Y%m%d-%H%M%S')}"
+    )  # absolute: programs run in run_dir/cwd and get paths under it (NAPL_MODEL, NAPL_RUN_DIR)
     run_dir.mkdir(parents=True)
     cwd = run_dir / "cwd"
     cwd.mkdir()
