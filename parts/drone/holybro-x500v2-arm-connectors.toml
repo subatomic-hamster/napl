@@ -222,6 +222,21 @@ thread = "m3"
 fidelity = "estimated"
 rationale = "Not published as such. The X500 V2 plate is sold for both a 16 mm and a 19 mm square pattern (S2) and the 2216-class motor drawings read '4-M3, 16, 19' (holybro-2216-kv920); the 16x19 mm rectangle used by KDE2315-class and T-Motor MN2212/MN3110 motors is assumed to seat on the same plate (same M3 screws, same position as `motor`). Verify on a real plate before ordering."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "V1"
+note = "Blue fibre-reinforced nylon clamps and motor base (kit photo); drawn from the four geometry boxes."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "plastic-blue" }
+
+[[sources]]
+id = "V1"
+url = "https://holybro.com/products/x500-v2-kits"
+title = "Holybro X500 V2 kits product page (arm connector colour, appearance only)"
+accessed = "2026-10-07"
+quote = "X500 V2 Kits"
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"

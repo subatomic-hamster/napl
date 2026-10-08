@@ -323,7 +323,7 @@ napl design view assemblies/x500v2.toml          # blocks until the window close
 napl mcp --root . --view                         # MCP server + viewer: an agent's design_edit shows up in the window
 ```
 
-![Design window after a scripted session](showcase/design_window.png)
+Screenshots of the Design window are not committed; regenerate them on the host with `tools/screenshots.py` (see its docstring).
 
 The window is a front end to the same `Design` object: each control sends one request to `napl.design.viewer.Backend`, which calls
 the matching `Design` method, rebuilds and reloads the model keeping camera and selection. The DRC window lists every finding

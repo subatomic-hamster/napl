@@ -8,6 +8,7 @@ import collections
 import pathlib
 import sys
 import tomllib
+import types
 
 FIDELITY = {"datasheet", "literature", "measured", "derived", "estimated"}
 SOURCED = {"datasheet", "literature", "measured"}
@@ -122,6 +123,19 @@ def check(path: pathlib.Path, problems: list[str], tally: collections.Counter) -
     mesh = doc.get("geometry", {}).get("mesh")
     if mesh and not (path.parents[2] / mesh).exists():
         bad(f"mesh '{mesh}' not found")
+    if (
+        "visual" in doc
+    ):  # cosmetic layer (parts/README.md "Visual layer"): no fidelity tags, only structure + sources
+        try:
+            sys.path.insert(
+                0, str(pathlib.Path(__file__).resolve().parents[1] / "python")
+            )
+            from napl.design import visuals
+        except ImportError:  # numpy missing: the generator names cannot be checked here (pytest covers them)
+            return
+        part = types.SimpleNamespace(raw=doc, params=params)
+        for msg in visuals.validate(part, path.parents[2], set(sources)):
+            bad(msg)
 
 
 def main() -> int:

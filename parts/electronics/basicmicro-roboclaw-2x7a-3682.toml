@@ -102,6 +102,22 @@ gender = "neutral"
 level = { value = 3.3, unit = "V", src = "S2", fidelity = "datasheet" }
 note = "S1 = RX, S2 = TX of the TTL UART in Packet Serial mode (S2 control-interface table); non-inverted TTL, 8N1, 2400 - 460800 bit/s (S1: 'Available baud rates range from 2400 to 460800 bps'); the USB port speaks the same packet protocol. 'I/O Output Voltage 3.3 V', inputs 5 V tolerant."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "V1"
+note = "Red PCB with blue screw terminals, two black electrolytic caps and pin headers (product photo, case removed)."
+
+[[visual.elements]]
+gen = "board_generic"
+params = { big = 2 }
+colors = { pcb = [0.62, 0.04, 0.04], conn = [0.05, 0.28, 0.75], metal = "plastic-black", pin = "gold" }
+
+[[sources]]
+id = "V1"
+url = "https://www.pololu.com/product/3682"
+title = "Pololu RoboClaw 2x7A product page (appearance photo)"
+accessed = "2026-10-07"
+quote = "Pololu - RoboClaw 2x7A Motor Controller (V6B/V6F)"
+
 [[sources]]
 id = "S1"
 url = "https://www.pololu.com/product/3682/specs"

@@ -43,6 +43,15 @@ symmetry = 360
 thickness = 0.0
 note = "Outer face, six threaded #4-40 mounting holes for a wheel (S1); hole circle not recorded (see the wheel part)."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "S1"
+note = "Aluminium hub disc with a 6 mm bore (title); the part frame has the disc spanning z = 0 .. thickness."
+
+[[visual.elements]]
+gen = "pulley"
+pos = [0.0, 0.0, 0.0046]
+colors = { body = "alu-brushed", flange = "alu-brushed" }
+
 [[sources]]
 id = "S1"
 url = "https://www.pololu.com/product/1083/specs"

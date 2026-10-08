@@ -64,6 +64,13 @@ axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 360
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "S1"
+note = "Three-blade 5.1 inch FPV propeller (listing title); black finish is the category default."
+
+[[visual.elements]]
+gen = "propeller"
+
 [[sources]]
 id = "S1"
 url = "https://www.getfpv.com/gemfan-hurricane-51466-propeller-set-of-4.html"

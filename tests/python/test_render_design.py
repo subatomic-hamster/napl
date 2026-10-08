@@ -28,11 +28,13 @@ def models(tmp_path_factory):
 
 
 def _rgba(xml):
-    return {
-        g.get("name"): tuple(float(x) for x in g.get("rgba").split())
-        for g in ET.parse(xml).getroot().iter("geom")
-        if g.get("group") == "4"
-    }
+    """Physics-geom colours. A geom hidden behind its cosmetic visual layer has alpha 0 (rgb kept): reported as opaque."""
+    out = {}
+    for g in ET.parse(xml).getroot().iter("geom"):
+        if g.get("group") == "4" and ":v" not in g.get("name", ""):
+            c = tuple(float(x) for x in g.get("rgba").split())
+            out[g.get("name")] = c[:3] + (1.0 if c[3] == 0.0 else c[3],)
+    return out
 
 
 def test_builder_emits_a_colour_per_vehicle_geom(models):

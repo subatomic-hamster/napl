@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <set>
 #include <stdexcept>
 #include <string_view>
@@ -62,6 +63,8 @@ const std::string& Devices::name(int slot) const {
     case Slot::baro: return baro.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::mag: return mag.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::gnss: return gnss.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::launcher: return launcher.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::camera: return camera.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::esc: break;
   }
   return esc.cfg[static_cast<std::size_t>(s.i)].meta.name;
@@ -429,6 +432,43 @@ Devices parse(const std::string& json) {
       slot(Devices::Slot::gnss, static_cast<int>(dv.gnss.cfg.size()));
       dv.gnss.cfg.push_back(std::move(c));
     }
+  if (root->launchers())
+    for (const fb::Launcher* l : *root->launchers()) {
+      LauncherCfg c{};
+      c.meta = meta_of(l->name(), l->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.site = l->site()->str();
+      need(!c.site.empty(), n, "site must be non-empty");
+      c.v0 = l->muzzle_velocity(); c.mass = l->pellet_mass(); c.diameter = l->diameter(); c.cd = l->cd();
+      c.max_time = l->max_time(); c.v_std = l->v_std(); c.spread_std = l->spread_std(); c.ray_groups = l->ray_groups();
+      c.seed = l->seed();
+      need(c.v0 > 0 && std::isfinite(c.v0), n, "muzzle_velocity must be > 0");
+      need(c.mass > 0 && std::isfinite(c.mass), n, "pellet_mass must be > 0");
+      need(c.diameter > 0 && std::isfinite(c.diameter), n, "diameter must be > 0");
+      need(c.cd >= 0 && std::isfinite(c.cd), n, "cd must be >= 0");
+      need(c.max_time > 0 && std::isfinite(c.max_time), n, "max_time must be > 0");
+      need(c.v_std >= 0 && std::isfinite(c.v_std) && c.spread_std >= 0 && std::isfinite(c.spread_std), n,
+           "v_std and spread_std must be >= 0");
+      need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
+      if (l->visual_bodies())
+        for (const flatbuffers::String* b : *l->visual_bodies()) c.visual.push_back(b->str());
+      need(c.visual.size() <= static_cast<std::size_t>(kMaxPellets), n, "at most 16 visual_bodies (the pellet pool)");
+      slot(Devices::Slot::launcher, static_cast<int>(dv.launcher.cfg.size()));
+      dv.launcher.cfg.push_back(std::move(c));
+    }
+  if (root->cameras())
+    for (const fb::Camera* s : *root->cameras()) {
+      CameraCfg c{};
+      c.meta = meta_of(s->name(), s->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.site = s->site()->str();
+      need(!c.site.empty(), n, "site must be non-empty");
+      c.fov_v = s->fov_v(); c.width = s->width(); c.height = s->height(); c.rate_hz = s->rate_hz();
+      need(c.fov_v > 0 && c.fov_v < kPi && std::isfinite(c.fov_v), n, "fov_v must be in (0, pi) rad");
+      need(c.width > 0 && c.height > 0 && c.rate_hz > 0 && std::isfinite(c.rate_hz), n, "width, height, rate_hz must be > 0");
+      slot(Devices::Slot::camera, static_cast<int>(dv.camera.cfg.size()));
+      dv.camera.cfg.push_back(std::move(c));
+    }
   if (dv.slots.empty()) throw std::runtime_error("napl.devices: no devices declared");
 
   // Initial state. RNG stream k uses the device's flat slot index (battery, psu, wire, load, esc order).
@@ -492,6 +532,12 @@ Devices parse(const std::string& json) {
     s.rng.seed(seed_of(c.seed, top, k++));
     dv.gnss.st.push_back(s);
   }
+  for (const LauncherCfg& c : dv.launcher.cfg) {
+    LauncherState s{};
+    s.rng.seed(seed_of(c.seed, top, k++));
+    dv.launcher.st.push_back(s);
+  }
+  dv.camera.st.assign(dv.camera.cfg.size(), CameraState{});
   return dv;
 }
 
@@ -575,6 +621,17 @@ void bind(mjModel* m, Devices& dv) {
     c.sid = site_id(c.meta.name, c.site);
     c.period = period_of(c.meta.name, "rate_hz", c.rate_hz, "sample");
   }
+  for (LauncherCfg& c : dv.launcher.cfg) {
+    c.sid = site_id(c.meta.name, c.site);
+    c.body = m->site_bodyid[c.sid];
+    c.mocap.clear();
+    for (const std::string& vb : c.visual) {
+      const int b = body_id(c.meta.name, vb);
+      if (m->body_mocapid[b] < 0) fail(c.meta.name, "visual body '" + vb + "' is not a mocap body");
+      c.mocap.push_back(m->body_mocapid[b]);
+    }
+  }
+  for (CameraCfg& c : dv.camera.cfg) c.sid = site_id(c.meta.name, c.site);
   // Only after every check passed: model edits. SET (not added), so rebinding a reloaded / recompiled model is
   // idempotent. The rotor inertia of an ESC motor is the dof armature (N = 1); a servo reflects it to the gear output:
   // J_rotor N^2, large next to the load.
@@ -681,6 +738,7 @@ void step(mjModel* m, mjData* d, Devices& dv) {
 
   // 5. aero / forces: environment (turbulence), rotors, body drag.
   step_forces(m, d, dv);
+  step_launchers(m, d, dv);  // camera pose, muzzle, pellets (kinematics of step1)
   if (!dv.imu.cfg.empty()) dv.qvel_k.assign(d->qvel, d->qvel + m->nv);  // the IMU acceleration needs s_k's qvel
   mj_step2(m, d);
 
@@ -704,6 +762,8 @@ template <class D, class F> void for_groups(D& dv, F&& f) {
   f(dv.baro);
   f(dv.mag);
   f(dv.gnss);
+  f(dv.launcher);
+  f(dv.camera);
 }
 template <class G> constexpr bool pod_ok = std::is_trivially_copyable_v<typename G::State> && sizeof(typename G::State) % 8 == 0;
 }  // namespace
@@ -815,6 +875,16 @@ constexpr Attr<GnssState> kGnssIn[] = {{"fix_lost", "1", &GnssState::fix_lost, t
 constexpr Attr3<GnssState> kGnss3[] = {{"vel_ned", "m/s", &GnssState::vel_ned},
                                        {"jump", "m", &GnssState::jump, true, -1e5, 1e5}};  // F3 gnss_jump: ENU position step
 
+// Launcher (counter-UAS): scalars and 3-vectors here, the pool / hit-ring arrays in locate(). fire is the only input.
+constexpr Attr<LauncherState> kLauncher[] = {
+    {"fire", "1", &LauncherState::fire, true, true, 0, 1}, {"rounds", "1", &LauncherState::rounds},
+    {"hits", "1", &LauncherState::hits}, {"ground", "1", &LauncherState::ground}, {"expired", "1", &LauncherState::expired},
+    {"dropped", "1", &LauncherState::dropped}, {"hit_n", "1", &LauncherState::hit_n}, {"time", "s", &LauncherState::time}};
+constexpr Attr3<LauncherState> kLauncher3[] = {{"muzzle_pos", "m", &LauncherState::muzzle_pos},
+                                              {"muzzle_dir", "1", &LauncherState::muzzle_dir}};
+constexpr Attr3<CameraState> kCamera3[] = {{"pos", "m", &CameraState::pos}, {"fwd", "1", &CameraState::fwd},
+                                          {"up", "1", &CameraState::up}};
+
 template <class P> struct Found { P p; const char* unit; bool rw, bin; double lo, hi; std::size_t n = 1; };
 template <class D> auto locate(D& dv, int slot, const std::string& attr) {
   using P = std::conditional_t<std::is_const_v<D>, const double*, double*>;
@@ -842,6 +912,20 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
     case Devices::Slot::baro: pick(kBaro, dv.baro.st); break;
     case Devices::Slot::mag: pick3(kMag3, dv.mag.st); break;
     case Devices::Slot::gnss: pick(kGnss, dv.gnss.st); pick(kGnssIn, dv.gnss.st); pick3(kGnss3, dv.gnss.st); break;
+    case Devices::Slot::launcher: {
+      pick(kLauncher, dv.launcher.st);
+      pick3(kLauncher3, dv.launcher.st);
+      auto& st = dv.launcher.st[static_cast<std::size_t>(s.i)];
+      auto arr = [&](const char* name, const char* unit, auto& a) {
+        if (attr == name) f = {a, unit, false, false, 0, 0, std::size(a)};
+      };
+      arr("active", "1", st.active); arr("round_no", "1", st.round_no); arr("age", "s", st.age);
+      arr("pos", "m", st.pos); arr("vel", "m/s", st.vel);
+      arr("hit_body", "1", st.hit_body); arr("hit_geom", "1", st.hit_geom); arr("hit_t", "s", st.hit_t);
+      arr("hit_speed", "m/s", st.hit_v); arr("hit_round", "1", st.hit_round); arr("hit_pos", "m", st.hit_pos);
+      break;
+    }
+    case Devices::Slot::camera: pick3(kCamera3, dv.camera.st); break;
   }
   return f;
 }
