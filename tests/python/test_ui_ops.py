@@ -368,6 +368,66 @@ def test_view_hover_ops_and_undo_history(be):
     assert ask(b, "state")["state"]["history"]["undo"][-1] == "unwire pdb-to-esc1"
 
 
+def test_program_file_and_animated_drop_extras(tmp_path):
+    d = Design.new("t", REPO / "parts")
+    b = Backend(lambda: d, tmp_path)
+    ask(b, "ui_poll")
+    st = ask(
+        b, "state"
+    )  # an empty design: the window asks for its state before the first part
+    assert (
+        st["ok"]
+        and st["state"]["xml"] is None
+        and "no root" in st["state"]["build_error"]
+    )
+    r = ask(b, "ui.program", {"file": "examples/cuas/swarm.py", "scroll": 0.5})
+    assert r["ok"] and r["result"]["lines"] > 50
+    ev = ask(b, "ui_poll")["result"]["events"]
+    assert (
+        ev[0]["cmd"] == "program"
+        and "class Swarm" in ev[0]["text"]
+        and ev[0]["scroll"] == 0.5
+    )
+    assert not ask(b, "ui.program", {"file": "../../etc/passwd"})["ok"]
+    assert ask(b, "ui.program", {})["ok"]  # back to the design TOML
+    # an animated drag is committed by the window's own silent drop; the drag's id / group ride along
+    assert ask(b, "library.drop", {"part": "cuas-turret-base-plate"})["ok"]
+    so = "ettinger-05-12-143-m2.5-standoff"
+    r = ask(
+        b,
+        "library.drag",
+        {
+            "part": so,
+            "to": {"point": [0, 0, 0]},
+            "animate": True,
+            "id": "so1",
+            "group": "g",
+        },
+    )
+    assert r["result"]["queued"]
+    assert ask(b, "library.drop", {"part": so, "point": [0, 0, 0], "silent": True})[
+        "ok"
+    ]
+    assert next(i for i in d.doc["instances"] if i["id"] == "so1")["group"] == "g"
+
+
+def test_assembly_header_op(tmp_path):
+    d = Design.new("t", REPO / "parts")
+    d.edit([{"op": "add", "part": "cuas-turret-base-plate", "root": True}])
+    r = d.edit(
+        [{"op": "assembly", "base": "fixed", "timestep": 0.001, "description": "x"}]
+    )
+    assert (
+        d.doc["assembly"]["base"] == "fixed"
+        and d.doc["assembly"]["timestep"] == 0.001
+        and r.changes[0]["op"] == "assembly"
+    )
+    for bad in ({}, {"base": "floating"}, {"timestep": 1.0}):
+        with pytest.raises(Exception):
+            d.edit([{"op": "assembly", **bad}])
+    assert d.doc["assembly"]["base"] == "fixed"
+
+
 def test_pose_and_color_schema_checks():
     doc = A.load(X500).doc
     bad = copy.deepcopy(doc)

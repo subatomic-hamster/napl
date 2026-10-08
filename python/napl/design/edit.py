@@ -1530,6 +1530,23 @@ class Design:
         ch.update(pos=inst["pos"], rpy=inst["rpy"])
         return ch
 
+    def _op_assembly(self, doc, s) -> dict:
+        """assembly: the header of the design: base = 'free' (a vehicle) | 'fixed' (welded to the world), timestep (s), description."""
+        a, ch = doc["assembly"], {"op": "assembly"}
+        if s.get("base") is not None:
+            if s["base"] not in ("free", "fixed"):
+                raise DesignError("assembly: base is 'free' or 'fixed'")
+            a["base"] = ch["base"] = s["base"]
+        if s.get("timestep") is not None:
+            if not 0 < float(s["timestep"]) <= 0.01:
+                raise DesignError("assembly: timestep is in (0, 0.01] s")
+            a["timestep"] = ch["timestep"] = float(s["timestep"])
+        if s.get("description"):
+            a["description"] = ch["description"] = str(s["description"])
+        if len(ch) == 1:
+            raise DesignError("assembly: give base, timestep or description")
+        return ch
+
     def _op_color(self, doc, s) -> dict:
         """Cosmetic colour override of instance `id`: rgba = [r, g, b(, a)] in 0..1, or None / [] to go back to the part's own."""
         inst = self._inst(doc, s["id"])
@@ -1613,6 +1630,7 @@ class Design:
             "set": self._op_set,
             "place": self._op_place,
             "color": self._op_color,
+            "assembly": self._op_assembly,
             "duplicate": self._op_duplicate,
             "mirror": self._op_mirror,
             "device_map": self._op_device_map,

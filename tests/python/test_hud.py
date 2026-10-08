@@ -115,6 +115,8 @@ def test_camera_presets_keep_turret_and_drones_in_frame():
             "top": [turret] + drones,
             "chase": [turret],
             "target": [turret, drones[0]],
+            "swarm": drones,
+            "close": [drones[0]],
         }
         for p in keep[preset]:
             xy = H.project(pos, look, 45.0, 1280, 720, p)
@@ -123,3 +125,7 @@ def test_camera_presets_keep_turret_and_drones_in_frame():
                 p,
                 xy,
             )
+    # no target selected: "target" / "close" frame the drone nearest the turret instead of falling back to the overview
+    a = hudview.camera_for("target", turret, drones, [1, 0, 0], target=None)
+    b = hudview.camera_for("overview", turret, drones, [1, 0, 0], target=None)
+    assert a != b and abs(a["target"][0] - 15) < 1 and a["dist"] < 80

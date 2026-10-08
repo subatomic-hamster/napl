@@ -11,6 +11,7 @@ Ops (args -> result):
   ui.view {tooltips?: auto|on|off, emphasise_wires?: bool}   (auto = hover tooltips only while a person moves the mouse: recordings stay
   clean; on = always; off = never. emphasise_wires = cables at least 4 px wide on screen in BUILD / LIBRARY / WIRING, data unchanged)
   ui.hover {instance, seconds?}   show that instance's compact tooltip (about 6 s) even when tooltips are auto / off
+  ui.program {file?, scroll?}   PROGRAM page shows that source file (path inside the repo; none = the design TOML), scrolled to a 0..1 fraction
   ui.state {}  (the Backend.ui dict)      select {instances: [..], add?: bool}
   library.search {text, filters, category, limit, offset, type_ms?}   library.categories {}   library.ranges {category?}
   library.info {part}   library.targets {part}  (ghost poses on every open compatible port)
@@ -23,6 +24,7 @@ World-frame arguments (metres, world +z up); the backend converts to the assembl
 """
 
 import math
+from pathlib import Path
 
 import numpy as np
 
@@ -39,6 +41,7 @@ UI_TOOLS = {
     "ui.snap",
     "ui.view",
     "ui.hover",
+    "ui.program",
     "ui.state",
     "select",
     "library.search",
@@ -57,6 +60,8 @@ UI_TOOLS = {
     "align",
     "distribute",
 }
+DROP_EXTRA = ("id", "group", "offboard", "joint", "mate", "k", "fasteners")
+REPO = Path(__file__).resolve().parents[3]
 MODES = ("build", "library", "wiring", "simulate", "program")
 PRESETS = {  # yaw, pitch (rad): the orbit camera looks from +x at yaw 0
     "front": (-math.pi / 2, 0.0),
@@ -125,7 +130,6 @@ class UiOps:
     # ---- world geometry of the build (what the window picks, snaps and highlights) ---------------------------------------------
     def _geo(self, d, xml):
         """{iid: {pos, R, lo, hi, boxes: [{c, R, h}], color, port_world}} in world coordinates + the root body's pose."""
-        from pathlib import Path
 
         from .drc import _World
 
@@ -241,6 +245,19 @@ class UiOps:
                 seconds=float(a.get("seconds", 6.0)),
             )
             return self._ok({"instance": a["instance"]})
+        if tool == "ui.program":
+            name, text = a.get("file", ""), ""
+            if name:
+                p = (REPO / name).resolve()
+                if REPO not in p.parents or not p.is_file():
+                    raise DesignError(
+                        f"ui.program: {name!r} is not a file inside the repository"
+                    )
+                text = p.read_text()
+            self._event(cmd="program", name=name, text=text, scroll=a.get("scroll"))
+            return self._ok(
+                {"file": name, "lines": text.count("\n") + 1 if text else 0}
+            )
         if tool == "ui.camera":
             if "preset" in a:
                 if a["preset"] not in PRESETS:
@@ -435,6 +452,8 @@ class UiOps:
 
     def _drop(self, d, tool, a):
         part = d._part(a["part"])
+        if tool == "library.drop" and a.get("silent"):
+            a = {**self._queued.pop(part.id, {}), **a}
         to = a.get("to")
         if tool == "library.drag":
             tgt = to or {}
@@ -453,11 +472,16 @@ class UiOps:
                 a.get("animate") and self.attached
             ):  # the window flies the ghost, then sends library.drop itself
                 self._event(**ev, then="drop")
+                # the window's drop carries only part / target: id, group ... of this drag are applied to it
+                self._queued[part.id] = {
+                    k: a[k] for k in DROP_EXTRA if a.get(k) is not None
+                }
                 return self._ok({"queued": True, "part": part.id})
             self._event(**ev, then="none")
         op = {"op": "add", "part": part.id}
-        if a.get("id"):
-            op["id"] = a["id"]
+        for k in DROP_EXTRA:  # passed through to the `add` op
+            if a.get(k) is not None:
+                op[k] = a[k]
         if not any(i.get("root") for i in d.doc["instances"]):
             op["root"] = True
         elif to:

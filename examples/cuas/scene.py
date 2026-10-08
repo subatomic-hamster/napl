@@ -30,7 +30,9 @@ def seed():
 
 def build(out):
     start = Swarm([n for n, _ in DRONES], seed()).start()
-    vs = [Vehicle("turret", "turret", pos=(0.0, 0.0, MAST), pedestal=MAST)]
+    # CUAS_TURRET = path of the turret assembly to fly (default assemblies/turret.toml; the video flies the one built in the viewer)
+    asm = os.environ.get("CUAS_TURRET", "turret")
+    vs = [Vehicle("turret", asm, pos=(0.0, 0.0, MAST), pedestal=MAST)]
     vs += [Vehicle(n, a, pos=tuple(start[n]), yaw=0.0) for n, a in DRONES]
     return compose(out, vs, Environment(wind=WIND, w20=3.0, seed=seed()), seed=seed())[
         "model"

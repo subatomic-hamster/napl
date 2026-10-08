@@ -408,7 +408,13 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True):
     a = doc["assembly"]
     base = a.get("base", "free")
     onboard = [i for i, x in ctx.insts.items() if not x.offboard]
-    root = next(i for i, x in ctx.insts.items() if x.root)
+    root = next((i for i, x in ctx.insts.items() if x.root), None)
+    if (
+        root is None
+    ):  # an empty design (the viewer asks for its state before the first part: a StopIteration took the window's design mode down)
+        raise DesignError(
+            "the design has no root instance yet: add the frame first (add with root = true)"
+        )
 
     specs = [_mate_spec(ctx, m) for m in doc.get("mates", [])]
     seen = set()

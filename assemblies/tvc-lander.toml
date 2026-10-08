@@ -1,0 +1,429 @@
+# TVC lander: a ~1 kg hobby-rocket propulsive-landing model in the spirit of BPS.space's Scout and of Grasshopper / New Shepard hops. A 5.5 in fiberglass tube with a printed
+# ogive nose, a lead nose weight and four small tail fins (they only bring the centre of pressure back to the centre of gravity: attitude is held by thrust vectoring), a two-axis gimbal (printed plate / ring / cradle) driven by two Dynamixel XL330-M288-T servos,
+# and a TWIN-MOTOR CLUSTER in the cradle: an Estes E16 for the ASCENT (motor_a, +x +y seat) and an Estes F15 for the LANDING BURN (motor_b, -x -y seat; its lower, longer thrust
+# is the gentler brake: see docs/lander.md). Flight computer: Teensy 4.0 with an ICM-42688-P IMU, an MS5611 barometer and a GNSS module (data-only chip instances; their
+# breakouts are in the harness allowance), 2S 450 mAh LiPo -> Pololu D24V50F5 5 V / 5 A regulator -> servos and Teensy, a logic-level pyro FET per motor through an Estes 2302 starter.
+# Four fixed splayed carbon-tube legs with soft TPU feet. Flight software: examples/lander/flight.py; scenario examples/lander/land.scenario.toml.
+#
+# FRAME. Part frames follow the tube: origin on the axis at the aft end of the tube, +z towards the nose. The gimbal centre is 0.05 m below the aft face (the plate's annulus sits on the
+# face). The nozzles are 0.062 m below the gimbal centre. See the mass report of `napl design check` for the mass, CG and the standing height.
+# THRUST TRIM. The two motors' thrust lines are 0.01525 m either side of the gimbal axis (on the diagonal): firing one motor needs a constant trim of about atan(0.01525 / L) (L = CG to
+# gimbal centre) which the flight software feeds forward and its integrator removes; a firing motor loads BOTH servos equally. Gimbal travel +-8 deg (mechanical clearance of tvc-gimbal-2x-ring).
+# AERODYNAMICS. One `airframe` device on the tube (nose + tail-fin normal force, cross-flow drag of the planform); legs and gimbal are folded into cd0 / cd_rev as stated below.
+
+[assembly]
+name = "tvc-lander"
+description = "TVC propulsive-landing model rocket: 5.5 in tube, 2-axis servo gimbal, twin-motor cluster (E16 ascent, F15 landing), Teensy 4.0 flight computer, 4 legs"
+base = "free"
+timestep = 0.001
+
+[[instances]]
+id = "tube"
+part = "generic-fiberglass-tube-140"
+root = true
+group = "airframe"
+
+[[instances]]
+id = "nose"
+part = "generic-printed-ogive-nose-140"
+group = "airframe"
+
+[[instances]]
+id = "fins"
+part = "generic-printed-tail-fins-140"
+group = "airframe"
+
+[[instances]]
+id = "weight"
+part = "generic-lead-nose-weight-140"
+group = "airframe"
+
+[[instances]]
+id = "plate"
+part = "tvc-gimbal-2x-plate"
+group = "gimbal"
+
+[[instances]]
+id = "ring"
+part = "tvc-gimbal-2x-ring"
+group = "gimbal"
+
+[[instances]]
+id = "cradle"
+part = "tvc-gimbal-2x-cradle"
+group = "gimbal"
+
+[[instances]]
+id = "pitch"
+part = "robotis-xl330-m288-t"
+group = "gimbal"
+params = { servo_id = { value = 1, unit = "1", fidelity = "estimated", rationale = "Bus ID chosen by the builder when setting up the servos (factory default is 1)." }, baud = { value = 1000000, unit = "bit/s", fidelity = "estimated", rationale = "3 (1 Mbps) in the Baud Rate register; the Teensy's hardware UART runs it." } }
+
+[[instances]]
+id = "yaw"
+part = "robotis-xl330-m288-t"
+group = "gimbal"
+params = { servo_id = { value = 2, unit = "1", fidelity = "estimated", rationale = "Bus ID chosen by the builder." }, baud = { value = 1000000, unit = "bit/s", fidelity = "estimated", rationale = "As the pitch servo." } }
+
+[[instances]]
+id = "motor_a"
+part = "estes-e16"
+group = "propulsion"
+
+[[instances]]
+id = "motor_b"
+part = "estes-f15"
+group = "propulsion"
+
+[[instances]]
+id = "leg1"
+part = "generic-lander-leg-skid"
+group = "legs"
+
+[[instances]]
+id = "leg2"
+part = "generic-lander-leg-skid"
+group = "legs"
+
+[[instances]]
+id = "leg3"
+part = "generic-lander-leg-skid"
+group = "legs"
+
+[[instances]]
+id = "leg4"
+part = "generic-lander-leg-skid"
+group = "legs"
+
+[[instances]]
+id = "fc"
+part = "pjrc-teensy-4-0"
+group = "avionics"
+
+[[instances]]
+id = "batt"
+part = "tattu-2s-450mah-75c-jst-syp"
+group = "avionics"
+
+[[instances]]
+id = "reg"
+part = "pololu-d24v50f5"
+group = "avionics"
+params = { mass = { value = 0.005, unit = "kg", fidelity = "estimated", rationale = "Pololu does not list a weight for the D24V50F5 (20.3 x 17.8 x 8.8 mm); a board that size with the larger 5 A inductor and capacitors weighs 4-6 g (about twice the 2-3 g of the 2.5 A D24V22F5). It replaces the D24V22F5 because the two XL330 servos stalling together peak at 2.9 A, above that module's 2.5 A rating (design check CURRENT_PEAK_OVER_RATING)." } }
+
+[[instances]]
+id = "harness"
+part = "generic-avionics-harness"
+group = "avionics"
+
+# Off-board data-only instances: no body, no mass. They exist so device bindings can read their params.
+[[instances]]
+id = "icm"
+part = "tdk-icm-42688-p"
+offboard = true
+
+[[instances]]
+id = "baro_chip"
+part = "te-ms5611-01ba03"
+offboard = true
+
+[[instances]]
+id = "gnss_chip"
+part = "ublox-neo-m8n"
+offboard = true
+
+[[instances]]
+id = "ign_a"
+part = "estes-2302-starter"
+offboard = true
+
+[[instances]]
+id = "ign_b"
+part = "estes-2302-starter"
+offboard = true
+
+[[instances]]
+id = "cable"
+part = "robotis-robot-cable-x3p-180mm"
+offboard = true
+
+# ---- mates ---------------------------------------------------------------------------------------------------------------------------
+[[mates]]
+name = "tube--nose"
+a = "tube.fore"
+b = "nose.base"
+
+[[mates]]
+name = "nose--weight"
+a = "nose.ballast_seat"
+b = "weight.base"
+
+[[mates]]
+name = "tube--fins"
+a = "tube.fins"
+b = "fins.mount"
+
+[[mates]]
+name = "tube--plate"
+a = "tube.aft"
+b = "plate.tube"
+
+[[mates]]
+name = "plate--pitch"
+a = "plate.pitch_servo_seat"
+b = "pitch.base"
+
+[[mates]]
+name = "pitch-joint"
+a = "pitch.output"
+b = "ring.pitch_horn_seat"
+joint = { type = "hinge", range = { value = [-0.139626, 0.139626], unit = "rad", fidelity = "estimated", rationale = "+-8 deg: the mechanical clearance of the ring around the 0.065 m cradle (tvc-gimbal-2x-ring); the flight software limits itself to +-7 deg." } }
+
+[[mates]]
+name = "ring--yaw"
+a = "ring.yaw_servo_seat"
+b = "yaw.base"
+
+[[mates]]
+name = "yaw-joint"
+a = "yaw.output"
+b = "cradle.yaw_horn_seat"
+joint = { type = "hinge", range = { value = [-0.139626, 0.139626], unit = "rad", fidelity = "estimated", rationale = "+-8 deg, as pitch-joint." } }
+
+[[mates]]
+name = "cradle--motor_a"
+a = "cradle.motor_seat_a"
+b = "motor_a.case"
+
+[[mates]]
+name = "cradle--motor_b"
+a = "cradle.motor_seat_b"
+b = "motor_b.case"
+
+[[mates]]
+name = "tube--leg1"
+a = "tube.leg1"
+b = "leg1.hinge"
+
+[[mates]]
+name = "tube--leg2"
+a = "tube.leg2"
+b = "leg2.hinge"
+
+[[mates]]
+name = "tube--leg3"
+a = "tube.leg3"
+b = "leg3.hinge"
+
+[[mates]]
+name = "tube--leg4"
+a = "tube.leg4"
+b = "leg4.hinge"
+
+[[mates]]
+name = "tube--fc"
+a = "tube.deck_fc"
+b = "fc.base"
+
+[[mates]]
+name = "tube--batt"
+a = "tube.deck_battery"
+b = "batt.base"
+
+[[mates]]
+name = "tube--reg"
+a = "tube.deck_reg"
+b = "reg.base"
+
+[[mates]]
+name = "tube--harness"
+a = "tube.deck_harness"
+b = "harness.base"
+
+# ---- power wiring ------------------------------------------------------------------------------------------------------------------------
+# 2S pack -> regulator input; regulator -> pitch servo and Teensy VIN; servo-to-servo Robot Cable-X3P 180 mm (data and power on the daisy chain).
+[[wires]]
+name = "batt_reg"
+from = "batt.power_out"
+to = "reg.vin"
+part = "awg-22-silicone-wire"
+length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "Battery deck 0.30 m to regulator deck 0.20 m: 0.1 m plus slack." }
+conductors = 2
+
+[[wires]]
+name = "reg_pitch"
+from = "reg.vout"
+to = "pitch.port_a"
+part = "awg-22-silicone-wire"
+length = { value = 0.25, unit = "m", fidelity = "estimated", rationale = "Regulator deck 0.17 m above the aft end down to the pitch servo on the gimbal plate (about 0.03 m below the aft face): 0.20 m of run plus slack." }
+conductors = 2
+
+[[wires]]
+name = "pitch_yaw"
+from = "pitch.port_b"
+to = "yaw.port_a"
+part = "robotis-robot-cable-x3p-180mm"
+length = "cable.length_default"
+conductors = 2
+
+[[wires]]
+name = "reg_fc"
+from = "reg.vout"
+to = "fc.vin"
+part = "awg-26-silicone-wire"
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Regulator deck to flight-computer deck, 0.05 m apart: 0.15 m with service loop." }
+conductors = 2
+
+# ---- device maps ---------------------------------------------------------------------------------------------------------------------------
+[device_maps.solid_motor]
+time = "@thrust_curve.time_s"
+thrust = "@thrust_curve.thrust_N"
+propellant_mass = "propellant_mass"
+total_mass = "mass"
+diameter = "diameter"
+length = "length"
+ignition_delay = "ignition_delay"
+
+[device_maps.xl330_m288]
+"motor.kv" = "kv_equivalent"
+"motor.r20" = "r_effective"
+"motor.i0" = "no_load_current_5v"
+"motor.i0_w" = "omega_noload_motor_5v"
+"motor.i0_visc" = "i0_visc"
+"motor.rotor_inertia" = "rotor_inertia_motor"
+gear_ratio = "gear_ratio"
+efficiency = "gear_efficiency"
+encoder_cpr = "encoder_resolution"
+firmware_hz = "firmware_hz"
+p = "device_p_default"
+i = "device_i_default"
+d = "device_d_default"
+pid_scale = "pid_scale"
+d_scale = "d_scale"
+deadband = "dead_zone_default"
+max_torque = "device_max_torque_default"
+min_voltage = "reg_min_voltage_limit_default"
+max_voltage = "reg_max_voltage_limit_default"
+max_temp = "reg_temperature_limit_default"
+unload_mask = "reg_shutdown_default"
+
+[device_maps.reg5v]
+voltage = "output_voltage"
+i_limit = "output_current_typ_max"
+
+[device_maps.pack2s]
+capacity_ah = "capacity_ah"
+r0 = "r_internal_pack"
+
+[device_maps.icm42688]
+"gyro.noise_density" = "gyro_noise_density"
+"gyro.full_scale" = "gyro_fs_max"
+"gyro.bits" = "gyro_adc_bits"
+"accel.noise_density" = "accel_noise_density_xy"
+"accel.full_scale" = "accel_fs_max"
+"accel.bits" = "accel_adc_bits"
+
+[device_maps.ms5611]
+"noise_std" = "pressure_rms_noise_osr4096"
+
+[device_maps.m8n]
+"rate_hz" = "max_nav_rate_gps_glonass"
+"vel_std" = "velocity_accuracy"
+
+# ---- devices -----------------------------------------------------------------------------------------------------------------------------
+[[devices]]
+type = "battery"
+name = "battery"
+instance = "batt"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack2s"
+
+[[devices]]
+type = "psu"
+name = "reducer"
+instance = "reg"
+port = "vout"
+map = "reg5v"
+set = { r_series = { value = 0.05, unit = "ohm", fidelity = "estimated", rationale = "Output impedance of a small buck module: not published for the D24V50F5; 0.05 ohm = the value used for the Koch reducer (assemblies/koch.toml). The input side (battery sag) is not modelled." } }
+
+[[devices]]
+type = "environment"
+name = "air"
+instance = "tube"
+set = { origin_alt = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "World z = 0 is sea level (ISA density 1.225 kg/m3 at the pad); not a claim about a launch site." }, w20 = { value = 3.0, unit = "m/s", fidelity = "estimated", rationale = "Dryden turbulence intensity for a 3 m/s wind at 6.1 m (sigma_w = 0.1 W20): a light breeze; the mean wind is set at run time with the `wind` attribute and examples/lander/scene.py rebuilds the model with the scenario's value." } }
+
+[[devices]]
+type = "solid_motor"
+name = "motor_a"
+instance = "motor_a"
+body = "motor_a"
+site = "motor_a"
+site_port = "nozzle"
+map = "solid_motor"
+
+[[devices]]
+type = "solid_motor"
+name = "motor_b"
+instance = "motor_b"
+body = "motor_b"
+site = "motor_b"
+site_port = "nozzle"
+map = "solid_motor"
+
+# Barrowman (python/napl/design/barrowman.nose): tangent ogive, CNa = 2.0 on the base area; CP = 0.1137 m behind the tip for L = 0.25 m; the nose tip is 0.65 m above the aft
+# end (tube 0.40 + nose 0.25): x_cp = 0.65 - 0.1137 = 0.5363 m. The body adds no small-angle normal force (Barrowman), only cross-flow drag through s_plan.
+# Tail fins (barrowman.fins for Cr 0.10, Ct 0.05, s 0.07, sweep 0.05 m on the 0.1397 m body: CNa 2.5016, CP 0.0583 m above the aft end) combine with the nose by the CNa-weighted
+# moment sum (barrowman.cp): CNa = 2.0 + 2.5016 = 4.5016, x_cp = 0.2707 m above the aft end, i.e. within ~1.5 cm of the centre of gravity (see the mass report): nearly
+# neutral nose-first AND tail-first, so the unpowered coast between the ascent burnout and the landing burn does not weathercock the vehicle (docs/lander.md).
+[[devices]]
+type = "airframe"
+name = "aero"
+instance = "tube"
+body = "tube"
+site = "tube"
+set = { s_ref = { value = 0.015328, unit = "m^2", fidelity = "derived", derivation = "pi / 4 x 0.1397^2 m (the tube's outside diameter)." }, cn_alpha = { value = 4.5016, unit = "1/rad", fidelity = "derived", derivation = "Nose 2.0 (Barrowman, Niskanen / OpenRocket technical documentation eq 3.28) + four tail fins 2.5016 (python/napl/design/barrowman.fins, eq 3.40-3.56, fin-body interference included)." }, x_cp = { value = 0.2707, unit = "m", fidelity = "derived", derivation = "CNa-weighted moment sum (python/napl/design/barrowman.cp): nose CP 0.65 - 0.1137 = 0.5363 m above the aft end (tip at 0.65 m), fin CP 0.10 - 0.0417 = 0.0583 m above it: (2.0 x 0.5363 + 2.5016 x 0.0583) / 4.5016 = 0.2707 m." }, s_plan = { value = 0.0897, unit = "m^2", fidelity = "derived", derivation = "Body planform 0.1397 m x 0.40 m = 0.0559 m2 plus the ogive 2/3 x 0.1397 x 0.25 m = 0.0233 m2 plus the fins' share of cross flow: half of the four 0.00525 m2 fins = 0.0105 m2." }, cd0 = { value = 0.83, unit = "1", fidelity = "estimated", rationale = "Blunt printed ogive (fineness 1.8) with a 140 mm base: ~0.5 for the body nose-first (OpenRocket-class value), plus the four legs' and feet's frontal area (4 x ~1.3e-3 m2 x Cd 1.1 = 0.006 m2 = +0.37 on s_ref, partly shadowed by the body), minus shadowing, plus ~0.03 for the fins' leading edges (4 x 0.07 m x 1.5 mm = 4.2e-4 m2 x Cd 1.0 = +0.027): 0.83; no wind-tunnel data for this design." }, cd_rev = { value = 1.33, unit = "1", fidelity = "estimated", rationale = "Tail-first flow (the descent): the legs, gimbal plate and nozzles face the flow ahead of a flat 140 mm base... a blunt cylinder in axial flow is ~1.0, the legs add ~0.3 as for cd0, the fin edges ~0.03 more." }, cd_cross = { value = 1.2, unit = "1", fidelity = "derived", derivation = "Drag coefficient of a cylinder in cross flow, 1.1 in Niskanen eq 3.26 (K = 1.1, from Hoerner), 1.2 with the legs." } }
+
+[[devices]]
+type = "servo"
+name = "pitch_servo"
+instance = "pitch"
+port = "port_a"
+joint = "pitch-joint"
+map = "xl330_m288"
+set = { "motor.c_th" = { value = 3.3, unit = "J/K", fidelity = "estimated", rationale = "No published value. Scaled from the 10 J/K of the 55 g STS3215 by the mass ratio 18 g / 55 g (heat capacity ~ mass): 3.3 J/K. Only the temperature readout depends on it." }, "motor.r_th" = { value = 30.0, unit = "K/W", fidelity = "estimated", rationale = "No published value. Scaled from 15 K/W of the 55 g STS3215 by (55/18)^(2/3) = 2.1: 31 K/W, 30 K/W taken." } }
+
+[[devices]]
+type = "servo"
+name = "yaw_servo"
+instance = "yaw"
+port = "port_a"
+joint = "yaw-joint"
+map = "xl330_m288"
+set = { "motor.c_th" = { value = 3.3, unit = "J/K", fidelity = "estimated", rationale = "As the pitch servo." }, "motor.r_th" = { value = 30.0, unit = "K/W", fidelity = "estimated", rationale = "As the pitch servo." } }
+
+[[devices]]
+type = "imu"
+name = "imu"
+instance = "icm"
+site = "fc"
+map = "icm42688"
+set = { rate_hz = { value = 500.0, unit = "Hz", fidelity = "estimated", rationale = "Simulation tick is 1 ms; 500 Hz = every 2nd tick, inside the ICM-42688-P output-data-rate range (12.5-32000 Hz datasheet). The firmware reads every second sample, at its 250 Hz control rate." } }
+
+# GNSS: the u-blox NEO-M8N figures (the module on the sled is a Matek M10Q-5883, counted in the harness mass; the M10 datasheet figures were not retrieved). Position error as in
+# assemblies/x500v2.toml: 90 % of the variance is a slow Gauss-Markov term (600 s), so over a 15 s flight it is a constant offset which the firmware removes by averaging the fixes on the pad.
+[[devices]]
+type = "gnss"
+name = "gnss"
+instance = "gnss_chip"
+site = "fc"
+map = "m8n"
+set = { latency_s = { value = 0.2, unit = "s", fidelity = "estimated", rationale = "No part publishes the receiver's output latency; 0.2 s = one sample at the datasheet 5 Hz, as assemblies/x500v2.toml." }, lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "Arbitrary simulation origin (the repo's test-model site); not a claim about where the vehicle flies." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "World z = 0 at sea level, matching the environment device's origin_alt so the barometer and GNSS agree." }, horiz_std = { value = 2.1233, unit = "m", fidelity = "derived", derivation = "u-blox NEO-M8N horizontal position accuracy 2.5 m CEP (parts/drone/ublox-neo-m8n horizontal_accuracy_cep_gps, datasheet, 50 % radius) converted to a per-coordinate sigma of a circular normal distribution: sigma = CEP / 1.17741 = 2.1233 m." }, vert_std = { value = 3.185, unit = "m", fidelity = "derived", derivation = "1.5 x horiz_std, as assemblies/x500v2.toml (the part publishes no vertical figure)." }, corr_time_s = { value = 600.0, unit = "s", fidelity = "estimated", rationale = "Time constant of the slowly varying part of the position error (ionosphere, orbit / clock residuals, multipath); see assemblies/x500v2.toml for the literature range (a couple of minutes or more). An estimate." }, corr_frac = { value = 0.9, unit = "1", fidelity = "estimated", rationale = "Share of the position variance that is the Gauss-Markov part, as assemblies/x500v2.toml; the rest is white per-fix scatter." } }
+
+[[devices]]
+type = "baro"
+name = "baro"
+instance = "baro_chip"
+site = "fc"
+map = "ms5611"
+set = { rate_hz = { value = 50.0, unit = "Hz", fidelity = "estimated", rationale = "MS5611 pressure + temperature conversions take 8.22 ms each at OSR 4096 (datasheet response time), i.e. at most ~60 Hz alternating; 50 Hz (every 20th tick) is chosen. Noise is the OSR 4096 RMS figure." } }

@@ -13,7 +13,7 @@ the run's native.json. The turret's pixels come from the run's own camera frames
                                                     and --start-index; the last chunk (--t1 >= the run) checks the replay hash.
     encode  FRAMES_DIR... OUT.webm [--fps 20] [--gpl]   needs `av` + Pillow (a throwaway venv, as record_build.py): OpenH264 / VP9 by default,
                                                     libx264 (GPL) only with --gpl
-SPEC = a preset (overview | chase | target | top | free) or a schedule "0:overview,20:chase,40:target".
+SPEC = a preset (overview | chase | target | top | swarm | close | free) or a schedule "0:overview,20:chase,40:target".
 
 hfbox (every command under an outer timeout, the GPU lock held for minutes only; see docs/guide.md):
     tools/remote.sh run --gpu 'timeout 600 .venv/bin/python tools/record_sim.py frames <run> /workspace/wt/napl-hud/out/f --t0 0 --t1 20'
@@ -154,12 +154,24 @@ class Player:
                 if rec
                 else None
             )
+            est = sel["world_xyz_est"] if sel else None
+            name, _, fixed = preset.partition(
+                "@"
+            )  # "close@drone4": that drone, flying or falling
+            if name == "close" and fixed in self.drones:
+                est = q(self.drones[fixed], "pos")[0].tolist()
+            elif (
+                name == "close" and est and drones
+            ):  # the drone itself (true position), not the track's estimate (metres off along the line of sight)
+                est = min(
+                    drones, key=lambda p: sum((p[i] - est[i]) ** 2 for i in range(3))
+                )
             self.cam = self.hv.camera_for(
-                preset,
+                name,
                 mz.tolist(),
                 drones or [mz.tolist()],
                 md.tolist(),
-                sel["world_xyz_est"] if sel else None,
+                est,
                 self.cam,
                 dt,
                 t,
@@ -256,6 +268,13 @@ def _frames(a):
                 hud.progress()["frames"] < 3 and not stop.is_set()
             ):  # the window is up
                 time.sleep(0.2)
+            pre = min(
+                a.t0, 3.0
+            )  # chunks join seamlessly: the eased camera runs for 3 s before the first frame (e^-4 of the previous chunk's state is left)
+            p.to(a.t0 - pre)
+            for j in range(int(pre * 20)):
+                p.to(a.t0 - pre + (j + 1) / 20)
+                p.document(-1, dt=1 / 20)
             p.to(a.t0)
             for k in range(n):
                 t = a.t0 + k / a.fps
