@@ -79,8 +79,44 @@ FIELD_UNITS = {
     "fov_v": {"rad": 1.0},
     "width": {"px": 1.0},
     "height": {"px": 1.0},
+    # solid motor / airframe / sea / vessel / rangefinder (phase 5)
+    "propellant_mass": {"kg": 1.0},
+    "total_mass": {"kg": 1.0},
+    "length": {"m": 1.0},
+    "ignition_delay": {"s": 1.0},
+    "time": {"s": 1.0},
+    "thrust": {"N": 1.0},
+    "s_ref": {"m^2": 1.0},
+    "s_plan": {"m^2": 1.0},
+    "cd0": {"1": 1.0},
+    "cd_rev": {"1": 1.0},
+    "cd_cross": {"1": 1.0},
+    "cn_alpha": {"1/rad": 1.0},
+    "x_cp": {"m": 1.0},
+    "rho": {"kg/m^3": 1.0},
+    "fov_h": {"rad": 1.0},
+    "min_range": {"m": 1.0},
+    "max_range": {"m": 1.0},
+    "sigma0": {"m": 1.0},
+    "sigma1": {"1": 1.0},
+    "sigma2": {"1/m": 1.0},
+    "resolution": {"m": 1.0},
+    "dropout": {"1": 1.0},
+    "level": {"m": 1.0},
+    "depth": {"m": 1.0},
+    "n_h": {"px": 1.0},
+    "n_v": {"px": 1.0},
 }
-INT_FIELDS = {"awg", "encoder_cpr", "bits", "unload_mask", "width", "height"}
+INT_FIELDS = {
+    "awg",
+    "encoder_cpr",
+    "bits",
+    "unload_mask",
+    "width",
+    "height",
+    "n_h",
+    "n_v",
+}
 TYPE_KEY = {
     "battery": "batteries",
     "psu": "psus",
@@ -97,6 +133,11 @@ TYPE_KEY = {
     "body_drag": "body_drags",
     "launcher": "launchers",
     "camera": "cameras",
+    "solid_motor": "solid_motors",
+    "airframe": "airframes",
+    "sea": "seas",
+    "vessel": "vessels",
+    "rangefinder": "rangefinders",
 }
 NODE_TYPES = {"battery", "psu", "load", "esc", "servo"}
 RESERVED = {
@@ -601,6 +642,12 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
             d.setdefault(
                 "ray_groups", 63 & ~(1 << 5)
             )  # hits the vehicle geoms (group 4); group 5 = the pellet visuals
+        if typ == "vessel" and "hulls" not in d:
+            d["hulls"] = _hulls(inst, where)
+        if typ == "rangefinder":
+            d.setdefault(
+                "ray_groups", RAY_GROUPS
+            )  # sees the world, not the vehicle's own geoms (group 4)
         if typ == "rotor":
             d.setdefault("ray_groups", RAY_GROUPS)
             if b.get("reynolds"):
@@ -614,6 +661,31 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
     if "seed" in doc["assembly"]:
         dev["seed"] = doc["assembly"]["seed"]
     return dev, report, sites
+
+
+def _hulls(inst, where: str) -> list:
+    """Buoyancy hulls of a vessel: the instance part's geometry boxes that carry `cells = [nx, ny, nz]` (box half extents -> full)."""
+    out = []
+    for s in inst.part.geometry.get("shapes", []):
+        if "cells" not in s:
+            continue
+        if s.get("shape") != "box":
+            raise DesignError(
+                f"{where}: hull shape {s.get('shape')!r} of part {inst.part.id}: only boxes are sampled"
+            )
+        out.append(
+            {
+                "shape": "box",
+                "pos": [float(v) for v in s.get("pos", [0, 0, 0])],
+                "size": [2.0 * float(v) for v in s["size"]],
+                "n": [int(v) for v in s["cells"]],
+            }
+        )
+    if not out:
+        raise DesignError(
+            f"{where}: part {inst.part.id} has no geometry box with `cells = [nx, ny, nz]` (the vessel's buoyancy hulls)"
+        )
+    return out
 
 
 def _rotor_reynolds(ctx: Ctx, inst, d: dict, where: str, parts: set):

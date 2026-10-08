@@ -1,0 +1,235 @@
+# Twin-hull catamaran ASV (sized after the Blue Robotics BlueBoat): the 1.2 m generic hull, two T200 thrusters on the stern, one Hobbywing SeaKing
+# 60 A ESC and one 3S 2200 mAh pack per hull. No flight computer: the scenario drives the two ESC throttles (differential thrust steers).
+#
+# FRAME. The hull's part frame is the vehicle's body frame: origin mid-length on the centreline at the keel level, x forward, y to port, z up.
+# Still water is at the sea device's `level` (world z); spawn the boat with its keel ~0.04 m below it and it settles at the design draft.
+# THRUSTERS. Each T200 points AFT (its base against the transom, shaft +z = world -x) so the rotor binding uses dir = -1: positive ESC drive
+# (spin about the shaft axis, towards -x) then pushes the boat forward (+x) -- thrust = s_dir * a with a = the joint axis (devices.fbs Rotor).
+
+[assembly]
+name = "boat-cat"
+description = "Twin-hull catamaran ASV: 1.2 m generic hull, 2 x Blue Robotics T200, 2 x Hobbywing SeaKing 60A, 2 x 3S 2200 mAh"
+base = "free"
+timestep = 0.002
+
+[[instances]]
+id = "hull"
+part = "generic-catamaran-hull-1200"
+root = true
+group = "hull"
+
+[[instances]]
+id = "thr1"
+part = "bluerobotics-t200-thruster"
+group = "propulsion"
+
+[[instances]]
+id = "thr2"
+part = "bluerobotics-t200-thruster"
+group = "propulsion"
+
+[[instances]]
+id = "prop1"
+part = "bluerobotics-t200-propeller"
+group = "propulsion"
+
+[[instances]]
+id = "prop2"
+part = "bluerobotics-t200-propeller"
+group = "propulsion"
+
+[[instances]]
+id = "esc1"
+part = "hobbywing-seaking-60a-v3-1"
+group = "power"
+
+[[instances]]
+id = "esc2"
+part = "hobbywing-seaking-60a-v3-1"
+group = "power"
+
+[[instances]]
+id = "bat1"
+part = "gensace-2200mah-3s-25c-gea223s25t3gt"
+group = "power"
+
+[[instances]]
+id = "bat2"
+part = "gensace-2200mah-3s-25c-gea223s25t3gt"
+group = "power"
+
+[[mates]]
+name = "hull--thr1"
+a = "hull.thruster_port"
+b = "thr1.base"
+
+[[mates]]
+name = "hull--thr2"
+a = "hull.thruster_starboard"
+b = "thr2.base"
+
+[[mates]]
+name = "spin1"
+a = "thr1.shaft"
+b = "prop1.hub"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "spin2"
+a = "thr2.shaft"
+b = "prop2.hub"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "hull--esc1"
+a = "hull.esc_port"
+b = "esc1.base"
+
+[[mates]]
+name = "hull--esc2"
+a = "hull.esc_starboard"
+b = "esc2.base"
+
+[[mates]]
+name = "hull--bat1"
+a = "hull.battery_seat"
+b = "bat1.base"
+
+[[mates]]
+name = "hull--bat2"
+a = "hull.battery_seat_starboard"
+b = "bat2.base"
+
+# ---- wires -----------------------------------------------------------------------------------------------------------------------------
+# included_in: every lead is already inside the datasheet mass of the part it ships on (battery 169 g incl. its 120 mm lead; thruster 427 g incl. 1 m cable).
+[[wires]]
+name = "bat1-to-esc1"
+from = "bat1.power_out"
+to = "esc1.power_in"
+part = "awg-14-silicone-wire"
+length = "bat1.discharge_wire_length"
+conductors = 2
+included_in = "bat1"
+
+[[wires]]
+name = "bat2-to-esc2"
+from = "bat2.power_out"
+to = "esc2.power_in"
+part = "awg-14-silicone-wire"
+length = "bat2.discharge_wire_length"
+conductors = 2
+included_in = "bat2"
+
+[[wires]]
+name = "esc1-to-thr1"
+from = "esc1.motor_out"
+to = "thr1.phase"
+part = "awg-14-silicone-wire"
+length = "thr1.cable_length"
+conductors = 3
+included_in = "thr1"
+
+[[wires]]
+name = "esc2-to-thr2"
+from = "esc2.motor_out"
+to = "thr2.phase"
+part = "awg-14-silicone-wire"
+length = "thr2.cable_length"
+conductors = 3
+included_in = "thr2"
+
+# ---- device maps -----------------------------------------------------------------------------------------------------------------------
+[device_maps.seaking_t200]
+"motor.kv" = "motor:kv"
+"motor.r20" = "motor:r_winding"
+"motor.i0" = "motor:i0"
+"motor.rotor_inertia" = "motor:j_rotor"
+"motor.c_th" = "motor:c_th"
+"motor.r_th" = "motor:r_th"
+"i_limit" = "current_continuous"
+"r_on" = "r_on_total"
+"sw_loss" = "switching_loss_fraction"
+"i_q" = "quiescent_current"
+
+[device_maps.t200_prop]
+"diameter" = "diameter"
+"j" = "@ct_cq_j.j"
+"ct" = "@ct_cq_j.ct"
+"cq" = "@ct_cq_j.cq"
+
+[device_maps.pack]
+"capacity_ah" = "capacity_ah"
+"r0" = "r_internal_pack"
+
+[device_maps.hull_hydro]
+"added_mass" = "@hydro.added_mass"
+"damp_lin" = "@hydro.damp_lin"
+"damp_quad" = "@hydro.damp_quad"
+
+# ---- devices ---------------------------------------------------------------------------------------------------------------------------
+[[devices]]
+type = "sea"
+name = "sea"
+instance = "hull"
+set = { rho = { value = 998.2, unit = "kg/m^3", fidelity = "estimated", rationale = "Fresh water at 20 degC (the design-draft derivation of the hull part uses the same value); set 1025 for sea water." }, level = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "Still-water surface at world z = 0; scenarios that want a seabed lower the floor." }, depth = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "0 = deep water for the wave dispersion relation." } }
+
+[[devices]]
+type = "vessel"
+name = "vessel"
+instance = "hull"
+body = "hull"
+map = "hull_hydro"
+
+[[devices]]
+type = "battery"
+name = "battery1"
+instance = "bat1"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack"
+
+[[devices]]
+type = "battery"
+name = "battery2"
+instance = "bat2"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack"
+
+[[devices]]
+type = "esc"
+name = "esc1"
+instance = "esc1"
+port = "power_in"
+motor = "thr1"
+joint = "spin1"
+map = "seaking_t200"
+
+[[devices]]
+type = "esc"
+name = "esc2"
+instance = "esc2"
+port = "power_in"
+motor = "thr2"
+joint = "spin2"
+map = "seaking_t200"
+
+[[devices]]
+type = "rotor"
+name = "rotor1"
+instance = "prop1"
+body = "prop1"
+joint = "spin1"
+map = "t200_prop"
+dir = -1
+water = true
+
+[[devices]]
+type = "rotor"
+name = "rotor2"
+instance = "prop2"
+body = "prop2"
+joint = "spin2"
+map = "t200_prop"
+dir = -1
+water = true

@@ -131,16 +131,22 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
     const double w = d->qvel[c.dof], n = w / (2.0 * kPi), an = std::abs(n);
     double vel[6];
     mj_objectVelocity(m, d, mjOBJ_BODY, c.bid, vel, 0);  // rot:lin, world axes, about the body CoM
-    const double vrel[3] = {vel[3] - wind[0], vel[4] - wind[1], vel[5] - wind[2]};
+    // A marine propeller (c.water) sees the sea: its density, its current instead of the wind, and the surface above the hub.
+    double cur[3] = {0, 0, 0};
+    if (c.water) sea_current(dv, cur);
+    const double* air = c.water ? cur : wind;
+    const double vrel[3] = {vel[3] - air[0], vel[4] - air[1], vel[5] - air[2]};
     const double v_ax = dot3(vrel, ax);
     const double vperp[3] = {vrel[0] - v_ax * ax[0], vrel[1] - v_ax * ax[1], vrel[2] - v_ax * ax[2]};
     // s_dir = +1 when spinning in the design direction (pushes along +a), -1 reversed.
     const double s_dir = sgn(c.dir * w);
     const double adv = an > kJZero ? v_ax * s_dir / (an * c.diameter) : 0.0;
-    const double rho = rho_at(dv, d->xipos[3 * c.bid + 2]);
+    const double* hub = d->xipos + 3 * c.bid;
+    const double rho = c.water ? dv.sea.cfg[0].rho : rho_at(dv, hub[2]);
+    const double imm = c.water ? std::clamp(0.5 + (sea_eta(dv, hub[0], hub[1]) - hub[2]) / c.diameter, 0.0, 1.0) : 1.0;
 
     double ge = 1.0;
-    if (c.ground_effect) {
+    if (c.ground_effect && !c.water) {
       mjtByte groups[mjNGROUP] = {0};
       for (int g = 0; g < 6; ++g) groups[g] = (c.ray_groups >> g) & 1;
       // Downwash is opposite the thrust vector (thrust = s_dir * a): -s_dir * a. s_dir == 0 (no spin, zero thrust):
@@ -161,14 +167,14 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
       fq = interp(c.re_x, c.re_fq, x);
     }
     const double healthy = 1.0 - s.damage;  // F3 prop damage: fraction of thrust and torque lost (0 = x * 1.0, bitwise unchanged)
-    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy;
-    const double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter * healthy;
+    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy * imm;
+    const double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter * healthy * imm;
     double* xf = d->xfrc_applied + 6 * c.bid;
     for (int i = 0; i < 3; ++i) {
       xf[i] += thrust * ax[i] - c.k_h * std::abs(w) * vperp[i];
       xf[3 + i] += -sgn(w) * q_aero * ax[i];
     }
-    s.omega = w; s.thrust = thrust; s.torque = q_aero; s.advance_ratio = adv; s.ge_ratio = ge; s.rho = rho;  // damage is an input: keep
+    s.omega = w; s.thrust = thrust; s.torque = q_aero; s.advance_ratio = adv; s.ge_ratio = c.water ? imm : ge; s.rho = rho;  // damage is an input: keep
   }
 
   // Body drag.

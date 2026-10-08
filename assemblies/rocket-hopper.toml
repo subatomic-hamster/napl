@@ -1,0 +1,138 @@
+# Model-rocket hopper: a 4 in (101.6 mm) fiberglass airframe, printed ogive nose and four swept fins, an Estes E16 29 mm motor rigid on the axis, a 3S LiPo
+# in the payload bay as ballast / the future avionics supply, and four splayed landing legs with soft feet. No gimbal and no controller: this is the passive
+# vehicle of examples/rocket/hop.scenario.toml (ignite, climb, burnout, coast, fall back onto the legs). The TVC showcase replaces the rigid motor mount by
+# the gimbal (parts/rocket/tvc-gimbal-*) and adds the servos and flight computer.
+#
+# FRAME. Part frames follow the tube: origin on the axis at the aft end of the tube, +z towards the nose. The rocket stands on its feet, 0.115 m below the
+# aft end. Thrust acts along +z from the motor's nozzle (the E16's nozzle face is 3 mm above the tube's aft face).
+# AERODYNAMICS. One `airframe` device on the tube (site = the tube origin, +z = towards the nose): Cd0 / Cn_alpha / x_cp as stated below. No wind (calm air); the
+# environment device has the ISA atmosphere only.
+
+[assembly]
+name = "rocket-hopper"
+description = "Passive model-rocket hopper: 4 in fiberglass tube, ogive nose, 4 fins, Estes E16 motor, 3S LiPo ballast, 4 soft landing legs"
+base = "free"
+timestep = 0.001
+
+[[instances]]
+id = "tube"
+part = "generic-fiberglass-tube-102"
+root = true
+group = "airframe"
+
+[[instances]]
+id = "nose"
+part = "generic-printed-ogive-nose-102"
+group = "airframe"
+
+[[instances]]
+id = "fins"
+part = "generic-printed-fin-set-4"
+group = "airframe"
+
+[[instances]]
+id = "motor"
+part = "estes-e16"
+group = "propulsion"
+
+[[instances]]
+id = "batt"
+part = "gensace-2200mah-3s-25c-gea223s25t3gt"
+group = "payload"
+
+[[instances]]
+id = "leg1"
+part = "generic-rocket-landing-leg"
+group = "legs"
+
+[[instances]]
+id = "leg2"
+part = "generic-rocket-landing-leg"
+group = "legs"
+
+[[instances]]
+id = "leg3"
+part = "generic-rocket-landing-leg"
+group = "legs"
+
+[[instances]]
+id = "leg4"
+part = "generic-rocket-landing-leg"
+group = "legs"
+
+[[mates]]
+name = "tube--nose"
+a = "tube.fore"
+b = "nose.base"
+
+[[mates]]
+name = "tube--fins"
+a = "tube.aft"
+b = "fins.mount"
+
+[[mates]]
+name = "tube--motor"
+a = "tube.motor_mount"
+b = "motor.case"
+
+[[mates]]
+name = "tube--batt"
+a = "tube.payload_seat"
+b = "batt.base"
+
+[[mates]]
+name = "tube--leg1"
+a = "tube.leg1"
+b = "leg1.hinge"
+
+[[mates]]
+name = "tube--leg2"
+a = "tube.leg2"
+b = "leg2.hinge"
+
+[[mates]]
+name = "tube--leg3"
+a = "tube.leg3"
+b = "leg3.hinge"
+
+[[mates]]
+name = "tube--leg4"
+a = "tube.leg4"
+b = "leg4.hinge"
+
+# ---- device maps ------------------------------------------------------------------------------------------------------------------------
+[device_maps.solid_motor]
+time = "@thrust_curve.time_s"
+thrust = "@thrust_curve.thrust_N"
+propellant_mass = "propellant_mass"
+total_mass = "mass"
+diameter = "diameter"
+length = "length"
+ignition_delay = "ignition_delay"
+
+# ---- devices ---------------------------------------------------------------------------------------------------------------------------
+[[devices]]
+type = "environment"
+name = "air"
+instance = "tube"
+set = { origin_alt = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "World z = 0 is sea level (ISA density 1.225 kg/m3 at the pad); not a claim about a launch site." }, w20 = { value = 0.0, unit = "m/s", fidelity = "estimated", rationale = "Calm air: no turbulence source; set the steady wind at run time with the `wind` attribute." } }
+
+[[devices]]
+type = "solid_motor"
+name = "motor"
+instance = "motor"
+body = "motor"
+site = "motor"
+site_port = "nozzle"
+map = "solid_motor"
+
+# Barrowman (python/napl/design/barrowman.py, Niskanen OpenRocket technical documentation ch. 3) for the 0.30 m tangent ogive + 4 trapezoidal fins
+# (Cr 0.16, Ct 0.08, s 0.12, sweep 0.09 m) on the 0.1016 m body: CNa = 2.0 (nose) + 11.70 (fins, incl. body interference) = 13.70 / rad; moment sum
+# CP = 0.585 m behind the nose tip = 0.165 m above the tube's aft end (nose tip at 0.75 m: tube 0.45 + nose 0.30). Cd0 and Cd_rev are estimates.
+[[devices]]
+type = "airframe"
+name = "aero"
+instance = "tube"
+body = "tube"
+site = "tube"
+set = { s_ref = { value = 0.008107, unit = "m^2", fidelity = "derived", derivation = "pi / 4 x 0.1016^2 m (the tube's outside diameter)." }, cn_alpha = { value = 13.70, unit = "1/rad", fidelity = "derived", derivation = "Barrowman: nose cone 2.0 + four trapezoidal fins 11.70 (python/napl/design/barrowman.fins(4, 0.16, 0.08, 0.12, 0.09, 0.1016), eq 3.40, 3.54, 3.56 of Niskanen); body lift only through s_plan x cd_cross." }, x_cp = { value = 0.165, unit = "m", fidelity = "derived", derivation = "Moment sum (eq 3.29): (2.0 x 0.1387 + 11.70 x 0.6611) / 13.70 = 0.585 m behind the nose tip (tangent ogive CP 0.1387 m = 0.462 L; fins: root leading edge 0.59 m + 0.0711 m); the nose tip is 0.75 m above the aft end: 0.75 - 0.585 = 0.165 m." }, s_plan = { value = 0.105, unit = "m^2", fidelity = "derived", derivation = "Body planform 0.1016 m x 0.75 m = 0.0762 m2 plus two fins seen broadside 2 x 0.0144 m2 = 0.0288 m2." }, cd0 = { value = 0.55, unit = "1", fidelity = "estimated", rationale = "Typical OpenRocket-class value for a finned model rocket, nose-first (skin friction + fin + base + interference drag) on the body cross-section; no wind-tunnel data for this design." }, cd_rev = { value = 1.0, unit = "1", fidelity = "estimated", rationale = "Tail-first flow (the rocket falling back): blunt base and the nose behind; ~1.0 is a flat-ended cylinder in axial flow." }, cd_cross = { value = 1.2, unit = "1", fidelity = "estimated", rationale = "Drag coefficient of a cylinder in cross flow, 1.1 in Niskanen eq 3.26 (K = 1.1, from Hoerner), 1.2 rounded up for fins." } }
