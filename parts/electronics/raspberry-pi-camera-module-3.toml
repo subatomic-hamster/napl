@@ -28,6 +28,36 @@ type = "csi"
 gender = "male"
 connector = "15 x 1 mm FPC, 200 mm ribbon"
 
+# Mechanical frame (added for the counter-UAS turret): origin at the board centre, +x = the viewing direction (lens axis), +z = image up,
+# board plane = y-z (24 mm wide, 25 mm high), x extent = the 11.5 mm height with the lens. `seat` is the bottom edge, `lens` the front.
+[geometry]
+shape = "box"
+size = [0.00575, 0.012, 0.0125]
+
+[[ports]]
+name = "seat"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, -0.0125]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+fidelity = "derived"
+derivation = "Bottom edge of the 25 mm tall board (S1 dimensions 25 x 24 x 11.5 mm), centred; the module is mounted on its lower edge with the lens forward."
+
+[[ports]]
+name = "lens"
+kind = "mech"
+type = "optical-axis"
+gender = "neutral"
+pos = [0.00575, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 0.0, 1.0]
+symmetry = 1
+fidelity = "derived"
+derivation = "Front of the 11.5 mm deep module (S1 height with lens), on the board centre; axis = viewing direction, ref = image up (the camera device takes site +z as optical axis and site +x as up)."
+
 [[sources]]
 id = "S1"
 url = "https://datasheets.raspberrypi.com/camera/camera-module-3-product-brief.pdf"
