@@ -185,6 +185,7 @@ same mass and hover current as the reference to 0.1 %). Edits go through one API
 | auto-wire power / signal | `d.autowire(a)`, `d.autowire_all()` | `autowire`, `autowire_all` | Wiring tab |
 | device bindings from parts | `d.auto_devices(fill=...)` | `auto_devices` | (swap refreshes them) |
 | set a value | `d.set(id, param, value=.., unit=.., fidelity=.., rationale=..)` | `set` | |
+| design header (fixed base, timestep) | `d.edit([{"op": "assembly", "base": "fixed", "timestep": 0.001}])` | `assembly` | |
 | undo / redo | `d.undo()`, `d.redo()` | `design_undo {redo?}` | toolbar |
 | save | `d.save(path)` | `design_save {path}` (needs approval) | toolbar "save" |
 
@@ -363,7 +364,13 @@ below. Pins sit on the card side facing their peers, wires are routed orthogonal
 connector type, gender, voltage; a refusal shows its reason), click a wire to set gauge / length or delete it, `back to 3D` and the
 new wires are tubes. Every action is a design_api op an agent can send (`flatten.begin / layout / move_card / wire / set_wire /
 unwire / state / end`, see `python/napl/design/wire2d.py`); a window watching the same `Backend` shows the cards appear and each
-wire being drawn.
+wire being drawn. `flatten.wire` with a `part` (and `length`, `conductors`, `included_in`, `name`) is an explicit lead: it bridges
+connector families that autowire refuses. When a new wire changes the auto layout the cards glide to their new places and the wires
+fade in once they arrive.
+
+**PROGRAM page.** Shows the design as TOML next to the log; `ui.program {file, scroll}` (a Backend op) shows any source file of the
+repository instead (the turret / swarm programs, a scenario) and scrolls to a fraction of it; `ui.program {}` returns to the design.
+The recorded end-to-end demo (`tools/record_turret.py`, `docs/showcase/turret/README.md`) uses it.
 
 ### Build and the mass budget
 

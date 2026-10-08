@@ -313,7 +313,7 @@ def document(v: View, seq=0, tick=None, camera=None):
 
 
 # ---- camera presets -------------------------------------------------------------------------------------------------------------
-PRESETS = ("overview", "chase", "target", "top")
+PRESETS = ("overview", "chase", "target", "top", "swarm", "close")
 
 
 def _wrap(a):
@@ -335,6 +335,10 @@ def camera_for(
     """The orbit camera (dict for `doc(camera=...)`) of a preset, smoothed towards its goal from `prev` (a dict or None: no smoothing).
     turret = world position of the turret; drones = positions of the drones still flying; muzzle_dir = unit vector; target = the
     selected track's estimated position or None."""
+    if (
+        preset in ("target", "close") and target is None and drones
+    ):  # nothing selected yet: the nearest drone
+        target = min(drones, key=lambda p: math.dist(p, turret))
     pts = [turret] + [d for d in drones]
     cx = [sum(p[i] for p in pts) / len(pts) for i in range(3)]
     lo = [min(p[i] for p in pts) for i in range(3)]
@@ -353,6 +357,26 @@ def camera_for(
             yaw=yaw0 + math.pi - 0.28,
             pitch=0.3,
             dist=26.0,
+        )
+    elif (
+        preset == "swarm" and drones
+    ):  # just the drones, filling the frame, seen from behind the turret
+        c = [sum(p[i] for p in drones) / len(drones) for i in range(3)]
+        r = max(math.dist(c, p) for p in drones) + 5.0
+        goal = dict(
+            target=c,
+            yaw=math.atan2(turret[1] - c[1], turret[0] - c[0]) + 0.35,
+            pitch=0.12,
+            dist=r / math.tan(math.radians(fovy / 2)) * 0.95,
+        )
+    elif (
+        preset == "close" and target is not None
+    ):  # a drone (its true position) filling a quarter of the frame, the turret behind the camera
+        goal = dict(
+            target=list(target),
+            yaw=math.atan2(turret[1] - target[1], turret[0] - target[0]) + 0.7,
+            pitch=0.15,
+            dist=9.0,  # a 0.5 m quad is then ~50 px wide
         )
     elif preset == "target" and target is not None:
         m2 = [

@@ -344,6 +344,7 @@ DESIGN_TOOLS = {
         "generated bindings are regenerated, hand-written ones kept unless overwrite; fields no part carries are listed "
         "under `unset` (supply them with fill = {device glob: {set: {field: provenance table}}}); swap {id, part, auto?} "
         "lists stale_devices and with auto = true refreshes the generated bindings in the same edit; "
+        "assembly {base?: free | fixed, timestep?, description?}: the design's header (a fixed base welds the root to the world); "
         "set {id, param, value, unit, fidelity, src+quote | derivation | rationale}. Numbers rule: a bare "
         "number is refused; use a provenance table. Returns what changed and the DRC delta (new / resolved / changed "
         "findings).",

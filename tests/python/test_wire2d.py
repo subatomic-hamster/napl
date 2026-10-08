@@ -95,6 +95,34 @@ def test_refusals_carry_the_reason_and_change_nothing(pair):
     assert Backend.rev_of(d) == before
 
 
+def test_explicit_lead_bridges_what_autowire_refuses(tmp_path):
+    d = Design.open(X500.with_name("turret.toml"))
+    ref = [dict(w) for w in d.doc["wires"]]
+    for w in ref:
+        d.unwire(w["name"])
+    b = Backend(lambda: d, tmp_path)
+    ask(
+        b,
+        "flatten.begin",
+        {"instances": ["adapter", "pan"], "ports": ["adapter.servo_bus", "pan.port_a"]},
+    )
+    r = ask(
+        b,
+        "flatten.wire",
+        {"from": "adapter.servo_bus", "to": "pan.port_a", "awg": 22, "length": 0.15},
+    )
+    assert (
+        not r["ok"] and "compatible" in r["error"]
+    )  # autowire: unlike connector families
+    w = next(x for x in ref if x["name"] == "lead_adapter_pan")
+    r = ask(
+        b,
+        "flatten.wire",
+        {k: w[k] for k in ("from", "to", "part", "length", "conductors", "name")},
+    )
+    assert r["ok"] and d.doc["wires"] == [w]
+
+
 def test_move_card_layout_state_and_rev(pair):
     _, _, b = pair
     begin(b)

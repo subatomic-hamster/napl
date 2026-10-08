@@ -69,6 +69,7 @@ class Backend(UiOps):
         self.thumbs = ThumbJob(lambda: self._design().lib, self._thumb_priority)
         self.auto_thumbs = False  # True (napl design view, the MCP window, the screenshot / record tools): the first ui_poll starts it
         self.events = []
+        self._queued = {}  # part id -> extra `add` fields of an animated library.drag (applied to the window's library.drop)
         self.attached = False  # set by the first ui_poll: a window is watching, animated ops queue instead of committing
 
     # ---- entry point -------------------------------------------------------------------------------------------------
