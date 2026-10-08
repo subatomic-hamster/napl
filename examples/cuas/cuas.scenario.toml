@@ -1,0 +1,57 @@
+# napl program examples/cuas/cuas.scenario.toml --runs-dir <dir>
+# Counter-UAS demo: a pan / tilt turret with a camera (assemblies/turret.toml) tracks four programmed drones (3 x x500v2, 1 x aos5, flown by
+# examples/cuas/swarm.py) and fires a generic 4.5 mm pneumatic pellet launcher at them, only after a (scripted) operator authorizes.
+# The program (turret.py) OWNS the World: scene.py composes the scene, turret.py steps it (60 s of sim time) and renders camera frames, so the
+# renderer needs a GPU: run with `tools/remote.sh run --gpu ...` on hfbox. See README.md. Needs no extras.
+name = "cuas"
+
+[model]
+script = "scene.py"                          # build(out) -> scene.xml (turret on a mast + 4 drones + wind)
+
+[interfaces.native]                          # the program steps the World itself; the runner judges trace.csv and the replay hash
+
+[program]
+cmd = ["python", "{dir}/turret.py"]
+env = { CUAS_SEED = "7", CUAS_SIM_S = "60" }  # seeds the swarm / turbulence / anemometer noise; simulated seconds
+
+[limits]
+wall_s = 3000                                # real seconds (software Vulkan + 4 free-flying drones)
+cpu_s = 3000
+address_space_mb = 65536                     # Vulkan maps a lot of address space
+
+# --- monitors: columns of <run dir>/trace.csv, written by World.finish() every 16 ms of sim time ---------------------------------------
+[[monitors]]
+name = "no_projectile_leaves_the_range_box"  # every pellet stays within 400 m (horizontal) of the muzzle
+column = "pellet_range_m"
+op = "always"
+hi = 400
+
+[[monitors]]
+name = "no_fire_without_authorization"       # the launcher refused no shot for lack of an authorization: the turret never even tried
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "engaged_at_least_3_drones"           # fired at 3 distinct DRONES (ground truth: a pellet passed within 3 m of the drone)
+column = "engaged_drones"
+op = "final"
+lo = 3
+
+[[monitors]]
+name = "destroyed_at_least_1"                # a hit drone with functional damage that then crashed / tumbled
+column = "destroyed"
+op = "final"
+lo = 1
+
+[[monitors]]
+name = "undamaged_drones_stay_airborne"      # a drone nobody hit never drops below 3 m (the swarm program flies, the controller holds)
+column = "flying_min_alt_m"
+op = "always"
+lo = 3.0
+
+[[monitors]]
+name = "undamaged_drones_stay_upright"
+column = "flying_max_tilt_rad"
+op = "always"
+hi = 1.0

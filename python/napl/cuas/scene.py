@@ -25,7 +25,7 @@ from .. import design
 
 REPO = Path(__file__).resolve().parents[3]
 N_PELLETS = 16  # kMaxPellets of the kernel
-TRACER_RADIUS = 0.04  # m: VISUAL sphere of a flying pellet (the physical pellet is 4.5 mm; at 50 m that is sub-pixel)
+TRACER_RADIUS = 0.015  # m: VISUAL sphere of a flying pellet (the physical pellet is 4.5 mm; enlarged so the viewer shows it, still < 1 px beyond 15 m)
 NAME_TAGS = ("body", "geom", "joint", "freejoint", "site", "mesh")
 DEV_REFS = ("joint", "backlash_joint", "body", "ref_body", "site")
 
