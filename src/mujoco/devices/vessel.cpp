@@ -119,6 +119,22 @@ void step_vessels(const mjModel* m, mjData* d, Devices& dv) {
         fh[i] = R[3 * i] * tau[0] + R[3 * i + 1] * tau[1] + R[3 * i + 2] * tau[2];  // R tau
         th[i] = R[3 * i] * tau[3] + R[3 * i + 1] * tau[4] + R[3 * i + 2] * tau[5];
       }
+      for (const FinCfg& f : c.fins) {  // skegs: sideways lift + cross-flow drag at the fin centre (schema Vessel.fins)
+        double pf[3], r[3], vf[3];
+        for (int i = 0; i < 3; ++i) pf[i] = p0[i] + R[3 * i] * f.p[0] + R[3 * i + 1] * f.p[1] + R[3 * i + 2] * f.p[2];
+        for (int i = 0; i < 3; ++i) r[i] = pf[i] - com[i];
+        vf[0] = vel[3] - cur[0] + vel[1] * r[2] - vel[2] * r[1];  // v_com - current + omega x r (world)
+        vf[1] = vel[4] - cur[1] + vel[2] * r[0] - vel[0] * r[2];
+        vf[2] = vel[5] - cur[2] + vel[0] * r[1] - vel[1] * r[0];
+        const double u = R[0] * vf[0] + R[3] * vf[1] + R[6] * vf[2], w = R[1] * vf[0] + R[4] * vf[1] + R[7] * vf[2];  // body x, y
+        const double imm = std::clamp(0.5 + (sea_eta(dv, pf[0], pf[1]) - pf[2]) / f.span, 0.0, 1.0);
+        const double fy = -imm * 0.5 * sc.rho * f.area * (f.cla * std::abs(u) * w + f.cd * std::abs(w) * w);
+        const double fw3[3] = {fy * R[1], fy * R[4], fy * R[7]};  // along the body y axis, world components
+        for (int i = 0; i < 3; ++i) fh[i] += fw3[i];
+        th[0] += r[1] * fw3[2] - r[2] * fw3[1];
+        th[1] += r[2] * fw3[0] - r[0] * fw3[2];
+        th[2] += r[0] * fw3[1] - r[1] * fw3[0];
+      }
       double* xf = d->xfrc_applied + 6 * c.bid;
       for (int i = 0; i < 3; ++i) {
         xf[i] += force[i] + fh[i];

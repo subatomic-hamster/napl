@@ -255,6 +255,7 @@ Devices parse(const std::string& json) {
       need(c.r_on >= 0 && c.r_on < c.motor.r20 * 10 && std::isfinite(c.r_on), n, "r_on must be in [0, 10 R20)");
       need(c.sw_loss >= 0 && c.sw_loss < 0.5, n, "sw_loss must be in [0, 0.5)");
       need(c.i_q >= 0 && std::isfinite(c.i_q), n, "i_q must be >= 0");
+      c.bidirectional = e->bidirectional();
       c.seed = e->seed();
       use_node(c.node);
       slot(Devices::Slot::esc, static_cast<int>(dv.esc.cfg.size()));
@@ -298,6 +299,8 @@ Devices parse(const std::string& json) {
       c.ray_groups = r->ray_groups();
       need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
       c.water = r->water();
+      c.rev_thrust = r->rev_thrust();
+      need(c.rev_thrust > 0 && std::isfinite(c.rev_thrust), n, "rev_thrust must be > 0");
       slot(Devices::Slot::rotor, static_cast<int>(dv.rotor.cfg.size()));
       dv.rotor.cfg.push_back(std::move(c));
     }
@@ -635,6 +638,16 @@ Devices parse(const std::string& json) {
       six(v->damp_lin(), c.dl, "damp_lin needs 6 finite values >= 0 (or none)");
       six(v->damp_quad(), c.dq, "damp_quad needs 6 finite values >= 0 (or none)");
       for (double x : c.a) c.has_a = c.has_a || x > 0;
+      if (v->fins())
+        for (const fb::Fin* f : *v->fins()) {
+          FinCfg fin{};
+          need(f->pos() && f->pos()->size() == 3, n, "fin pos needs 3 values");
+          for (int k = 0; k < 3; ++k) fin.p[k] = f->pos()->Get(static_cast<flatbuffers::uoffset_t>(k));
+          fin.area = f->area(), fin.span = f->span(), fin.cla = f->cl_alpha(), fin.cd = f->cd_cross();
+          need(fin.area > 0 && fin.span > 0 && fin.cla >= 0 && fin.cd >= 0 && std::isfinite(fin.p[0] + fin.p[1] + fin.p[2] + fin.area + fin.span + fin.cla + fin.cd),
+               n, "fin area and span must be > 0, cl_alpha and cd_cross >= 0, all finite");
+          c.fins.push_back(fin);
+        }
       slot(Devices::Slot::vessel, static_cast<int>(dv.vessel.cfg.size()));
       dv.vessel.cfg.push_back(std::move(c));
     }
@@ -1099,7 +1112,7 @@ constexpr Attr<PsuState> kPsu[] = {{"voltage", "V", &PsuState::v}, {"current", "
 constexpr Attr<WireState> kWire[] = {{"current", "A", &WireState::i}, {"voltage", "V", &WireState::v}};
 constexpr Attr<LoadState> kLoad[] = {{"voltage", "V", &LoadState::v}, {"current", "A", &LoadState::i}};
 constexpr Attr<EscState> kEsc[] = {
-    {"throttle", "1", &EscState::throttle, true, false, 0, 1}, {"duty", "1", &EscState::duty},
+    {"throttle", "1", &EscState::throttle, true, false, -1, 1}, {"duty", "1", &EscState::duty},
     {"current", "A", &EscState::i_m}, {"bus_current", "A", &EscState::i_bus}, {"voltage", "V", &EscState::v},
     {"omega", "rad/s", &EscState::omega}, {"torque", "N*m", &EscState::torque},
     {"temperature", "degC", &EscState::temp}, {"fault_open", "1", &EscState::fault_open, true, true, 0, 1}};
@@ -1269,8 +1282,11 @@ Result set(Devices& dv, int slot, const std::string& attr, std::span<const doubl
   if (!f.rw) return {Result::invalid_argument, "attr '" + attr + "' is read-only"};
   if (values.size() != f.n)
     return {Result::invalid_argument, "attr '" + attr + "' takes " + std::to_string(f.n) + " value(s), got " + std::to_string(values.size())};
+  const Devices::Slot sl = dv.slots[static_cast<std::size_t>(slot)];
+  const bool forward_only = sl.type == Devices::Slot::esc && attr == "throttle" && !dv.esc.cfg[static_cast<std::size_t>(sl.i)].bidirectional;
   for (const double v : values) {  // validate everything before writing anything
     if (!std::isfinite(v)) return {Result::invalid_argument, "values must be finite"};
+    if (forward_only && v < 0) return {Result::invalid_argument, "attr 'throttle' must be in [0, 1] (the ESC is not bidirectional)"};
     if (f.bin ? (v != 0 && v != 1) : (v < f.lo || v > f.hi))
       return {Result::invalid_argument, "attr '" + attr + "' must be " + (f.bin ? "0 or 1" : "in [" + std::to_string(f.lo) + ", " + std::to_string(f.hi) + "]")};
   }

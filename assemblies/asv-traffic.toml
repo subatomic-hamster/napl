@@ -1,0 +1,264 @@
+# Traffic vessel of the harbour scenes: the ASV's hull, propulsion, power and GNSS puck without the autopilot / companion / lidar (assemblies/asv.toml).
+# It reuses the SAME hull part (skegs included), thrusters, ESCs and packs, so it behaves like the ASV hydrodynamically; a scripted controller (examples/asv/traffic.py)
+# drives its two ESCs from its own gnss device, and the AIS the ASV receives is built from that gnss output. Scene composition adds a cabin block (a box that
+# stands in for the superstructure a real work boat carries at lidar height) in examples/asv/scene.py.
+# Frame, thruster sense and device names are those of asv.toml (esc1 = port, esc2 = starboard).
+
+[assembly]
+name = "asv-traffic"
+description = "Traffic vessel: the ASV's 1.2 m catamaran, 2 x T200 on Basic ESCs, 2 x 3S 5300 mAh, M8N GNSS puck; no autopilot, no lidar"
+base = "free"
+timestep = 0.002
+seed = 11
+
+[[instances]]
+id = "hull"
+part = "generic-catamaran-hull-1200-skeg"
+root = true
+group = "hull"
+
+[[instances]]
+id = "thr1"
+part = "bluerobotics-t200-thruster"
+group = "propulsion"
+
+[[instances]]
+id = "thr2"
+part = "bluerobotics-t200-thruster"
+group = "propulsion"
+
+[[instances]]
+id = "prop1"
+part = "bluerobotics-t200-propeller"
+group = "propulsion"
+
+[[instances]]
+id = "prop2"
+part = "bluerobotics-t200-propeller"
+group = "propulsion"
+
+[[instances]]
+id = "esc1"
+part = "bluerobotics-basic-esc"
+group = "power"
+
+[[instances]]
+id = "esc2"
+part = "bluerobotics-basic-esc"
+group = "power"
+
+[[instances]]
+id = "bat1"
+part = "gensace-5300mah-3s-60c-ec5"
+group = "power"
+pos = [0.0, 0.38, 0.21925]
+rpy = [0.0, 0.0, 0.0]
+
+[[instances]]
+id = "bat2"
+part = "gensace-5300mah-3s-60c-ec5"
+group = "power"
+pos = [0.0, -0.38, 0.21925]
+rpy = [0.0, 0.0, 0.0]
+
+[[instances]]
+id = "mast2"
+part = "generic-sensor-mast-300"
+group = "sensing"
+
+[[instances]]
+id = "gps"
+part = "holybro-m8n-gps"
+group = "avionics"
+
+[[instances]]
+id = "gnss_chip"
+part = "ublox-neo-m8n"
+offboard = true
+
+[[mates]]
+name = "hull--thr1"
+a = "hull.thruster_port"
+b = "thr1.base"
+
+[[mates]]
+name = "hull--thr2"
+a = "hull.thruster_starboard"
+b = "thr2.base"
+
+[[mates]]
+name = "spin1"
+a = "thr1.shaft"
+b = "prop1.hub"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "spin2"
+a = "thr2.shaft"
+b = "prop2.hub"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "hull--esc1"
+a = "hull.esc_port"
+b = "esc1.base"
+
+[[mates]]
+name = "hull--esc2"
+a = "hull.esc_starboard"
+b = "esc2.base"
+
+[[mates]]
+name = "hull--mast2"
+a = "hull.mast_aft"
+b = "mast2.base"
+
+[[mates]]
+name = "mast2--gps"
+a = "mast2.top"
+b = "gps.base"
+
+[[wires]]
+name = "bat1-to-esc1"
+from = "bat1.power_out"
+to = "esc1.power_in"
+part = "awg-14-silicone-wire"
+length = "bat1.discharge_wire_length"
+conductors = 2
+included_in = "bat1"
+
+[[wires]]
+name = "bat2-to-esc2"
+from = "bat2.power_out"
+to = "esc2.power_in"
+part = "awg-14-silicone-wire"
+length = "bat2.discharge_wire_length"
+conductors = 2
+included_in = "bat2"
+
+[[wires]]
+name = "esc1-to-thr1"
+from = "esc1.motor_out"
+to = "thr1.phase"
+part = "awg-14-silicone-wire"
+length = "thr1.cable_length"
+conductors = 3
+included_in = "thr1"
+
+[[wires]]
+name = "esc2-to-thr2"
+from = "esc2.motor_out"
+to = "thr2.phase"
+part = "awg-14-silicone-wire"
+length = "thr2.cable_length"
+conductors = 3
+included_in = "thr2"
+
+[device_maps.basic_esc_t200]
+"motor.kv" = "motor:kv"
+"motor.r20" = "motor:r_winding"
+"motor.i0" = "motor:i0"
+"motor.rotor_inertia" = "motor:j_rotor"
+"motor.c_th" = "motor:c_th"
+"motor.r_th" = "motor:r_th"
+"i_limit" = "current_continuous"
+"r_on" = "r_on_total"
+"sw_loss" = "switching_loss_fraction"
+"i_q" = "quiescent_current"
+
+[device_maps.t200_prop]
+"diameter" = "diameter"
+"j" = "@ct_cq_j.j"
+"ct" = "@ct_cq_j.ct"
+"cq" = "@ct_cq_j.cq"
+"rev_thrust" = "thrust_reverse_ratio"
+
+[device_maps.pack]
+"capacity_ah" = "capacity_ah"
+"r0" = "r_internal_pack"
+
+[device_maps.hull_hydro]
+"added_mass" = "@hydro.added_mass"
+"damp_lin" = "@hydro.damp_lin"
+"damp_quad" = "@hydro.damp_quad"
+
+[device_maps.m8n]
+rate_hz = "max_nav_rate_gps_glonass"
+vel_std = "velocity_accuracy"
+
+[[devices]]
+type = "sea"
+name = "sea"
+instance = "hull"
+set = { rho = { value = 998.2, unit = "kg/m^3", fidelity = "estimated", rationale = "Fresh water at 20 degC, as the ASV." }, level = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "Still-water surface at world z = 0." }, depth = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "0 = deep water for the wave dispersion relation." } }
+
+[[devices]]
+type = "vessel"
+name = "vessel"
+instance = "hull"
+body = "hull"
+map = "hull_hydro"
+
+[[devices]]
+type = "battery"
+name = "battery1"
+instance = "bat1"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack"
+
+[[devices]]
+type = "battery"
+name = "battery2"
+instance = "bat2"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack"
+
+[[devices]]
+type = "esc"
+name = "esc1"
+instance = "esc1"
+port = "power_in"
+motor = "thr1"
+joint = "spin1"
+map = "basic_esc_t200"
+bidirectional = true
+
+[[devices]]
+type = "esc"
+name = "esc2"
+instance = "esc2"
+port = "power_in"
+motor = "thr2"
+joint = "spin2"
+map = "basic_esc_t200"
+bidirectional = true
+
+[[devices]]
+type = "rotor"
+name = "rotor1"
+instance = "prop1"
+body = "prop1"
+joint = "spin1"
+map = "t200_prop"
+dir = -1
+water = true
+
+[[devices]]
+type = "rotor"
+name = "rotor2"
+instance = "prop2"
+body = "prop2"
+joint = "spin2"
+map = "t200_prop"
+dir = -1
+water = true
+
+[[devices]]
+type = "gnss"
+name = "gnss"
+instance = "gnss_chip"
+site = "gps"
+map = "m8n"
+set = { latency_s = { value = 0.2, unit = "s", fidelity = "estimated", rationale = "As the ASV (assemblies/asv.toml): one sample of the datasheet 5 Hz." }, lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "The simulation origin of the harbour scene (assemblies/asv.toml)." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 408.0, unit = "m", fidelity = "estimated", rationale = "As lat0 (unused at the water surface)." }, horiz_std = { value = 2.1233, unit = "m", fidelity = "derived", derivation = "u-blox NEO-M8N horizontal position accuracy 2.5 m CEP converted to a per-coordinate sigma: CEP / 1.17741 = 2.1233 m (as assemblies/asv.toml)." }, vert_std = { value = 3.185, unit = "m", fidelity = "derived", derivation = "1.5 x horiz_std, as assemblies/asv.toml." }, corr_time_s = { value = 600.0, unit = "s", fidelity = "estimated", rationale = "Time constant of the slowly varying part of the GNSS position error, as assemblies/asv.toml." }, corr_frac = { value = 0.9, unit = "1", fidelity = "estimated", rationale = "Share of the position variance that is Gauss-Markov, as assemblies/asv.toml." } }

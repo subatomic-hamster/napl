@@ -57,6 +57,7 @@ struct LoadCfg { Meta meta; int node; double g, i0; };
 struct EscCfg {
   Meta meta; int node; std::string joint; MotorCfg motor; bool complementary; double i_limit; std::uint64_t seed;
   double r_on = 0, sw_loss = 0, i_q = 0;  // ESC losses (schema Esc); 0 = ideal
+  bool bidirectional = false;             // throttle in [-1, 1] (schema Esc.bidirectional)
   int jnt = -1, dof = -1;  // resolved by bind()
 };
 struct ServoCfg {
@@ -70,6 +71,7 @@ struct RotorCfg {
   Meta meta; std::string body, joint; double diameter; int dir; std::vector<double> j, ct, cq; double k_h;
   bool ground_effect; unsigned ray_groups;
   bool water = false;                      // marine propeller (schema Rotor.water)
+  double rev_thrust = 1.0;                 // thrust factor in reverse spin (schema Rotor.rev_thrust)
   std::vector<double> re_x, re_ft, re_fq;  // optional Reynolds factors over x = |n| D^2 (empty = off)
   int bid = -1, jnt = -1, dof = -1;  // resolved by bind()
 };
@@ -125,8 +127,10 @@ struct SeaCfg {
   Meta meta; double rho, level, depth, current0[3]; std::vector<WaveCfg> waves;
 };
 struct Cell { double c[3], v, e[3]; };  // centre (body frame), volume, extents (body axes)
+struct FinCfg { double p[3], area, span, cla, cd; };  // skeg / keel: body-frame centre, side area, depth, lift slope /rad, cross-flow Cd
 struct VesselCfg {
   Meta meta; std::string body; std::vector<Cell> cells; double volume;  // total hull volume
+  std::vector<FinCfg> fins;
   double a[6], dl[6], dq[6];                                            // added mass, linear / quadratic damping
   bool has_a = false;
   int bid = -1;

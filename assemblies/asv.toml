@@ -1,0 +1,474 @@
+# ASV: a BlueBoat-class autonomous surface vessel from open / catalogue hardware. The 1.2 m twin-hull catamaran of assemblies/boat-cat.toml with
+#   - two Blue Robotics T200 thrusters on BIDIRECTIONAL Blue Robotics Basic ESCs (differential thrust steers; reverse is available),
+#   - a fixed skeg under each hull (the directional-stability fix, parts/marine/generic-catamaran-hull-1200-skeg.toml),
+#   - a Pixhawk 6C autopilot, a Raspberry Pi 5 companion computer, a u-blox M8N GNSS + compass puck on a 0.3 m mast, a SiK telemetry radio,
+#   - a Slamtec RPLIDAR S2 (IP65, 30 m, 360 degrees) on a 0.45 m mast as the obstacle sensor,
+#   - one 3S 5300 mAh pack per hull; the 5 V regulator for the avionics hangs on pack 1.
+# Prices and the parts list: examples/asv/README.md. The autopilot / planner code is examples/asv/ (it reads the sensor devices below, never the true state).
+#
+# FRAME. The hull's part frame is the vehicle's body frame: origin mid-length on the centreline at the keel level, x forward, y to port, z up.
+# Still water is at the sea device's `level` (world z); the scene (examples/asv/scene.py) puts the boat in the water and composes the harbour.
+# THRUSTERS. Each T200 points AFT (pusher, shaft +z = world -x) so the rotor binding uses dir = -1: positive ESC drive pushes the boat forward.
+
+[assembly]
+name = "asv"
+description = "BlueBoat-class ASV: 1.2 m catamaran with skegs, 2 x T200 on Basic ESCs, Pixhawk 6C + Pi 5, M8N GNSS, RPLIDAR S2, SiK radio, 2 x 3S 5300 mAh"
+base = "free"
+timestep = 0.002
+seed = 11
+
+[[instances]]
+id = "hull"
+part = "generic-catamaran-hull-1200-skeg"
+root = true
+group = "hull"
+
+[[instances]]
+id = "thr1"
+part = "bluerobotics-t200-thruster"
+group = "propulsion"
+
+[[instances]]
+id = "thr2"
+part = "bluerobotics-t200-thruster"
+group = "propulsion"
+
+[[instances]]
+id = "prop1"
+part = "bluerobotics-t200-propeller"
+group = "propulsion"
+
+[[instances]]
+id = "prop2"
+part = "bluerobotics-t200-propeller"
+group = "propulsion"
+
+[[instances]]
+id = "esc1"
+part = "bluerobotics-basic-esc"
+group = "power"
+
+[[instances]]
+id = "esc2"
+part = "bluerobotics-basic-esc"
+group = "power"
+
+[[instances]]
+id = "bat1"
+part = "gensace-5300mah-3s-60c-ec5"
+group = "power"
+pos = [0.0, 0.38, 0.21925]
+rpy = [0.0, 0.0, 0.0]
+
+[[instances]]
+id = "bat2"
+part = "gensace-5300mah-3s-60c-ec5"
+group = "power"
+pos = [0.0, -0.38, 0.21925]
+rpy = [0.0, 0.0, 0.0]
+
+[[instances]]
+id = "reg"
+part = "pololu-d24v50f5"
+group = "power"
+pos = [-0.20, 0.38, 0.20]
+rpy = [0.0, 0.0, 0.0]
+params = { mass = { value = 0.003, unit = "kg", fidelity = "datasheet", src = "https://www.pololu.com/product/2851/specs", quote = "Size: 0.7\" x 0.8\" x 0.35\" Weight: 3.0 g" } }
+
+[[instances]]
+id = "fc"
+part = "holybro-pixhawk-6c"
+group = "avionics"
+params = { pwm_lead_length = { value = 0.5, unit = "m", fidelity = "estimated", rationale = "Length of each ESC signal lead from the Pixhawk FMU PWM Out to the ESC signal plug is not published. The flight controller sits on the forward deck of the port hull, the ESCs on the aft decks 0.7 m away, and the lead is routed along the hull: 0.5 m is a short run. Signal wires carry no current in the model: only the BOM / mass bookkeeping (and that is included in the ESC datasheet mass)." } }
+
+[[instances]]
+id = "pi"
+part = "raspberry-pi-5"
+group = "compute"
+pos = [0.30, -0.38, 0.20]
+rpy = [0.0, 0.0, 0.0]
+params = { mass = { value = 0.046, unit = "kg", fidelity = "estimated", rationale = "The Raspberry Pi 5 product brief publishes no mass; a bare Pi 5 board weighs about 45-50 g (retailer listings of 50-62 g include packaging), 46 g taken as in assemblies/turret.toml and assemblies/skydio.toml." } }
+
+[[instances]]
+id = "sik"
+part = "holybro-sik-telemetry-radio-v3"
+group = "avionics"
+params = { telem_cable_length = { value = 0.8, unit = "m", fidelity = "estimated", rationale = "Length of the SiK-to-TELEM1 JST-GH cable is not published (the radio part file folds the cable into its port). The radio sits on the starboard aft deck, the Pixhawk on the port forward deck: about 0.7 m across and along the hulls, so 0.8 m with slack." } }
+
+[[instances]]
+id = "mast1"
+part = "generic-sensor-mast-450"
+group = "sensing"
+
+[[instances]]
+id = "mast2"
+part = "generic-sensor-mast-300"
+group = "sensing"
+
+[[instances]]
+id = "lidar"
+part = "slamtec-rplidar-s2"
+group = "sensing"
+
+[[instances]]
+id = "gps"
+part = "holybro-m8n-gps"
+group = "avionics"
+
+[[instances]]
+id = "icm"
+part = "tdk-icm-42688-p"
+offboard = true
+
+[[instances]]
+id = "mag_chip"
+part = "isentek-ist8310"
+offboard = true
+
+[[instances]]
+id = "gnss_chip"
+part = "ublox-neo-m8n"
+offboard = true
+
+[[mates]]
+name = "hull--thr1"
+a = "hull.thruster_port"
+b = "thr1.base"
+
+[[mates]]
+name = "hull--thr2"
+a = "hull.thruster_starboard"
+b = "thr2.base"
+
+[[mates]]
+name = "spin1"
+a = "thr1.shaft"
+b = "prop1.hub"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "spin2"
+a = "thr2.shaft"
+b = "prop2.hub"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "hull--esc1"
+a = "hull.esc_port"
+b = "esc1.base"
+
+[[mates]]
+name = "hull--esc2"
+a = "hull.esc_starboard"
+b = "esc2.base"
+
+[[mates]]
+name = "hull--fc"
+a = "hull.fc_seat"
+b = "fc.base"
+
+[[mates]]
+name = "hull--sik"
+a = "hull.radio_seat"
+b = "sik.base"
+
+[[mates]]
+name = "hull--mast1"
+a = "hull.mast_fwd"
+b = "mast1.base"
+
+[[mates]]
+name = "hull--mast2"
+a = "hull.mast_aft"
+b = "mast2.base"
+
+[[mates]]
+name = "mast1--lidar"
+a = "mast1.top"
+b = "lidar.base"
+
+[[mates]]
+name = "mast2--gps"
+a = "mast2.top"
+b = "gps.base"
+
+# ---- wires -----------------------------------------------------------------------------------------------------------------------------
+# included_in: every lead is already inside the datasheet mass of the part it ships on (battery 406 g incl. its 100 mm lead; thruster 427 g incl. 1 m cable).
+[[wires]]
+name = "bat1-to-esc1"
+from = "bat1.power_out"
+to = "esc1.power_in"
+part = "awg-14-silicone-wire"
+length = "bat1.discharge_wire_length"
+conductors = 2
+included_in = "bat1"
+
+[[wires]]
+name = "bat2-to-esc2"
+from = "bat2.power_out"
+to = "esc2.power_in"
+part = "awg-14-silicone-wire"
+length = "bat2.discharge_wire_length"
+conductors = 2
+included_in = "bat2"
+
+[[wires]]
+name = "esc1-to-thr1"
+from = "esc1.motor_out"
+to = "thr1.phase"
+part = "awg-14-silicone-wire"
+length = "thr1.cable_length"
+conductors = 3
+included_in = "thr1"
+
+[[wires]]
+name = "esc2-to-thr2"
+from = "esc2.motor_out"
+to = "thr2.phase"
+part = "awg-14-silicone-wire"
+length = "thr2.cable_length"
+conductors = 3
+included_in = "thr2"
+
+[[wires]]
+name = "bat1-to-reg"
+from = "bat1.power_out"
+to = "reg.vin"
+part = "awg-18-silicone-wire"
+length = { value = 0.3, unit = "m", fidelity = "estimated", rationale = "The regulator sits on the port deck 0.2 m aft of the pack; its input is soldered to a tap on the pack lead: 0.3 m with slack." }
+conductors = 2
+
+[[wires]]
+name = "reg-to-pi"
+from = "reg.vout"
+to = "pi.power_in"
+part = "awg-18-silicone-wire"
+length = { value = 0.9, unit = "m", fidelity = "estimated", rationale = "Regulator on the port aft deck, Pi 5 on the starboard forward deck: 0.5 m along the hull plus 0.76 m across the cross-member, routed 0.9 m." }
+conductors = 2
+
+[[wires]]
+name = "reg-to-fc"
+from = "reg.vout"
+to = "fc.power1"
+part = "awg-18-silicone-wire"
+length = { value = 0.6, unit = "m", fidelity = "estimated", rationale = "Regulator and Pixhawk are on the port hull, 0.5 m apart along the deck: 0.6 m." }
+conductors = 2
+
+[[wires]]
+name = "reg-to-lidar"
+from = "reg.vout"
+to = "lidar.power_in"
+part = "awg-18-silicone-wire"
+length = { value = 1.0, unit = "m", fidelity = "estimated", rationale = "Regulator on the port deck (0.20 m high), lidar on the 0.45 m mast above the centreline: 0.45 m up and 0.5 m across and forward, 1.0 m with slack." }
+conductors = 2
+
+[[wires]]
+name = "fc-pwm1"
+from = "fc.pwm1"
+to = "esc1.signal"
+part = "awg-18-silicone-wire"
+length = "fc.pwm_lead_length"
+included_in = "esc1"
+
+[[wires]]
+name = "fc-pwm2"
+from = "fc.pwm2"
+to = "esc2.signal"
+part = "awg-18-silicone-wire"
+length = "fc.pwm_lead_length"
+included_in = "esc2"
+
+[[wires]]
+name = "gps-to-fc"
+from = "gps.gps_out"
+to = "fc.gps1"
+part = "awg-18-silicone-wire"
+length = "gps.cable_length"
+included_in = "gps"
+
+[[wires]]
+name = "sik-to-fc"
+from = "sik.telem"
+to = "fc.telem1"
+part = "awg-18-silicone-wire"
+length = "sik.telem_cable_length"
+included_in = "sik"
+
+[[wires]]
+name = "pi-to-fc"
+from = "pi.gpio_uart"
+to = "fc.telem2"
+part = "awg-18-silicone-wire"
+length = { value = 0.9, unit = "m", fidelity = "estimated", rationale = "Pi 5 GPIO UART (TX / RX / GND) to the Pixhawk 6C TELEM2 (MAVLink companion link): the Pi is on the starboard and the Pixhawk on the port forward deck, 0.76 m apart across the cross-member: 0.9 m with slack." }
+
+[[wires]]
+name = "lidar-to-pi"
+from = "lidar.uart"
+to = "pi.usb"
+part = "awg-18-silicone-wire"
+length = { value = 0.9, unit = "m", fidelity = "estimated", rationale = "The lidar's 1 Mbaud UART goes through its USB-serial adapter board to a Pi USB port: 0.45 m down the mast, 0.45 m across to the starboard deck, 0.9 m." }
+
+# ---- device maps -----------------------------------------------------------------------------------------------------------------------
+[device_maps.basic_esc_t200]
+"motor.kv" = "motor:kv"
+"motor.r20" = "motor:r_winding"
+"motor.i0" = "motor:i0"
+"motor.rotor_inertia" = "motor:j_rotor"
+"motor.c_th" = "motor:c_th"
+"motor.r_th" = "motor:r_th"
+"i_limit" = "current_continuous"
+"r_on" = "r_on_total"
+"sw_loss" = "switching_loss_fraction"
+"i_q" = "quiescent_current"
+
+[device_maps.t200_prop]
+"diameter" = "diameter"
+"j" = "@ct_cq_j.j"
+"ct" = "@ct_cq_j.ct"
+"cq" = "@ct_cq_j.cq"
+"rev_thrust" = "thrust_reverse_ratio"
+
+[device_maps.pack]
+"capacity_ah" = "capacity_ah"
+"r0" = "r_internal_pack"
+
+[device_maps.hull_hydro]
+"added_mass" = "@hydro.added_mass"
+"damp_lin" = "@hydro.damp_lin"
+"damp_quad" = "@hydro.damp_quad"
+
+[device_maps.icm42688]
+"gyro.noise_density" = "gyro_noise_density"
+"gyro.full_scale" = "gyro_fs_max"
+"gyro.bits" = "gyro_adc_bits"
+"accel.noise_density" = "accel_noise_density_xy"
+"accel.full_scale" = "accel_fs_max"
+"accel.bits" = "accel_adc_bits"
+
+[device_maps.ist8310]
+noise_std = "rms_noise"
+
+[device_maps.m8n]
+rate_hz = "max_nav_rate_gps_glonass"
+vel_std = "velocity_accuracy"
+
+[device_maps.s2]
+fov_h = "fov"
+min_range = "min_range"
+max_range = "range_white"
+sigma0 = "sigma0"
+resolution = "range_resolution"
+dropout = "dropout"
+
+# ---- devices ---------------------------------------------------------------------------------------------------------------------------
+[[devices]]
+type = "sea"
+name = "sea"
+instance = "hull"
+set = { rho = { value = 998.2, unit = "kg/m^3", fidelity = "estimated", rationale = "Fresh water at 20 degC (the design-draft derivation of the hull part uses the same value); set 1025 for sea water." }, level = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "Still-water surface at world z = 0; the scene lowers the seabed." }, depth = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "0 = deep water for the wave dispersion relation." } }
+
+[[devices]]
+type = "vessel"
+name = "vessel"
+instance = "hull"
+body = "hull"
+map = "hull_hydro"
+
+[[devices]]
+type = "battery"
+name = "battery1"
+instance = "bat1"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack"
+
+[[devices]]
+type = "battery"
+name = "battery2"
+instance = "bat2"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack"
+
+[[devices]]
+type = "esc"
+name = "esc1"
+instance = "esc1"
+port = "power_in"
+motor = "thr1"
+joint = "spin1"
+map = "basic_esc_t200"
+bidirectional = true
+
+[[devices]]
+type = "esc"
+name = "esc2"
+instance = "esc2"
+port = "power_in"
+motor = "thr2"
+joint = "spin2"
+map = "basic_esc_t200"
+bidirectional = true
+
+[[devices]]
+type = "rotor"
+name = "rotor1"
+instance = "prop1"
+body = "prop1"
+joint = "spin1"
+map = "t200_prop"
+dir = -1
+water = true
+
+[[devices]]
+type = "rotor"
+name = "rotor2"
+instance = "prop2"
+body = "prop2"
+joint = "spin2"
+map = "t200_prop"
+dir = -1
+water = true
+
+[[devices]]
+type = "load"
+name = "load_avionics"
+instance = "reg"
+port = "vin"
+set = { i0 = { value = -1.41, unit = "A", fidelity = "derived", derivation = "Pi 5 under full CPU load 9.8 W (raspberry-pi-5 power_stress_ng_8gb, measured) + RPLIDAR S2 2.0 W (S2 'Power consumption > 2W') + Pixhawk 6C, M8N GNSS and SiK radio 1.5 W (ESTIMATED, order of magnitude of their typical supply currents) = 13.3 W on the 5 V rail, over the regulator efficiency 0.85 (pololu-d24v50f5 efficiency_min) x 11.1 V nominal pack = 1.41 A out of pack 1 (a constant-current sink: the pack voltage sags and recovers by a few percent over the discharge, which a constant-power load would follow)." } }
+
+[[devices]]
+type = "imu"
+name = "imu"
+instance = "icm"
+site = "fc"
+map = "icm42688"
+set = { rate_hz = { value = 250.0, unit = "Hz", fidelity = "estimated", rationale = "Simulation tick is 2 ms, so 500 Hz is the fastest representable rate; 250 Hz = every 2nd tick, inside the ICM-42688-P output-data-rate range (12.5-32000 Hz datasheet). The rate at which the flight firmware consumes samples is not modelled here." } }
+
+[[devices]]
+type = "mag"
+name = "mag"
+instance = "mag_chip"
+site = "gps"
+map = "ist8310"
+set = { rate_hz = { value = 50.0, unit = "Hz", fidelity = "estimated", rationale = "IST8310 output data rate is 1-200 Hz (datasheet); 50 Hz (every 10th tick of the 2 ms step) is a mid value." }, earth_field = { value = [1.294e-6, 2.1756e-5, -4.3027e-5], unit = "T", fidelity = "derived", derivation = "The field PX4 itself assumes at 47.3769 N, 8.5417 E (World Magnetic Model 2020 via PX4's geo_mag_declination tables): declination 3.4038 deg, inclination 63.1360 deg, F = 48231.8 nT; H = F cos(inc) = 21.795 uT, B_E = H sin(dec) = 1.294e-6 T, B_N = H cos(dec) = 2.1756e-5 T, B_U = -F sin(inc) = -4.3027e-5 T; derived in assemblies/x500v2.toml (same site, same numbers). The harbour scene sits at that origin." } }
+
+[[devices]]
+type = "gnss"
+name = "gnss"
+instance = "gnss_chip"
+site = "gps"
+map = "m8n"
+set = { latency_s = { value = 0.2, unit = "s", fidelity = "estimated", rationale = "No part publishes the receiver's output latency. PX4's EKF2_GPS_DELAY default is 110 ms (v1.17.0), px4/params/napl_sitl.params sets 200 ms to match this device; the device lags by round(latency_s x rate_hz) samples, and at the datasheet 5 Hz one sample is 0.2 s, the smallest non-zero lag." }, lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "Arbitrary simulation origin, the same site as the repo's test model tests/data/devices/all.xml (Zurich); not a claim about where the vessel sails. The scene's local East-North-Up frame has its origin here." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 408.0, unit = "m", fidelity = "estimated", rationale = "As lat0 (all.xml uses 408 m): the altitude of the origin above the ellipsoid, unused by the ASV (which is at the water surface)." }, horiz_std = { value = 2.1233, unit = "m", fidelity = "derived", derivation = "u-blox NEO-M8N horizontal position accuracy 2.5 m CEP (ublox_neo_m8n horizontal_accuracy_cep_gps, datasheet, 50 % radius) converted to a per-coordinate sigma of a circular normal distribution: sigma = CEP / 1.17741 = 2.1233 m." }, vert_std = { value = 3.185, unit = "m", fidelity = "derived", derivation = "1.5 x horiz_std (2.1233 m) = 3.185 m: the ratio 3.75 m / 2.5 m of the part's vertical_accuracy_cep (itself an estimate) to its horizontal CEP, applied to sigma." }, corr_time_s = { value = 600.0, unit = "s", fidelity = "estimated", rationale = "Time constant of the slowly varying part of the position error (ionosphere, orbit / clock residuals, multipath geometry). Published stand-alone GPS data (Banachowicz, GPS / DGPS position coordinates) finds the errors 'significantly correlated' with a mean correlation time 'within the range of a couple or more minutes'; 600 s sits inside that range; no receiver-specific value is published (docs/research/px4-sitl.md, N5c section)." }, corr_frac = { value = 0.9, unit = "1", fidelity = "estimated", rationale = "Share of the position VARIANCE that is the Gauss-Markov part (the rest is white per-fix scatter); total sigma stays the datasheet-derived horiz_std / vert_std. 0.9 gives a white scatter of 0.67 m horizontal and a Gauss-Markov sigma of 2.01 m. No source splits the M8N error budget; chosen so that the fast scatter is of the order of a metre, as seen on static consumer-GNSS tracks, while the 2.5 m CEP is reached over the long run. Estimate." } }
+
+# Obstacle lidar. The beam plane is 360 degrees about the optical port's z (the 0 degree azimuth = the boat's bow, positive to port); n_v = 1.
+# ray_groups 59: every geom group but 2 (the drawn water plane) is visible to the beam, including group 4 (the design builder's vehicle geoms).
+[[devices]]
+type = "rangefinder"
+name = "lidar"
+instance = "lidar"
+site = "lidar"
+site_port = "optical"
+map = "s2"
+projection = "spherical"
+set = { ray_groups = { value = 59, unit = "bitmask", fidelity = "estimated", rationale = "Geom groups 0, 1, 3, 4, 5 are visible to the beam, including group 4 (the design builder's vehicle geoms: other vessels are made of them); group 2 holds the scene's drawn water plane, which must not be hit by a tilted beam (the real water surface is not a solid for a lidar at this angle; sea clutter is not modelled); the lidar's own body is excluded by the device. The default mask (47) would hide every vessel." }, n_h = { value = 1600, unit = "px", fidelity = "estimated", rationale = "Every 2nd of the 3200 samples of a revolution (32 kSa/s at 10 Hz, S2): 0.225 degree steps, 0.12 m between neighbouring returns at 30 m, to keep the CPU ray cast cheap (the real unit resolves 0.1125 degrees)." }, n_v = { value = 1, unit = "px", fidelity = "estimated", rationale = "The S2 is a single-plane (2-D) scanner: one row of returns per revolution. The specification page lists a 'scan field flatness' of +-1.5 degrees, not a vertical field of view." }, fov_v = { value = 0.01, unit = "rad", fidelity = "estimated", rationale = "The device needs a non-zero vertical field; with one row only the centre ray (elevation 0) is cast, so the value is unused." }, rate_hz = { value = 10, unit = "Hz", fidelity = "datasheet", src = "https://www.slamtec.com/en/s2/spec", quote = "Scan rate 10Hz" } }
