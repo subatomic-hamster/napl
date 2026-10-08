@@ -1,0 +1,81 @@
+# napl program examples/boat/float.scenario.toml --runs-dir <dir>
+# Boat float: the twin-hull catamaran ASV (assemblies/boat-cat.toml: 1.2 m hull, 2 x T200 thruster, 2 x SeaKing 60A, 2 x 3S pack) is dropped 5 cm onto
+# calm water, settles at its design draft, runs a straight leg (both thrusters 50 %) and then a turn (port 70 %, starboard 30 %). float.py OWNS the
+# Sim and writes trace.csv; the runner judges the monitors and re-runs replay.naplog through napl-replay for the state hash. FLOAT_HS=<m> adds a
+# JONSWAP sea of that Hm0 (scene.py). Needs no extras. See docs/models.md (sea, vessel, rotor aero).
+name = "boat-float"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/float.py"]
+
+[limits]
+wall_s = 600
+cpu_s = 600
+
+[[monitors]]
+name = "floats_at_the_design_draft"    # keel 37.5 mm below the still water (15.28 kg on 0.408 m2 of waterplane), after the settling drop
+column = "z_m"
+op = "always"
+from = 4.0
+to = 6.0
+lo = -0.041
+hi = -0.034
+
+[[monitors]]
+name = "level_at_rest"
+column = "roll_deg"
+op = "always"
+from = 4.0
+to = 6.0
+lo = -1.0
+hi = 1.0
+
+[[monitors]]
+name = "accelerates_to_cruise"         # straight leg, both thrusters at 50 %
+column = "speed_ms"
+op = "final"
+from = 24.0
+to = 26.0
+lo = 0.8
+hi = 2.5
+
+[[monitors]]
+name = "keeps_its_heading"
+column = "yaw_deg"
+op = "always"
+from = 6.0
+to = 26.0
+lo = -3.0
+hi = 3.0
+
+[[monitors]]
+name = "turns_to_starboard"            # the autopilot's 60 degree heading step: yaw goes negative (clockwise from above) and settles on -60
+column = "yaw_deg"
+op = "final"
+lo = -64.0
+hi = -56.0
+
+[[monitors]]
+name = "stays_upright_in_the_turn"
+column = "roll_deg"
+op = "always"
+lo = -15.0
+hi = 15.0
+
+[[monitors]]
+name = "propellers_stay_immersed"      # hub immersion factor (1 = fully submerged disc) while running
+column = "imm"
+op = "always"
+from = 8.0
+lo = 0.9
+
+[[monitors]]
+name = "pack_not_flat"
+column = "soc"
+op = "always"
+lo = 0.5

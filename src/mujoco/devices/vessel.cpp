@@ -157,7 +157,7 @@ void step_vessels(const mjModel* m, mjData* d, Devices& dv) {
         for (int i = 0; i < 6; ++i) {
           for (int j = 0; j < 6; ++j) {
             double v = i == j ? 1.0 : 0.0;
-            for (int k = 0; k < 6; ++k) v += A[i][k] * W[k][j];
+            for (int k = 0; k < 6; ++k) v += W[i][k] * A[k][j];  // (I + W A) y = z; A W differs from W A once the inertia has products
             S[i][j] = v;
           }
           y[i] = z[i];

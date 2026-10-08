@@ -43,11 +43,12 @@ void put_ok(Solver& s, const std::string& prim, const std::string& attr, std::ve
 // y = thrust_y.
 struct Boat {
   double mass = 20.0, roll_deg = 0.0, thrust_n = 0.0, thrust_y = 0.0, current_x = 0.0, wave_a = 0.0, wave_t = 4.0;
+  double aft_kg = 0.0;  // a welded child 0.4 m aft and 0.05 m up: shifts the CoM and gives the inertia a product (Ixz)
   std::string added = "[5,5,4,0.1,0.5,1]", lin = "[4,4,200,1.0,2,4]", quad = "[6,6,0,0,0,0]", extra_sea;
   bool no_sea = false;
 };
 std::string boat_xml(const Boat& b) {
-  const double total = b.mass + (b.thrust_n > 0 ? 0.1 : 0.0);
+  const double total = b.mass + b.aft_kg + (b.thrust_n > 0 ? 0.1 : 0.0);
   const double z0 = 0.1 - total / (kRho * 0.4);
   const double q0 = std::cos(0.5 * b.roll_deg * kPi / 180), q1 = std::sin(0.5 * b.roll_deg * kPi / 180);
   std::ostringstream x;
@@ -55,6 +56,9 @@ std::string boat_xml(const Boat& b) {
     << "<geom name=\"seabed\" type=\"plane\" pos=\"0 0 -20\" size=\"100 100 1\" contype=\"0\" conaffinity=\"0\"/>"
     << "<body name=\"hull\" pos=\"0 0 " << z0 << "\" quat=\"" << q0 << " " << q1 << " 0 0\"><freejoint/>"
     << "<geom type=\"box\" size=\"0.5 0.2 0.1\" mass=\"" << b.mass << "\" contype=\"0\" conaffinity=\"0\"/>";
+  if (b.aft_kg > 0)
+    x << "<body name=\"aft\" pos=\"-0.4 0 0.05\"><geom type=\"box\" size=\"0.05 0.05 0.05\" mass=\"" << b.aft_kg
+      << "\" contype=\"0\" conaffinity=\"0\"/></body>";
   if (b.thrust_n > 0)
     x << "<body name=\"motor\" pos=\"0 " << b.thrust_y << " 0\"><geom type=\"box\" size=\"0.02 0.02 0.02\" mass=\"0.1\" contype=\"0\" "
       << "conaffinity=\"0\"/><site name=\"nozzle\" euler=\"0 90 0\"/></body>";
@@ -156,6 +160,27 @@ TEST(vessel, heave_response_to_a_regular_wave) {
   const auto wt = getv(*s, "/devices/sea", "waves");  // a, k, w, theta, phi
   const double x = ms(*s).data().qpos[0], y = ms(*s).data().qpos[1];
   EXPECT_NEAR(get(*s, "/devices/v", "eta"), wt[0] * std::cos(wt[1] * (x * std::cos(wt[3]) + y * std::sin(wt[3])) - wt[2] * t + wt[4]), 2e-3);
+}
+
+// Added mass against an inertia with a product: heave + pitch added mass on a hull whose welded aft mass puts Ixz into the body inertia
+// (the solve is (I + W A) y = z; (I + A W) gave a heave-pitch oscillation that grew without bound). Released at the waterline it must
+// settle, not oscillate: the last 2 s of heave stay within 0.1 mm.
+TEST(vessel, added_mass_with_product_of_inertia_stays_stable) {
+  Boat b;
+  b.aft_kg = 6.0;
+  b.added = "[5,5,60,0.1,4,1]";
+  b.lin = "[4,4,200,1.0,30,4]";
+  auto s = make(b);
+  put_ok(*s, "/devices/sea", "wave_scale", {0});
+  ASSERT_EQ(s->step(10000), 10000);
+  double lo = 1e9, hi = -1e9;
+  for (int i = 0; i < 2000; ++i) {
+    ASSERT_EQ(s->step(1), 1);
+    lo = std::min(lo, ms(*s).data().qpos[2]);
+    hi = std::max(hi, ms(*s).data().qpos[2]);
+  }
+  EXPECT_LT(hi - lo, 1e-4);
+  EXPECT_FALSE(s->diverged());
 }
 
 // Surge under a constant thrust T against M du/dt = T - c1 u - c2 |u| u, M = m + added mass (the added mass is exact, also when it is
