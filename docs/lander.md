@@ -181,7 +181,26 @@ seeds 5000... are flown once with that bias, and the numbers below are whatever 
 the impulse scatter and the wind changed, for the sensitivity table. Each flight draws its own wind (speed uniform 0-4 m/s, direction uniform). A flight is a
 success when it lands (not aborted) with touchdown speed < 2 m/s, touchdown tilt < 10 deg, within 3 m of the pad, upright at the end, servo saturation < 10 %.
 
-RESULTS_PLACEHOLDER
+Command: `mc.py --train 48 --test 300 --workers 6 --aims=-0.3,0,0.3,0.6,1.0` (636 s wall on hfbox). Training (48 seeds per candidate, aim in m: success / v<2):
+-0.3: 31 % / 40 %, 0.0: 29 % / 33 %, +0.3: 27 % / 35 %, +0.6: 25 % / 31 %, +1.0: 27 % / 33 %. The five are inside the binomial noise (+-6 %) of each other: the
+bias is picked (-0.3, the default of the scenario) but it is not a tuned advantage. **Report seeds 5000-5299, flown once: success 26.0 % (soft landing inside every
+criterion)**; touchdown speed < 2 m/s 35 %, < 5 m/s 86 %; tilt < 10 deg 98 %; within 3 m 89 %; upright 68 %; aborts 0 %. Touchdown speed p50/p90/p99 =
+2.43 / 6.13 / 9.06 m/s; distance from the pad p50/p90/p99 = 1.40 / 3.09 / 6.02 m.
+
+Sensitivity (same 300 seeds, one scatter changed; success / v<2 / dist<3):
+
+| case | success | v<2 | dist<3 | speed p50/p90 |
+|---|---|---|---|---|
+| igniter jitter 0 / 0.02 / 0.08 s (report: 0.04) | 39.7 / 33.0 / 19.7 % | 55 / 44 / 26 % | 89 / 88 / 90 % | 1.83/5.66, 2.24/5.27, 2.99/7.69 |
+| impulse sigma 0 / 2 / 6.67 % (NFPA cap; report: 3) | 34.7 / 31.3 / 17.0 % | 46 / 43 / 24 % | 87 / 88 / 86 % | 2.17/4.59, 2.22/5.52, 3.43/8.66 |
+| wind fixed 0 / 4 m/s (report: uniform 0-4) | 28.7 / 10.3 % | 34 / 37 % | 99 / 40 % | 2.36/5.91, 2.29/5.81 |
+
+Reading: even with no scatter at all roughly 40 % land softly: near hover the F15's 14 N tail is about the vehicle weight, so the landing is a knife edge on the thrust
+scale, and scatter turns it into a coin toss. The 4 m/s wind costs position (60 % land more than 3 m from the pad: the drift in the glide is not steered out), not
+speed. The per-seed list is in the `test_flights` of the JSON the tool writes (`--out`).
+
+The scenario's default seed (13) is a demonstration seed picked after the fact from seeds 1-24 (7 of 24 are fully inside the monitors at 2 m/s wind); it is the
+run to film, not evidence. Replay hash of that run, two separate `napl program` runs: identical, state hash `be85c642e12fd226` (10296 ticks, replay match, all nine monitors pass). Touchdown 1.15 m/s, 3.7 deg, 0.56 m from the pad.
 
 ## 7. Honest limitations
 
