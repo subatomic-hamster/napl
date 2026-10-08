@@ -9,6 +9,12 @@ url = "https://www.rocketreviews.com/"
 # trade size in which two 29 mm motors side by side plus two direct-drive Dynamixel XL330 gimbal servos fit (cradle 0.065 m + ring + servo bodies span 0.130 m).
 # Part frame: origin at the aft end on the axis, +z towards the nose. The thin wall is eight flat plates around the axis (an octagonal shell of the same wall
 # mass) so that roll and pitch inertia are those of a hollow tube. Used by assemblies/tvc-lander.toml.
+[visual]
+rationale = "Generic filament-wound glass tube (not a product): hollow tube of the part's own outer / inner diameter and length, glass-epoxy finish."
+
+[[visual.elements]]
+gen = "body_tube"
+
 [params]
 outer_diameter = { value = 0.1397, unit = "m", fidelity = "estimated", rationale = "Trade size 5.5 in = 139.7 mm; real tubes differ by a fraction of a millimetre between makers." }
 inner_diameter = { value = 0.1377, unit = "m", fidelity = "derived", derivation = "outer_diameter - 2 x wall_thickness = 0.1397 - 2 x 0.001 = 0.1377 m." }

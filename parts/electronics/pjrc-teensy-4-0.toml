@@ -7,6 +7,12 @@ url = "https://www.pjrc.com/store/teensy40.html"
 
 # Flight computer of assemblies/tvc-lander.toml: the real-time loop (IMU read, estimator, TVC control, servo bus, pyro outputs) of examples/lander/flight.py is firmware-style
 # code meant for a board of this class. Frame: origin at the board centre on the component face, +z out of that face, x along the 36.8 mm side.
+[visual]
+rationale = "A small development board of the part's length x width x height (36.8 x 18.0 x 4.6 mm), drawn by the generic board generator."
+
+[[visual.elements]]
+gen = "board_generic"
+
 [params]
 mass            = { value = 0.0028, unit = "kg", src = "S2", fidelity = "datasheet" }
 length          = { value = 0.0368, unit = "m", src = "S2", fidelity = "datasheet" }

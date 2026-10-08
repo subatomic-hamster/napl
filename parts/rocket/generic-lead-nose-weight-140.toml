@@ -8,6 +8,13 @@ url = "https://www.engineeringtoolbox.com/metal-alloys-densities-d_50.html"
 # Nose weight of assemblies/tvc-lander.toml: moves the centre of gravity forward (shortens the lever of the aerodynamic instability CP - CG, lengthens the TVC lever
 # CG - gimbal centre) and sets the vehicle mass, which sets the apogee and the speed of the landing burn. Part frame: origin at the centre of the underside, +z up.
 # A 60 mm x 17 mm lead slug is a stack of home-cast or sheet-lead discs: ordinary model-rocket nose ballast.
+[visual]
+rationale = "The part's own collision cylinder (a cast lead disc), dark metal finish."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "steel-dark" }
+
 [params]
 density = { value = 11340.0, unit = "kg/m^3", src = "S1", fidelity = "datasheet" }
 radius = { value = 0.030, unit = "m", fidelity = "estimated", rationale = "Design choice: fits inside the ogive 0.10 m above its base (inside radius ~0.058 m) with room for a bulkhead." }

@@ -20,6 +20,24 @@ import guidance as gd
 import vehicle as veh
 
 SCENARIO = LANDER / "land.scenario.toml"
+CLASH = (
+    "scene",
+    "flight",
+    "land",
+    "mc",
+)  # example-module names other examples also use
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _lander_modules():
+    """Other examples have their own scene.py / flight.py: make this module's imports resolve to examples/lander for its tests only."""
+    saved = {n: sys.modules.pop(n) for n in CLASH if n in sys.modules}
+    sys.path.insert(0, str(LANDER))
+    yield
+    sys.path.remove(str(LANDER))
+    for n in CLASH:
+        sys.modules.pop(n, None)
+    sys.modules.update(saved)
 
 
 # ------------------------------------------------------------------------------------------------------------------ guidance

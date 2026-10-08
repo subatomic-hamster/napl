@@ -10,6 +10,13 @@ url = "https://cdn.shopify.com/s/files/1/1223/5992/files/PLA_4043D_TDS.pdf"
 # Gimbal centre at the origin, +z towards the nose. Each motor seat sits 5 mm below the centre, so an E16 casing (114 mm) spans z in [-0.062, 0.052]: the nozzles
 # are 0.062 m below the gimbal centre. The two thrust axes are 0.01525 m off the gimbal centre line: a firing motor loads BOTH servos (0.707 x T x 0.01525 m each: 0.19 N m
 # at the E16's 17 N sustained thrust, 0.28 N m at its 26.4 N peak against the XL330-M288's 0.52 N m stall) and the vehicle must trim the offset (see examples/lander).
+[visual]
+rationale = "Design of this repo: printed motor sleeve with a base flange and the horn boss (same generator as the 1-axis gimbal cradle; drawn as one sleeve, the twin-motor shape is in the collision geometry)."
+
+[[visual.elements]]
+gen = "tvc_gimbal"
+params = { kind = "cradle" }
+
 [params]
 bore = { value = 0.0295, unit = "m", fidelity = "estimated", rationale = "Design choice: 0.5 mm over the 29 mm motor casing (parts/rocket/estes-e16 diameter)." }
 motor_spacing = { value = 0.0305, unit = "m", fidelity = "estimated", rationale = "Design choice: bore 0.0295 + 1 mm web between two casings." }

@@ -9,6 +9,13 @@ url = "https://cdn.shopify.com/s/files/1/1223/5992/files/PLA_4043D_TDS.pdf"
 # pitch servo), carries the YAW servo whose output turns the cradle about x. Gimbal centre at the origin, +z towards the nose. Scaled from tvc-gimbal-ring for the
 # 0.065 m wide two-motor cradle: inner radius 0.036 m leaves 3.5 mm over the cradle's 0.0325 m radius, which a +-8 deg tilt of the 0.07 m sleeve about x uses
 # (0.0325 / cos 8 deg + 0.015 tan 8 deg = 0.0349 m at the ring's edge).
+[visual]
+rationale = "Design of this repo: printed pitch ring with trunnion bosses and the yaw-servo bracket (same generator as the 1-axis gimbal ring)."
+
+[[visual.elements]]
+gen = "tvc_gimbal"
+params = { kind = "ring" }
+
 [params]
 outer_radius = { value = 0.039, unit = "m", fidelity = "estimated", rationale = "Design choice: wall 3 mm over the inner radius." }
 inner_radius = { value = 0.036, unit = "m", fidelity = "estimated", rationale = "Design choice: the cradle's 0.0325 m radius plus the tilt sweep at +-8 deg (0.0349 m) plus 1 mm." }
