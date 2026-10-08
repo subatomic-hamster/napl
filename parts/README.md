@@ -179,7 +179,9 @@ modules sit with their underside on the underside of the `[geometry]` bounds, ce
 fallback are drawn in the part frame from `[geometry]`. Families: `bldc_outrunner propeller lipo_pack cell_18650 cf_tube
 board_generic board_esc board_fc board_power board_sbc gnss_puck camera_module sensor_module box_device connector servo_case
 gearmotor wheel_tyre stepper_nema qdd_actuator bearing standoff screw heat_insert diabolo_pellet pulley hub_disc shaft_collar
-plate_outline shapes` (plus the structure / servo / launcher families listed in `visuals/__init__.py`).
+plate_outline shapes` (plus the structure / servo / launcher families listed in `visuals/__init__.py`). Rocket and marine
+families (`gens_rocket.py`, `gens_marine.py`, each used by an explicit `[visual]`): `solid_motor body_tube ogive_nose fin_set
+landing_leg tvc_gimbal` (`params = { kind = "plate" | "ring" | "cradle" }`) `catamaran_hull ducted_thruster esc_sealed`.
 
 Vendor CAD as a visual: `mesh = "meshes/..."` (binary or ASCII STL, one slot `body`, finish from `colors.body`). Only files whose
 licence allows redistribution in a proprietary product belong in the repo (record it in the source's `license`); today that is
