@@ -2,15 +2,17 @@
 and the numpy views of the sea / range-sensor devices. (The device physics is in tests/cpp/test_{rocket,vessel,rangefinder}.cpp.)"""
 
 import math
+import re
 import tomllib
 from pathlib import Path
 
 import numpy as np
 import pytest
-from napl import marine
+from napl import design, marine
 from napl.design import barrowman
 
-PARTS = Path(__file__).resolve().parents[2] / "parts"
+REPO = Path(__file__).resolve().parents[2]
+PARTS = REPO / "parts"
 MOTORS = ["estes-c6", "estes-e16", "estes-f15", "estes-g40"]
 
 
@@ -83,3 +85,14 @@ def test_depth_image_shape_nan_and_dtype():
     img = marine.depth_image(sim, "/devices/cam", 3, 2)
     assert img.shape == (2, 3) and img.dtype == np.float32
     assert np.isnan(img[0, 1]) and np.isnan(img[1, 1]) and img[1, 2] == 5.0
+
+
+def test_gimbal_bench_builds_with_the_nozzle_below_the_gimbal_centre(tmp_path):
+    xml, rep = design.compute(
+        REPO / "assemblies" / "tvc-gimbal-bench.toml", PARTS, tmp_path
+    )
+    assert rep["warnings"] == [] and rep["unresolved"] == []
+    z = float(re.search(r'<body name="motor" pos="0 0 (-?[\d.]+)"', xml).group(1))
+    assert z == pytest.approx(-0.062, abs=1e-6)  # nozzle 62 mm below the axes' crossing
+    for j, axis in (("pitch-joint", "0 -1.0 0"), ("yaw-joint", "-1.0 0 0")):
+        assert f'name="{j}" type="hinge" axis="{axis}"' in xml
