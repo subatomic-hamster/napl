@@ -159,8 +159,16 @@ def compose(
         elif tree.find("option").get("timestep") != root.find("option").get("timestep"):
             raise ValueError("vehicles must share one timestep")
         asset = tree.find("asset")
-        if asset is not None:
-            root.find("asset").extend(list(asset))
+        if (
+            asset is not None
+        ):  # visual materials ("m_<name>") are shared across vehicles: keep one, a different one is a clash
+            have = {(e.tag, e.get("name")): e.attrib for e in root.find("asset")}
+            for e in asset:
+                k = (e.tag, e.get("name"))
+                if k in have and have[k] != e.attrib:
+                    raise ValueError(f"MJCF asset clash between vehicles: {k}")
+                if k not in have:
+                    root.find("asset").append(e)
         root.find("worldbody").extend(tops)
         if v.pedestal > 0:
             ET.SubElement(root.find("worldbody"), "geom", name=f"{v.name}/pedestal", type="box", group="0", contype="1", conaffinity="1",
