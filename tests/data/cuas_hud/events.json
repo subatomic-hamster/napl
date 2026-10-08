@@ -1,0 +1,229 @@
+[
+ {
+  "type": "authorization_request",
+  "t": 0.544,
+  "target": "A",
+  "range_m": 26.478147127519485,
+  "granted": true,
+  "reason": "target inside the envelope"
+ },
+ {
+  "type": "authorization",
+  "t": 0.544,
+  "target": "A",
+  "rounds": 3,
+  "by": "operator",
+  "text": "operator authorized A"
+ },
+ {
+  "type": "fire",
+  "t": 0.544,
+  "target": "A"
+ },
+ {
+  "type": "authorization_request",
+  "t": 6.8,
+  "target": "A",
+  "range_m": 33.09768390939936,
+  "granted": true,
+  "reason": "target inside the envelope"
+ },
+ {
+  "type": "authorization",
+  "t": 6.8,
+  "target": "A",
+  "rounds": 3,
+  "by": "operator",
+  "text": "operator authorized A"
+ },
+ {
+  "type": "fire",
+  "t": 6.8,
+  "target": "A"
+ },
+ {
+  "t": 6.98,
+  "round": 2,
+  "body": "/world/drone3_bottom/con2/tube2",
+  "pos": [
+   27.324768566202483,
+   -14.395902058313823,
+   12.18947485686339
+  ],
+  "speed": 164.86833736680308,
+  "target": "A",
+  "kind": "drone",
+  "drone": "drone3",
+  "effect": "esc2.fault_open=1",
+  "type": "hit"
+ },
+ {
+  "type": "destroyed",
+  "t": 7.5120000000000005,
+  "drone": "drone3"
+ },
+ {
+  "type": "authorization_request",
+  "t": 14.688,
+  "target": "L",
+  "range_m": 31.150761326493512,
+  "granted": true,
+  "reason": "target inside the envelope"
+ },
+ {
+  "type": "authorization",
+  "t": 14.688,
+  "target": "L",
+  "rounds": 3,
+  "by": "operator",
+  "text": "operator authorized L"
+ },
+ {
+  "type": "fire",
+  "t": 14.688,
+  "target": "L"
+ },
+ {
+  "type": "authorization_request",
+  "t": 16.32,
+  "target": "L",
+  "range_m": 37.82592446788498,
+  "granted": true,
+  "reason": "target inside the envelope"
+ },
+ {
+  "type": "authorization",
+  "t": 16.32,
+  "target": "L",
+  "rounds": 3,
+  "by": "operator",
+  "text": "operator authorized L"
+ },
+ {
+  "type": "fire",
+  "t": 16.32,
+  "target": "L"
+ },
+ {
+  "t": 16.524,
+  "round": 4,
+  "body": "/world/drone4_bottom/con1",
+  "pos": [
+   19.03603992708109,
+   -29.895874212422644,
+   10.043014637317334
+  ],
+  "speed": 159.4315933622732,
+  "target": "L",
+  "kind": "drone",
+  "drone": "drone4",
+  "effect": "esc1.fault_open=1",
+  "type": "hit"
+ },
+ {
+  "type": "fire",
+  "t": 16.864,
+  "target": "L"
+ },
+ {
+  "type": "destroyed",
+  "t": 17.076,
+  "drone": "drone4"
+ },
+ {
+  "type": "authorization_request",
+  "t": 18.972,
+  "target": "M",
+  "range_m": 40.735610965414594,
+  "granted": true,
+  "reason": "target inside the envelope"
+ },
+ {
+  "type": "authorization",
+  "t": 18.972,
+  "target": "M",
+  "rounds": 3,
+  "by": "operator",
+  "text": "operator authorized M"
+ },
+ {
+  "type": "fire",
+  "t": 18.972,
+  "target": "M"
+ },
+ {
+  "t": 19.076,
+  "round": 3,
+  "body": "/world",
+  "pos": [
+   196.6761148478012,
+   -229.8273523099657,
+   0.0
+  ],
+  "speed": 37.38963648918794,
+  "target": "L",
+  "kind": "ground",
+  "type": "hit"
+ },
+ {
+  "type": "fire",
+  "t": 19.516000000000002,
+  "target": "M"
+ },
+ {
+  "t": 19.76,
+  "round": 7,
+  "body": "/world/drone1_bottom/rod_l/bat",
+  "pos": [
+   21.292497055086926,
+   -33.677972086955386,
+   15.811830546024197
+  ],
+  "speed": 152.38251905372607,
+  "target": "M",
+  "kind": "drone",
+  "drone": "drone1",
+  "effect": "battery.r_fault=0.5",
+  "type": "hit"
+ },
+ {
+  "type": "fire",
+  "t": 20.06,
+  "target": "M"
+ },
+ {
+  "type": "authorization_request",
+  "t": 20.128,
+  "target": "M",
+  "range_m": 40.735610965414594,
+  "granted": true,
+  "reason": "target inside the envelope"
+ },
+ {
+  "type": "authorization",
+  "t": 20.128,
+  "target": "M",
+  "rounds": 3,
+  "by": "operator",
+  "text": "operator authorized M"
+ },
+ {
+  "t": 22.308,
+  "round": 5,
+  "body": "/world",
+  "pos": [
+   172.14750949062662,
+   -278.3791215951824,
+   0.0
+  ],
+  "speed": 34.76489160066569,
+  "target": "L",
+  "kind": "ground",
+  "type": "hit"
+ },
+ {
+  "type": "destroyed",
+  "t": 23.072,
+  "drone": "drone1"
+ }
+]
