@@ -81,7 +81,11 @@ def test_search_ranking_and_filters(be):
         for p in v["parts"]
     )
     cats = ask(b, "library.categories")["result"]["categories"]
-    assert {"path": "motor", "count": 142, "depth": 0} in cats
+    n_motor = sum(
+        re.search(r'^category = "motor[."]', p.read_text(), re.MULTILINE) is not None
+        for p in (REPO / "parts").rglob("*.toml")
+    )
+    assert n_motor >= 142 and {"path": "motor", "count": n_motor, "depth": 0} in cats
     info = ask(b, "library.info", {"part": "holybro-2216-kv920"})["result"]
     assert (
         info["ports"]

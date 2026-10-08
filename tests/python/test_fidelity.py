@@ -52,7 +52,9 @@ def test_every_estimated_value_is_listed(data, md, tmp_path):
 
     for a in data["assemblies"]:
         rep = build(ROOT / "assemblies" / a["file"], ROOT / "parts", tmp_path)["report"]
-        assert rep["estimated"] and len(a["estimated"]) == len(rep["estimated"])
+        assert len(a["estimated"]) == len(
+            rep["estimated"]
+        )  # may be 0 (tvc-gimbal-bench: all datasheet / derived)
         for e in rep["estimated"]:
             assert f"| {e['where']} | {e['key']} |" in md, e
 
