@@ -1,0 +1,461 @@
+# napl program examples/lander/land.scenario.toml --runs-dir <dir>
+# TVC propulsive landing: the 1.45 kg model rocket of assemblies/tvc-lander.toml lifts off on an Estes E16, flies a guided ascent on its two-axis servo gimbal,
+# coasts, falls tail-first and lights an Estes F15 at the computed height to stop on its legs, in wind with Dryden gusts. lander/land.py OWNS the Sim, steps
+# lander/flight.py (the flight software: sensors in, servo goals and pyro commands out) and writes trace.csv / replay.naplog / native.json / telemetry.jsonl;
+# the runner judges the monitors on trace.csv and re-runs replay.naplog through napl-replay for the state hash. See docs/lander.md.
+# Soft touchdown with a solid motor is a knife edge (a few tenths of a metre of ignition height), so ONE flight is not the claim: the claim is the
+# success rate over the scatter, examples/lander/mc.py. The monitors below judge one flight against the targets (touchdown speed, tilt, position).
+name = "tvc-landing"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/land.py"]
+
+[limits]
+wall_s = 600
+cpu_s = 600
+
+# ---- parameters & telemetry (napl.params): what a UI may edit, what the program streams -------------------------------------------------------------------
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the sensor noise, the Dryden turbulence and every scatter draw: the same seed and parameters replay to the same state hash."
+
+[[parameters]]
+name = "wind_ms"
+type = "float"
+default = 2.0
+min = 0.0
+max = 8.0
+unit = "m/s"
+group = "environment"
+label = "Mean wind"
+doc = "Steady horizontal wind at the pad. The Dryden turbulence intensity follows it (sigma_w = 0.1 x the 6 m wind)."
+
+[[parameters]]
+name = "wind_dir_deg"
+type = "float"
+default = 0.0
+min = 0.0
+max = 360.0
+unit = "deg"
+group = "environment"
+label = "Wind direction"
+doc = "Direction the wind blows towards, from world +x towards +y."
+
+[[parameters]]
+name = "w20_ms"
+type = "float"
+default = -1.0
+min = -1.0
+max = 12.0
+unit = "m/s"
+group = "environment"
+label = "Gust reference wind"
+doc = "W20 of the Dryden turbulence model (MIL-F-8785C); -1 = equal to the mean wind."
+
+[[parameters]]
+name = "impulse_sigma"
+type = "float"
+default = 0.03
+min = 0.0
+max = 0.15
+group = "motors"
+label = "Motor impulse scatter (1 sigma)"
+doc = "Relative scatter of each motor's delivered thrust against its certified curve (thrust_scale). NFPA 1125 for model rocket motors (thrustcurve.org/info/certification.html, 'total impulse must not have a standard deviation greater than 6.7 %'; absolute limit +-20 % of the certified value) allows up to 6.67 %; 3 % is an estimate for current production (the page: 'most modern manufacturers hold tighter tolerances'). The Monte Carlo sweeps 2 / 3 / 6.67 %. See docs/lander.md."
+
+[[parameters]]
+name = "delay_extra_s"
+type = "float"
+default = 0.10
+min = 0.0
+max = 0.5
+unit = "s"
+group = "motors"
+label = "Igniter delay beyond the motor delay (mean)"
+doc = "Pyro channel to motor ignition: the FET, the starter's heating time and the motor's own delay come on top of the 0.3 s motor figure. The ascent ignition measures it."
+
+[[parameters]]
+name = "delay_jitter_s"
+type = "float"
+default = 0.04
+min = 0.0
+max = 0.2
+unit = "s"
+group = "motors"
+label = "Igniter delay jitter (1 sigma)"
+doc = "Shot-to-shot scatter of the ignition delay (estimated; swept 0.02 / 0.04 / 0.08 s in the Monte Carlo)."
+
+[[parameters]]
+name = "misalign_deg"
+type = "float"
+default = 0.3
+min = 0.0
+max = 2.0
+unit = "deg"
+group = "vehicle"
+label = "Thrust-line misalignment (1 sigma)"
+doc = "Fixed offset of each gimbal axis against what the servo reports (horn zero, nozzle seat), drawn per flight."
+
+[[parameters]]
+name = "backlash_deg"
+type = "float"
+default = 0.25
+min = 0.0
+max = 3.0
+unit = "deg"
+group = "vehicle"
+label = "Servo gearbox backlash (half width)"
+doc = "Play of each gimbal servo's gear train: the output shaft does not follow the servo until the commanded angle has taken up the play (hysteresis), total play = 2 x this. ROBOTIS does not publish a figure for the XL330-M288-T; the total 0.5 deg here is the bound the comparable Feetech STS3215 datasheet gives (backlash <= 0.5 deg); the XM540 has 0.25 deg."
+
+[[parameters]]
+name = "gyro_bias_dps"
+type = "float"
+default = 0.25
+min = 0.0
+max = 1.0
+unit = "deg/s"
+group = "sensors"
+label = "Gyro zero-rate offset (1 sigma)"
+doc = "Initial zero-rate offset drawn per flight; the flight computer measures it on the pad. Data sheet limit +-0.5 deg/s, taken as 2 sigma."
+
+[[parameters]]
+name = "accel_bias_ms2"
+type = "float"
+default = 0.1
+min = 0.0
+max = 0.5
+unit = "m/s^2"
+group = "sensors"
+label = "Accelerometer offset (1 sigma)"
+doc = "Initial zero-g offset drawn per flight (estimated, about 10 mg)."
+
+[[parameters]]
+name = "t_launch"
+type = "float"
+default = 3.0
+min = 2.5
+max = 10.0
+unit = "s"
+group = "flight"
+label = "Launch time"
+doc = "Time the ascent motor is fired (after the 2 s pad calibration)."
+
+[[parameters]]
+name = "aim_bias_m"
+type = "float"
+default = 0.0
+min = -3.0
+max = 3.0
+unit = "m"
+group = "flight"
+label = "Landing-burn ignition bias"
+doc = "Positive lights the landing motor earlier. Calibrated on separate Monte Carlo training seeds (docs/lander.md)."
+
+[[parameters]]
+name = "v_target"
+type = "float"
+default = 0.8
+min = 0.1
+max = 3.0
+unit = "m/s"
+group = "flight"
+label = "Table touchdown speed"
+doc = "Touchdown speed the ignition table aims for."
+
+[[parameters]]
+name = "wn_att"
+type = "float"
+default = 13.0
+min = 4.0
+max = 30.0
+unit = "rad/s"
+group = "flight"
+label = "Attitude loop bandwidth"
+doc = "Closed-loop natural frequency of the TVC attitude loop."
+
+[[parameters]]
+name = "kp_pos"
+type = "float"
+default = 0.35
+min = 0.0
+max = 2.0
+unit = "1/s^2"
+group = "flight"
+label = "Lateral position gain"
+doc = "Commanded lateral acceleration per metre of horizontal error."
+
+[[parameters]]
+name = "kd_vel"
+type = "float"
+default = 1.1
+min = 0.0
+max = 4.0
+unit = "1/s"
+group = "flight"
+label = "Lateral velocity gain"
+doc = "Commanded lateral acceleration per m/s of horizontal speed."
+
+[[parameters]]
+name = "kd_land"
+type = "float"
+default = 1.5
+min = 0.0
+max = 4.0
+unit = "1/s"
+group = "flight"
+label = "Extra velocity gain at the ground"
+doc = "Extra lateral velocity damping the landing burn fades in below z_slow (position hold fades out), so no foot slides at touchdown."
+
+[[parameters]]
+name = "z_slow"
+type = "float"
+default = 3.0
+min = 0.5
+max = 10.0
+unit = "m"
+group = "flight"
+label = "Ground-damping height"
+doc = "Height below which the landing burn trades position hold for sideways-speed damping."
+
+[[parameters]]
+name = "td_gimbal_deg"
+type = "float"
+default = 2.5
+min = 0.0
+max = 8.0
+unit = "deg"
+group = "flight"
+label = "Gimbal correction on the ground"
+doc = "Largest attitude correction (deg of gimbal) allowed after touchdown while the landing motor still burns."
+
+[[parameters]]
+name = "tilt_cmd_max_deg"
+type = "float"
+default = 8.0
+min = 1.0
+max = 20.0
+unit = "deg"
+group = "flight"
+label = "Largest commanded lean"
+doc = "Lateral guidance limit: largest commanded tilt of the thrust axis from vertical."
+
+[[telemetry]]
+name = "state"
+kind = "string"
+group = "flight"
+label = "Flight state"
+doc = "PAD, BOOST, COAST, APOGEE, DESCENT, LANDING_BURN, TOUCHDOWN or ABORT."
+
+[[telemetry]]
+name = "est.alt_m"
+unit = "m"
+group = "navigation"
+label = "Altitude (estimate)"
+min = 0
+max = 25
+
+[[telemetry]]
+name = "est.vz_ms"
+unit = "m/s"
+group = "navigation"
+label = "Vertical speed (estimate)"
+min = -25
+max = 20
+
+[[telemetry]]
+name = "est.x_m"
+unit = "m"
+group = "navigation"
+label = "East of the pad (estimate)"
+
+[[telemetry]]
+name = "est.y_m"
+unit = "m"
+group = "navigation"
+label = "North of the pad (estimate)"
+
+[[telemetry]]
+name = "est.tilt_deg"
+unit = "deg"
+group = "attitude"
+label = "Tilt from vertical (estimate)"
+min = 0
+max = 40
+
+[[telemetry]]
+name = "est.roll_deg"
+unit = "deg"
+group = "attitude"
+label = "Roll (estimate)"
+
+[[telemetry]]
+name = "est.pitch_deg"
+unit = "deg"
+group = "attitude"
+label = "Pitch (estimate)"
+
+[[telemetry]]
+name = "est.yaw_deg"
+unit = "deg"
+group = "attitude"
+label = "Yaw (estimate)"
+
+[[telemetry]]
+name = "gimbal.pitch_deg"
+unit = "deg"
+group = "gimbal"
+label = "Pitch servo angle"
+min = -8
+max = 8
+
+[[telemetry]]
+name = "gimbal.yaw_deg"
+unit = "deg"
+group = "gimbal"
+label = "Yaw servo angle"
+min = -8
+max = 8
+
+[[telemetry]]
+name = "gimbal.pitch_goal_deg"
+unit = "deg"
+group = "gimbal"
+label = "Pitch servo goal"
+
+[[telemetry]]
+name = "gimbal.yaw_goal_deg"
+unit = "deg"
+group = "gimbal"
+label = "Yaw servo goal"
+
+[[telemetry]]
+name = "thrust_N"
+unit = "N"
+group = "propulsion"
+label = "Thrust (both motors)"
+min = 0
+max = 30
+
+[[telemetry]]
+name = "thrust_est_N"
+unit = "N"
+group = "propulsion"
+label = "Thrust (flight computer estimate)"
+
+[[telemetry]]
+name = "mass_kg"
+unit = "kg"
+group = "propulsion"
+label = "Mass (flight computer estimate)"
+
+[[telemetry]]
+name = "motors.a.phase"
+kind = "string"
+group = "propulsion"
+label = "Ascent motor"
+doc = "idle, delay, burning or spent."
+
+[[telemetry]]
+name = "motors.b.phase"
+kind = "string"
+group = "propulsion"
+label = "Landing motor"
+doc = "idle, delay, burning or spent."
+
+[[telemetry]]
+name = "landing.ign_margin_m"
+unit = "m"
+group = "landing"
+label = "Height above the ignition point"
+doc = "Predicted height at thrust onset minus the table height for the speed then. The motor is lit when this reaches zero."
+
+[[telemetry]]
+name = "landing.pred_touchdown_ms"
+unit = "m/s"
+group = "landing"
+label = "Predicted touchdown speed if lit now"
+
+[[telemetry]]
+name = "truth.alt_m"
+unit = "m"
+group = "truth"
+label = "Altitude (truth)"
+
+[[telemetry]]
+name = "truth.vz_ms"
+unit = "m/s"
+group = "truth"
+label = "Vertical speed (truth)"
+
+[[telemetry]]
+name = "truth.tilt_deg"
+unit = "deg"
+group = "truth"
+label = "Tilt (truth)"
+
+# ---- monitors (judged on trace.csv) ------------------------------------------------------------------------------------------------------------
+[[monitors]]
+name = "stands_on_the_pad"             # before the launch: still on its legs, upright, no drift
+column = "tilt_deg"
+op = "always"
+from = 0.1
+to = 2.9
+hi = 0.5
+
+[[monitors]]
+name = "lifts_off"                     # the E16 sends the 1.45 kg vehicle ~7-9 m up
+column = "z_m"
+op = "eventually"
+lo = 4
+
+[[monitors]]
+name = "flight_tilt_limit"             # never more than 35 deg off vertical before touchdown (the software aborts at 35)
+column = "tilt_flight_deg"
+op = "always"
+hi = 35
+
+[[monitors]]
+name = "touchdown_speed"               # the legs are rated for < 2 m/s (the HARDEST ground contact of the flight counts)
+column = "td_speed_ms"
+op = "final"
+hi = 2.0
+
+[[monitors]]
+name = "no_hard_landing"               # above 5 m/s the legs are overloaded: registers as a hard landing (the 2 m/s monitor above fails first)
+column = "td_speed_ms"
+op = "final"
+hi = 5.0
+
+[[monitors]]
+name = "touchdown_tilt"
+column = "td_tilt_deg"
+op = "final"
+hi = 10
+
+[[monitors]]
+name = "lands_near_the_pad"            # X = 3 m
+column = "td_dist_m"
+op = "final"
+hi = 3.0
+
+[[monitors]]
+name = "stays_upright"                 # still standing 2 s after touchdown
+column = "tilt_deg"
+op = "final"
+hi = 15
+
+[[monitors]]
+name = "servo_saturation"              # Y = 10 % of the powered time with a gimbal goal at the software limit
+column = "sat_frac"
+op = "final"
+hi = 0.10

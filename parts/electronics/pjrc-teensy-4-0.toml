@@ -1,0 +1,66 @@
+id = "pjrc-teensy-4-0"
+name = "PJRC Teensy 4.0 (NXP iMXRT1062 Cortex-M7, 600 MHz) development board"
+category = "pcb.mcu"
+vendor = "PJRC"
+part_number = "Teensy 4.0 (Adafruit product 4323)"
+url = "https://www.pjrc.com/store/teensy40.html"
+
+# Flight computer of assemblies/tvc-lander.toml: the real-time loop (IMU read, estimator, TVC control, servo bus, pyro outputs) of examples/lander/flight.py is firmware-style
+# code meant for a board of this class. Frame: origin at the board centre on the component face, +z out of that face, x along the 36.8 mm side.
+[params]
+mass            = { value = 0.0028, unit = "kg", src = "S2", fidelity = "datasheet" }
+length          = { value = 0.0368, unit = "m", src = "S2", fidelity = "datasheet" }
+width           = { value = 0.018, unit = "m", src = "S2", fidelity = "datasheet" }
+height          = { value = 0.0046, unit = "m", src = "S2", fidelity = "datasheet" }
+cpu_clock       = { value = 600e6, unit = "Hz", src = "S2", fidelity = "datasheet" }
+supply_voltage  = { value = 5.0, unit = "V", src = "S1", fidelity = "datasheet" }
+supply_current_600mhz = { value = 0.100, unit = "A", fidelity = "estimated", rationale = "A retailer summary of the PJRC power-consumption page says 'at 600 MHz, the board draws approximately 100 mA'; the PJRC page itself was not retrieved. Used only for the battery budget." }
+v3v3_max_external = { value = 0.250, unit = "A", src = "S1", fidelity = "datasheet" }
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, -0.0023]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+fidelity = "estimated"
+rationale = "Underside of the board on a deck (standoffs); the board has no mounting holes, it is held by its header pins or a clip."
+
+[[ports]]
+name = "vin"
+kind = "power"
+type = "solder-pad"
+gender = "neutral"
+role = "sink"
+v_max = { value = 5.5, unit = "V", fidelity = "estimated", rationale = "The PJRC page says only that 5 V may be applied to VIN when USB power is not used; the 5.5 V ceiling of the VIN pad is the usual 5 V-class limit and is not on the retrieved page." }
+
+[[ports]]
+name = "bus"
+kind = "signal"
+type = "dynamixel-ttl"
+gender = "neutral"
+level = { value = 3.3, unit = "V", fidelity = "estimated", rationale = "Teensy 4.0 pins are 3.3 V logic (the 3.3 V pin recommendation of S1); the XL330 data line is 3.3 V compatible (parts/arm/robotis-xl330-m077-t)." }
+
+[[ports]]
+name = "pyro"
+kind = "signal"
+type = "gpio"
+gender = "neutral"
+level = { value = 3.3, unit = "V", fidelity = "estimated", rationale = "3.3 V GPIO that drives the pyro MOSFET gates (a logic-level N-FET switching the igniter from the battery)." }
+
+[[sources]]
+id = "S1"
+url = "https://www.pjrc.com/store/teensy40.html"
+title = "PJRC Teensy 4.0 product page"
+accessed = "2026-10-08"
+quote = "When USB power is not used, 5V power may be applied to the VIN pin. ... The recommended maximum for external 3.3V usage is 250mA."
+
+[[sources]]
+id = "S2"
+url = "https://www.adafruit.com/product/4323"
+title = "PJRC Teensy 4.0 USB Development Board (Adafruit product 4323), Technical Details"
+accessed = "2026-10-08"
+quote = "Product Dimensions: 36.8mm x 18.0mm x 4.6mm / 1.4\" x 0.7\" x 0.2\" ... Product Weight: 2.8g / 0.1oz ... The Teensy 4.0 features an ARM Cortex-M7 processor at 600 MHz, with a NXP iMXRT1062 chip"
