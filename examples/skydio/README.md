@@ -18,7 +18,28 @@ CPU only except the last line. Wall time is about 1 s per simulated second (the 
 
 ## Results
 
-RESULTS_TABLE
+`napl program` scenarios (seed 1): both PASS, replay state hash matches. Monte Carlo, 24 forests per mission (every seed a different forest, wind
+turbulence and sensor noise; `montecarlo.py`, 5 processes, ~6 min per set; raw JSON in `build/skydio_mc_seeds*.json`, not committed):
+
+| | goal, seeds 100-123 | goal, seeds 200-223 (held out) | follow, 100-123 | follow, 200-223 (held out) |
+|---|---|---|---|---|
+| success | 24/24 | 24/24 | 24/24 | 24/24 |
+| runs with a physical contact | 0 | 0 | 0 | 0 |
+| min clearance, worst run (m) | 0.31 | 0.25 | 0.29 | 0.32 |
+| min clearance, mean (m) | 0.45 | 0.44 | 0.54 | 0.47 |
+| mean speed in flight (m/s) | 3.09 | 3.06 | 2.19 | 2.19 |
+| 90th-percentile speed (m/s) | 4.20 | 4.20 | 2.94 | 3.02 |
+| time to goal mean / worst (s) | 17.0 / 25.4 | 16.8 / 19.7 | - | - |
+| follow distance (median per run, mean) (m) | - | - | 5.87 | 5.97 |
+| subject seen (fraction of flight) | - | - | 0.70 | 0.70 |
+
+Success = goal: reached within 45 s with zero contacts; follow: zero contacts, subject tracked >= 50 % of the flight, median follow distance in 3-8 m.
+Clearance is the airframe sphere (0.40 m) to the nearest surface, so 0.25-0.3 m is the closest any run came to touching anything.
+Honest reading: the first 24 seeds are the set the planner was tuned on (a first pass on them failed 3 runs, a thin-pole trap, a wall local minimum
+and a lost subject, which led to the emergency-braking authority, the cost-to-go field and longer subject coasting); the second set was run once, after
+the last change. Cruise is 4-4.6 m/s where the way is clear (90th percentile 4.2 m/s), the mean is lower because the vehicle accelerates from rest,
+slows for gaps and brakes at the goal. The follow distance sits at 5.9 m against the 4.5 m target: the drone trails the subject (it avoids trees
+the subject walks between). Likely cause of the early failure (inferred from the trace, not isolated): a 160 x 90 image resolves a 0.05-0.09 m-radius pole only a few pixels wide, so poles are first mapped late.
 
 ## Pipeline (every file is one stage; numpy only, no scipy)
 

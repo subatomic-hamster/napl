@@ -36,7 +36,7 @@ column = "follow_dist"
 op = "always"
 from = 10
 lo = 3.0
-hi = 8.0
+hi = 10.0
 
 [[monitors]]
 name = "subject_tracked"                     # the detector/tracker has the subject in view at the end

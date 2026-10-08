@@ -5,7 +5,7 @@
 
     --times 6,12,18,24      sim seconds of the stills (default: 5 evenly spaced over the flight)
     --fps 30 --from 0 --to 20   instead: every 1/fps s over [from, to] (a frame sequence for a video; f00000.png ...)
-    --cam chase|side|top|fpv    chase = 6 m behind and 2.5 m above the drone looking at it, side = 8 m abeam, top = 25 m above,
+    --cam chase|side|top|fpv    chase = 3.5 m behind and 1.2 m above the drone looking at it, side = 8 m abeam, top = 25 m above,
                                 fpv = from the airframe looking along its nose (the camera's field of view, in colour)
     --size 960x540
 Writes <out>/f<NNNNN>.png and <out>/frames.json (sim time and tick of every frame, the replay's hash check)."""
@@ -47,9 +47,9 @@ def camera(kind, p, R, vel):
     side = np.array([-h[1], h[0], 0.0])
     if kind == "chase":
         return dict(
-            pos=p - 6.0 * h + np.array([0, 0, 2.5]) + 1.0 * side,
-            lookat=p + 3.0 * h,
-            fovy=50.0,
+            pos=p - 3.5 * h + np.array([0, 0, 1.2]) + 0.6 * side,
+            lookat=p + 2.0 * h,
+            fovy=45.0,
         )
     if kind == "side":
         return dict(
@@ -57,7 +57,7 @@ def camera(kind, p, R, vel):
         )
     return dict(
         pos=p + np.array([0.0, 0.0, 25.0]) - 0.01 * h,
-        lookat=p + np.array([6.0, 0, 0]) * 0 + 3.0 * h,
+        lookat=p + 3.0 * h,
         fovy=60.0,
     )
 
