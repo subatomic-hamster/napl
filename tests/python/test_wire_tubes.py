@@ -64,7 +64,10 @@ def test_every_onboard_wire_is_a_tube_with_its_awg_diameter(built, name):
 @pytest.mark.parametrize("name", NAMES)
 def test_tendons_are_physically_inert(built, name):
     for t in _tendons(built[name]["xml"]):
-        assert t.get("stiffness") == "0" and t.get("damping") == "0"
+        assert t.get("stiffness") in (None, "0") and t.get("damping") in (
+            None,
+            "0",
+        )  # MuJoCo default 0
         assert t.get("range") is None and t.get("limited") is None
     root = ET.parse(built[name]["xml"]).getroot()
     assert root.find("actuator") is None or all(
@@ -96,6 +99,8 @@ def test_state_hash_is_unchanged_by_the_wire_visuals(built, name, tmp_path):
     (tmp_path / "meshes").symlink_to(
         REPO / "meshes"
     )  # mesh paths are relative to the xml
+    if (xml.parent / "visuals").exists():
+        (tmp_path / "visuals").symlink_to(xml.parent / "visuals")
     hashes = []
     for path in (xml, bare):
         s = napl.Sim.load(path)

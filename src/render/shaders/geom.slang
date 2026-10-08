@@ -139,7 +139,8 @@ float4 fsSky(float4 frag : SV_Position) : SV_Target0 {
       const float n = fbm(uv);
       const float cov = smoothstep(0.50, 0.80, n) * smoothstep(0.0, 0.16, dir.z);
       const float lit = saturate(0.55 + (n - fbm(uv + L.xy * 0.12)) * 3.0);
-      const float3 cc = lerp(float3(0.66, 0.70, 0.80), float3(1.0, 0.97, 0.93), lit);
+      float3 cc = lerp(float3(0.66, 0.70, 0.80), float3(1.0, 0.97, 0.93), lit);
+      cc = lerp(sc.sky_hor.rgb, cc, smoothstep(0.0, 0.4, dir.z));  // low clouds take the horizon's warm glow
       c = lerp(c, cc, cov * 0.92);
     }
   }
@@ -168,7 +169,6 @@ float4 fsMain(VsOut i) : SV_Target0 {
   const float ndl = saturate(dot(N, L));
   const float vis = ndl > 0 ? shadow_vis(i.rel, N) : 1.0;
   const float3 hemi = lerp(sc.ground.rgb, sc.sky_mid.rgb, N.z * 0.5 + 0.5) * sc.fog.w;
-  if (ground) return float4(vis, ndl, saturate(sc.vp.z), 1);  // DBG
   float3 col = albedo * (1.0 - metal) * (sc.sun_col.rgb * ndl * vis + hemi);
   // specular: Blinn-Phong lobe (exponent from shininess or roughness) x Schlick Fresnel; metals tint it with the albedo
   float shin = d.mat.y * 128.0;
@@ -181,7 +181,9 @@ float4 fsMain(VsOut i) : SV_Target0 {
   if (!ground) col += F0 * sky_base(reflect(-V, N)) * (0.35 + 0.65 * metal) * sc.fog.w;  // sky reflection
   // distance haze toward the horizon colour
   const float dist = length(i.rel);
-  const float haze = 1.0 - exp(-dist * sc.fog.x);
+  // outdoor: the ground melts into the horizon within ~100 m while objects (drones at range) stay readable
+  const float k = sc.fog.y > 0.5 ? 1.0 : (ground ? 4.0 : 0.5);
+  const float haze = 1.0 - exp(-dist * sc.fog.x * k);
   col = lerp(col, sc.sky_hor.rgb, saturate(haze));
   return float4(to_srgb(col), 1);
 }

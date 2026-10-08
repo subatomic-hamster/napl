@@ -46,12 +46,14 @@ def cmd_models(a):
             REPO / "assemblies" / f"{name}.toml", REPO / "parts", work / name
         )["xml"]
         sim = napl.Sim.load(xml)
-        for style, words in STYLES.items():
+        for style, words in {**STYLES, "outdoor-low": "outdoor,noedges"}.items():
             napl.render_style(words)
             rgba, _ = sim.render(
                 camera="orbit",
                 az=az,
-                el=el,
+                el=5
+                if style == "outdoor-low"
+                else el,  # low: the horizon and sky are in frame
                 dist=dist,
                 target=target,
                 fovy=45,
@@ -104,6 +106,7 @@ def cmd_flatten(a):
                 fb,
             ],
             check=True,
+            timeout=300,
         )
 
 
@@ -131,7 +134,10 @@ def _flatten(out, fb):
         print("wrote", tag)
 
     def session():
-        while not b.log:
+        t0 = time.time()
+        while (
+            not b.log and time.time() - t0 < 60
+        ):  # budget: never wait on a viewer that does not come up
             time.sleep(0.2)
         time.sleep(3)
         grab("0-3d")
@@ -158,6 +164,9 @@ def _flatten(out, fb):
         grab("5-back-in-3d")
         sim.close_viewer()
 
+    wd = threading.Timer(120, lambda: sim.close_viewer())  # hard time budget
+    wd.daemon = True
+    wd.start()
     threading.Thread(target=session, daemon=True).start()
     sim.show(width=W, height=H, design=b)
 

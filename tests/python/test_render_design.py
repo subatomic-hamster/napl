@@ -93,12 +93,19 @@ def _subject(rgba):
 @needs_kernel
 @pytest.mark.gpu
 @pytest.mark.parametrize("name", ["x500v2", "so101"])
-def test_built_assembly_renders_centred_with_sane_depth(models, name):
+def test_built_assembly_renders_centred_with_sane_depth(models, name, tmp_path):
     s = napl.Sim.load(models[name])
     pos, tgt = s.orbit_camera("iso")
     dist = float(np.linalg.norm(pos - tgt))
     rgba, depth = s.render(camera="iso", width=320, height=240)
-    m = _subject(rgba)
+    # The sky / fog make the floor non-flat: the subject = pixels whose depth differs from the same view of an empty floor.
+    (tmp_path / "floor.xml").write_text(
+        '<mujoco><worldbody><geom type="plane" size="0 0 1"/></worldbody></mujoco>'
+    )
+    _, ref = napl.Sim.load(str(tmp_path / "floor.xml")).render(
+        camera="orbit", az=45, el=28, dist=dist, target=tgt, width=320, height=240
+    )
+    m = np.abs(depth - ref) > 1e-3
     ys, xs = np.nonzero(m)
     assert 0.02 < m.mean() < 0.7, f"subject covers {m.mean():.3f} of the frame"
     assert abs(xs.mean() - 160) < 60 and abs(ys.mean() - 120) < 50  # centred
