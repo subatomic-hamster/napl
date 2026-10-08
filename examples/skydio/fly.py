@@ -35,7 +35,14 @@ from mapping import Camera, VoxelMap
 from napl import Sim, marine
 from napl.cuas import flyer as fl
 from napl.cuas.scene import REPO
-from planner import Params, Plan, Planner, follow_objective, goal_objective
+from planner import (
+    GoalField,
+    Params,
+    Plan,
+    Planner,
+    follow_objective,
+    goal_objective,
+)
 
 CTL_TICKS = 4  # control period: 4 ms
 LATENCY_S = 0.06  # depth frame sampled -> map + plan available (USB transfer, stereo matching, voxelising, planning on the companion computer: estimate)
@@ -262,10 +269,10 @@ class Skydio:
         yaw = yaw_of(R)
         win = self.map.window(p, half=10.0, extra=extra)
         if self.mission == "goal":
-            d = self.goal - p[:2]
-            bearing, obj = math.atan2(d[1], d[0]), goal_objective(self.goal, self.z_c)
+            field = GoalField(win, self.goal)
+            bearing, obj = field.bearing(p), goal_objective(self.goal, self.z_c, field)
         else:
-            bearing, obj = self._follow_target(p, extra)
+            bearing, obj = self._follow_target(p, win)
         if (
             bearing is None
         ):  # follow: no subject track at all -> brake to a stop and turn on the spot to look for it
@@ -293,7 +300,7 @@ class Skydio:
             self._enter("arrived")
         self._telemetry(p, v, R, plan, win)
 
-    def _follow_target(self, p, extra):
+    def _follow_target(self, p, win):
         if self.est is None:
             return None, None
         ps, vs = self.est[0], self.est[1]
@@ -304,8 +311,8 @@ class Skydio:
             else (p[:2] - ps) / max(np.linalg.norm(p[:2] - ps), 1e-6)
         )
         des = ps + FOLLOW_DIST * back
-        d = des - p[:2]
-        return math.atan2(d[1], d[0]), follow_objective(des, vs)
+        field = GoalField(win, des)
+        return field.bearing(p), follow_objective(des, vs, field=field)
 
     # ---- records ----------------------------------------------------------------------------------------------------------------------
     def _telemetry(self, p, v, R, plan, win):

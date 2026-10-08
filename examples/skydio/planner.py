@@ -241,26 +241,115 @@ class Planner:
 
 
 # ---- objectives --------------------------------------------------------------------------------------------------------------------------
-def goal_objective(goal, z_goal):
-    """Distance from the stopping point of each primitive to the goal (m)."""
+class GoalField:
+    """Cost-to-go to the goal over the map window, so that a wall or a dead end does not trap a greedy planner (D*-style, optimistic).
+
+    A 0.4 m grid over the window's horizontal extent. A cell is blocked if its column holds an occupied voxel inside the flight band; cells within
+    `r_infl` of a blocked cell cost 8x and blocked ones 40x per metre (so the field prefers gaps wide enough to fly, but is defined everywhere). Unknown
+    space counts as free. The window's border cells are seeded with their straight-line distance to the goal, the rest follows by relaxation, so a goal
+    outside the window (the usual case) still pulls the field. Where the camera shows a wall, the field routes around its end or through its door."""
+
+    def __init__(self, win: Window, goal, z_lo=0.9, z_hi=3.4, r_infl=0.62, res=0.4):
+        k = max(1, int(round(res / win.res)))
+        self.res, self.goal = k * win.res, np.asarray(goal, float)[:2]
+        n = win.occ.shape[0] // k
+        self.origin = win.origin[:2]
+        z0 = int((z_lo - win.origin[2]) / win.res)
+        z1 = int((z_hi - win.origin[2]) / win.res)
+        col = (
+            win.occ[: n * k, : n * k, z0:z1]
+            .any(axis=2)
+            .reshape(n, k, n, k)
+            .any(axis=(1, 3))
+        )
+        r = int(np.ceil(r_infl / self.res))
+        infl = col.copy()
+        pad = np.pad(col, r)
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                if dx * dx + dy * dy <= r * r:
+                    infl |= pad[r + dx : r + dx + n, r + dy : r + dy + n]
+        m = 1.0 + 7.0 * infl + 32.0 * col  # per-metre cost multiplier of each cell
+        ij = np.stack(np.meshgrid(np.arange(n), np.arange(n), indexing="ij"), -1)
+        xy = self.origin + (ij + 0.5) * self.res
+        seed = np.linalg.norm(xy - self.goal, axis=-1)
+        V = np.full((n, n), np.inf)
+        edge = np.zeros((n, n), bool)
+        edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True
+        V[edge] = (seed + (m - 1.0) * self.res)[edge]
+        g = np.floor((self.goal - self.origin) / self.res).astype(int)
+        if (
+            (g >= 0) & (g < n)
+        ).all():  # the goal itself is in the window: it is the only true source
+            V[tuple(g)] = 0.0
+        for _ in range(
+            4 * n
+        ):  # Bellman-Ford sweeps over the 8 neighbours until nothing improves
+            P = np.pad(V, 1, constant_values=np.inf)
+            best = V
+            for dx, dy, w in (
+                (-1, 0, 1),
+                (1, 0, 1),
+                (0, -1, 1),
+                (0, 1, 1),
+                (-1, -1, 1.414),
+                (-1, 1, 1.414),
+                (1, -1, 1.414),
+                (1, 1, 1.414),
+            ):
+                best = np.minimum(
+                    best, P[1 + dx : 1 + dx + n, 1 + dy : 1 + dy + n] + w * self.res * m
+                )
+            if np.array_equal(best, V):
+                break
+            V = best
+        self.V, self.n = V, n
+
+    def cost(self, xy):
+        """(n, 2) world points -> cost-to-go (m-equivalent); straight-line distance outside the window."""
+        i = np.floor((xy - self.origin) / self.res).astype(int)
+        inside = ((i >= 0) & (i < self.n)).all(axis=1)
+        ic = np.clip(i, 0, self.n - 1)
+        out = np.linalg.norm(xy - self.goal, axis=1)
+        v = self.V[ic[:, 0], ic[:, 1]]
+        return np.where(inside & np.isfinite(v), v, out)
+
+    def bearing(self, p, radius=2.5):
+        """Direction (rad) of steepest descent of the field around p: the way to head to get to the goal through the known map."""
+        a = np.radians(np.arange(0, 360, 15))
+        pts = p[:2] + radius * np.stack([np.cos(a), np.sin(a)], 1)
+        return float(a[np.argmin(self.cost(pts))])
+
+
+def goal_objective(goal, z_goal, field: GoalField = None):
+    """Cost-to-go of the stopping point of each primitive: the map-aware field if given, else the straight-line distance to the goal (m)."""
     g = np.array([goal[0], goal[1], z_goal])
 
     def cost(P, times, vdes):
-        return np.linalg.norm(P[:, -1, :2] - g[:2], axis=1) + 0.0 * vdes[:, 0]
+        if field is not None:
+            return field.cost(P[:, -1, :2])
+        return np.linalg.norm(P[:, -1, :2] - g[:2], axis=1)
 
     return cost
 
 
-def follow_objective(des_xy, subject_v_xy, t_c=1.5):
+def follow_objective(des_xy, subject_v_xy, t_c=1.5, field: GoalField = None):
     """Distance, t_c seconds ahead, between the primitive and the desired spot (behind the subject), which moves with the subject's velocity; plus
-    the mismatch to the subject's velocity so the drone settles instead of overshooting."""
+    the mismatch to the subject's velocity so the drone settles instead of overshooting. With a `field` (GoalField to des_xy) the distance is the
+    map-aware cost-to-go, so a tree line between drone and subject is routed around instead of nosed into."""
     des = np.asarray(des_xy, float)
     vs = np.asarray(subject_v_xy, float)
 
     def cost(P, times, vdes):
         k = int(np.argmin(np.abs(times - t_c)))
-        return np.linalg.norm(
-            P[:, k, :2] - (des + vs * times[k]), axis=1
-        ) + 0.4 * np.linalg.norm(vdes[:, :2] - vs, axis=1)
+        shift = (
+            vs * times[k]
+        )  # the desired spot has moved by then: look the primitive's point up relative to it
+        d = (
+            field.cost(P[:, k, :2] - shift)
+            if field is not None
+            else np.linalg.norm(P[:, k, :2] - (des + shift), axis=1)
+        )
+        return d + 0.4 * np.linalg.norm(vdes[:, :2] - vs, axis=1)
 
     return cost

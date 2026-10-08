@@ -121,7 +121,7 @@ def subject_mask(cam, det, margin=1.2):
 class SubjectTracker:
     """3D position from the box and the depth at it, alpha-beta velocity in the ground plane, coasting when the box is lost."""
 
-    def __init__(self, alpha=0.5, beta=0.15, coast_s=2.5):
+    def __init__(self, alpha=0.5, beta=0.15, coast_s=6.0):
         self.alpha, self.beta, self.coast = alpha, beta, coast_s
         self.p = self.v = None
         self.t = self.t_seen = None
@@ -151,6 +151,6 @@ class SubjectTracker:
             return None
         dt = t - self.t
         self.p = self.p + self.v * dt
-        self.v = self.v * 0.97
+        self.v = self.v * 0.99  # 25 Hz: velocity half-life ~2.8 s while unseen
         self.t = t
         return self.p.copy(), self.v.copy(), False
