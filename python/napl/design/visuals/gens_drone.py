@@ -185,14 +185,14 @@ def _section(chord, thick, camber, n=12):
 
 
 @gen("propeller", blade="plastic-black", hub="plastic-dark")
-def propeller(c, cw=True, chord=None, thick=0.07):
+def propeller(c, cw=True, chord=None, thick=0.07, hub_d=None):
     """Twisted blades: chord / pitch-angle along the radius from diameter + pitch (+ blade_count, hub_diameter)."""
     D = c.size("diameter", axis=0, default=0.25)
     if c.bounds() is not None and c.p("diameter") is None:
         D = max(D, 2 * c.bounds()[1][0])
     pitch = c.p("pitch", default=0.45 * D)
     nb = int(c.p("blade_count", default=2))
-    hub_d = c.p("hub_diameter") or max(0.0055, 0.09 * D)
+    hub_d = hub_d or c.p("hub_diameter") or max(0.0055, 0.09 * D)
     hub_t = c.p("hub_thickness") or max(0.003, 0.025 * D)
     R = D / 2
     rh = hub_d / 2 * 0.9

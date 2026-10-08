@@ -48,6 +48,13 @@ thickness = 0.0
 fidelity = "estimated"
 rationale = "Hub on the thruster's shaft end, axis down the shaft; the propeller spins freely about z (the builder uses a hinge). Interface family name only."
 
+[visual]
+rationale = "3-blade 76 mm propeller (part params); broad blades and a large hub, as a nozzle propeller has, instead of the slender default drone-prop chord."
+
+[[visual.elements]]
+gen = "propeller"
+params = { chord = 0.045, hub_d = 0.022 }
+
 [[sources]]
 id = "S1"
 url = "https://bluerobotics.com/store/thrusters/t200-thruster-r2-rp/"

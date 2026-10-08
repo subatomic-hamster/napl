@@ -64,6 +64,12 @@ fidelity = "datasheet"
 src = "S1"
 rationale = "Aft face of the casing on the motor axis; thrust acts along the axis towards the nose."
 
+[visual]
+rationale = "Generic model-rocket motor look from the part's own diameter and length: paper casing, label band, recessed ceramic nozzle (label colours are not sourced)."
+
+[[visual.elements]]
+gen = "solid_motor"
+
 [[sources]]
 id = "S1"
 url = "https://www.thrustcurve.org/simfiles/5f4294d20002e900000007b0/"

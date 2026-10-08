@@ -48,6 +48,13 @@ symmetry = 360
 fidelity = "estimated"
 rationale = "Mid-height of the sleeve; thrust axis = the sleeve axis."
 
+[visual]
+rationale = "Design of this repo: printed 29 mm motor sleeve with a base flange and the horn boss on +x."
+
+[[visual.elements]]
+gen = "tvc_gimbal"
+params = { kind = "cradle" }
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopify.com/s/files/1/1223/5992/files/PLA_4043D_TDS.pdf"

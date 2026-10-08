@@ -168,3 +168,9 @@ symmetry = 1
 thickness = 0.003
 fidelity = "estimated"
 rationale = "As leg1, 270 deg round the axis."
+
+[visual]
+rationale = "Generic filament-wound glass tube (not a product): hollow tube of the part's own outer / inner diameter and length, glass-epoxy olive-green finish."
+
+[[visual.elements]]
+gen = "body_tube"
