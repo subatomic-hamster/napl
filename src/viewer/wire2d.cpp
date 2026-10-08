@@ -1,6 +1,7 @@
 #include "viewer/wire2d.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>  // BringWindowToDisplayFront: the canvas covers every other window while flattened
 
 #include <algorithm>
 #include <cmath>
@@ -520,8 +521,12 @@ void Canvas::ui(const design::State& st, const std::string& selected) {
     select_ui(st, selected);
     return;
   }
+  if (ImGuiWindow* w = ImGui::FindWindowByName("##canvas")) ImGui::BringWindowToDisplayFront(w);
   canvas_ui();
-  if (active_) side_ui();
+  if (active_) {
+    if (ImGuiWindow* w = ImGui::FindWindowByName("wiring tools")) ImGui::BringWindowToDisplayFront(w);
+    side_ui();
+  }
 }
 
 }  // namespace wire2d
