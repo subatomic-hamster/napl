@@ -220,11 +220,44 @@ table Gnss {
   corr_frac: double;      // 0..1, share of the position variance that is Gauss-Markov
 }
 
+// Pneumatic pellet launcher (counter-UAS demo; a generic small-bore air-rifle class effector, point-mass ballistics, nothing else
+// is modelled). `site` is the muzzle: its world position is where a pellet starts and its +z axis is the barrel axis; the pellet
+// leaves at muzzle_velocity along it plus the site's own world velocity (the barrel body moves). Flight, per tick:
+//   a = g - k |v - w| (v - w),  k = rho(z) cd A / (2 m),  A = pi d^2 / 4,  w = wind of the environment device (0 without one),
+// RK4 over the tick with rho and w held. Hit test: the tick's segment is cast with mj_ray against every geom in `ray_groups`
+// (all bodies but the barrel's own); a hit ends the flight and is recorded in a ring (body id, point, time). The ground (world
+// body) and age > max_time end it too. Input: `fire` (set 1: one pellet at the next tick, resets itself). Pool of 16 pellets; a
+// shot with the pool full is counted in `dropped`. Optional dispersion (muzzle speed sigma, direction sigma) from the device RNG.
+// visual_bodies: names of mocap bodies, one per pool slot (at most 16), moved onto the pellets (parked 1000 m down when free).
+table Launcher {
+  name: string (required); parts: [string];
+  site: string (required);
+  muzzle_velocity: double;  // m/s
+  pellet_mass: double;      // kg
+  diameter: double;         // m (calibre)
+  cd: double;               // drag coefficient on the calibre cross-section
+  max_time: double = 6.0;   // s of flight before a pellet is dropped
+  v_std: double;            // m/s, muzzle speed 1-sigma (0 = none)
+  spread_std: double;       // rad, direction 1-sigma per axis (0 = none)
+  ray_groups: uint = 63;
+  visual_bodies: [string];
+  seed: uint64;
+}
+
+// Camera (no physics): a pose output for the Python frame API. Looks along the site +z axis, image up = site +x. fov_v: vertical
+// field of view in rad; width / height: pixels of the frames the program gets; rate_hz: nominal frame rate (stored for the program).
+table Camera {
+  name: string (required); parts: [string];
+  site: string (required);
+  fov_v: double; width: int; height: int; rate_hz: double;
+}
+
 table Devices {
   seed: uint64;           // top-level seed for per-device RNG streams
   batteries: [Battery]; psus: [Psu]; wires: [Wire]; loads: [Load]; escs: [Esc];
   rotors: [Rotor]; environments: [Environment]; body_drags: [BodyDrag]; servos: [Servo];
   imus: [Imu]; baros: [Baro]; mags: [Mag]; gnss_receivers: [Gnss];
+  launchers: [Launcher]; cameras: [Camera];
 }
 
 root_type Devices;

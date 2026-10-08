@@ -21,6 +21,10 @@ Scenario (TOML; relative paths are relative to the scenario file):
     address = 128                #   address 0x80..0x87 (default 128), baud (default 38400)
     # controllers = [{ address = 129, motors = { 1 = "/devices/wheel_rl", 2 = "/devices/wheel_rr" } }]   # roboclaw: further RoboClaws, each its own
     #   pty (env NAPL_SERIAL_2, ...), same baud; added for assemblies/car4.toml (4 motors on 2 RoboClaw 2x7A)
+    [interfaces.native]          # the PROGRAM owns the World (a composed multi-vehicle scene from [model] script = ..., stepped by the program, e.g.
+    #   napl.cuas.World): env NAPL_MODEL = the MJCF, NAPL_RUN_DIR = the run dir. The program calls World.finish(), which writes trace.csv
+    #   (t + one column per monitor `column`), replay.naplog and native.json {tick, dt, state_hash}; the runner judges the monitors on
+    #   trace.csv (as px4: `column = ...`) and re-runs the replay log through napl-replay to compare the hash. examples/cuas/cuas.scenario.toml.
     [interfaces.px4]             # PX4 SITL + napl-px4-bridge (own World); env NAPL_MAVLINK=udp://:14540. Exactly one interface per scenario.
     bridge = "../../px4/bridge_x500.toml"
     # px4 from a DESIGN instead of a hand-written bridge file: [design] path = "my-quad.toml" (a saved napl.design design / assembly; optional
@@ -122,10 +126,20 @@ def load_scenario(path) -> dict:
     sc.setdefault("name", path.stem.removesuffix(".scenario"))
     sc["limits"] = {**LIMITS, **sc.get("limits", {})}
     ifs = sc.get("interfaces", {})
-    if not (set(ifs) <= {"feetech", "dynamixel", "roboclaw", "px4"} and ifs):
+    if not (set(ifs) <= {"feetech", "dynamixel", "roboclaw", "px4", "native"} and ifs):
         raise ScenarioError(
-            "[interfaces] needs one of feetech / dynamixel / roboclaw / px4"
+            "[interfaces] needs one of feetech / dynamixel / roboclaw / px4 / native"
         )
+    if (
+        "native" in ifs
+    ):  # the program owns the World: no bus, no faults, the model comes from a [model] script
+        if len(ifs) > 1 or sc.get("faults") or "script" not in sc.get("model", {}):
+            raise ScenarioError(
+                "[interfaces.native] stands alone, takes [model] script = ... and no [[faults]]"
+            )
+        if not sc.get("program", {}).get("cmd"):
+            raise ScenarioError("[program] cmd is required")
+        return sc
     _check_faults(sc, ifs)
     if "design" in sc and "px4" not in ifs:
         _arm_design(sc, ifs)
@@ -504,7 +518,7 @@ def _expand(monitors, kind):
     for m in monitors:
         if "name" not in m:
             raise ScenarioError(f"monitor without a name: {m}")
-        if kind == "px4" or (kind == "combo" and "column" in m):
+        if kind in ("px4", "native") or (kind == "combo" and "column" in m):
             if "column" not in m:
                 raise ScenarioError(f"px4 monitor '{m['name']}' needs `column`")
             out.append(m)
@@ -651,7 +665,7 @@ def run(scenario, runs_dir="runs") -> tuple:
     log = run_dir / "program.log"
     if kind == "combo":
         res["argv"] = argv = [argvs(p["cmd"]) for p in sc["programs"]]
-    {"px4": _px4, "combo": _combo}.get(kind, _sim)(
+    {"px4": _px4, "combo": _combo, "native": _native}.get(kind, _sim)(
         sc, mons, run_dir, cwd, argv, env, log, res
     )
     p = res["program"]
@@ -785,6 +799,44 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
     )
     if res["sim"]["diverged"]:
         res["monitors"].append({"name": "solver_diverged", "pass": False})
+
+
+def _native(sc, mons, run_dir, cwd, argv, env, log, res):
+    """[interfaces.native]: the program owns the World (a multi-vehicle scene it steps itself, e.g. napl.cuas.World). The runner builds
+    the model from [model] script, starts the program with env NAPL_MODEL (the MJCF) and NAPL_RUN_DIR, then judges what the program
+    left in the run dir: native.json {tick, dt, state_hash, diverged}, replay.naplog and trace.csv (t + one column per monitor `column`),
+    and re-runs the replay log through napl-replay to compare the hash. World.finish() writes all three."""
+    model = _build_model(sc, run_dir / "model")
+    env.update(NAPL_MODEL=str(model), NAPL_RUN_DIR=str(run_dir))
+    res["program"] = run_child(argv, env, cwd, log, sc["limits"])
+    done = run_dir / "native.json"
+    if not done.exists():  # crashed / killed before World.finish()
+        res["sim"], res["replay"] = {}, {"available": False}
+        res["monitors"] = [
+            {
+                "name": "world_finished",
+                "pass": False,
+                "error": "no native.json: see program.log",
+            }
+        ]
+        return  # fmt: skip
+    fin = json.loads(done.read_text())
+    res["sim"] = fin
+    with open(run_dir / "trace.csv") as f:
+        rows = list(csv.DictReader(f))
+    tr = {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
+    bad = [m["name"] for m in mons if m["column"] not in tr]
+    if bad:
+        raise ScenarioError(f"monitors {bad}: no such trace column (have {sorted(tr)})")
+    spans = {"program": (0.0, float(tr["t"][-1])), "end": float(tr["t"][-1])}
+    res["monitors"] = _judge_all(
+        mons, spans, 0.0, lambda m: list(zip(tr["t"], tr[m["column"]]))
+    )
+    if fin.get("diverged"):
+        res["monitors"].append({"name": "solver_diverged", "pass": False})
+    rp = replay_hash(run_dir / "replay.naplog", Path(model).parent)
+    res["replay"] = {"available": False} if rp is None else dict(
+        available=True, tick=rp[0], state_hash=rp[1], match=rp == (fin["tick"], fin["state_hash"]))  # fmt: skip
 
 
 def _bridge_cfg(sc, run_dir, model):

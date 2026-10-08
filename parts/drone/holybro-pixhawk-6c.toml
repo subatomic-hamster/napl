@@ -399,6 +399,22 @@ unit = "A"
 fidelity = "estimated"
 rationale = "Spread of the derivation: the 'all peripherals disabled' typ is 148 mA vs 226 mA enabled (DS12110 Table 129), PX4 workload is not CoreMark, the regulator may be a buck (0.7-0.8x), and unmodelled heater / LED / port loads add. About +-30 %."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "V1"
+note = "Black matte case with a lower connector step carrying three rows of cream JST-GH sockets (product photo)."
+
+[[visual.elements]]
+gen = "board_fc"
+params = { case = true }
+colors = { pcb = "plastic-black", label = "plastic-dark" }
+
+[[sources]]
+id = "V1"
+url = "https://holybro.com/products/pixhawk-6c"
+title = "Holybro Pixhawk 6C product page (appearance photo)"
+accessed = "2026-10-07"
+quote = "Pixhawk 6C"
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/autopilot/pixhawk-6c/technical-specification.md"

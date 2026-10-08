@@ -8,6 +8,7 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
+from . import visuals
 from .assembly import UNITS, Assembly, Ctx, Inst, load
 from .devices import VEHICLE_GROUP, build_devices, resolve_wires, wire_points
 from .library import DesignError, Library
@@ -392,8 +393,9 @@ def _range(ctx: Ctx, r, jtype: str, where: str):
 
 
 # ---- the whole computation ----------------------------------------------------------------------------------------
-def compute(asm, parts_dir, out_dir, lib=None):
-    """-> (mjcf text, report dict). `asm` is an Assembly or a path; `lib` = an already loaded Library of `parts_dir`."""
+def compute(asm, parts_dir, out_dir, lib=None, visual=True):
+    """-> (mjcf text, report dict). `asm` is an Assembly or a path; `lib` = an already loaded Library of `parts_dir`.
+    `visual` = emit the parts' cosmetic visual layer (STL meshes are written to <out_dir>/visuals); physics is identical."""
     if not isinstance(asm, Assembly):
         asm = load(asm)
     lib = lib or Library(parts_dir)
@@ -473,6 +475,9 @@ def compute(asm, parts_dir, out_dir, lib=None):
             continue
         shapes = part_shapes(lib, inst.part)
         shapes_of[iid] = shapes
+        hide = visual and visuals.applies(
+            inst.part
+        )  # the plain shape stays for collision / mass, only its drawing is hidden
         mass, fid, tol, note, sm = instance_mass(ctx, inst, shapes)
         inst_rows.append(
             {
@@ -500,6 +505,7 @@ def compute(asm, parts_dir, out_dir, lib=None):
                     "mass": mass,
                     "collide": False,
                     "part": inst.part.id,
+                    "hide": hide,
                 }
             )
         mesh_n = 0
@@ -516,6 +522,7 @@ def compute(asm, parts_dir, out_dir, lib=None):
                     "collide": True,
                     "asset": asset,
                     "part": inst.part.id,
+                    "hide": hide,
                 }
             )
 
@@ -718,7 +725,7 @@ def compute(asm, parts_dir, out_dir, lib=None):
             owner is not None and owner.color
         ):  # instance colour override: cosmetic, the part's own geoms only
             rgba = (*owner.color[:3], owner.color[3] if len(owner.color) > 3 else 1.0)
-        s += f' rgba="{vec(rgba)}"'
+        s += f' rgba="{vec(tuple(rgba[:3]) + (0.0,) if g.get("hide") else rgba)}"'  # hidden = fully transparent (renderer skips alpha 0)
         if g.get(
             "friction"
         ):  # priority 1: this geom's friction replaces the floor's (MuJoCo default is the max of the two)
@@ -726,6 +733,32 @@ def compute(asm, parts_dir, out_dir, lib=None):
         s += f' mass="{f(g["mass"])}" contype="{1 if g["collide"] else 0}" conaffinity="0" group="{VEHICLE_GROUP}"/>'
         geoms[g["name"]] = g["part"]
         return s
+
+    vis_meshes, vis_mats = {}, {}
+
+    def visual_xml(iid):
+        """Cosmetic geoms of the instance's part: zero density, no contacts, same geom group as the plain shape."""
+        if not visual or not visuals.applies(ctx.insts[iid].part):
+            return []
+        out = []
+        for k, p in enumerate(
+            visuals.pieces(ctx.insts[iid].part, out_dir / "visuals", lib.root)
+        ):
+            vis_meshes[f"v_{p.name}"] = f"visuals/{p.path.name}"
+            m = p.material
+            mname = f"m_{m['name']}"
+            vis_mats[mname] = m
+            T = np.eye(4)
+            T[:3, :3], T[:3, 3] = p.R, p.pos
+            c = ctx.insts[
+                iid
+            ].color  # instance colour override: every piece of the part takes it
+            rgba = (*c[:3], c[3] if len(c) > 3 else 1.0) if c else m["rgba"]
+            out.append(
+                f'<geom name={q(f"{iid}:v{k}")} type="mesh" mesh="v_{p.name}" material={q(mname)} rgba="{vec(rgba)}"'
+                f'{pose_attrs(T)} mass="0" contype="0" conaffinity="0" group="{VEHICLE_GROUP}"/>'
+            )
+        return out
 
     def body_xml(iid, depth):
         ind = "  " * depth
@@ -743,6 +776,7 @@ def compute(asm, parts_dir, out_dir, lib=None):
                     f'{ind}  <joint name={q(j["name"])} type="{j["type"]}" axis="{vec(j["axis"])}" pos="{vec(j["pos"])}"{r}/>'
                 )
         out += [f"{ind}  {geom_xml(g)}" for g in body_geoms[iid]]
+        out += [f"{ind}  {x}" for x in visual_xml(iid)]
         for sname, (p, R) in sorted(sites.get(iid, {}).items()):
             T_s = np.eye(4)
             T_s[:3, :3], T_s[:3, 3] = R, p
@@ -758,12 +792,21 @@ def compute(asm, parts_dir, out_dir, lib=None):
         '  <compiler angle="radian"/>',
         f'  <option timestep="{f(a.get("timestep", 0.001))}"/>',
     ]
-    if assets:
+    if assets or vis_meshes:
         head.append("  <asset>")
         inertia = a.get("mesh_inertia", "exact")
         head += [
             f'    <mesh name={q(n)} file={q(p)} inertia="{inertia}"/>'
             for n, p in assets.items()
+        ]
+        head += [
+            f'    <mesh name={q(n)} file={q(p)} inertia="convex"/>'
+            for n, p in sorted(vis_meshes.items())
+        ]
+        head += [
+            f'    <material name={q(n)} rgba="{vec(m["rgba"])}" specular="{f(m["specular"])}" shininess="{f(m["shininess"])}"'
+            f' metallic="{f(m["metallic"])}" roughness="{f(m["roughness"])}"/>'
+            for n, m in sorted(vis_mats.items())
         ]
         head.append("  </asset>")
     head += [

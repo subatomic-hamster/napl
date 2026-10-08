@@ -74,6 +74,8 @@ DEVICE_TYPES = {
     "gnss",
     "environment",
     "body_drag",
+    "launcher",
+    "camera",
 }
 UNITS = {
     "m": {"m": 1.0},

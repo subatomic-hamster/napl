@@ -96,6 +96,21 @@ gender = "female"
 role = "passthrough"
 note = "As out1, for ESC 4."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "V1"
+note = "Yellow PDB board with gold solder pads and yellow XT connectors (kit photo)."
+
+[[visual.elements]]
+gen = "board_power"
+colors = { pcb = [0.93, 0.68, 0.06], conn = "plastic-yellow" }
+
+[[sources]]
+id = "V1"
+url = "https://holybro.com/products/x500-v2-kits"
+title = "Holybro X500 V2 kits product page (PDB photo, appearance only)"
+accessed = "2026-10-07"
+quote = "X500 V2 Kits"
+
 [[sources]]
 id = "S1"
 url = "https://holybro.com/products/power-distribution-board-pdb"

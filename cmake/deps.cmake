@@ -75,8 +75,7 @@ FetchContent_Declare(vma
 # redistributed under the MIT licence => the headers are MIT (docs/research/px4-sitl.md). The generator is not used.
 FetchContent_Declare(mavlink
   GIT_REPOSITORY https://github.com/mavlink/c_library_v2.git
-  GIT_TAG 56f6435ee725ed15d2e6d2a4c97ab6b41886ffc9  # master, no tags
-  GIT_SHALLOW TRUE
+  GIT_TAG 56f6435ee725ed15d2e6d2a4c97ab6b41886ffc9  # master, no tags; full clone: a shallow clone cannot check out a bare commit
   SOURCE_SUBDIR napl_sources_only)
 # toml++ v3.4.0 (MIT), header-only: bridge config
 FetchContent_Declare(tomlplusplus

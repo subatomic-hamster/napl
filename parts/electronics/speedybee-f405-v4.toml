@@ -80,6 +80,21 @@ type = "usb"
 gender = "neutral"
 connector = "Type-C"
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer"); the part has no [geometry], so the board sits on the base port plane (z = 0)
+src = "V1"
+note = "Black 30.5 mm stack FC board with gold edge pads, USB-C and JST sockets (product render)."
+
+[[visual.elements]]
+gen = "board_fc"
+colors = { pcb = "soldermask-black" }
+
+[[sources]]
+id = "V1"
+url = "https://www.speedybee.com/speedybee-f405-v4-bls-55a-30x30-fc-esc-stack"
+title = "SpeedyBee F405 V4 BLS 55A 30x30 FC&ESC stack product page (appearance render)"
+accessed = "2026-10-07"
+quote = "SpeedyBee F405 V4 BLS 55A 30x30 FC&ESC Stack"
+
 [[sources]]
 id = "S1"
 url = "https://www.speedybee.com/speedybee-f405-v4-bls-55a-30x30-fc-esc-stack/"

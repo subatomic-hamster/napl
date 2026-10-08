@@ -8,3 +8,10 @@ __pycache__/
 .venv/
 .ruff_cache/
 remote-out/
+
+# Rendered media (screenshots, footage) are regenerated on the host, never committed; test goldens live in tests/data/.
+docs/**/*.png
+docs/**/*.jpg
+docs/**/*.webp
+docs/**/*.mp4
+docs/**/*.webm

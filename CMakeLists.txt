@@ -52,7 +52,7 @@ target_link_libraries(napl_core PUBLIC napl_schema Threads::Threads)
 
 add_library(napl_mujoco STATIC src/mujoco/mujoco_solver.cpp src/mujoco/devices/devices.cpp
   src/mujoco/devices/electrical.cpp src/mujoco/devices/aero.cpp src/mujoco/devices/servo.cpp
-  src/mujoco/devices/sensors.cpp)
+  src/mujoco/devices/sensors.cpp src/mujoco/devices/launcher.cpp)
 target_link_libraries(napl_mujoco PUBLIC napl_core mujoco)
 
 # Static libs end up inside the _napl shared module: they need -fPIC.
@@ -145,7 +145,7 @@ target_include_directories(napl_shm_test_client PRIVATE include tests/cpp)
 
 add_executable(napl_tests tests/cpp/test_smoke.cpp tests/cpp/test_determinism.cpp tests/cpp/test_bus.cpp
   tests/cpp/test_replay.cpp tests/cpp/test_host.cpp tests/cpp/test_shm.cpp tests/cpp/test_devices.cpp
-  tests/cpp/test_px4.cpp)
+  tests/cpp/test_launcher.cpp tests/cpp/test_px4.cpp)
 add_dependencies(napl_tests napl_cli napl_shm_test_client napl_px4_bridge)  # test_replay / test_shm / test_px4 run these executables
 target_include_directories(napl_tests PRIVATE tests/cpp)
 target_link_libraries(napl_tests PRIVATE napl_core napl_mujoco mujoco napl_px4_deps GTest::gtest_main)

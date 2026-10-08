@@ -41,6 +41,13 @@ thickness = 0.0
 fidelity = "estimated"
 rationale = "Mass carrier on the bottom plate top face centre (mates 'hardware'); the screws are really spread over the arms, hangers, battery clips and GPS mast."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+rationale = "Loose steel hardware represented by its single placeholder block; plain steel finish, no photo used."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "steel" }
+
 [[sources]]
 id = "S1"
 url = "https://cdn.shopifycdn.net/s/files/1/0604/5905/7341/files/X500_V2_Assembly_Guide_en.pdf?v=1720853913"
