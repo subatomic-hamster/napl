@@ -23,7 +23,8 @@ struct Pin {
 };
 struct Card {
   std::string id, part, group;
-  float x = 0, y = 0, w = 200, h = 60;  // canvas units
+  float x = 0, y = 0, w = 200, h = 60;  // canvas units (x, y = where it is drawn now; tx, ty = where the layout put it)
+  float x0 = 0, y0 = 0, tx = 0, ty = 0;
   std::vector<Pin> pins;
   double born = 0;  // ImGui time the card pops in
 };
@@ -90,6 +91,7 @@ class Canvas {
   std::string toast_;
   bool toast_bad_ = false;
   double toast_t_ = -1e9;
+  double layout_t_ = -1e9;         // when the backend last moved the cards: they glide from (x0, y0) to (tx, ty), wires fade in after
   double new_wire_slot_ = 0;       // staggers the draw animations of wires that arrive together
   int tip_mode_ = 0;
   double move_t_ = -1e9;           // last time the mouse moved

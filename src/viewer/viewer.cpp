@@ -1708,14 +1708,21 @@ class Viewer {
 
   void program_page(float W, float H) {
     begin_pane("##program", {0, kTop}, {W, H - kTop - kStatus}, true);
-    const float half = (W - 48) / 2;
-    theme::caption("DESIGN  (READ-ONLY TOML)");
+    const bool file = !prog_file_text_.empty();  // ui.program: a source file shown instead of the design TOML
+    const float half = file ? (W - 48) * 0.66f : (W - 48) / 2;
+    theme::caption(file ? ("FILE  " + prog_file_name_).c_str() : "DESIGN  (READ-ONLY TOML)");
     ImGui::SameLine(half + 40);
     theme::caption("LOG");
     ImGui::PushFont(theme::mono(), 14.f);
     ImGui::BeginChild("##toml", {half, 0});
-    if (program_text_.empty()) ImGui::TextDisabled("%s", opts_.design_api ? "(loading)" : "(no design editor attached)");
+    if (file) ImGui::TextUnformatted(prog_file_text_.c_str());
+    else if (program_text_.empty()) ImGui::TextDisabled("%s", opts_.design_api ? "(loading)" : "(no design editor attached)");
     else ImGui::TextUnformatted(program_text_.c_str());
+    if (prog_scroll_ >= 0) {  // eased scroll to a fraction of the text (ui.program scroll)
+      const float goal = prog_scroll_ * ImGui::GetScrollMaxY(), y = ImGui::GetScrollY();
+      ImGui::SetScrollY(y + (goal - y) * (1.f - std::exp(-3.f * ImGui::GetIO().DeltaTime)));
+      if (std::fabs(goal - y) < 1.f) prog_scroll_ = -1.f;
+    }
     ImGui::EndChild();
     ImGui::SameLine(0, 24);
     ImGui::BeginChild("##log", {0, 0});
@@ -2256,7 +2263,11 @@ class Viewer {
     const double now = ImGui::GetTime();
     log_line("ui " + cmd);
     if (cmd == "mode") set_mode(e.s("name"));
-    else if (cmd == "camera") {
+    else if (cmd == "program") {  // a source file in the PROGRAM page (text empty = back to the design TOML)
+      prog_file_name_ = e.s("name"), prog_file_text_ = e.s("text");
+      prog_scroll_ = e.at("scroll").kind == design::Json::Num ? static_cast<float>(e.at("scroll").num) : -1.f;
+      if (mode_ != Mode::Program) set_mode("program");
+    } else if (cmd == "camera") {
       if (!e.s("preset").empty()) camera_preset(e.s("preset"));
       else cam_anim_ = {true, now, orbit_.yaw, orbit_.pitch, orbit_.dist, e.n("yaw", orbit_.yaw), e.n("pitch", orbit_.pitch), e.n("dist", orbit_.dist)};
     } else if (cmd == "frame") {
@@ -2467,7 +2478,8 @@ class Viewer {
   std::string confirm_id_;
   bool confirm_open_ = false;
   std::deque<std::string> log_;
-  std::string program_text_;
+  std::string program_text_, prog_file_text_, prog_file_name_;
+  float prog_scroll_ = -1.f;
   std::vector<Sugg> suggs_;
   bool sugg_swap_ = false, auto_dev_ = true;
   std::vector<Decision> decisions_;

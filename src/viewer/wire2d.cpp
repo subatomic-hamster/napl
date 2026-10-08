@@ -13,7 +13,7 @@ namespace wire2d {
 namespace {
 constexpr float kHeadH = 30, kPad = 10, kRowH = 22;  // mirror python/napl/design/wire2d.py
 constexpr float kPinR = 6, kSideW = 320;  // kSideW: the side panel of the flattened view
-constexpr double kFade = 0.45, kCardPop = 0.35, kWireAnim = 0.8;
+constexpr double kFade = 0.45, kCardPop = 0.35, kWireAnim = 0.8, kGlide = 0.6;
 constexpr int kAwg[] = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30};
 
 ImU32 kind_col(const std::string& k, int a = 255) {
@@ -182,6 +182,11 @@ void Canvas::apply(const design::Json& f) {
     const Card* old = card(n.id);
     n.born = old ? old->born : now + 0.18 + 0.06 * idx++;
     if (old && drag_.kind == Drag::on_card && drag_.card == n.id) n.x = old->x, n.y = old->y;  // being dragged: the local position wins
+    n.tx = n.x, n.ty = n.y, n.x0 = n.x, n.y0 = n.y;
+    if (old && active_ && was && !(drag_.kind == Drag::on_card && drag_.card == n.id) && std::abs(old->tx - n.tx) + std::abs(old->ty - n.ty) > 1.f) {
+      n.x0 = old->x, n.y0 = old->y;  // the layout moved this card: glide from where it is drawn now
+      layout_t_ = now;
+    }
     next.push_back(std::move(n));
   }
   std::set<std::string> known;
@@ -245,7 +250,7 @@ void Canvas::fit() {
   if (cards_.empty()) return;
   float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
   for (const Card& c : cards_) {
-    x0 = std::min(x0, c.x), y0 = std::min(y0, c.y), x1 = std::max(x1, c.x + c.w), y1 = std::max(y1, c.y + c.h);
+    x0 = std::min(x0, c.tx), y0 = std::min(y0, c.ty), x1 = std::max(x1, c.tx + c.w), y1 = std::max(y1, c.ty + c.h);
   }
   const float aw = sz_.x - kSideW - 20, ah = sz_.y - 80;  // the side panel and the title strip
   zoom_ = std::clamp(std::min(aw / (x1 - x0 + 80), ah / (y1 - y0 + 60)), 0.35f, 1.4f);
@@ -359,6 +364,13 @@ void Canvas::canvas_ui() {
   ImFont* font = ImGui::GetFont();
   const float fs = ImGui::GetFontSize();
 
+  // glide the cards to their new layout; the wires (routed for the final layout) fade in once they have arrived
+  const double glide = std::clamp((now - layout_t_) / kGlide, 0.0, 1.0);
+  const float gk = static_cast<float>(ease_out(glide));
+  if (drag_.kind != Drag::on_card)
+    for (Card& c : cards_) c.x = c.x0 + (c.tx - c.x0) * gk, c.y = c.y0 + (c.ty - c.y0) * gk;
+  const float wire_fade = static_cast<float>(std::clamp((glide - 0.6) / 0.4, 0.0, 1.0));
+
   // pan / zoom
   if (bg_hover && io.MouseWheel != 0 && drag_.kind == Drag::none) {
     const float z0 = zoom_;
@@ -413,7 +425,8 @@ void Canvas::canvas_ui() {
     const std::vector<ImVec2> path = round_path(raw, 9 * zoom_);
     const double t = (now - w.born) / kWireAnim;
     const bool drawing = t >= 0 && t < 1;
-    if (t < 0) continue;  // queued behind another wire's animation
+    if (t < 0 || wire_fade <= 0.f) continue;  // queued behind another wire's animation / the cards are still gliding
+    const float a = static_cast<float>(alpha_) * wire_fade;
     const float f = drawing ? static_cast<float>(ease_out(t)) : 1.f;
     const bool sel = w.name == sel_wire_, hov = w.name == hover_wire_;
     const float th = (sel ? 4.5f : hov ? 4.f : 2.6f) * std::max(0.75f, zoom_);
@@ -497,7 +510,7 @@ void Canvas::canvas_ui() {
   }
   if (drag_.kind == Drag::on_card) {
     for (Card& c : cards_)
-      if (c.id == drag_.card) c.x = (io.MousePos.x - ox_) / zoom_ - drag_.dx, c.y = (io.MousePos.y - oy_) / zoom_ - drag_.dy;
+      if (c.id == drag_.card) c.x = c.tx = c.x0 = (io.MousePos.x - ox_) / zoom_ - drag_.dx, c.y = c.ty = c.y0 = (io.MousePos.y - oy_) / zoom_ - drag_.dy;
   }
   if (drag_.kind == Drag::on_pin) {  // the rubber band
     ImVec2 p0;
