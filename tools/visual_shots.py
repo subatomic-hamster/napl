@@ -23,11 +23,14 @@ from napl.design.library import Library
 from thumbs import finish
 
 
-def shot(xml_path, size, az, el):
+def shot(xml_path, size, az, el, pad=0.06):
     sim = Sim.load(xml_path)
-    pos = np.array(list(sim.body_positions().values()) or [[0, 0, 0]])
+    pts = [
+        v for v in sim.body_positions().values() if np.shape(v) == (3,)
+    ]  # devices report longer state vectors
+    pos = np.array(pts or [[0, 0, 0]])
     ctr = (pos.min(0) + pos.max(0)) / 2
-    rad = float(np.linalg.norm(pos - ctr, axis=1).max()) + 0.06
+    rad = float(np.linalg.norm(pos - ctr, axis=1).max()) + pad
     fovy = 30.0
     d = rad / math.sin(math.radians(fovy / 2))
     a, e = math.radians(az), math.radians(el)
@@ -47,6 +50,18 @@ def main():
     ap.add_argument("--size", type=int, default=640)
     ap.add_argument("--az", type=float, default=35)
     ap.add_argument("--el", type=float, default=25)
+    ap.add_argument(
+        "--pad",
+        type=float,
+        default=0.06,
+        help="metres added to the framing radius (long barrels, wings)",
+    )
+    ap.add_argument(
+        "--visual-only", action="store_true", help="skip the plain-primitive twin"
+    )
+    ap.add_argument(
+        "--suffix", default="", help="appended to the PNG names (several angles)"
+    )
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -56,13 +71,15 @@ def main():
     for n in names:
         row = []
         for tag, vis in (("plain", False), ("visual", True)):
+            if a.visual_only and not vis:
+                continue
             d = Path(tempfile.mkdtemp(prefix=f"napl-shot-{n}-", dir=out.resolve()))
             xml, _ = compute(
                 REPO / "assemblies" / f"{n}.toml", REPO / "parts", d, lib, visual=vis
             )
             (d / "model.xml").write_text(xml)
-            img = shot(d / "model.xml", a.size, a.az, a.el)
-            (out / f"{n}-{tag}.png").write_bytes(_napl.encode_png(img))
+            img = shot(d / "model.xml", a.size, a.az, a.el, a.pad)
+            (out / f"{n}-{tag}{a.suffix}.png").write_bytes(_napl.encode_png(img))
             row.append(img)
         rows.append(np.concatenate(row, axis=1))
     (out / "sheet.png").write_bytes(_napl.encode_png(np.concatenate(rows, axis=0)))

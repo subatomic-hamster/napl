@@ -117,6 +117,22 @@ src = "S1"
 fidelity = "datasheet"
 
 # --- geometry + mechanical ports: merged from `python tools/koch_ports.py --servo` (stage A3 / S4) ---
+[visual]                            # cosmetic only (parts/README.md "Visual layer"); drawn in the Koch servo frame (the mesh's)
+src = "V1"
+note = "XL330: the X-series shell scaled to 20 x 34 x 23 mm with a 2.9 mm horn hub; black round horn with four holes (ROBOTIS product photo)."
+
+[[visual.elements]]
+gen = "dxl_servo"
+params = { off = 0.0095, hub = 0.0029, depth = 0.023 }
+colors = { horn = "plastic-dark" }
+
+[[sources]]
+id = "V1"
+url = "https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/"
+title = "ROBOTIS e-Manual XL330-M288, product photo (xl330-series_product.png)"
+accessed = "2026-10-08"
+quote = "[image] DYNAMIXEL XL330 X-Series: small black shell, round black horn with four holes and a centre hub, four corner screws, X-Series label under the horn"
+
 [geometry]
 shape = "mesh"
 mesh = "meshes/koch/xl330_m288_t.stl"

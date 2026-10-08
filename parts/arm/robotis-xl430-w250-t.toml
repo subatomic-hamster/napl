@@ -114,6 +114,20 @@ src = "S1"
 fidelity = "datasheet"
 
 # --- geometry + mechanical ports: merged from `python tools/koch_ports.py --servo` (stage A3 / S4) ---
+[visual]                            # cosmetic only (parts/README.md "Visual layer"); drawn in the Koch servo frame (the mesh's)
+src = "V1"
+note = "Black two-part shell with a seam, round champagne horn with an 8-hole ring and centre screw, four corner screws, X-Series label, 8-hole idler ring on the back (ROBOTIS product photos)."
+
+[[visual.elements]]
+gen = "dxl_servo"
+
+[[sources]]
+id = "V1"
+url = "https://emanual.robotis.com/docs/en/dxl/x/xl430-w250/"
+title = "ROBOTIS e-Manual XL430-W250, product photo (xl430_product_new.png) and idler assembly drawing"
+accessed = "2026-10-08"
+quote = "[image] DYNAMIXEL X-Series XL430: black case, round horn with ring of eight holes and centre screw, four corner screws, idler ring with eight holes on the opposite face"
+
 [geometry]
 shape = "mesh"
 mesh = "meshes/koch/xl430_w250_t.stl"

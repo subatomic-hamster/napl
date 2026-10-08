@@ -30,6 +30,22 @@ connector = "15 x 1 mm FPC, 200 mm ribbon"
 
 # Mechanical frame (added for the counter-UAS turret): origin at the board centre, +x = the viewing direction (lens axis), +z = image up,
 # board plane = y-z (24 mm wide, 25 mm high), x extent = the 11.5 mm height with the lens. `seat` is the bottom edge, `lens` the front.
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "V1"
+note = "Green 25 x 24 mm board, square sensor block with a round black barrel and bright front ring, FFC socket on the back edge; drawn with the lens along +x (the mechanical frame below). Gen frame: PCB underside at z = 0, lens +z; rpy = [pi, -pi/2, 0] sends gen z to +x and the FFC socket to the bottom edge."
+
+[[visual.elements]]
+gen = "camera_module"
+pos = [-0.00575, 0.0, 0.0]
+rpy = [3.141592653589793, -1.5707963267948966, 0.0]
+
+[[sources]]
+id = "V1"
+url = "https://www.raspberrypi.com/documentation/accessories/camera.html"
+title = "Raspberry Pi documentation: Camera hardware (Camera Module 3 size and connector)"
+accessed = "2026-10-08"
+quote = "The camera connector is on the opposite side of the board to the camera lens. || Board dimensions and mounting-hole positions for Camera Module 3 are identical to Camera Module 2."
+
 [geometry]
 shape = "box"
 size = [0.00575, 0.012, 0.0125]
