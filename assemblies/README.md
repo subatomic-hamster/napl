@@ -33,6 +33,9 @@ root = true                # exactly one; never offboard
 group = "frame"            # optional, for mass budgets / targets
 offboard = false           # true: no body, no geometry, not in mass totals; still usable in wires / devices (bench PSU)
 params = { mass = { value = 1.0, unit = "kg", fidelity = "estimated", rationale = "..." } }   # overrides: provenance tables only
+pos = [0.10, 0.0, 0.05]    # optional, FREE placement: position (m) in the ROOT's frame, for an instance held by no mate (see "Build UI")
+rpy = [0.0, 0.0, 1.5708]   # optional: orientation (rad), URDF fixed-axis roll-pitch-yaw; the root cannot have pos / rpy
+color = [0.9, 0.2, 0.1, 1.0]   # optional: cosmetic rgb(a) override, 0..1 (3 or 4 numbers); applied to every geom of the instance at build
 
 [[mates]]
 name = "arm1--frame"       # default "<a>--<b>" (strings as written); also the MJCF joint name
@@ -426,6 +429,58 @@ MCP tools: `design_open` (control; `path`, or `new` = a name for an empty design
 `design_save` (destructive: client elicitation or `--allow-destructive`). Paths are confined to the server root; arguments are
 validated against the advertised JSON schemas.
 CLI: `napl design suggest <asm> <inst.port|inst> [--limit N] [--json]`.
+
+## Build UI (`napl design view`): modes, free placement and the scriptable operations
+
+**Modes** (top bar tabs): BUILD (3D view, sidebar with the compact library, inspector with INSPECT / PARTS / DRC / PLACE tabs),
+LIBRARY (fuzzy search, category tree, parameter range filters, thumbnail grid from `build/thumbs/<id>.png` (the PARTS worker's thumbnail renders; a
+category placeholder when absent), detail panel with provenance, ADD / SWAP), WIRING (the 2D wiring view, LOOK's `wire2d_draw`; a
+placeholder when that file is not built), SIMULATE (run / pause / step / rate, inspector), PROGRAM (read-only assembly TOML, `design_text`).
+The status bar shows the selection, DRC counts and the sim time. A card dragged from LIBRARY or the BUILD sidebar shows a ghost that
+snaps to the open compatible ports; dropping it is `add` + snap = ONE undo step. BUILD: click / shift-click (or Ctrl-click) multi-select, an axis-
+coloured move / rotate gizmo (grid 5 mm, 15 degrees, numeric fields in the inspector), Figma-style guides (edge / centre / corner
+alignment lines in the axis colours) and port snapping while dragging (Ctrl inverts snapping), per-instance colour, duplicate,
+mirror, align / distribute. Keys: G / R move / rotate, Del or X remove, Esc cancel a drag / clear the selection, Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) undo / redo,
+F frame the selection, Ctrl+A select all, Ctrl+D duplicate, 1-4 or the numpad = camera presets front / side / top / iso (`ui.camera`).
+
+**Free placement (`pos` / `rpy` on an instance).** An instance held by no mate may carry `pos` (m) and `rpy` (rad, URDF fixed-axis)
+in the ROOT instance's frame; the solver treats it as a child of the root (`snap.PoseSpec` in `solve_tree`), so it moves with the root,
+counts as connected for the DRC (`FLOATING` ignores it; the mech BFS has a root-placed edge), and still takes mates for its own children.
+The root has no `pos` / `rpy` (it defines the frame); `validate` rejects wrong lengths. Gizmo edits and mates: moving a MATED
+instance asks "detach from mate?"; confirming sends `place ... unmate = true` which drops the mate that held it to the root side
+(its own children stay mated to it) and writes `pos` / `rpy`; without `unmate` the backend refuses. Dropping a part on a port is a mate
+(no `pos`); dropping it on empty space / the ground is a free pose. `place` is a normal `design_edit` op, so undo / redo, the DRC delta
+and MCP all see it: `{"op":"place","id":"m1","pos":[..],"rpy":[..]}` or `delta` / `rot` (3x3, about `about`), `unmate`;
+`{"op":"color","id":"m1","rgba":[r,g,b,a]}` (empty clears); `duplicate {id, delta?, new_id?}`; `mirror {ids, axis, at?}` (free-placed
+copies; the orientation is M R M, the part itself is not flipped). `add` also takes `color`, and `pos` / `rpy` when it has no `to`.
+
+**Every UI action is a named backend op** (`napl.design.uiops`, a mixin of `viewer.Backend`; same JSON as the MCP tools:
+`{"tool": NAME, "args": {...}}`). An op does its real work on the Design immediately (an agent without a window gets the same
+document) and queues an *event* the window drains with `ui_poll` (every 100 ms) and shows: tab switch, search typed one character per
+`type_ms`, ghost flight, guide flashes, selection. World-frame arguments are metres, +z up.
+
+| op | args | what the window shows |
+|---|---|---|
+| `ui.mode` | `name` build / library / wiring / simulate / program | the tab switches |
+| `ui.camera` | `preset` top / front / side / iso, or `yaw`, `pitch`, `dist` | a camera flight |
+| `ui.frame` | `instances?` | the camera frames them |
+| `ui.gizmo` / `ui.guides` / `ui.snap` | `mode` move / rotate / none; `on`; `grid_m?`, `angle_deg?`, `edges?`, `ports?` | toolbar state |
+| `ui.state` | | the `Backend.ui` dict (mode, selection, search, snap settings) |
+| `select` | `instances`, `add?` | highlight + gizmo |
+| `library.search` | `text`, `filters` {param: [lo, hi]}, `category`, `limit`, `offset`, `type_ms?` | the box fills; the grid filters |
+| `library.categories` / `.ranges` / `.info` / `.targets` | `{}` / `category?` / `part` / `part` | filters, detail panel, ghost poses on every open compatible port |
+| `library.preview` | `part`, `to` ('inst.port') | the ghost at that port |
+| `library.drop` | `part`, `to` or `point`, `port?`, `id?`, `rpy?` | = `add` + snap, one undo step; selects the new instance |
+| `library.drag` | `part`, `to` {instance, port} or {point}, `animate?` | the ghost flies, then drops (with `animate` and a window attached; otherwise same as drop) |
+| `gizmo.move` | `instance`, `delta` or `pos`, `unmate?`, `snap?` | edge / grid snap guides flash |
+| `gizmo.rotate` | `instance`, `axis`, `angle_deg` or `rpy` / `rot`, `unmate?` | |
+| `set_color` | `instance`, `rgba` or null | the colour picker opens, the part recolours |
+| `duplicate` / `mirror` / `align` / `distribute` | `instance`, `delta?` / `instances`, `axis`, `at?` / `instances`, `axis`, `to` min / center / max / `instances`, `axis` | |
+
+The viewer's script verbs `mode`, `uisel`, `search`, `uicam`, `uiframe` (`napl-view --script`) do the window-only part of the same
+actions. `tools/record_build.py build` uses these ops so a recording shows the LIBRARY tab, the typed search and the ghost before each
+`add` (`--no-ui` skips them; the design is identical). Tests: `tests/python/test_ui_ops.py` (backend ops), `tests/cpp/test_viewer.cpp`
+`viewer_design.every_mode_draws_*` (the modes under a fake backend).
 
 ## Driving an arm design (`napl program`, `[design]` with a feetech / dynamixel interface)
 ```toml

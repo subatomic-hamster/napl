@@ -156,7 +156,12 @@ def test_scripted_window_session_equals_the_python_api(tmp_path, capsys):
     )
     sim.show(frames=60, script=script, width=1280, height=720, design=b)
 
-    reqs = [(q, r) for q, r in b.log if q["tool"] not in ("rev", "state")]
+    # (the window's own housekeeping -- rev / state / ui_poll / select / library.* -- is not an edit)
+    reqs = [
+        (q, r)
+        for q, r in b.log
+        if q["tool"].startswith("design_") and q["tool"] != "design_text"
+    ]
     names = [
         q["tool"]
         + (":" + q["args"]["ops"][0]["op"] if q["tool"] == "design_edit" else "")

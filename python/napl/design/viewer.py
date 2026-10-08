@@ -4,7 +4,7 @@ Design method, the way the matching MCP tool does, and every reply carries the r
 the new build, the DRC findings and the instance / port lists.
 
 Requests: {"tool": "design_edit" | "design_suggest" | "design_undo" | "design_check" | "design_simulate" | "design_save" |
-"state" | "rev", "args": {...}, "replace_last": bool}. `replace_last` (design_edit only) = undo the last edit, then apply
+"design_text" | "state" | "rev" | the ui.* / library.* / gizmo.* ops of uiops.py, "args": {...}, "replace_last": bool}. `replace_last` (design_edit only) = undo the last edit, then apply
 `ops` (cycling through the placement alternatives of a snap keeps one undo step). Replies: {"ok": true, "result": ...,
 "state": ...} or {"ok": false, "error": "..."} (a failed edit changes nothing).
 """
@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 from .library import DesignError
+from .uiops import UI_TOOLS, UiOps
 
 
 def _involved(doc, where) -> list:
@@ -32,7 +33,7 @@ def _involved(doc, where) -> list:
     return out
 
 
-class Backend:
+class Backend(UiOps):
     """`Backend(lambda: design, out_dir)(request_json) -> reply_json`. `lock`: shared with whoever else touches the Design
     (the MCP server); `save_to(path)`: how a save is written (default `Design.save`); `max_wall_s`: hover wall-clock cap."""
 
@@ -44,6 +45,24 @@ class Backend:
         self.save_to, self.max_wall_s = save_to, max_wall_s
         self.log = []  # [(request dict, reply dict)] of every request, for tests and replay of a UI session
         self._cache = None  # (design, rev, state)
+        # UI state + the events the window should show (mode switch, typing, ghost flight, guide flash ...): every ui.* /
+        # library.* / gizmo.* op appends one, the window drains them with `ui_poll`. With no window attached they just pile up
+        # (capped), the ops themselves never depend on a window.
+        self.ui = {
+            "mode": "build",
+            "selected": [],
+            "search": "",
+            "filters": {},
+            "category": "",
+            "guides": True,
+            "gizmo": "move",
+            "grid_m": 0.005,
+            "angle_deg": 15.0,
+            "snap_edges": True,
+            "snap_ports": True,
+        }
+        self.events = []
+        self.attached = False  # set by the first ui_poll: a window is watching, animated ops queue instead of committing
 
     # ---- entry point -------------------------------------------------------------------------------------------------
     def __call__(self, text: str) -> str:
@@ -79,6 +98,12 @@ class Backend:
                 "ok": True,
                 "result": {"rev": self.rev_of(d) if d is not None else None},
             }
+        if tool == "ui_poll":
+            self.attached = True
+            ev, self.events = self.events, []
+            return {"ok": True, "result": {"events": ev}}
+        if tool in UI_TOOLS:
+            return self._ui_tool(tool, a)
         d = self._design()
         if tool == "state":
             return {"ok": True, "result": {}, "state": self.state(d)}
@@ -103,6 +128,10 @@ class Backend:
         if tool == "design_suggest":
             rows = d.suggest(a["target"], a.get("limit", 10), a.get("category") or None)
             return {"ok": True, "result": {"target": a["target"], "suggestions": rows}}
+        if tool == "design_text":  # the PROGRAM tab: the assembly as TOML, read-only
+            from . import assembly as A
+
+            return {"ok": True, "result": {"text": A.dumps(d.asm)}}
         if tool == "design_check":
             return {
                 "ok": True,
@@ -159,6 +188,7 @@ class Backend:
                 {**f.as_dict(), "instances": _involved(d.doc, f.where)} for f in fs
             ]
             used = d._ports_used(d.doc)
+            geo, root_T = self._geo(d, xml) if xml else ({}, None)
             ports = {
                 i["id"]: [
                     {
@@ -166,11 +196,14 @@ class Backend:
                         "kind": p.get("kind", ""),
                         "type": p.get("type", ""),
                         "used": (i["id"], p["name"]) in used,
+                        **geo.get(i["id"], {}).get("port_world", {}).get(p["name"], {}),
                     }
                     for p in d._part(i["part"]).ports
                 ]
                 for i in d.doc["instances"]
             }
+            for g in geo.values():
+                g.pop("port_world", None)
             st = {
                 "rev": rev,
                 "xml": xml,
@@ -178,6 +211,14 @@ class Backend:
                 "report": rep,
                 "ports": ports,
                 "path": str(d.path or ""),
+                "geo": geo,
+                "root_T": root_T,
+                "root": next(
+                    (i["id"] for i in d.doc["instances"] if i.get("root")), ""
+                ),
+                "free": [
+                    i["id"] for i in d.doc["instances"] if "pos" in i or "rpy" in i
+                ],
             }
             self._cache = (d, rev, st)
         return {**st, "undo": len(d._undo), "redo": len(d._redo)}

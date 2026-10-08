@@ -100,7 +100,22 @@ if(NAPL_VIEWER)
   target_compile_definitions(napl_imgui PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
   target_link_libraries(napl_imgui PUBLIC napl_volk napl_glfw)
 
-  add_library(napl_viewer STATIC src/viewer/viewer.cpp)
+  # UI font: Roboto-Medium.ttf (Apache-2.0, from the pinned imgui checkout) as a byte array, rewritten only when it changes.
+  file(READ ${_imgui_src}/misc/fonts/Roboto-Medium.ttf _font_hex HEX)
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _font_hex "${_font_hex}")
+  file(READ ${_imgui_src}/misc/fonts/Cousine-Regular.ttf _mono_hex HEX)  # Cousine (Apache-2.0): the log / code view
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _mono_hex "${_mono_hex}")
+  file(CONFIGURE OUTPUT ${NAPL_GEN_DIR}/ui_font.cpp @ONLY CONTENT
+    "#include <cstddef>\nextern unsigned char kUiFont[] = {@_font_hex@};\nextern const std::size_t kUiFontSize = sizeof kUiFont;\nextern unsigned char kUiMono[] = {@_mono_hex@};\nextern const std::size_t kUiMonoSize = sizeof kUiMono;\n")
+  add_library(napl_viewer STATIC src/viewer/viewer.cpp src/viewer/theme.cpp src/viewer/build3d.cpp src/viewer/library_ui.cpp
+    ${NAPL_GEN_DIR}/ui_font.cpp)
+  target_include_directories(napl_viewer PRIVATE ${stb_image_SOURCE_DIR})
+  # LOOK's 2D wiring mode (src/viewer/wire2d.cpp, `void wire2d_draw(const Wire2dSlot&)`, see viewer/wire2d_slot.h) is linked in
+  # when the file exists; without it the WIRING tab shows a placeholder.
+  if(EXISTS ${CMAKE_SOURCE_DIR}/src/viewer/wire2d.cpp)
+    target_sources(napl_viewer PRIVATE src/viewer/wire2d.cpp)
+    target_compile_definitions(napl_viewer PRIVATE NAPL_HAS_WIRE2D)
+  endif()
   target_link_libraries(napl_viewer PUBLIC napl_render napl_core PRIVATE napl_imgui napl_glfw napl_volk)
   set_target_properties(napl_glfw napl_imgui napl_viewer PROPERTIES POSITION_INDEPENDENT_CODE ON)  # linked into _napl.so
 

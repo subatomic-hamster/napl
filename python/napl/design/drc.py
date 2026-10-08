@@ -292,7 +292,9 @@ def _mechanical(ctx, F):
             continue
         specs[name], mdict[name] = spec, m
         used |= {(spec.a, spec.pa["name"]), (spec.b, spec.pb["name"])}
-    # floating instances: BFS over every mate (also the invalid ones: their own finding already explains them)
+    # floating instances: BFS over every mate (also the invalid ones: their own finding already explains them);
+    # a free-placed instance (pos / rpy) is welded to the root
+    edges += [(root, i) for i, x in ctx.insts.items() if x.placed and not x.root]
     adj = {i: set() for i in ctx.insts}
     for a, b in edges:
         if a in adj and b in adj:
