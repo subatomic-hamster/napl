@@ -1,0 +1,32 @@
+# Depth-camera bench: one Intel RealSense D435i alone (fixed base) with a `rangefinder` device on its optical frame. The scene (a wall, the pose) is the
+# caller's; see tests/python/test_depth_bench.py. The device frame is the part's `optical` port: +z = viewing direction, +x = image up.
+# The sensor's 1280 x 720 depth image is 921600 rays per frame on the CPU: the bench uses a 160 x 90 grid of the same 87 x 58 degree field (a sub-sample
+# of the pixels, same geometry), which the caller can raise with `set` / a re-bind.
+
+[assembly]
+name = "depth-bench"
+description = "Intel RealSense D435i with a rangefinder device (D435i spec: 87 x 58 deg, Min-Z 280 mm, +-2 % accuracy and 2 % RMS noise)"
+base = "fixed"
+timestep = 0.001
+
+[[instances]]
+id = "cam"
+part = "intel-realsense-d435i"
+root = true
+group = "sensor"
+
+[device_maps.d435i]
+fov_h = "fov_h"
+fov_v = "fov_v"
+min_range = "min_range"
+max_range = "max_range"
+sigma1 = "rms_error_frac"
+
+[[devices]]
+type = "rangefinder"
+name = "depth"
+instance = "cam"
+site = "cam"
+site_port = "optical"
+map = "d435i"
+set = { n_h = { value = 160, unit = "px", fidelity = "estimated", rationale = "Sub-sample of the 1280 px depth width (every 8th pixel) to keep the CPU ray cast cheap; same field of view." }, n_v = { value = 90, unit = "px", fidelity = "estimated", rationale = "Sub-sample of the 720 px depth height (every 8th pixel)." }, rate_hz = { value = 25, unit = "Hz", fidelity = "estimated", rationale = "25 frames per second: 40 ticks of the 1 ms step (the rate must be an integer number of ticks; the D435i streams 30 fps by default, a frame-rate choice)." }, resolution = { value = 0.001, unit = "m", fidelity = "estimated", rationale = "Depth units 1 mm, the D400 default depth scale (0.001 m per unit)." } }

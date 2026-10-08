@@ -292,6 +292,23 @@ void page(Model& m, Thumbs& th, ImVec2 pos, ImVec2 size, const std::string& sele
   ImGui::PopFont();
   ImGui::TextDisabled("%d part%s", m.total, m.total == 1 ? "" : "s");
   ImGui::BeginChild("cards", {0, 0});
+  if (m.hits.empty() && !m.dirty) {  // empty state: say why and how to get parts back
+    const ImVec2 a0 = ImGui::GetContentRegionAvail();
+    ImGui::SetCursorPos({a0.x / 2 - 150, a0.y / 3});
+    ImGui::BeginGroup();
+    ImGui::PushFont(nullptr, 17.f);
+    ImGui::TextUnformatted("No parts match");
+    ImGui::PopFont();
+    ImGui::TextDisabled("Try fewer words, another category or wider filters.");
+    ImGui::Spacing();
+    if (theme::button("CLEAR SEARCH AND FILTERS")) {
+      m.query[0] = 0;
+      m.category.clear();
+      for (auto& kv : m.filters) kv.second.on = false;
+      m.dirty = true;
+    }
+    ImGui::EndGroup();
+  }
   const float cw = 132, ch = 130, gap = 8;
   const int cols = std::max(1, static_cast<int>((ImGui::GetContentRegionAvail().x + gap) / (cw + gap)));
   int k = 0;
@@ -344,6 +361,7 @@ void sidebar(Model& m, Thumbs& th, ImVec2 pos, ImVec2 size, Actions& a) {
   ImGui::Spacing();
   ImGui::TextDisabled("%d parts   drag into the 3D view", m.total);
   ImGui::BeginChild("list", {0, 0});
+  if (m.hits.empty() && !m.dirty) ImGui::TextDisabled("No parts match. Clear the search or pick another category.");
   for (const Hit& h : m.hits)
     if (card(m, th, h, {ImGui::GetContentRegionAvail().x, 58}, h.id == m.selected, a)) {
       m.selected = h.id;

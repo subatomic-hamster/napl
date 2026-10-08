@@ -1,0 +1,67 @@
+# TVC gimbal bench: the three printed gimbal parts (plate, ring, cradle), two Dynamixel XL330-M077-T servos and an Estes E16 motor, plate fixed in the world.
+# Geometry check of the gimbal packaging: pitch servo turns the ring about y, yaw servo turns the cradle (and the motor) about x, the axes cross at the origin
+# of the plate frame (the gimbal centre; +z towards the nose, the motor's nozzle 0.062 m below it). No devices: tests/python/test_marine_rocket.py builds it.
+
+[assembly]
+name = "tvc-gimbal-bench"
+description = "Two-axis TVC gimbal (plate, ring, cradle) with two XL330 servos and an E16 motor, plate fixed"
+base = "fixed"
+timestep = 0.001
+
+[[instances]]
+id = "plate"
+part = "tvc-gimbal-plate"
+root = true
+group = "gimbal"
+
+[[instances]]
+id = "ring"
+part = "tvc-gimbal-ring"
+group = "gimbal"
+
+[[instances]]
+id = "cradle"
+part = "tvc-gimbal-cradle"
+group = "gimbal"
+
+[[instances]]
+id = "pitch"
+part = "robotis-xl330-m077-t"
+group = "servos"
+
+[[instances]]
+id = "yaw"
+part = "robotis-xl330-m077-t"
+group = "servos"
+
+[[instances]]
+id = "motor"
+part = "estes-e16"
+group = "propulsion"
+
+[[mates]]
+name = "plate--pitch"
+a = "plate.pitch_servo_seat"
+b = "pitch.base"
+
+[[mates]]
+name = "pitch-joint"
+a = "pitch.output"
+b = "ring.pitch_horn_seat"
+joint = { type = "hinge" }
+
+[[mates]]
+name = "ring--yaw"
+a = "ring.yaw_servo_seat"
+b = "yaw.base"
+
+[[mates]]
+name = "yaw-joint"
+a = "yaw.output"
+b = "cradle.yaw_horn_seat"
+joint = { type = "hinge" }
+
+[[mates]]
+name = "cradle--motor"
+a = "cradle.motor_seat"
+b = "motor.case"

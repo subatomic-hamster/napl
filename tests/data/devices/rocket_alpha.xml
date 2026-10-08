@@ -1,0 +1,32 @@
+<!-- Estes Alpha III class model rocket (kit 1256) on a C6 motor, standing on its tail on the ground. Published: 34 g without motor,
+     0.98 in (24.8 mm) body, up to 1150 ft (351 m) with a C6-5 (estesrockets.com/products/alpha-iii). Estes C6 RASP data (thrustcurve.org
+     simfile 69eb2379c7d63000021d8c29): 18 x 70 mm, propellant 10.8 g, loaded 23.1 g, certified 8.82 N s. Mass distribution, fins and Cd
+     are ESTIMATES (CG 0.128 m from the tail, CP 0.07 m: stable; Cd 0.65 is a typical OpenRocket value for a kit with a launch lug).
+     Origin = tail face, +z = nose. Delay 0.2 s so the rocket first rests on the ground. -->
+<mujoco model="rocket_alpha">
+  <option timestep="0.001"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="50 50 1"/>
+    <body name="rocket" pos="0 0 0.0005">
+      <freejoint/>
+      <geom name="tube" type="cylinder" pos="0 0 0.155" size="0.0124 0.155" mass="0.024"/>
+      <geom name="nose" type="cylinder" pos="0 0 0.28" size="0.0124 0.02" mass="0.010" contype="0" conaffinity="0"/>
+      <site name="ref" pos="0 0 0"/>
+      <body name="motor" pos="0 0 0.035">
+        <geom name="case" type="cylinder" size="0.009 0.035" mass="0.0231" contype="0" conaffinity="0"/>
+        <site name="nozzle" pos="0 0 -0.035"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "environments": [{"name": "air"}],
+      "solid_motors": [{"name": "c6", "body": "motor", "site": "nozzle",
+        "time": [0.031,0.092,0.139,0.192,0.209,0.231,0.248,0.292,0.370,0.475,0.671,0.702,0.723,0.850,1.063,1.211,1.242,1.303,1.468,1.656,1.821,1.834,1.847,1.860],
+        "thrust": [0.946,4.826,9.936,14.090,11.446,7.381,6.151,5.489,4.921,4.448,4.258,4.542,4.164,4.448,4.353,4.353,4.069,4.258,4.353,4.448,4.448,2.933,1.325,0.0],
+        "propellant_mass": 0.0108, "total_mass": 0.0231, "diameter": 0.018, "length": 0.070, "ignition_delay": 0.2}],
+      "airframes": [{"name": "aero", "body": "rocket", "site": "ref", "s_ref": 0.000483, "cd0": 0.65, "cd_rev": 1.0, "cn_alpha": 17.0,
+                     "x_cp": 0.07, "s_plan": 0.0077}]
+    }'/>
+  </custom>
+</mujoco>

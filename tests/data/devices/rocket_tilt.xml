@@ -1,0 +1,23 @@
+<!-- As rocket_free.xml, but the nozzle site (= the motor axis) is tilted 10 deg about +y: a lateral thrust component and a torque about the
+     airframe CoM. Zero gravity; delay 0 so the first tick already burns. -->
+<mujoco model="rocket_tilt">
+  <option timestep="0.001" gravity="0 0 0"/>
+  <worldbody>
+    <body name="rocket" pos="0 0 1">
+      <freejoint/>
+      <geom name="tube" type="cylinder" size="0.04 0.25" mass="0.9" contype="0" conaffinity="0"/>
+      <body name="motor" pos="0 0 -0.307">
+        <geom name="case" type="cylinder" size="0.0145 0.057" mass="0.103" contype="0" conaffinity="0"/>
+        <site name="nozzle" pos="0 0 -0.057" euler="0 10 0"/>
+      </body>
+    </body>
+  </worldbody>
+  <custom>
+    <text name="napl.devices" data='{
+      "solid_motors": [{"name": "f15", "body": "motor", "site": "nozzle",
+        "time": [0.148,0.228,0.294,0.353,0.382,0.419,0.477,0.520,0.593,0.688,0.855,1.037,1.205,1.423,1.452,1.503,1.736,1.955,2.210,2.494,2.763,3.120,3.382,3.404,3.418,3.450],
+        "thrust": [7.638,12.253,16.391,20.210,22.756,25.260,23.074,20.845,19.093,17.500,16.225,15.427,14.948,14.627,15.741,14.785,14.623,14.303,14.141,13.819,13.338,13.334,13.013,9.352,4.895,0.0],
+        "propellant_mass": 0.060, "total_mass": 0.103, "diameter": 0.029, "length": 0.114, "ignition_delay": 0.0}]
+    }'/>
+  </custom>
+</mujoco>

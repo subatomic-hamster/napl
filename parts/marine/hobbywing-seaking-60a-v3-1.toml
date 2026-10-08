@@ -1,0 +1,77 @@
+id = "hobbywing-seaking-60a-v3-1"
+name = "Hobbywing SeaKing 60A V3.1 waterproof brushless marine ESC (2-3S)"
+category = "esc"
+vendor = "Hobbywing"
+part_number = "30302200"
+url = "https://www.hobbywing.com/en/products/seaking-v3-series75"
+
+# Waterproof marine ESC (water-cooled, 100 % waterproof per the maker). The device model is the same ESC chain as the multirotor ESCs; the
+# vendor publishes no FET resistance, switching loss or quiescent current, so those are ESTIMATES. FORWARD ONLY in this simulator: the Esc throttle is 0..1,
+# the real unit's reverse (brake / reverse) is not modelled.
+# Part frame: origin at the centre of the underside (mounting face), x along the 60.5 mm length, z up.
+[params]
+current_continuous = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+current_peak       = { value = 360.0, unit = "A", src = "S1", fidelity = "datasheet" }
+mass               = { value = 0.095, unit = "kg", src = "S1", fidelity = "datasheet" }
+v_cells_min        = { value = 2, unit = "cells", src = "S1", fidelity = "datasheet" }
+v_cells_max        = { value = 3, unit = "cells", src = "S1", fidelity = "datasheet" }
+bec_voltage        = { value = 6.0, unit = "V", src = "S1", fidelity = "datasheet" }
+bec_current        = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+size_length        = { value = 0.0605, unit = "m", src = "S1", fidelity = "datasheet" }
+size_width         = { value = 0.0385, unit = "m", src = "S1", fidelity = "datasheet" }
+size_height        = { value = 0.0256, unit = "m", src = "S1", fidelity = "datasheet" }
+r_on_total         = { value = 0.004, unit = "ohm", fidelity = "estimated", rationale = "ESC FET resistance is unpublished. 4 mOhm total series (two conducting half-bridge FETs ~1.5 mOhm each plus ~1 mOhm traces / solder) is typical of a 60 A continuous / 360 A peak ESC; at the T200's 17 A the loss is 1.2 W (0.6 % of 205 W). Treat as +-50 %." }
+switching_loss_fraction = { value = 0.003, unit = "1", fidelity = "estimated", rationale = "Switching + dead-time loss as a fraction of the motor-side power (device field Esc.sw_loss); unpublished, a typical 0.2-0.5 % for a hard-switching brushless ESC at ~16-24 kHz." }
+quiescent_current  = { value = 0.02, unit = "A", fidelity = "estimated", rationale = "Bus-side current of the ESC electronics (MCU, gate drivers, switch-mode BEC unloaded), drawn also at zero throttle; unpublished, 20 mA (0.24 W at 12 V). +-3x." }
+
+[[geometry.shapes]]
+shape = "box"
+size = [0.03025, 0.01925, 0.0128]
+pos = [0.0, 0.0, 0.0128]
+
+[[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+thickness = 0.0
+fidelity = "estimated"
+rationale = "Underside seat; Hobbywing publishes no mounting method (the ESC is water-cooled through a pipe and may be fixed by its own bracket)."
+
+[[ports]]
+name = "power_in"
+lead = {}   # the battery input leads are part of the 95 g datasheet mass (the table weight is the unit with its leads); their length is not published
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "sink"
+v_max = { value = 12.6, unit = "V", src = "S1", fidelity = "derived", derivation = "3 cells x 4.2 V from the table's 'Input (LiPo cells) 2-3S'." }
+i_max = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Input leads of the unit; connector style not stated on the series page."
+
+[[ports]]
+name = "motor_out"
+kind = "power"
+type = "motor-3phase"
+gender = "neutral"
+role = "source"
+i_max = { value = 60.0, unit = "A", src = "S1", fidelity = "datasheet" }
+note = "Three motor leads to the thruster's phase port; continuous rating."
+
+[[ports]]
+name = "signal"
+kind = "signal"
+type = "pwm"
+gender = "neutral"
+note = "Throttle signal; the series page does not state the frequency or pulse range."
+
+[[sources]]
+id = "S1"
+url = "https://www.hobbywing.com/en/products/seaking-v3-series75"
+title = "Hobbywing SeaKing V3 series product page, specification table"
+accessed = "2026-10-08"
+quote = "Seaking 60A-V3.1 (30302200) | 60A / 360A | 2-3S (5-9 cells NiMH) | Switch Mode: 6V/3A | 95g | 60.5×38.5×25.6mm | WP ... 100% waterproof without the need of extra protection"

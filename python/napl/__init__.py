@@ -16,7 +16,7 @@ __all__ = ["Sim", "render_style"]
 def render_style(words: str = "") -> str:
     """The process-wide look of Sim.render and the viewer: comma-separated words added to the current style --
     "outdoor" | "studio" (sky), "edges" | "noedges" (CAD outlines), "shadows" | "noshadows", "wires" | "nowires" (cables as
-    tubes). NAPL_RENDER_STYLE in the environment is applied on top. Returns the style now in force."""
+    tubes), "boldwires" | "plainwires" (cables at least 4 px wide on screen; the data keeps their diameter). NAPL_RENDER_STYLE in the environment is applied on top. Returns the style now in force."""
     return _napl.render_style(words)
 
 

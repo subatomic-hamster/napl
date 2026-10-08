@@ -69,6 +69,7 @@ struct ServoCfg {
 struct RotorCfg {
   Meta meta; std::string body, joint; double diameter; int dir; std::vector<double> j, ct, cq; double k_h;
   bool ground_effect; unsigned ray_groups;
+  bool water = false;                      // marine propeller (schema Rotor.water)
   std::vector<double> re_x, re_ft, re_fq;  // optional Reynolds factors over x = |n| D^2 (empty = off)
   int bid = -1, jnt = -1, dof = -1;  // resolved by bind()
 };
@@ -107,6 +108,38 @@ struct LauncherCfg {
   std::vector<int> mocap;      // mocap index of each visual body
 };
 struct CameraCfg { Meta meta; std::string site; double fov_v, rate_hz; int width, height; int sid = -1; };
+
+// Phase 5 devices (rocket.cpp, vessel.cpp, rangefinder.cpp).
+struct SolidMotorCfg {
+  Meta meta; std::string body, site; std::vector<double> t, f, cum;  // curve; cum[k] = integral of the curve up to t[k]
+  double prop_mass, total_mass, diameter, length, delay, scale0;
+  double i_total = 0;  // cum.back()
+  int bid = -1, sid = -1;
+};
+struct AirframeCfg {
+  Meta meta; std::string body, site; double s_ref, cd0, cd_rev, cn_alpha, x_cp, s_plan, cd_cross;
+  int bid = -1, sid = -1;
+};
+struct WaveCfg { double a, k, w, th, phi; };  // amplitude m, wave number rad/m, angular frequency rad/s, direction rad, phase rad
+struct SeaCfg {
+  Meta meta; double rho, level, depth, current0[3]; std::vector<WaveCfg> waves;
+};
+struct Cell { double c[3], v, e[3]; };  // centre (body frame), volume, extents (body axes)
+struct VesselCfg {
+  Meta meta; std::string body; std::vector<Cell> cells; double volume;  // total hull volume
+  double a[6], dl[6], dq[6];                                            // added mass, linear / quadratic damping
+  bool has_a = false;
+  int bid = -1;
+};
+struct RangefinderCfg {
+  Meta meta; std::string site; double rate_hz, fov_h, fov_v, min_r, max_r, s0, s1, s2, res, dropout; std::string proj;
+  int n_h, n_v; unsigned ray_groups; std::uint64_t seed;
+  bool pinhole = true;
+  std::vector<double> dir;    // n_v * n_h unit rays in the site frame (row-major), 3 doubles each
+  std::vector<double> scale;  // range -> output factor per pixel (pinhole: 1 / |unnormalised ray| = z-depth per metre; spherical: 1)
+  double cutoff = 0;  // Euclidean ray length that can still give an output <= max_r
+  int sid = -1, body = -1, period = 0;
+};
 
 // ---- state: every mutable quantity, doubles / uint64 only (no padding), saved and hashed byte-for-byte ----
 // "Outputs" (last solved values) live here too: they are cheap, deterministic, and make get() a plain field read.
@@ -197,6 +230,31 @@ struct LauncherState {
 // Camera pose (start of the last tick): world position, optical axis, image-up.
 struct CameraState { double pos[3], fwd[3], up[3]; };
 
+// Solid motor (schema SolidMotor). phase: 0 idle, 1 ignition delay, 2 burning, 3 burnt out. t_ign: s since the ignite command was
+// taken (0 on its first tick); t_burn: s of the curve done; progress: impulse fraction of the curve delivered, in [0, 1]; mass = loaded
+// motor mass now. pos / dir: nozzle point and thrust axis (world, start of the last tick).
+struct SolidMotorState {
+  double ignite, thrust_scale;  // inputs
+  double phase, t_ign, t_burn, impulse, progress, burned, mass, thrust;
+  double pos[3], dir[3];
+};
+// Airframe outputs of the last tick: the aerodynamic force (world, N), the angle of attack (rad, 0 without airflow) and the CP air speed.
+struct AirframeState { double force[3], alpha, speed; };
+// Sea: its own clock (s), the wave amplitude multiplier and the current (inputs; the vertical current is ignored).
+// The wave table is a copy of the (constant) config, [amplitude, k, w, direction, phase] per component, so that clients can read the
+// exact surface function (napl.hydro re-implements it) and it is part of the saved state.
+constexpr int kMaxWaves = 64;
+struct SeaState {
+  double time, wave_scale, current[3], eta0;  // eta0: surface elevation at the world origin (output)
+  double n_waves, waves[5 * kMaxWaves];
+};
+// Vessel outputs of the last tick: buoyancy force (world), submerged volume, wetted fraction, surface elevation at the body origin,
+// hydrodynamic damping + added-mass force (world).
+struct VesselState { double buoyancy[3], submerged, wetted, eta, hydro[3]; };
+// Range sensor: the image itself lives in Devices::range_img (derived output, not saved; a restored run holds the old image until its
+// next sample). frames: samples taken; valid: returns in the last one; t: sim time of the last sample.
+struct RangefinderState { Rng rng; std::uint64_t ticks; double frames, valid, t; };
+
 template <class C, class S> struct Group {
   using Cfg = C;
   using State = S;
@@ -220,9 +278,15 @@ struct Devices {
   Group<GnssCfg, GnssState> gnss;
   Group<LauncherCfg, LauncherState> launcher;
   Group<CameraCfg, CameraState> camera;
+  Group<SolidMotorCfg, SolidMotorState> motor;
+  Group<AirframeCfg, AirframeState> airframe;
+  Group<SeaCfg, SeaState> sea;  // 0 or 1 element
+  Group<VesselCfg, VesselState> vessel;
+  Group<RangefinderCfg, RangefinderState> range;
   int n_nodes = 0;  // highest node id used
   struct Slot {
-    enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss, launcher, camera } type;
+    enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss, launcher, camera, motor, airframe, sea,
+                vessel, range } type;
     int i;
   };
   std::vector<Slot> slots;  // prim order: type by type, config order within a type
@@ -232,6 +296,7 @@ struct Devices {
   std::vector<double> drv_ic;
   std::vector<int> psu_lim;
   std::vector<double> qvel_k, qvel_k1;  // scratch of the IMU acceleration (sensors.cpp): qvel before / after mj_step2
+  std::vector<std::vector<double>> range_img;  // the held image of each range sensor (rangefinder.cpp), n_v * n_h, not part of the state
 };
 
 std::optional<std::string> config_text(const mjModel* m);  // the "napl.devices" custom text, if any
@@ -259,6 +324,21 @@ void sample_sensors(const mjModel* m, mjData* d, Devices& dv);
 // Launcher + camera (launcher.cpp), between the forces and mj_step2, from the kinematics of mj_step1: camera / muzzle pose,
 // a pending fire command spawns a pellet, every pellet flies one tick (RK4 + swept ray test), mocap visuals follow.
 void step_launchers(const mjModel* m, mjData* d, Devices& dv);
+
+// Solid motors and rocket airframes (rocket.cpp). prepare_motors, BEFORE mj_step1: sets mass / inertia / CoM of every motor body (and
+// the subtree masses) from the motor state. step_motors / step_airframes, with the other forces, from the kinematics of mj_step1.
+void prepare_motors(mjModel* m, Devices& dv);
+void step_motors(const mjModel* m, mjData* d, Devices& dv);
+void step_airframes(const mjModel* m, mjData* d, Devices& dv);
+
+// Water (vessel.cpp). Surface elevation at (x, y) at the sea's clock, 0-level plane without a sea; the current (world, horizontal).
+double sea_eta(const Devices& dv, double x, double y);
+void sea_current(const Devices& dv, double out[3]);
+// Last force phase: buoyancy, hydrodynamic damping and the added-mass correction of every vessel, then the sea clock advances.
+void step_vessels(const mjModel* m, mjData* d, Devices& dv);
+
+// Range sensors (rangefinder.cpp): post-step hook, samples the ones that are due from the kinematics of the tick just stepped.
+void sample_ranges(const mjModel* m, mjData* d, Devices& dv);
 
 std::size_t state_bytes(const Devices& dv);
 void save_state(const Devices& dv, std::byte* out);

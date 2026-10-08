@@ -345,7 +345,8 @@ is what `tests/python/test_hud.py` uses.
 **Look.** `napl.render_style("studio,edges")` (or `NAPL_RENDER_STYLE=studio,edges` in the environment) sets the process-wide look of
 `Sim.render` and the viewer: `outdoor` (default for simulation: gradient sky with a warm horizon, procedural clouds, sun glare, dark
 ground fading into the haze) or `studio` (neutral backdrop, metre grid; the Design window's default), `edges` (dark CAD-style crease
-outlines), `noshadows` (the sun shadow map), `nowires`. Specular follows the MuJoCo material (`specular`, `shininess`, `metallic`,
+outlines), `noshadows` (the sun shadow map), `nowires`, `boldwires` (cables at least 4 px wide on screen at any zoom; the data keeps their
+true diameter; the Design window turns it on for BUILD / LIBRARY / WIRING, toolbar WIRES). Specular follows the MuJoCo material (`specular`, `shininess`, `metallic`,
 `roughness`); output is 4x MSAA and sRGB.
 
 **Wires are tubes.** Every wire of the design is drawn from terminal to terminal, one tube per conductor, following its bodies
@@ -355,7 +356,10 @@ between the wire's length and the straight distance. They are spatial tendons wi
 (state hashes) are unchanged.
 
 **2D wiring.** In the "wiring (2D)" window pick components and the terminals to wire, press `flatten >`: the view fades to a canvas
-of cards (component name, chosen terminals as pins coloured by kind). Drag pin to pin to wire them (the `autowire` rules: kind,
+of cards (component name, chosen terminals as pins coloured by kind), laid out as a signal flow: sources (batteries) left, then power
+modules / PDBs, ESCs / controllers, loads (motors) right; parts without power terminals (receivers, GPS, sensors) form a second band
+below. Pins sit on the card side facing their peers, wires are routed orthogonally around the cards (the backend routes them:
+`flatten.state` carries each wire's `route` polyline and `label` position), and a legend explains the marks. Drag pin to pin to wire them (the `autowire` rules: kind,
 connector type, gender, voltage; a refusal shows its reason), click a wire to set gauge / length or delete it, `back to 3D` and the
 new wires are tubes. Every action is a design_api op an agent can send (`flatten.begin / layout / move_card / wire / set_wire /
 unwire / state / end`, see `python/napl/design/wire2d.py`); a window watching the same `Backend` shows the cards appear and each

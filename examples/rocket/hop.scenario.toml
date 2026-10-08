@@ -1,0 +1,66 @@
+# napl program examples/rocket/hop.scenario.toml --runs-dir <dir>
+# Rocket hop: the passive model-rocket hopper (assemblies/rocket-hopper.toml: 4 in tube, ogive nose, 4 fins, Estes E16, 4 soft legs) stands on the
+# floor, ignites at 0.5 s, climbs, burns out, coasts and falls back onto its legs. hop.py OWNS the Sim and writes trace.csv; the runner judges the
+# monitors and re-runs replay.naplog through napl-replay for the state hash. Needs no extras. See docs/models.md (solid rocket motor, airframe).
+name = "rocket-hop"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/hop.py"]
+
+[limits]
+wall_s = 300
+cpu_s = 300
+
+[[monitors]]
+name = "stands_on_the_pad"             # before ignition (t < 0.5 s): still on its legs, upright, no drift
+column = "tilt_deg"
+op = "always"
+from = 0.05
+to = 0.45
+hi = 0.5
+
+[[monitors]]
+name = "lifts_off"                     # climbs at least 15 m (the E16 sends this 0.84 kg vehicle to tens of metres)
+column = "z_m"
+op = "eventually"
+lo = 15
+
+[[monitors]]
+name = "burns_the_certified_impulse"   # delivered impulse = the E16 curve integral (33.6 N s; certified 33.4 N s)
+column = "impulse_Ns"
+op = "final"
+lo = 33.0
+hi = 34.2
+
+[[monitors]]
+name = "propellant_gone"               # loaded motor 82 g -> 42 g casing after the burn
+column = "mass_kg"
+op = "final"
+lo = 0.0419
+hi = 0.0421
+
+[[monitors]]
+name = "stays_nose_first"              # weathercocking keeps the angle of attack small on the way up (stability margin > 0)
+column = "alpha_deg"
+op = "always"
+from = 1.2
+to = 3.3
+hi = 20
+
+[[monitors]]
+name = "lands_on_its_legs"             # back on the ground, upright, at the end of the run
+column = "z_m"
+op = "final"
+lo = -0.02
+hi = 0.05
+
+[[monitors]]
+name = "lands_upright"
+column = "tilt_deg"
+op = "final"
+hi = 15

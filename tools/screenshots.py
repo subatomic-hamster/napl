@@ -106,6 +106,7 @@ def xvfb_png(out, script, expect, settle, fbdir, steps=()):
 
     d = Design.open(REPO / "assemblies" / "x500v2.toml")
     b = Backend(lambda: d, tempfile.mkdtemp(prefix="napl-shot-"))
+    b.auto_thumbs = True  # the library shows real thumbnails (rendered in the background on the first run, then cached)
     sim = Sim.load(b.state(d)["xml"], host=True)
     shot = []
 

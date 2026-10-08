@@ -138,6 +138,11 @@ table Rotor {
   // clamped at the ends. re_x strictly increasing and > 0; re_ft / re_fq > 0, equal length. The j / ct / cq tables are
   // then the coefficients at the x where f = 1 (the caller's reference).
   re_x: [double]; re_ft: [double]; re_fq: [double];
+  // water = true: a marine propeller in the Sea (needs one): rho = the sea's, relative velocity = body velocity - current, no wind /
+  // H-force / ground effect, thrust and torque x immersion = clamp(1/2 + (eta - z_hub) / diameter, 0, 1) (ventilation at the surface).
+  // C_T / C_Q are the usual K_T / K_Q of the open-water curve (same definitions, rho = water). The outputs `rho` = the water density
+  // and `ge_ratio` = the immersion factor (the ground-effect field is unused in water).
+  water: bool;
 }
 
 // At most one. World frame, z up; world z = 0 is ground level (AGL for turbulence) and origin_alt metres MSL (ISA).
@@ -252,12 +257,115 @@ table Camera {
   fov_v: double; width: int; height: int; rate_hz: double;
 }
 
+// Solid rocket motor (phase 5): thrust from a published thrust curve (RASP .eng points, linear between points, (0, 0) implied at
+// t = 0 unless time[0] = 0), applied at `site` along the site +z axis (site +z = towards the nose; the site sits at the nozzle exit).
+// `ignite` (input, set 1: consumed by the next tick) starts the clock; thrust begins `ignition_delay` s later. Per tick the force is
+// the mean of the curve over the tick, so the delivered impulse equals the curve's integral exactly whatever dt is. The propellant
+// burns in proportion to the impulse delivered: mass = total_mass - propellant_mass * (impulse fraction of the curve). The device
+// OWNS the inertia of `body` (it must hold the motor only): mass, a uniform cylinder (axis = site z, centre half a length ahead of
+// the site), recomputed from the state at the start of every tick, so a restored / cloned / replayed run is bitwise the same.
+table SolidMotor {
+  name: string (required); parts: [string];
+  body: string (required); site: string (required);
+  time: [double]; thrust: [double];  // curve: s, N; equal length, time strictly increasing, last thrust 0
+  propellant_mass: double;           // kg
+  total_mass: double;                // kg, loaded motor (casing + propellant + delay element)
+  diameter: double; length: double;  // m, casing outer (inertia only)
+  ignition_delay: double;            // s from the command to first thrust
+  thrust_scale: double = 1.0;        // initial value of the input (lot variation / a degraded motor); the burn progress is unaffected
+}
+
+// Slender-body aerodynamics of a rocket airframe (Barrowman-style), on `body`, axis = site +z (towards the nose). Relative air
+// velocity v at the centre of pressure (site + x_cp z, wind and turbulence of the environment device subtracted), split into the
+// axial part v_a = v.z and the cross-flow part v_p; rho = ISA at the body:
+//   F_axial = -1/2 rho s_ref cd |v_a| v_a z   (cd = cd0 for v_a >= 0, cd_rev for v_a < 0: tail-first flow)
+//   F_cross = -1/2 rho [ s_ref cn_alpha |v_a| + s_plan cd_cross |v_p| ] v_p
+// (small angle: F_cross = q s_ref cn_alpha alpha; large angle: cross-flow drag on the planform). Applied at the CP.
+table Airframe {
+  name: string (required); parts: [string];
+  body: string (required); site: string (required);
+  s_ref: double;          // m^2, reference area (body cross-section)
+  cd0: double;            // axial drag coefficient on s_ref, nose-first flow
+  cd_rev: double;         // axial drag coefficient on s_ref, tail-first flow (0 = same as cd0)
+  cn_alpha: double;       // normal-force slope per rad on s_ref (Barrowman sum)
+  x_cp: double;           // m, centre of pressure ahead of the site along +z (negative = behind)
+  s_plan: double;         // m^2, planform area for the cross-flow term (0 = none)
+  cd_cross: double = 1.2; // cross-flow drag coefficient of the planform
+}
+
+// A displacement hull of a Vessel: a prismatic body sampled into cells (cell volumes sum to the analytic volume). `shape` "box":
+// size = full extents x, y, z; "cylinder": axis x, size = (length, width, height) of the elliptical section. pos = centre in the
+// body frame. n = cells along x, y, z.
+table Hull {
+  shape: string; pos: [double]; size: [double]; n: [int];
+}
+// One regular wave component: surface eta = amplitude cos(k (x cos dir + y sin dir) - w t + phase), w from the period T (deep water,
+// or finite depth if the Sea has depth > 0).
+table Wave { amplitude: double; period: double; direction: double; phase: double; }
+// JONSWAP sea (unidirectional): n components, one frequency drawn per bin over [0.5, 3.5] wp, amplitude sqrt(2 S dw), random phases,
+// S normalised so that Hm0 = hs. seed 0 = derived.
+table Jonswap { hs: double; tp: double; gamma: double = 3.3; n: int = 24; direction: double; seed: uint64; }
+
+// The water of the scene (at most one): still-water level (world z), density, uniform steady current, regular waves and / or a
+// JONSWAP sea. Surface elevation eta(x, y, t) = level + wave_scale * sum a_i cos(k_i (x cos th_i + y sin th_i) - w_i t + phi_i) with
+// t = the device's own clock (starts at 0 with the sim). No orbital velocities, no spatial current shear. Rotors with `water` and
+// every Vessel use it.
+table Sea {
+  name: string (required); parts: [string];
+  rho: double = 998.2;    // kg/m^3 (fresh water at 20 degC; seawater ~1025)
+  level: double;          // m, still-water surface height
+  depth: double;          // m, water depth for the wave dispersion (0 = deep water)
+  current: [double];      // 3 values m/s world (the vertical part is ignored), empty = still; settable
+  waves: [Wave];
+  jonswap: Jonswap;
+}
+
+// A body that floats and moves in the Sea (Fossen 6-DOF with diagonal body-frame coefficients; body frame x forward, y left, z up;
+// the vessel's rigid-body mass / inertia are MuJoCo's). `hulls` give the buoyancy: per cell f = clamp(1/2 + (eta - z_c) / e_z, 0, 1),
+// e_z = the cell's vertical extent in the world, force rho g v f up at the cell centre. Hydrodynamics scale with the wetted
+// fraction fw = min(1, rho sum(v f) / M), M = the body's subtree mass (the displacement relative to the design one: 1 at the design
+// waterline, less as the hull lifts out), with v_r = body velocity - current:
+//   tau_D = -fw [ D_lin v_r + D_quad |v_r| v_r ],   tau_A = -fw [ M_A dv_r/dt + C_A(v_r) v_r ]   (3-DOF Munk terms)
+// added_mass / damp_lin / damp_quad: 6 values each in the order surge, sway, heave, roll, pitch, yaw (positive: kg, N s/m, N s^2/m^2,
+// kg m^2, N m s, N m s^2 per axis), or empty (= 0). Added mass is solved exactly against the rest of the multibody (Woodbury,
+// vessel.cpp), not lagged.
+table Vessel {
+  name: string (required); parts: [string];
+  body: string (required);
+  hulls: [Hull];
+  added_mass: [double]; damp_lin: [double]; damp_quad: [double];
+}
+
+// Range sensor on a site (depth camera, ToF, lidar): deterministic CPU ray casts (mj_multiRay) against the geoms of `ray_groups`,
+// every 1 / rate_hz s, from the pose of the sampling tick. Frame as the Camera: looks along site +z, image up = site +x, right = +y.
+//   projection "pinhole" (depth camera): pixel (i row from the top, j column from the left) looks along
+//     (tan(fov_v/2) (1 - 2(i+0.5)/n_v), tan(fov_h/2) (2(j+0.5)/n_h - 1), 1); the output is the depth along +z = range / |that vector|.
+//   projection "spherical" (lidar / ToF): azimuth about the site +x axis (from +z towards +y) a_j = fov_h ((j+0.5)/n_h - 1/2),
+//     elevation (towards +x) e_i = fov_v (1/2 - (i+0.5)/n_v); the output is the range along the ray.
+// Outputs (row-major n_v x n_h): 0 = no return (out of [min_range, max_range] or dropped). Error model per valid ray:
+//   r' = r + (sigma0 + sigma1 r + sigma2 r^2) g, rounded to `resolution`, then dropped with probability `dropout`;
+//   a result outside [min_range, max_range] is 0. Draws from the device RNG: g (if the sigma is non-zero), then the dropout uniform
+//   (if dropout > 0), per valid ray in row-major order.
+table Rangefinder {
+  name: string (required); parts: [string];
+  site: string (required); rate_hz: double;
+  projection: string;       // "pinhole" (default) | "spherical"
+  fov_h: double; fov_v: double;  // rad, full angles
+  n_h: int; n_v: int;
+  min_range: double; max_range: double;
+  sigma0: double; sigma1: double; sigma2: double;
+  resolution: double; dropout: double;
+  ray_groups: uint = 63;
+  seed: uint64;
+}
+
 table Devices {
   seed: uint64;           // top-level seed for per-device RNG streams
   batteries: [Battery]; psus: [Psu]; wires: [Wire]; loads: [Load]; escs: [Esc];
   rotors: [Rotor]; environments: [Environment]; body_drags: [BodyDrag]; servos: [Servo];
   imus: [Imu]; baros: [Baro]; mags: [Mag]; gnss_receivers: [Gnss];
   launchers: [Launcher]; cameras: [Camera];
+  solid_motors: [SolidMotor]; airframes: [Airframe]; seas: [Sea]; vessels: [Vessel]; rangefinders: [Rangefinder];
 }
 
 root_type Devices;

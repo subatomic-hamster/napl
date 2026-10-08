@@ -76,6 +76,11 @@ DEVICE_TYPES = {
     "body_drag",
     "launcher",
     "camera",
+    "solid_motor",
+    "airframe",
+    "sea",
+    "vessel",
+    "rangefinder",
 }
 UNITS = {
     "m": {"m": 1.0},

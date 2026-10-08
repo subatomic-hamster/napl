@@ -246,6 +246,7 @@ struct Geo {
 struct State {
   std::string rev, xml, build_error, path;  // xml empty: the design does not build (build_error says why)
   int undo = 0, redo = 0;
+  std::vector<std::string> hist_undo, hist_redo;  // HISTORY tab: last undo steps (oldest first), redo steps (next first)
   Report report;
   std::map<std::string, std::vector<Port>> ports;  // instance id -> its ports
   std::map<std::string, Geo> geo;
@@ -263,6 +264,8 @@ inline State state_from(const Json& j) {
   s.path = j.s("path");
   s.undo = static_cast<int>(j.n("undo"));
   s.redo = static_cast<int>(j.n("redo"));
+  for (const Json& h : j.at("history").at("undo").arr) s.hist_undo.push_back(h.str);
+  for (const Json& h : j.at("history").at("redo").arr) s.hist_redo.push_back(h.str);
   s.report = report_from(j.at("report"));
   for (const auto& [id, list] : j.at("ports").obj) {
     std::vector<Port>& v = s.ports[id];

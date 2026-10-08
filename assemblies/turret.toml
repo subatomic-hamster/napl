@@ -55,6 +55,32 @@ part = "raspberry-pi-5"
 group = "sensing"
 params = { mass = { value = 0.046, unit = "kg", fidelity = "estimated", rationale = "The Raspberry Pi 5 product brief publishes no mass; a bare Pi 5 board weighs about 45-50 g, 46 g taken. Only its inertia on the base plate depends on it." } }
 
+# The Pi rests on four M2.5 brass standoffs (14 mm body: the plate's compute_seat plane is 14 mm above its top face). They stand at the board's
+# four holes (58 x 49 mm pattern, turned so the 85 mm side runs along y), welded to the plate; the stud end passes through the board.
+[[instances]]
+id = "pi_so1"
+part = "ettinger-05-12-143-m2.5-standoff"
+group = "sensing"
+pos = [-0.0375, 0.029, 0.0]
+
+[[instances]]
+id = "pi_so2"
+part = "ettinger-05-12-143-m2.5-standoff"
+group = "sensing"
+pos = [-0.0375, -0.029, 0.0]
+
+[[instances]]
+id = "pi_so3"
+part = "ettinger-05-12-143-m2.5-standoff"
+group = "sensing"
+pos = [-0.0865, 0.029, 0.0]
+
+[[instances]]
+id = "pi_so4"
+part = "ettinger-05-12-143-m2.5-standoff"
+group = "sensing"
+pos = [-0.0865, -0.029, 0.0]
+
 # The pellet is the launcher device's ammunition (mass, calibre, drag); no body.
 [[instances]]
 id = "pellet"
