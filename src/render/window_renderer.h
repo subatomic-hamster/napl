@@ -39,6 +39,8 @@ class WindowRenderer {
   const std::string& device_name() const;
   Handles handles() const;
   void set_scene(std::span<const GeomVisual> visuals);
+  void set_tubes(std::span<const TubeVisual> tubes);  // the cables of the next frame() (copied; call every frame)
+  void set_style(const RenderStyle& s);               // overrides the process default (see renderer.h)
 
   // Draws the scene, then overlay(command_buffer) inside a second rendering pass on the same colour target, and
   // presents. (width, height) = the window's framebuffer size; 0 = minimised. Returns false if nothing was presented

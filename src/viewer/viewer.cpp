@@ -26,7 +26,7 @@
 #include "viewer/design.h"
 #include "viewer/library_ui.h"
 #include "viewer/theme.h"
-#include "viewer/wire2d_slot.h"
+#include "viewer/wire2d.h"
 
 namespace {
 using Env = std::vector<std::uint8_t>;
@@ -242,6 +242,11 @@ class Viewer {
       return s;
     };
     WindowRenderer renderer(surf);
+    if (opts_.design_api) {  // the build view looks like a studio; NAPL_RENDER_STYLE still overrides
+      RenderStyle st = default_render_style();
+      st.sky = RenderStyle::Sky::studio;
+      set_default_render_style(st);
+    }
     ImGuiBackends gui(window.w, renderer.handles());
     theme::init();
     libui::Thumbs thumbs;
@@ -276,6 +281,7 @@ class Viewer {
 
       int fw = 0, fh = 0;
       glfwGetFramebufferSize(window.w, &fw, &fh);
+      renderer.set_tubes(cur_.tubes);
       const bool drawn = renderer.frame(cur_.poses, view_cam_, fw, fh, [](VkCommandBuffer cb) {
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
       });
@@ -575,6 +581,13 @@ class Viewer {
       dstatus_ = rq.kind + ": " + e.what();
       return;
     }
+    if (rq.kind.rfind("flatten.", 0) == 0) {  // the 2D wiring canvas (wire2d.cpp) owns these replies
+      const bool was_flat = flat_.active();
+      flat_.on_reply(rq.kind, j);
+      if (flat_.active() != was_flat) set_mode(flat_.active() ? "wiring" : "build");  // flatten.begin / .end (UI or agent)
+      if (j.at("ok").num != 0 && j.at("state").kind == design::Json::Obj) apply_state(j.at("state"));
+      return;
+    }
     if (j.at("ok").num == 0) {
       if (!rq.quiet) dstatus_ = rq.kind + ": " + j.s("error");
       if (rq.kind == "edit") cycling_ = -1;
@@ -583,6 +596,7 @@ class Viewer {
     dstatus_.clear();
     const design::Json& res = j.at("result");
     if (rq.kind == "rev") {
+      flat_.poll(static_cast<int>(res.n("flat_rev")));
       if (!res.at("rev").str.empty() && res.at("rev").str != dstate_.rev) d_state(true);
       return;
     }
@@ -1535,21 +1549,10 @@ class Viewer {
     wiring_tab(sel_instance());
     ImGui::End();
     const ImVec2 pos{300, kTop}, size{W - 300, H - kTop - kStatus};
-#ifdef NAPL_HAS_WIRE2D
     begin_pane("##wire2d", pos, size, true);
-    Wire2dSlot slot{pos, size, &dstate_, sel_.empty() ? "" : sel_.back(), [this](const std::string& r) { dreq("edit", r); }};
-    wire2d_draw(slot);
+    ImGui::SetCursorPos({0, 0});
+    flat_.page(size, dstate_, sel_.empty() ? "" : sel_.back());  // the picker, or the flattened canvas (wire2d.cpp)
     ImGui::End();
-#else
-    begin_pane("##wire2d", pos, size, true);
-    ImGui::SetCursorPos({40, 40});
-    theme::caption("2D WIRING");
-    ImGui::SetCursorPosX(40);
-    ImGui::TextDisabled("The flattened wiring view is not part of this build (src/viewer/wire2d.cpp).");
-    ImGui::SetCursorPosX(40);
-    ImGui::TextDisabled("Use AUTOWIRE on the left, or the 3D wires in BUILD.");
-    ImGui::End();
-#endif
   }
 
   void simulate_panes(float W, float H) {
@@ -2272,6 +2275,9 @@ class Viewer {
   // Design editing (all driven through opts_.design_api, see viewer.h)
   design::State dstate_;
   std::deque<DReq> dq_;
+  wire2d::Canvas flat_{[this](const std::string& tool, const std::string& args, bool quiet) {
+    dq_.push_back({tool, quiet, [tool, args] { return design::request(tool, args); }});
+  }};
   DReq dcur_;
   std::future<std::string> dfut_;
   bool draining_ = false, keep_camera_ = false;

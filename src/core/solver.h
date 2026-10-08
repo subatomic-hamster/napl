@@ -27,7 +27,17 @@ struct GeomVisual {
   double size[3] = {0, 0, 0};
   float rgba[4] = {0.5f, 0.5f, 0.5f, 1};
   int group = 0;            // renderers hide group 3 only (collision-only geoms); 4 = design builder's vehicle geoms
+  // MuJoCo material (defaults = MuJoCo's own): specular strength, shininess (x128 = Blinn-Phong exponent); metallic /
+  // roughness < 0 = unset (then only specular / shininess shade the highlight).
+  float specular = 0.5f, shininess = 0.5f, metallic = -1, roughness = -1;
   std::vector<float> mesh;  // mesh only: unrolled triangles, per vertex position xyz then normal xyz (geom frame)
+};
+// A cable drawn as a tube through world points (MuJoCo spatial tendon through sites). `length` = the cable's real
+// length (tendon resting length; <= the point path => taut); the renderer sags the slack. pts: xyz triples, world, double.
+struct TubeVisual {
+  double radius = 0.001, length = 0;
+  float rgba[4] = {0.5f, 0.5f, 0.5f, 1};
+  std::vector<double> pts;
 };
 // World pose of a geom frame: position in DOUBLE (the renderer subtracts the camera in double) + row-major 3x3 rotation.
 struct GeomPose {
@@ -60,6 +70,7 @@ class Solver {
   // Rendering / sensing seam. Pure reads: they change no state (derived kinematics only, never hashed).
   virtual std::vector<GeomVisual> visuals() const = 0;
   virtual std::vector<GeomPose> poses() const = 0;
+  virtual std::vector<TubeVisual> tubes() const { return {}; }  // cables (visual only, follow their bodies)
   // Ray distances in metres from `origin` (3 doubles) along each direction (3 doubles each, any nonzero length; the
   // solver normalises). -1 = no hit. Deterministic. Nothing is excluded.
   virtual std::vector<double> raycast(std::span<const double> origin, std::span<const double> directions) const = 0;
