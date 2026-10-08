@@ -116,10 +116,32 @@ def servo_case(c, **_):
 def gearmotor(c, **_):
     """Brushed DC gearmotor with metal gearbox and rear encoder (Pololu 37D). Frame: mounting face at z = 0, body towards
     -z, output shaft towards +z."""
-    d = c.p("body_diameter", "diameter") or 0.037
+    d = c.p("body_diameter", "diameter")
     Lb = c.p("body_length", "length") or 0.068
     sd = c.p("shaft_diameter") or 0.006
     sl = c.p("shaft_length") or 0.0156
+    if d is None and c.p(
+        "body_width"
+    ):  # rectangular micro metal gearmotor: steel gearbox block, rounded can behind it
+        w, h = c.p("body_width"), c.p("body_height") or c.p("body_width")
+        lg = 0.42 * Lb
+        gearbox = rbox([w, h, lg], 0.0004, 1).at([0, 0, -lg / 2])
+        can = rbox([w * 0.97, h * 0.97, Lb - lg], 0.3 * min(w, h), 5).at(
+            [0, 0, -lg - (Lb - lg) / 2]
+        )
+        shaft = revolve(
+            [(0, -0.002), (sd / 2, -0.002), (sd / 2, sl), (0, sl)], 24
+        )  # (the real shaft is D-shaped; round here)
+        return {
+            "gearbox": gearbox,
+            "can": can,
+            "cap": Mesh(),
+            "pcb": Mesh(),
+            "magnet": Mesh(),
+            "shaft": shaft,
+            "bolt": Mesh(),
+        }
+    d = d or 0.037
     r = d / 2
     lg = 0.40 * Lb  # gearbox length
     gearbox = merge(
@@ -254,8 +276,10 @@ def stepper_nema(c, **_):
     towards -z, shaft towards +z."""
     f = c.p("flange_size") or 0.0423
     Lb = c.p("body_length") or 0.04
-    sd = c.p("shaft_diameter") or 0.005
-    sl = c.p("shaft_length") or 0.022
+    sd = (
+        c.p("shaft_diameter", "screw_diameter") or 0.005
+    )  # lead-screw steppers: the screw is the shaft
+    sl = c.p("shaft_length", "screw_length") or 0.022
     ch = 0.07 * f
     h = f / 2
     sq = np.array(
@@ -370,7 +394,7 @@ def bearing(c, **_):
 def standoff(c, **_):
     """Hex standoff, with a threaded stud on one end when the part has stud_length. Frame: base at z = 0, along +z."""
     af = c.p("across_flats") or 0.005
-    L = c.p("body_length", "overall_length") or 0.01
+    L = c.p("body_length", "overall_length", "length") or 0.01
     td = c.p("thread_diameter") or 0.003
     body = extrude(
         _hex(af), 0, L, [circle(td / 2, 16)] if not c.p("stud_length") else []
@@ -388,9 +412,14 @@ def screw(c, **_):
     td = c.p("thread_diameter") or 0.003
     af = c.p("across_flats", "width_across_flats")
     L = c.p("length")
-    if af and not L:
+    fd = c.p("flange_diameter")
+    if (af or fd) and not L:
         h = c.p("height", "height_max") or 0.8 * td
-        return {"nut": extrude(_hex(af), 0, h, [circle(td / 2, 16)])}
+        nut = extrude(_hex(af or 1.75 * td), 0, h, [circle(td / 2, 16)])
+        if fd:  # flange nut: round flange under the hex
+            tf = 0.25 * h
+            nut = merge([nut, extrude(circle(fd / 2, 40), 0, tf, [circle(td / 2, 16)])])
+        return {"nut": nut}
     L = L or 4 * td
     hd = c.p("head_diameter") or 1.6 * td
     hh = c.p("head_height") or td
@@ -407,6 +436,52 @@ def screw(c, **_):
         32,
     )
     return {"head": head, "shank": cylinder(td / 2, L, 20, -L)}
+
+
+@gen("diabolo_pellet", body="steel")
+def diabolo_pellet(c, **_):
+    """Diabolo airgun pellet: domed head, narrow waist, flared hollow skirt. Proportions of a .177 (4.5 mm) pellet scaled by the
+    head diameter (the part publishes only the head size). Frame: skirt base at z = 0, nose towards +z."""
+    d = c.p("head_diameter_max", "head_diameter_min", "caliber") or 0.00452
+    k = d / 0.0045
+    r = d / 2
+    ri = 0.36 * d  # skirt cavity
+    prof = [
+        (ri, 0),
+        (1.02 * r, 0),
+        (1.0 * r, 0.0014 * k),
+        (0.82 * r, 0.0020 * k),
+        (0.78 * r, 0.0027 * k),  # waist
+        (1.0 * r, 0.0033 * k),
+        (1.0 * r, 0.0044 * k),
+        (0.78 * r, 0.0052 * k),  # domed nose
+        (0.4 * r, 0.0056 * k),
+        (0.0, 0.0057 * k),
+        (0.0, 0.0030 * k),  # cavity apex
+        (ri, 0.0006 * k),
+    ]
+    return {"body": revolve(prof, 36)}
+
+
+@gen("heat_insert", body="brass")
+def heat_insert(c, **_):
+    """Threaded heat-set insert (CNC Kitchen / Ruthex): brass barrel with alternating knurl bands and a threaded bore. Frame: top
+    face at z = 0, body towards -z."""
+    od = c.p("outer_diameter") or 0.005
+    cd = c.p("centre_diameter") or 0.92 * od
+    L = c.p("length") or 1.5 * od
+    hd = (
+        0.62 * od
+    )  # threaded bore (the part's hole_diameter is the hole to print, not the bore)
+    ro, rc = od / 2, min(cd, od) / 2
+    rr = [ro, rc, ro, rc, ro, rc, ro]  # bands from the top down
+    nb = len(rr)
+    prof = [(hd / 2, -L)]
+    for i in range(nb - 1, -1, -1):
+        z0, z1 = -L * (i + 1) / nb, -L * i / nb
+        prof += [(rr[i], z0), (rr[i], z1)]
+    prof.append((hd / 2, 0))
+    return {"body": revolve(prof, 36)}
 
 
 @gen("pulley", body="alu-brushed", flange="alu-brushed")
@@ -461,12 +536,31 @@ def shaft_collar(c, **_):
     }
 
 
+@gen("hub_disc", body="alu-anodised-black")
+def hub_disc(c, **_):
+    """Universal mounting hub (Pololu): short disc with a centre bore and four threaded mounting holes in the face. Frame: shaft-side
+    face at z = 0, mounting face at +z, axis z."""
+    D = c.p("outer_diameter") or 0.019
+    t = c.p("thickness", "width") or 0.005
+    bore = c.p("bore_diameter") or 0.005
+    holes = [
+        circle(0.0016, 12, (0.31 * D * math.cos(a), 0.31 * D * math.sin(a)))
+        for a in (0, PI / 2, PI, 3 * PI / 2)
+    ]
+    return {"body": extrude(circle(D / 2, 48), 0, t, [circle(bore / 2, 24)] + holes)}
+
+
 @gen("plate_outline", plate="carbon-fibre")
 def plate_outline(c, **_):
     """Flat plate from its geometry box (rounded corners, holes at the part's bolt-pattern ports). Frame: part frame."""
     b = c.bounds()
     if b is None:
-        L, W, H = _dims(c, 0.1, 0.1, c.p("thickness") or 0.002)
+        L, W, H = _dims(
+            c,
+            0.1,
+            0.1,
+            c.p("thickness", "thickness_actual", "thickness_nominal") or 0.002,
+        )
         lo, hi = np.array([-L / 2, -W / 2, -H / 2]), np.array([L / 2, W / 2, H / 2])
     else:
         lo, hi = b

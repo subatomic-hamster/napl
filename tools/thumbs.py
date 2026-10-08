@@ -125,12 +125,18 @@ def main():
         "--sheet", help="also write a contact sheet PNG of the rendered tiles"
     )
     ap.add_argument("--sheet-cols", type=int, default=4)
+    ap.add_argument(
+        "--sheet-dir",
+        help="also write per-category contact sheets <dir>/<category>-<n>.png (--sheet-cols x --sheet-rows tiles each) and print "
+        "their id order (row-major)",
+    )
+    ap.add_argument("--sheet-rows", type=int, default=5)
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     lib = Library(a.parts)
     cache = out.resolve() / "visuals"
-    index, skipped, tiles = {}, [], []
+    index, skipped, tiles, by_cat = {}, [], [], {}
     ids = a.ids or sorted(lib.parts)
     for pid in ids:
         part = lib.get(pid)
@@ -181,6 +187,9 @@ def main():
             )
             (out / f"{pid}.png").write_bytes(_napl.encode_png(rgba))
             tiles.append(rgba)
+            by_cat.setdefault(".".join(part.category.split(".")[:2]), []).append(
+                (pid, rgba)
+            )
             meta["thumb"] = f"{pid}.png"
         finally:
             Path(fh.name).unlink(missing_ok=True)
@@ -195,6 +204,25 @@ def main():
             r, c = divmod(i, cols)
             sheet[r * a.size : (r + 1) * a.size, c * a.size : (c + 1) * a.size] = t
         Path(a.sheet).write_bytes(_napl.encode_png(sheet))
+    if a.sheet_dir:
+        sd = Path(a.sheet_dir)
+        sd.mkdir(parents=True, exist_ok=True)
+        per = a.sheet_cols * a.sheet_rows
+        for cat, items in sorted(by_cat.items()):
+            for k in range(0, len(items), per):
+                chunk = items[k : k + per]
+                rows = -(-len(chunk) // a.sheet_cols)
+                sheet = np.full(
+                    (rows * a.size, a.sheet_cols * a.size, 4), 255, np.uint8
+                )
+                for i, (_, t) in enumerate(chunk):
+                    r, c = divmod(i, a.sheet_cols)
+                    sheet[
+                        r * a.size : (r + 1) * a.size, c * a.size : (c + 1) * a.size
+                    ] = t
+                name = f"{cat}-{k // per}.png"
+                (sd / name).write_bytes(_napl.encode_png(sheet))
+                print(f"sheet {name}: " + " ".join(p for p, _ in chunk))
     n = sum(1 for m in index.values() if m["thumb"])
     print(f"{n}/{len(ids)} thumbnails in {out}; {len(skipped)} failed {skipped}")
     return 1 if skipped else 0

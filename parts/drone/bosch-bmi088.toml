@@ -27,6 +27,21 @@ accel_sensitivity_at_3g = { value = 10920, unit = "LSB/g", src = "S1", fidelity 
 accel_odr_max          = { value = 1600, unit = "Hz", src = "S1", fidelity = "datasheet" }
 accel_odr_min          = { value = 12.5, unit = "Hz", src = "S1", fidelity = "datasheet" }
 
+[visual]                            # cosmetic only: the bare LGA package, size from the datasheet
+src = "V1"
+note = "3.0 x 4.5 x 0.95 mm LGA housing (datasheet)."
+
+[[visual.elements]]
+gen = "sensor_ic"
+params = { size = [0.0045, 0.003, 0.00095] }
+
+[[sources]]
+id = "V1"
+url = "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi088-ds001.pdf"
+title = "BMI088 Data sheet BST-BMI088-DS000-19 (package size)"
+accessed = "2026-10-08"
+quote = "are packed into one single LGA 3.0mm x 4.5mm x 0.95mm housing."
+
 [[sources]]
 id = "S1"
 url = "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi088-ds001.pdf"
