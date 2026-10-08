@@ -98,6 +98,14 @@ role = "sink"
 v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V (upper end of the 3~6S range in the spec image, S2)." }
 i_max = { value = 35.08, unit = "A", src = "S2", fidelity = "datasheet" }
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "S1"
+note = "Closed unibell FPV motor (listing title says Unibell); the finish is the category default, not read off a photo."
+
+[[visual.elements]]
+gen = "bldc_outrunner"
+params = { vents = false }
+
 [[sources]]
 id = "S1"
 url = "https://rcdrone.top/products/iflight-xing2-2207-fpv-motor"

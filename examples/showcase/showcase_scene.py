@@ -153,7 +153,7 @@ def build(outdir, payload=None):
     # names must not collide (the arm's floor is dropped: the drone's is the ground)
     names = lambda r: {
         e.get("name")
-        for t in ("body", "geom", "joint", "site", "mesh")
+        for t in ("body", "geom", "joint", "site")
         for e in r.iter(t)
         if e.get("name")
     }
@@ -162,7 +162,17 @@ def build(outdir, payload=None):
     assert not clash, f"MJCF name collision: {sorted(clash)}"
     wb.append(base)
     if arm.find("asset") is not None:
-        x5.insert(list(x5).index(wb), arm.find("asset"))
+        # one <asset>: the same visual mesh / material (content-hashed / named) in both builds is shared, a different one is a clash
+        a5 = x5.find("asset")
+        if a5 is None:
+            x5.insert(list(x5).index(wb), arm.find("asset"))
+        else:
+            have = {(e.tag, e.get("name")): e.attrib for e in a5}
+            for e in arm.find("asset"):
+                k = (e.tag, e.get("name"))
+                assert k not in have or have[k] == e.attrib, f"MJCF asset clash: {k}"
+                if k not in have:
+                    a5.append(e)
     # shelf: top = base bottom plane = top-plate height; pillar under the back of the base
     zp, xc, yb, y_pick = L["z_plate"], L["x"], L["y_base"], L["y_pick"]
     y0, y1 = (

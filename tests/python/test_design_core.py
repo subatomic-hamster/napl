@@ -752,7 +752,11 @@ def test_tiny_build_is_byte_identical_loads_and_steps(tmp_path):
         str(tmp_path).encode() not in x1 and str(tmp_path).encode() not in j1
     )  # no absolute paths
     rep = json.loads(j1)
-    names = {g.get("name") for g in ET.fromstring(x1).iter("geom")} - {"floor"}
+    names = {
+        g.get("name")
+        for g in ET.fromstring(x1).iter("geom")
+        if ":v" not in (g.get("name") or "")  # cosmetic visual geoms "<iid>:vK"
+    } - {"floor"}
     assert names == set(rep["geoms"]) == {"plate", "arm"}
     assert rep["geoms"]["arm"] == "cube" and rep["mass"]["total"] == pytest.approx(
         0.5 + 0.063828125
@@ -1148,7 +1152,9 @@ def test_esc_rotor_imu_bindings_load_and_run_in_kernel(tmp_path):
     ), jl
     if napl._napl is None:
         pytest.skip("kernel not built")
-    sim = napl.Sim.load(_write(tmp_path / "drv.xml", xml))
+    sim = napl.Sim.load(
+        _write(tmp_path / "out" / "drv.xml", xml)
+    )  # next to visuals/ (mesh paths are relative)
     sim.step(100)
     assert not sim.diverged
 

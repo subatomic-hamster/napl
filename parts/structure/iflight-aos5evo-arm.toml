@@ -49,6 +49,12 @@ thickness = 0.006
 fidelity = "derived"
 derivation = "Motor 16x16 mm pattern (S1 'Motor Mounting: 16x16mm') at the arm tip: x = arm length 0.0705 m (estimated, see length), z = +0.003 the arm top face (half of the 6 mm thickness, S1). Axis +z: the motor base (axis -z) sits on top of the arm."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+rationale = "The part is a carbon-fibre arm (its name / params); drawn as a rounded carbon plate from the geometry box."
+
+[[visual.elements]]
+gen = "plate_outline"
+
 [[sources]]
 id = "S1"
 url = "https://rcdrone.top/products/aos-5-evo-v1-2-fpv-frame"

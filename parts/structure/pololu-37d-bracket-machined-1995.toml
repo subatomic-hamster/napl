@@ -46,6 +46,14 @@ symmetry = 6
 thickness = 0.006
 note = "'The six holes on the bracket face line up with the six mounting holes on the 37D gearbox' (S1); six M3 screws included."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "S1"
+note = "Machined aluminium (title); bare brushed finish as in the product photo. Drawn from the geometry box."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "alu-brushed" }
+
 [[sources]]
 id = "S1"
 url = "https://www.pololu.com/product/1995/specs"

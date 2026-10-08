@@ -135,6 +135,21 @@ thickness = 0.0
 fidelity = "derived"
 derivation = "Plate-underside datum (mates 'battery_mount' of holybro-x500v2-bottom-plate). The real mount hangs on the rails, not on the plate; the airframe is rigid so only the pose matters."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+src = "V1"
+note = "Carbon board with black clips, pad and straps (kit photo). Slot sK = geometry shape K."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "plastic-black", s0 = "carbon-fibre", s3 = "rubber", s4 = "rubber", s5 = "rubber" }
+
+[[sources]]
+id = "V1"
+url = "https://holybro.com/products/x500-v2-kits"
+title = "Holybro X500 V2 kits product page (battery mount photo, appearance only)"
+accessed = "2026-10-07"
+quote = "X500 V2 Kits"
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/drone-development-kit/px4-development-kit-x500v2.md"
