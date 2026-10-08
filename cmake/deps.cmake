@@ -132,7 +132,15 @@ if(NAPL_VIEWER)
       SOURCE_SUBDIR napl_sources_only)
     list(APPEND _x11_repos ${_name})
   endforeach()
-  FetchContent_MakeAvailable(glfw imgui ${_x11_repos})
+  # stb_image v2.30 (public domain / MIT, dual-licensed in the header), ONE header: decodes the PNG part thumbnails of the
+  # library page. nothings/stb has no tags, so pinned by commit + SHA256 of the file (verified 2026-10-07).
+  FetchContent_Declare(stb_image
+    URL https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/stb_image.h
+    URL_HASH SHA256=594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3
+    DOWNLOAD_NO_EXTRACT TRUE)
+  # The UI font is Roboto-Medium.ttf from Dear ImGui's own misc/fonts (Apache-2.0, ships in the pinned imgui checkout above);
+  # CMakeLists.txt embeds it into the viewer as a byte array at configure time. No further dependency.
+  FetchContent_MakeAvailable(glfw imgui stb_image ${_x11_repos})
 endif()
 
 # slangc 2026.19 (Apache-2.0 WITH LLVM-exception): prebuilt, BUILD-TIME TOOL ONLY (never linked or shipped). The release

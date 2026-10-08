@@ -185,6 +185,8 @@ class UiOps:
 
     # ---- plumbing ---------------------------------------------------------------------------------------------------------
     def _event(self, **ev):
+        if getattr(self, "_silent", False) and ev.get("cmd") != "select":
+            return  # the window itself made this call (silent=true): it has already shown the animation
         self.events.append(ev)
         del self.events[:-500]  # nobody is watching: keep the tail
 
@@ -202,6 +204,7 @@ class UiOps:
     # ---- the ops ------------------------------------------------------------------------------------------------------------
     def _ui_tool(self, tool: str, a: dict) -> dict:
         ui = self.ui
+        self._silent = bool(a.get("silent"))
         if tool == "ui.mode":
             if a.get("name") not in MODES:
                 raise DesignError(f"ui.mode: name is one of {list(MODES)}")
@@ -320,6 +323,14 @@ class UiOps:
                 )
                 if r["to"] == a["to"] or "." not in a["to"]
             ]
+            if rows:  # the window flies the ghost to the port and leaves it there; nothing is added
+                self._event(
+                    cmd="drag",
+                    part=part.id,
+                    to=rows[0]["to"],
+                    then="none",
+                    duration=1.2,
+                )
             return self._ok(
                 {
                     "part": part.id,
@@ -448,10 +459,21 @@ class UiOps:
             raise DesignError(f"unknown or offboard instance '{iid}'")
         return g
 
+    @staticmethod
+    def _ids(a):
+        """`instances` (a group, one undo step) or the single `instance`."""
+        ids = a.get("instances") or ([a["instance"]] if a.get("instance") else [])
+        if not ids:
+            raise DesignError("give `instance` or `instances`")
+        return list(ids)
+
     def _move(self, d, a):
-        iid = a["instance"]
+        ids = self._ids(a)
+        iid = ids[0]
         geo = self._geo_of(d)
         g = self._pose_world(d, iid)
+        for other in ids[1:]:
+            self._pose_world(d, other)
         delta = (
             np.array(a["delta"], float)
             if a.get("delta") is not None
@@ -468,15 +490,12 @@ class UiOps:
             delta, guides = snap_move(
                 geo, iid, delta, edges=s.get("edges", self.ui["snap_edges"]), grid=grid
             )
+        dv = self._to_root_v(d, delta)
         r = self._edit(
             d,
             [
-                {
-                    "op": "place",
-                    "id": iid,
-                    "delta": self._to_root_v(d, delta),
-                    "unmate": bool(a.get("unmate")),
-                }
+                {"op": "place", "id": i, "delta": dv, "unmate": bool(a.get("unmate"))}
+                for i in ids
             ],
             guides=guides,
         )
@@ -484,10 +503,19 @@ class UiOps:
         return r
 
     def _rotate(self, d, a):
-        iid = a["instance"]
-        self._pose_world(d, iid)
+        ids = self._ids(a)
+        for i in ids:
+            self._pose_world(d, i)
+        iid = ids[0]
         R, _ = self._root(d)
         op = {"op": "place", "id": iid, "unmate": bool(a.get("unmate"))}
+        if a.get("about") is not None or len(ids) > 1:  # a group turns about its centre
+            c = (
+                np.array(a["about"], float)
+                if a.get("about") is not None
+                else np.mean([self._geo_of(d)[i]["pos"] for i in ids], axis=0)
+            )
+            op["about"] = self._to_root_p(d, c)
         if a.get("rot") is not None:
             Rw = np.array(a["rot"], float).reshape(3, 3)
             op["rot"] = (R.T @ Rw @ R).flatten().tolist()
@@ -511,7 +539,11 @@ class UiOps:
             th = math.radians(ang)
             Rw = np.eye(3) + math.sin(th) * K + (1 - math.cos(th)) * (K @ K)
             op["rot"] = (R.T @ Rw @ R).flatten().tolist()
-        r = self._edit(d, [op])
+        if "rpy" in op and len(ids) > 1:
+            raise DesignError(
+                "gizmo.rotate: rpy sets an absolute pose; use axis + angle_deg for a group"
+            )
+        r = self._edit(d, [{**op, "id": i} for i in ids])
         self._event(cmd="rotate", instance=iid)
         return r
 

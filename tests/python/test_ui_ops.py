@@ -286,6 +286,55 @@ def test_ui_events_and_scripted_state(be):
     assert ask(b, "ui.state")["result"]["mode"] == "library"
 
 
+def test_group_gizmo_silent_preview_and_program_text(be):
+    b, d = be
+    ask(b, "ui_poll")
+    geo = b.state(d)["geo"]
+    ids = ["gps", "mast"]
+    p0 = {i: np.array(geo[i]["pos"]) for i in ids}
+    # a group move is ONE request = ONE undo step; silent=true (the window made the call) queues no animation events
+    depth = len(d._undo)
+    r = ask(
+        b,
+        "gizmo.move",
+        {"instances": ids, "delta": [0, 0.03, 0], "unmate": True, "silent": True},
+    )
+    assert r["ok"], r
+    assert len(d._undo) == depth + 1
+    for i in ids:
+        assert np.allclose(
+            np.array(r["state"]["geo"][i]["pos"]) - p0[i], [0, 0.03, 0], atol=1e-5
+        )
+    assert ask(b, "ui_poll")["result"]["events"] == []
+    # a group rotation turns about the group's centre: the centre of the two origins stays, the pair rotates 90 deg
+    c0 = (
+        np.array(r["state"]["geo"]["gps"]["pos"])
+        + np.array(r["state"]["geo"]["mast"]["pos"])
+    ) / 2
+    r = ask(
+        b,
+        "gizmo.rotate",
+        {"instances": ids, "axis": [0, 0, 1], "angle_deg": 90, "unmate": True},
+    )
+    assert r["ok"], r
+    c1 = (
+        np.array(r["state"]["geo"]["gps"]["pos"])
+        + np.array(r["state"]["geo"]["mast"]["pos"])
+    ) / 2
+    assert np.allclose(c0, c1, atol=1e-5)
+    # the preview flies a ghost to the port (an event) without touching the design
+    n = len(d.doc["instances"])
+    ask(b, "ui_poll")
+    r = ask(b, "library.preview", {"part": "holybro-m8n-gps", "to": "mast.tray"})
+    assert r["ok"] and len(d.doc["instances"]) == n
+    if r["result"]["target"]:
+        ev = ask(b, "ui_poll")["result"]["events"]
+        assert ev[-1]["cmd"] == "drag" and ev[-1]["then"] == "none"
+    # the PROGRAM tab: the assembly as TOML
+    t = ask(b, "design_text")["result"]["text"]
+    assert t.startswith("[assembly]") and 'part = "holybro-m8n-gps"' in t
+
+
 def test_pose_and_color_schema_checks():
     doc = A.load(X500).doc
     bad = copy.deepcopy(doc)

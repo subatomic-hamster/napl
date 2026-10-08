@@ -59,11 +59,46 @@ UI = {
     "ui-drc": ("2 dremove pdb; 8 dfinding 4", 1, 2.5),
     # Simulate tab after the built-in hover run: the numbers Design.simulate returns
     "ui-simulate-hover": ("2 dsim hover", 1, 2.5),
+    # the mode bar (BUILD / LIBRARY / WIRING / SIMULATE / PROGRAM). Each is also a backend op (assemblies/README.md "UI operations")
+    "ui-build-select": ("4 uisel mot1; 8 uicam iso; 10 uiframe", 0, 3.0),
+    "ui-library": ("3 mode library; 6 search motor", 0, 3.0),
+    "ui-wiring": ("3 mode wiring", 0, 2.5),
+    "ui-simulate": ("3 mode simulate", 0, 2.5),
+    "ui-program": ("3 mode program", 0, 2.5),
+    # remove the PDB, then the agent API drags it back: the shot is taken while the ghost is still flying to the port
+    "ui-drag-ghost": (
+        "2 dremove pdb; 4 uicam iso",
+        1,
+        0.5,
+        [
+            {
+                "tool": "library.drag",
+                "args": {
+                    "part": "holybro-pdb-60a",
+                    "to": {"instance": "bottom", "port": "pdb"},
+                    "animate": True,
+                },
+            }
+        ],
+    ),
+    # the agent API recolours a part: the window opens the colour picker on it and the part turns the new colour (persisted)
+    "ui-colour-picker": (
+        "4 uisel mot1; 8 uiframe",
+        0,
+        0.8,
+        [
+            {
+                "tool": "set_color",
+                "args": {"instance": "mot1", "rgba": [0.9, 0.25, 0.1, 1.0]},
+            }
+        ],
+    ),
 }
 
 
-def xvfb_png(out, script, expect, settle, fbdir):
-    """In the Xvfb: open the viewer on the X500 design with SCRIPT, wait for EXPECT design requests, grab the screen."""
+def xvfb_png(out, script, expect, settle, fbdir, steps=()):
+    """In the Xvfb: open the viewer on the X500 design with SCRIPT, wait for EXPECT design requests, send the backend
+    requests in STEPS (agent-API calls the window shows), grab the screen."""
     import design_shot
     from napl import Sim, _napl
     from napl.design import Design
@@ -75,21 +110,31 @@ def xvfb_png(out, script, expect, settle, fbdir):
     shot = []
 
     def grab():
-        t0 = time.time()
-        while (
-            time.time() - t0 < 180
-            and sum(q["tool"] not in ("rev", "state") for q, _ in b.log) < expect
-        ):
-            time.sleep(0.2)
-        time.sleep(settle)  # model reload + a few frames
-        shot.append(design_shot.xwd_rgba(Path(fbdir) / "Xvfb_screen0"))
-        sim.close_viewer()
+        try:
+            t0 = time.time()
+            while (
+                time.time() - t0 < 60
+                and sum(design_shot.is_edit(q["tool"]) for q, _ in b.log) < expect
+            ):
+                time.sleep(0.2)
+            time.sleep(
+                1.5
+            )  # the window is attached (polling ui_poll) and has loaded the rebuilt model
+            for req in steps:
+                print("step", b(json.dumps(req))[:160])
+            time.sleep(settle)  # model reload + a few frames
+            shot.append(design_shot.xwd_rgba(Path(fbdir) / "Xvfb_screen0"))
+        finally:
+            sim.close_viewer()  # also when the grab raised: otherwise show() never returns
 
     threading.Thread(target=grab, daemon=True).start()
+    design_shot.watchdog(sim, 120)
     sim.show(script=script, width=W, height=H, design=b)
+    if not shot:
+        raise SystemExit(f"{out}: no screenshot was taken")
     Path(out).write_bytes(_napl.encode_png(shot[0]))
     print(
-        f"wrote {out}: {shot[0].shape[1]}x{shot[0].shape[0]}; requests {[q['tool'] for q, _ in b.log if q['tool'] != 'rev']}"
+        f"wrote {out}: {shot[0].shape[1]}x{shot[0].shape[0]}; requests {[q['tool'] for q, _ in b.log if design_shot.is_edit(q['tool'])]}"
     )
 
 
@@ -110,7 +155,9 @@ def cmd_ui(a):
                 str(out / f"{name}.png"),
                 fb,
             ]
-            subprocess.run(argv, check=True)
+            subprocess.run(
+                argv, check=True, timeout=300
+            )  # + the watchdog inside: no run outlives this
 
 
 # ---- scenarios the model shots replay ------------------------------------------------------------------------------------------

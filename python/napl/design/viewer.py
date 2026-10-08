@@ -4,7 +4,7 @@ Design method, the way the matching MCP tool does, and every reply carries the r
 the new build, the DRC findings and the instance / port lists.
 
 Requests: {"tool": "design_edit" | "design_suggest" | "design_undo" | "design_check" | "design_simulate" | "design_save" |
-"state" | "rev", "args": {...}, "replace_last": bool}. `replace_last` (design_edit only) = undo the last edit, then apply
+"design_text" | "state" | "rev" | the ui.* / library.* / gizmo.* ops of uiops.py, "args": {...}, "replace_last": bool}. `replace_last` (design_edit only) = undo the last edit, then apply
 `ops` (cycling through the placement alternatives of a snap keeps one undo step). Replies: {"ok": true, "result": ...,
 "state": ...} or {"ok": false, "error": "..."} (a failed edit changes nothing).
 """
@@ -128,6 +128,10 @@ class Backend(UiOps):
         if tool == "design_suggest":
             rows = d.suggest(a["target"], a.get("limit", 10), a.get("category") or None)
             return {"ok": True, "result": {"target": a["target"], "suggestions": rows}}
+        if tool == "design_text":  # the PROGRAM tab: the assembly as TOML, read-only
+            from . import assembly as A
+
+            return {"ok": True, "result": {"text": A.dumps(d.asm)}}
         if tool == "design_check":
             return {
                 "ok": True,
@@ -209,6 +213,9 @@ class Backend(UiOps):
                 "path": str(d.path or ""),
                 "geo": geo,
                 "root_T": root_T,
+                "root": next(
+                    (i["id"] for i in d.doc["instances"] if i.get("root")), ""
+                ),
                 "free": [
                     i["id"] for i in d.doc["instances"] if "pos" in i or "rpy" in i
                 ],

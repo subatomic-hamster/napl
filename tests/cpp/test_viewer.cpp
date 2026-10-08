@@ -324,7 +324,7 @@ TEST(viewer_design, scripted_edits_become_ordered_requests_and_a_new_rev_reloads
     const std::string tool = j.s("tool");
     seen.push_back(req);
     if (tool == "rev") return R"({"ok":true,"result":{"rev":"r)" + std::to_string(rev) + R"("}})";
-    if (tool != "state") ++rev;
+    if (tool.rfind("design_", 0) == 0) ++rev;  // library.* / ui_poll / select / state never change the model
     const std::string drc = R"("drc":{"before":{"error":0,"warning":0},"after":{"error":0,"warning":1},"new":[],"resolved":[]})";
     const std::string add = R"({"op":"add","id":"arm2","part":"demo-rod","mate":{"a":"arm.p","b":"arm2.b"},
       "snap":{"k":0,"score":100,"why":[],"interferes":[],"alternatives":[{"to":"arm.p","port":"b","k":1,"score":90,"why":[],"interferes":[]}]}})";
@@ -336,7 +336,8 @@ TEST(viewer_design, scripted_edits_become_ordered_requests_and_a_new_rev_reloads
   std::vector<std::string> tools;
   for (const std::string& r : seen) {
     const design::Json j = design::Parser(r).parse();
-    if (j.s("tool") != "rev") tools.push_back(j.s("tool") + (j.at("replace_last").num != 0 ? "+replace_last" : ""));
+    const std::string t = j.s("tool");  // the window's own housekeeping (library browser, event poll, selection mirror) is not an edit
+    if (t != "rev" && t != "ui_poll" && t != "select" && t.rfind("library.", 0) != 0) tools.push_back(j.s("tool") + (j.at("replace_last").num != 0 ? "+replace_last" : ""));
   }
   const std::vector<std::string> want = {"state", "design_edit", "design_edit", "design_edit+replace_last", "design_undo", "state"};
   EXPECT_EQ(tools, want);
@@ -348,4 +349,41 @@ TEST(viewer_design, scripted_edits_become_ordered_requests_and_a_new_rev_reloads
     }
   std::cout << "[ viewer ] fake design backend: requests " << tools.size() << " in order, " << loads << " model reloads (one per new revision)\n";
   EXPECT_EQ(loads, 4u);  // remove, add, cycle, undo each changed the revision; the first state and the final sync did not
+}
+
+// ---- The mode bar: BUILD / LIBRARY / WIRING / SIMULATE / PROGRAM, typed search, selection, camera presets ----------------------
+TEST(viewer_design, every_mode_draws_and_ui_script_verbs_reach_the_backend_without_touching_the_sim) {
+  NEED_DISPLAY();
+  EXPECT_EQ(parse_script("1 mode library; 2 search motor; 3 uicam iso; 4 uiframe; 5 uisel a,b").size(), 5u);
+  EXPECT_THROW(parse_script("1 mode"), std::runtime_error);
+  std::vector<std::string> seen;
+  Host h(pendulum(), session());
+  ViewerOptions o;
+  o.frames = 120;
+  o.width = 640;
+  o.height = 360;
+  o.script = "3 mode library; 6 search motor; 30 mode wiring; 36 mode simulate; 42 mode program; 60 mode build; 64 uisel arm; 68 uicam iso; 72 uiframe; 80 step 2";
+  o.design_api = [&](const std::string& req) -> std::string {
+    const design::Json j = design::Parser(req).parse();
+    const std::string tool = j.s("tool");
+    seen.push_back(tool == "library.search" ? req : tool);
+    if (tool == "ui_poll") return R"({"ok":true,"result":{"events":[]}})";
+    if (tool == "library.categories") return R"({"ok":true,"result":{"categories":[{"path":"motor","count":2,"depth":0}]}})";
+    if (tool == "library.search")
+      return R"({"ok":true,"result":{"total":2,"parts":[{"id":"demo-rod","name":"Demo rod","vendor":"V","category":"motor","thumb":"","mass":0.1},
+        {"id":"demo-box","name":"Demo box","vendor":"V","category":"motor","thumb":""}]}})";
+    if (tool == "library.ranges") return R"({"ok":true,"result":{"ranges":{}}})";
+    if (tool == "design_text") return R"({"ok":true,"result":{"text":"[assembly]\nname = \"demo\"\n"}})";
+    return R"({"ok":true,"result":{},"state":{"rev":"r0","xml":")" + std::string(kModel) + R"(","build_error":"","path":"","undo":0,"redo":0,
+      "report":{"assembly":"pendulum_demo","mass":{"total":1,"by_group":{}},"instances":[{"id":"arm","part":"demo-rod","group":"frame","body":"pole","mass":1}],
+        "targets":[],"findings":[]},"ports":{"arm":[]}}})";
+  };
+  run_viewer(h, o);
+  const Outcome out = finish(h);
+  const auto count = [&](const std::string& s) { return std::count_if(seen.begin(), seen.end(), [&](const std::string& r) { return r.find(s) != std::string::npos; }); };
+  EXPECT_GE(count("design_text"), 1);                                     // the PROGRAM tab asked for the assembly text
+  EXPECT_GE(count("\"text\":\"motor\""), 1) << "the typed search never reached the backend";
+  EXPECT_GE(count("ui_poll"), 1);
+  EXPECT_EQ(out.tick, 2u);  // UI state is not a bus command: only the Step ran
+  EXPECT_EQ(records(out.log).size(), 1u);
 }

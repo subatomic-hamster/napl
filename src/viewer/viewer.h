@@ -12,6 +12,18 @@
 
 #include "core/host.h"
 
+// What an overlay callback (a HUD, e.g. the counter-UAS display) gets once per frame, after the 3D scene and before the panels:
+// draw_list = the ImGui background draw list (cast to ImDrawList*), the viewport rectangle (window pixels; the part of the window
+// the panels leave free), and the camera the scene was rendered with (world +z up; fovy degrees).
+struct OverlayCtx {
+  void* draw_list = nullptr;
+  float x = 0, y = 0, w = 0, h = 0;
+  double cam_pos[3] = {0, 0, 0}, cam_look[3] = {1, 0, 0}, cam_fovy = 45;
+  double window_w = 0, window_h = 0;  // the full window: project with it (renderer aspect), draw inside x/y/w/h
+  std::uint64_t tick = 0;
+  double sim_time = 0;
+};
+
 struct ViewerOptions {
   int frames = 0;                           // > 0: leave after this many frames (smoke tests); 0: until the window closes
   std::string script;                       // UI-equivalent commands issued at given frames, see parse_script
@@ -22,6 +34,8 @@ struct ViewerOptions {
   // "viewer", elevated: the person at the window is the approval) keeping the camera. Called on worker threads, one at a
   // time; blocking is fine.
   std::function<std::string(const std::string&)> design_api;
+  // Optional per-frame overlay hook (HUD): called on the viewer thread inside the ImGui frame.
+  std::function<void(const OverlayCtx&)> overlay;
   int width = 1280, height = 720;
   const std::atomic<bool>* stop = nullptr;  // optional: another thread sets it to close the viewer
 };
@@ -43,6 +57,9 @@ void run_viewer(Host& host, const ViewerOptions& opts);
 //     dremove ID | dautowire PORT [TO] | dautowire_all | dundo | dredo | dsave [PATH] | dsim hover|hold
 //     dfinding N                   click DRC finding N (selects the instances involved)
 //     dsync                        re-read the design (what a polled change from another client does)
+//   UI-only actions (no bus command; mode / selection / camera are window state, search types into the library box):
+//     mode build|library|wiring|simulate|program | uisel ID[,ID...] | search TEXT | uicam top|front|side|iso | uiframe
+//     (every one of these is also a backend op the window shows through `ui_poll`: python/napl/design/uiops.py)
 // executed (in order) when that frame is reached, exactly like the matching UI control would.
 struct ScriptCmd {
   int frame = 0;

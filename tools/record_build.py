@@ -189,10 +189,37 @@ def cmd_build(a):
             fb,
         ]
         argv += ["--expect", a.expect] if a.expect else []
-        subprocess.run(argv, check=True)
+        argv += ["--no-ui"] if a.no_ui else []
+        subprocess.run(argv, check=True, timeout=600)
 
 
-def _build(oplog, out, fb, expect):
+def ui_prelude(b, req):
+    """What the window shows before an `add` request lands, driven through the same backend ops an agent calls: the LIBRARY tab
+    opens, the part's name is typed into the search box (one character per 45 ms), then the BUILD tab returns and the ghost of
+    the part appears at the port it is about to snap to (library.preview). The request itself is applied afterwards, unchanged."""
+    ops = req["args"].get("ops") or []
+    if req["tool"] != "design_edit" or not ops or ops[0].get("op") != "add":
+        return
+    op = ops[0]
+
+    def call(tool, **args):
+        r = json.loads(b(json.dumps({"tool": tool, "args": args})))
+        if not r["ok"]:
+            raise SystemExit(f"{tool}: {r['error']}")
+
+    call("ui.mode", name="library")
+    call("library.search", text=op["part"], type_ms=45)
+    time.sleep(0.045 * len(op["part"]) + 0.7)
+    call("ui.mode", name="build")
+    if op.get("to") and not op.get("root"):
+        try:
+            call("library.preview", part=op["part"], to=op["to"])
+        except SystemExit:  # a port the preview cannot show (wire / cable ports): the edit still happens
+            return
+        time.sleep(1.4)  # the ghost flight (1.2 s)
+
+
+def _build(oplog, out, fb, expect, ui=True):
     import design_shot
     from napl import Sim, _napl
     from napl.design import Design
@@ -239,6 +266,8 @@ def _build(oplog, out, fb, expect):
             if req["tool"] == "design_save":
                 req["args"] = {"path": str(work / "car4.toml")}
             s0, ts = states(), time.time() - t0
+            if ui:
+                ui_prelude(b, req)
             reply = json.loads(b(json.dumps(req)))
             if reply["ok"] != rq["ok"]:
                 raise SystemExit(
@@ -298,7 +327,16 @@ def _build(oplog, out, fb, expect):
         sim.close_viewer()
 
     threading.Thread(target=grabber, daemon=True).start()
-    threading.Thread(target=session, daemon=True).start()
+
+    def guarded():
+        try:
+            session()
+        finally:  # a failed request / replay mismatch used to end this thread silently and leave show() blocking forever
+            stop.set()
+            sim.close_viewer()
+
+    threading.Thread(target=guarded, daemon=True).start()
+    design_shot.watchdog(sim, 540)
     sim.show(width=W, height=H, design=b)
     stop.set()
     time.sleep(0.3)
@@ -690,11 +728,17 @@ def main():
         "--expect",
         help="assembly TOML the replayed design must equal (assemblies/car4.toml)",
     )
+    s.add_argument(
+        "--no-ui",
+        action="store_true",
+        help="skip the visible UI reactions (library tab, typed search, ghost preview); the edits and the final design are the same",
+    )
     s = sub.add_parser("_build")
     s.add_argument("oplog")
     s.add_argument("out_dir")
     s.add_argument("fb")
     s.add_argument("--expect")
+    s.add_argument("--no-ui", action="store_true")
     s = sub.add_parser("_render")
     s.add_argument("xml")
     s.add_argument("png")
@@ -716,7 +760,7 @@ def main():
     )
     a = ap.parse_args()
     if a.cmd == "_build":
-        _build(a.oplog, a.out_dir, a.fb, a.expect)
+        _build(a.oplog, a.out_dir, a.fb, a.expect, not a.no_ui)
     elif a.cmd == "_render":
         from napl import Sim, _napl, showcase
 
