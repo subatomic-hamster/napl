@@ -60,7 +60,7 @@ UI_TOOLS = {
     "align",
     "distribute",
 }
-DROP_EXTRA = ("id", "group", "offboard", "joint", "mate", "k")
+DROP_EXTRA = ("id", "group", "offboard", "joint", "mate", "k", "fasteners")
 REPO = Path(__file__).resolve().parents[3]
 MODES = ("build", "library", "wiring", "simulate", "program")
 PRESETS = {  # yaw, pitch (rad): the orbit camera looks from +x at yaw 0

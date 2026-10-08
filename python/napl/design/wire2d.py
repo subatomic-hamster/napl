@@ -5,7 +5,9 @@ scripted agent drives the same ops through `Backend`, so a recording shows the U
     flatten.layout  {}                                                      auto-layout: signal flow left to right (see `layout`)
     flatten.move_card {id, x, y}                                            move a card (canvas units)
     flatten.wire    {from, to, awg?, length?}                      drag pin -> pin: the `autowire` op (kind, connector type, gender,
-                                                                            voltage rules); a refusal comes back as {"ok": false, "error": reason}
+                                                                            voltage rules); a refusal comes back as {"ok": false, "error": reason}.
+                                                                            With `part` (+ length, conductors?, included_in?, name?) it is an
+                                                                            explicit `wire` op instead: a lead the user chose, bridging unlike connectors
     flatten.set_wire {name, awg?, length?}                                  change a wire's gauge / length (unwire + wire in one edit)
     flatten.unwire  {name}
     flatten.state   {}                                                      the canvas state (cards, pins, wires)
@@ -164,9 +166,26 @@ class Flatten:
                 )
         before = {w.get("name") for w in d.doc.get("wires", [])}
         op = {"op": "autowire", "a": a["from"], "b": a["to"]}
-        if a.get("awg") is not None:
+        if a.get(
+            "part"
+        ):  # an explicit lead (the user picked the wire part): bridges unlike connector families, which autowire refuses
+            op = {
+                "op": "wire",
+                "from": a["from"],
+                "to": a["to"],
+                "part": a["part"],
+                "length": a["length"],
+            }
+            op.update(
+                {
+                    k: a[k]
+                    for k in ("name", "conductors", "included_in")
+                    if a.get(k) is not None
+                }
+            )
+        elif a.get("awg") is not None:
             op["part"] = self._wire_part(d, a["awg"]).id
-        if a.get("length") is not None:
+        if a.get("length") is not None and not a.get("part"):
             op["length"] = self._length(a["length"])
         r = d.edit([op])
         new = [w["name"] for w in d.doc.get("wires", []) if w.get("name") not in before]

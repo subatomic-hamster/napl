@@ -362,12 +362,12 @@ def camera_for(
         preset == "swarm" and drones
     ):  # just the drones, filling the frame, seen from behind the turret
         c = [sum(p[i] for p in drones) / len(drones) for i in range(3)]
-        r = max(math.dist(c, p) for p in drones) + 7.0
+        r = max(math.dist(c, p) for p in drones) + 5.0
         goal = dict(
             target=c,
             yaw=math.atan2(turret[1] - c[1], turret[0] - c[0]) + 0.35,
             pitch=0.12,
-            dist=r / math.tan(math.radians(fovy / 2)) * 1.1,
+            dist=r / math.tan(math.radians(fovy / 2)) * 0.95,
         )
     elif (
         preset == "close" and target is not None
@@ -376,7 +376,7 @@ def camera_for(
             target=list(target),
             yaw=math.atan2(turret[1] - target[1], turret[0] - target[0]) + 0.7,
             pitch=0.15,
-            dist=16.0,
+            dist=9.0,  # a 0.5 m quad is then ~50 px wide
         )
     elif preset == "target" and target is not None:
         m2 = [

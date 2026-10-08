@@ -51,7 +51,7 @@ def expand(step):
     if step.get("macro") != "place":
         return step["reqs"]
     m = step
-    out = []
+    out = list(m.get("pre", []))
     if m.get(
         "search"
     ):  # the LIBRARY page: the part's name typed into the search box, the card shows up
@@ -66,6 +66,12 @@ def expand(step):
                 type_ms=45,
             )
         )
+    # the drop point must be inside the 3D viewport when the ghost arrives (the window drops only there): BUILD page, everything in frame
+    out += [
+        R("ui.mode", 0.5, name="build"),
+        R("select", 0.1, instances=[]),
+        R("ui.frame", 1.0, instances=[]),
+    ]
     if m.get("to"):
         inst, _, port = m["to"].partition(".")
         tgt = {"instance": inst, "port": port}
@@ -73,7 +79,7 @@ def expand(step):
         tgt = {"point": m.get("point", [0, 0, 0])}
     args = {
         k: m[k]
-        for k in ("id", "group", "offboard", "joint", "mate", "k", "port")
+        for k in ("id", "group", "offboard", "joint", "mate", "k", "port", "fasteners")
         if m.get(k) is not None
     }
     d = R(
@@ -102,6 +108,11 @@ def canon(doc):
         if i.get("rpy") == [0.0, 0.0, 0.0]:
             del i["rpy"]
         i.pop("color", None)  # the agent's own cosmetic colours
+    for m in doc.get("mates", []):
+        if m.get("rotation") == 0:
+            del m[
+                "rotation"
+            ]  # k = 0 is the default; add records it, a hand-written file leaves it out
     key = {
         "instances": lambda x: x["id"],
         "mates": lambda x: x.get("name") or f"{x['a']}--{x['b']}",
@@ -158,9 +169,12 @@ def compare_designs(d, expect):
         h = sb["geo"].get(iid)
         if h is None:
             continue
-        pose = max(
-            pose, max(abs(p - q) for p, q in zip(g["pos"] + g["R"], h["pos"] + h["R"]))
-        )
+        dp = max(abs(p - q) for p, q in zip(g["pos"] + g["R"], h["pos"] + h["R"]))
+        if dp > 1e-6:
+            diffs.append(
+                f"pose of {iid} differs by {dp:.2e}: built {g['pos']} vs expected {h['pos']}"
+            )
+        pose = max(pose, dp)
     ma, mb = sa["report"]["mass"]["total"], sb["report"]["mass"]["total"]
     info = dict(
         max_pose_diff=pose,
@@ -178,13 +192,18 @@ def compare_designs(d, expect):
 
 
 # ---- running the steps ---------------------------------------------------------------------------------------------------------------
-def run_steps(b, d, steps, window=None, on_step=None, log=print):
+def run_steps(
+    b, d, steps, window=None, on_step=None, log=print, save_to="turret_built.toml"
+):
     """Send every step through the Backend `b`. window: None (headless) or a dict with `states()` (count of the window's state polls)."""
     for n, st in enumerate(steps, 1):
         t0 = time.time()
         facts = []
         for rq in expand(st):
-            reply = json.loads(b(json.dumps({"tool": rq["tool"], "args": rq["args"]})))
+            args = {
+                k: (save_to if v == "__SAVE__" else v) for k, v in rq["args"].items()
+            }
+            reply = json.loads(b(json.dumps({"tool": rq["tool"], "args": args})))
             ok_want = not rq.get("expect_fail")
             if reply["ok"] != ok_want:
                 raise SystemExit(
@@ -276,7 +295,7 @@ def cmd_explore(a):
     steps = json.loads(Path(a.oplog).read_text())["steps"]
     d = Design.new(NAME, REPO / "parts", description=DESC)
     b = Backend(lambda: d, Path(tempfile.mkdtemp(prefix="napl-explore-")))
-    run_steps(b, d, steps)
+    run_steps(b, d, steps, save_to=a.save or "turret_built.toml")
     if a.save:
         d.save(a.save)
     if a.expect:
@@ -362,7 +381,14 @@ def _build(a):
             rec["t0"], rec["t1"] = round(rec["t0"] - t0, 3), round(rec["t1"] - t0, 3)
             timeline.append(rec)
 
-        run_steps(b, d, steps, window={"states": states}, on_step=on_step)
+        run_steps(
+            b,
+            d,
+            steps,
+            window={"states": states},
+            on_step=on_step,
+            save_to=a.save or str(work / "turret_built.toml"),
+        )
         time.sleep(1.0)
         stop.set()
         sim.close_viewer()
@@ -386,8 +412,6 @@ def _build(a):
     stop.set()
     time.sleep(0.3)
     done = len(timeline) == len(steps) and not any("error" in t for t in timeline)
-    if a.save:
-        d.save(a.save)
     diffs, info = compare_designs(d, a.expect) if a.expect and done else ([], {})
     (out / "timeline.json").write_text(
         json.dumps(
@@ -479,13 +503,13 @@ def cmd_encode(a):
     def bar(img, seg, title, why, right=None, n=None):
         """The caption strip at the bottom: black, small caps segment tag, bold title, the agent's reason."""
         dr = ImageDraw.Draw(img, "RGBA")
-        h = 88
+        h = 108
         dr.rectangle([0, H - h, W, H], fill=(6, 7, 9, 232))
         dr.line([(0, H - h), (W, H - h)], fill=(255, 255, 255, 60), width=1)
         tag = seg.upper() + (f"   {n}" if n else "")
         dr.text((24, H - h + 9), tag, font=f_h, fill=(255, 196, 60))
         dr.text((24, H - h + 26), title, font=f_b, fill=(255, 255, 255))
-        for i, sub in enumerate(wrap(why, f_s, 960 if right else W - 48, dr)[:2]):
+        for i, sub in enumerate(wrap(why, f_s, 960 if right else W - 48, dr)[:3]):
             dr.text((24, H - h + 54 + 19 * i), sub, font=f_s, fill=(190, 196, 208))
         if right:
             for i, ln in enumerate(right):
@@ -517,7 +541,10 @@ def cmd_encode(a):
     T = ts[-1]
     segs = []  # (src t0, src t1, speed, step or None)
     prev = 0.0
+    # playback speed is an editing choice: the op log's current "speed" wins over the one stored at recording time
+    ops = json.loads((REPO / "docs/showcase/turret/oplog.json").read_text())["steps"]
     for s in steps:
+        s["speed"] = ops[s["n"] - 1].get("speed", 1.0)
         if s["t0"] > prev:
             segs.append((prev, s["t0"], 1.0, None))
         segs.append((s["t0"], s["t1"], s.get("speed", 1.0), s))
@@ -613,7 +640,7 @@ def cmd_encode(a):
     card(
         "Result",
         [
-            f"rounds fired {rounds}    hits on a drone {hits}    drones destroyed {len(destroyed)} of 4 ({', '.join(destroyed) or 'none'})",
+            f"rounds fired {rounds}  |  hits on a drone {hits}  |  drones destroyed {len(destroyed)} of 4 ({', '.join(destroyed) or 'none'})",
             f"state hash {native['state_hash']} at tick {native['tick']}: the replay behind the frames above ends on {'EXACTLY this hash (replay MATCH)' if json.loads(metas[-1].read_text()).get('hash_matches') else 'a DIFFERENT hash (MISMATCH)'}.",
             "The turret proposes, a scripted operator authorizes. Pellet: .177, point-mass ballistics with air drag, gravity and wind. A generic air-rifle-class launcher; no real weapon is modelled.",
         ],

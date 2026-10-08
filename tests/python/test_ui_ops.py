@@ -372,6 +372,14 @@ def test_program_file_and_animated_drop_extras(tmp_path):
     d = Design.new("t", REPO / "parts")
     b = Backend(lambda: d, tmp_path)
     ask(b, "ui_poll")
+    st = ask(
+        b, "state"
+    )  # an empty design: the window asks for its state before the first part
+    assert (
+        st["ok"]
+        and st["state"]["xml"] is None
+        and "no root" in st["state"]["build_error"]
+    )
     r = ask(b, "ui.program", {"file": "examples/cuas/swarm.py", "scroll": 0.5})
     assert r["ok"] and r["result"]["lines"] > 50
     ev = ask(b, "ui_poll")["result"]["events"]
@@ -401,6 +409,23 @@ def test_program_file_and_animated_drop_extras(tmp_path):
         "ok"
     ]
     assert next(i for i in d.doc["instances"] if i["id"] == "so1")["group"] == "g"
+
+
+def test_assembly_header_op(tmp_path):
+    d = Design.new("t", REPO / "parts")
+    d.edit([{"op": "add", "part": "cuas-turret-base-plate", "root": True}])
+    r = d.edit(
+        [{"op": "assembly", "base": "fixed", "timestep": 0.001, "description": "x"}]
+    )
+    assert (
+        d.doc["assembly"]["base"] == "fixed"
+        and d.doc["assembly"]["timestep"] == 0.001
+        and r.changes[0]["op"] == "assembly"
+    )
+    for bad in ({}, {"base": "floating"}, {"timestep": 1.0}):
+        with pytest.raises(Exception):
+            d.edit([{"op": "assembly", **bad}])
+    assert d.doc["assembly"]["base"] == "fixed"
 
 
 def test_pose_and_color_schema_checks():

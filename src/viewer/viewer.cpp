@@ -2127,6 +2127,7 @@ class Viewer {
         if (x.to == anim_.to && (anim_.port.empty() || x.port == anim_.port)) pick = &x;
         continue;
       }
+      if (!snap_.ports) continue;  // the "ports" snapping checkbox / ui.snap: a free drop
       ImVec2 s;
       if (!cam.project(x.port_pos, s)) continue;
       const double d = std::hypot(s.x - mouse.x, s.y - mouse.y);
