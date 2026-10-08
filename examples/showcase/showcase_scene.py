@@ -158,6 +158,19 @@ def build(outdir, payload=None):
         if e.get("name")
     }
     awb.remove(next(g for g in awb.findall("geom") if g.get("name") == "floor"))
+    # cable tubes (visual-only tendons through "wire:" sites): the arm's get an arm_ prefix, then join the drone's <tendon>
+    for e in arm.iter("site"):
+        if e.get("name", "").startswith("wire:"):
+            e.set("name", "arm_" + e.get("name"))
+    if arm.find("tendon") is not None:
+        for e in arm.find("tendon").iter():
+            for a in ("name", "site"):
+                if e.get(a, "").startswith("wire:"):
+                    e.set(a, "arm_" + e.get(a))
+        tn = x5.find("tendon")
+        if tn is None:
+            tn = ET.SubElement(x5, "tendon")
+        tn.extend(list(arm.find("tendon")))
     clash = names(x5) & names(arm)
     assert not clash, f"MJCF name collision: {sorted(clash)}"
     wb.append(base)

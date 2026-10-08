@@ -62,6 +62,14 @@ type = "i2c"
 gender = "neutral"
 count = 4
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer"); the part has no [geometry]
+rationale = "Enclosed black anodised case like the other Pixhawk-class controllers (no appearance photo of this unit was checked)."
+
+[[visual.elements]]
+gen = "board_fc"
+params = { case = true }
+colors = { pcb = "plastic-black", label = "plastic-dark" }
+
 [[sources]]
 id = "S1"
 url = "https://ardupilot.org/copter/docs/common-cuav-v5plus-overview.html"

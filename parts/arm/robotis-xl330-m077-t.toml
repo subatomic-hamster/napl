@@ -175,6 +175,14 @@ gender = "female"
 level = { value = 3.3, unit = "V", src = "S1", fidelity = "datasheet" }
 note = "Single-wire half-duplex TTL on the DATA pin (3); Protocol 2.0; 3.3 V logic, 5 V compatible (S1); factory baud index 1 = 57,600 bps."
 
+[visual]                            # cosmetic only; drawn in the Koch servo frame (the mesh's)
+rationale = "Same case as robotis-xl330-m288-t (identical e-Manual envelope and mass): the X-series shell scaled to 20 x 34 x 23 mm with a 2.9 mm horn hub, same generator and parameters as that part."
+
+[[visual.elements]]
+gen = "dxl_servo"
+params = { off = 0.0095, hub = 0.0029, depth = 0.023 }
+colors = { horn = "plastic-dark" }
+
 [[sources]]
 id = "S1"
 url = "https://emanual.robotis.com/docs/en/dxl/x/xl330-m077/"

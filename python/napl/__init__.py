@@ -10,7 +10,14 @@ try:
 except ImportError as _e:  # no built kernel: `napl.design` / `napl design` still work; Sim.load re-raises this
     _napl, _napl_error = None, _e
 
-__all__ = ["Sim"]
+__all__ = ["Sim", "render_style"]
+
+
+def render_style(words: str = "") -> str:
+    """The process-wide look of Sim.render and the viewer: comma-separated words added to the current style --
+    "outdoor" | "studio" (sky), "edges" | "noedges" (CAD outlines), "shadows" | "noshadows", "wires" | "nowires" (cables as
+    tubes). NAPL_RENDER_STYLE in the environment is applied on top. Returns the style now in force."""
+    return _napl.render_style(words)
 
 
 class Sim:
@@ -203,6 +210,11 @@ class Sim:
         return self._c.raycast(
             np.asarray(origin, dtype=np.float64).tolist(), d.ravel().tolist()
         )
+
+    def tubes(self) -> list:
+        """The cables drawn as tubes (a design's wires: spatial tendons through sites; visual only): a list of
+        (radius_m, length_m, rgba, points (n, 3) world positions), following the bodies they are anchored on."""
+        return self._c.tubes()
 
     def run_test(self, spec: dict) -> dict:
         """RunTest (a napl.TestSpec as a dict) through the bus; returns the napl.TestResult dict with

@@ -174,9 +174,9 @@ def hobby_servo(c, **_):
     TowerPro MG996R / SG92R product photos."""
     m = c.p("mass") or 0.045
     sc = min(1.4, max(0.55, (m / 0.045) ** (1 / 3)))
-    L = c.p("length") or 0.0407 * sc
-    W = c.p("width") or 0.0198 * sc
-    Ht = c.p("height") or 0.0366 * sc
+    L = c.p("length", "envelope_length") or 0.0407 * sc
+    W = c.p("width", "envelope_width") or 0.0198 * sc
+    Ht = c.p("height", "envelope_height") or 0.0366 * sc
     if L < W:
         L, W = W, L
     s = W / 0.0198

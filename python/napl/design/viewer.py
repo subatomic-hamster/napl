@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .library import DesignError
 from .uiops import UI_TOOLS, UiOps
+from .wire2d import Flatten
 
 
 def _involved(doc, where) -> list:
@@ -45,6 +46,7 @@ class Backend(UiOps):
         self.save_to, self.max_wall_s = save_to, max_wall_s
         self.log = []  # [(request dict, reply dict)] of every request, for tests and replay of a UI session
         self._cache = None  # (design, rev, state)
+        self.flat = Flatten()  # the 2D wiring mode (wire2d.py): the flatten.* tools
         # UI state + the events the window should show (mode switch, typing, ghost flight, guide flash ...): every ui.* /
         # library.* / gizmo.* op appends one, the window drains them with `ui_poll`. With no window attached they just pile up
         # (capped), the ops themselves never depend on a window.
@@ -96,7 +98,10 @@ class Backend(UiOps):
             d = self.get_design()
             return {
                 "ok": True,
-                "result": {"rev": self.rev_of(d) if d is not None else None},
+                "result": {
+                    "rev": self.rev_of(d) if d is not None else None,
+                    "flat_rev": self.flat.rev,
+                },
             }
         if tool == "ui_poll":
             self.attached = True
@@ -105,6 +110,8 @@ class Backend(UiOps):
         if tool in UI_TOOLS:
             return self._ui_tool(tool, a)
         d = self._design()
+        if (tool or "").startswith("flatten."):
+            return self.flat.handle(self, d, tool, a)
         if tool == "state":
             return {"ok": True, "result": {}, "state": self.state(d)}
         if tool == "design_edit":

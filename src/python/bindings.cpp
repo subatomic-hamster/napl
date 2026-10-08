@@ -170,6 +170,16 @@ void bind_common(nb::class_<T>& c) {
              });
            },
            "origin"_a, "directions"_a)
+      // The cables the renderer draws as tubes (spatial tendons through sites): [(radius, length, rgba, points (n, 3))], world frame.
+      .def("tubes",
+           [](T& s) {
+             std::vector<TubeVisual> t;
+             s.with_world([&](World& w) { t = w.solver().tubes(); });
+             std::vector<std::tuple<double, double, std::vector<float>, nb::ndarray<nb::numpy, double>>> out;
+             for (const TubeVisual& v : t)
+               out.emplace_back(v.radius, v.length, std::vector<float>(v.rgba, v.rgba + 4), copy_array<double>(v.pts.data(), {v.pts.size() / 3, 3}));
+             return out;
+           })
       .def_prop_ro("tick", [](T& s) {
         std::uint64_t t = 0;
         s.with_world([&](World& w) { t = w.tick(); });
@@ -305,6 +315,15 @@ NB_MODULE(_napl, m) {
   install_mujoco_handlers();  // before any thread exists
 
   m.def("command_cap", [](const std::string& command) { return command_cap(command); }, "command"_a);
+  // Process-wide look of Sim.render / the viewer: "studio,edges,noshadows,nowires" (words add to the current style); returns it.
+  m.def("render_style",
+        [](const std::string& words) {
+          const RenderStyle s = parse_render_style(words, default_render_style());
+          set_default_render_style(s);
+          return std::string(s.sky == RenderStyle::Sky::studio ? "studio" : "outdoor") + (s.edges ? ",edges" : "") +
+                 (s.shadows ? "" : ",noshadows") + (s.tubes ? "" : ",nowires");
+        },
+        "words"_a = "");
   m.attr("schema_json") = kSchemaJson;  // flatc --jsonschema output, embedded at build time
 #ifdef NAPL_HAS_VIEWER
   m.attr("has_viewer") = true;

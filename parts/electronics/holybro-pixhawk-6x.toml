@@ -61,6 +61,22 @@ type = "i2c"
 gender = "neutral"
 count = 1
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer"); the part has no [geometry]
+src = "V1"
+note = "Black finned aluminium FMU module (product photo)."
+
+[[visual.elements]]
+gen = "board_fc"
+params = { case = true }
+colors = { pcb = "plastic-black", label = "plastic-dark" }
+
+[[sources]]
+id = "V1"
+url = "https://docs.holybro.com/autopilot/pixhawk-6x/overview.md"
+title = "Holybro Pixhawk 6X overview, product photo (pixhawk6x_bundle.jpg)"
+accessed = "2026-10-08"
+quote = "[image] Pixhawk 6X: black anodised FMU module with finned edges, corner screws and an arrow mark on the top face"
+
 [[sources]]
 id = "S1"
 url = "https://docs.holybro.com/autopilot/pixhawk-6x/technical-specification.md"

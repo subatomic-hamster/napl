@@ -21,7 +21,8 @@ function(napl_embed_shader name)
     COMMAND ${CMAKE_COMMAND} -E make_directory ${dir}
     # -O0: slangc's optimiser (spirv-opt) lives in libslang-glslang, which we deliberately do not extract (its notice
     # file carries glslang's vestigial GPL/Bison text); the plain SPIR-V is validated below and fine for these shaders.
-    COMMAND ${NAPL_SLANGC} ${src} -target spirv -O0 -fvk-use-entrypoint-name -entry vsMain -entry fsMain
+    COMMAND ${NAPL_SLANGC} ${src} -target spirv -O0 -fvk-use-entrypoint-name
+            -entry vsMain -entry fsMain -entry fsLin -entry vsShadow -entry vsSky -entry fsSky -entry vsEdge -entry fsEdge
             -o ${dir}/${name}.spv
     ${validate}
     COMMAND ${CMAKE_COMMAND} -DIN=${dir}/${name}.spv -DOUT=${dir}/${name}_spv.h -DNAME=kSpv_${name}

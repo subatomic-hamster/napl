@@ -275,13 +275,13 @@ def sbc_board(c, **_):
 
 
 @gen("sensor_ic", **SLOTS)
-def sensor_ic(c, **_):
+def sensor_ic(c, size=None, **_):
     """Bare sensor package (IMU, barometer, magnetometer: black body, pin-1 dot, gold lands), a GNSS module (metal shield on a small
     board) or, when the part is a carrier board (Pololu), a breakout PCB with the chip, decoupling parts and a 0.1 in header."""
     t = (c.part.id + c.part.raw.get("name", "")).lower()
-    L = c.p("length") or 3 * MM
-    W = c.p("width") or 3 * MM
-    H = c.p("height") or 1.0 * MM
+    L = c.p("length", "package_length") or (size[0] if size else 3 * MM)
+    W = c.p("width", "package_width") or (size[1] if size else 3 * MM)
+    H = c.p("height", "package_height") or (size[2] if size else 1.0 * MM)
     if "gnss" in c.part.category or "neo-" in t:
         L, W, H = (
             (c.p("length") or 16 * MM),

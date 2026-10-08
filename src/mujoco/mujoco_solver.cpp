@@ -539,6 +539,16 @@ std::vector<GeomVisual> MujocoSolver::visuals() const {
     for (int k = 0; k < 3; ++k) v.size[k] = m_->geom_size[3 * g + k];
     for (int k = 0; k < 4; ++k) v.rgba[k] = m_->geom_rgba[4 * g + k];
     v.group = m_->geom_group[g];
+    if (const int mat = m_->geom_matid[g]; mat >= 0) {
+      // As MuJoCo's own renderer: the material colour unless the geom set its own (anything but the 0.5 0.5 0.5 1 default).
+      const bool geom_default = v.rgba[0] == 0.5f && v.rgba[1] == 0.5f && v.rgba[2] == 0.5f && v.rgba[3] == 1.0f;
+      if (geom_default)
+        for (int k = 0; k < 4; ++k) v.rgba[k] = m_->mat_rgba[4 * mat + k];
+      v.specular = m_->mat_specular[mat];
+      v.shininess = m_->mat_shininess[mat];
+      v.metallic = m_->mat_metallic[mat];
+      v.roughness = m_->mat_roughness[mat];
+    }
     if (v.type != GeomType::mesh) continue;
     // mesh_face / mesh_facenormal index locally from the mesh's vertex / normal address.
     const int id = m_->geom_dataid[g], fa = m_->mesh_faceadr[id], fn = m_->mesh_facenum[id];
@@ -575,6 +585,27 @@ std::vector<GeomPose> MujocoSolver::poses() const {
     GeomPose& p = out[static_cast<std::size_t>(g)];
     for (int k = 0; k < 3; ++k) p.pos[k] = d_->geom_xpos[3 * g + k];
     for (int k = 0; k < 9; ++k) p.rot[k] = d_->geom_xmat[9 * g + k];
+  }
+  return out;
+}
+
+// Spatial tendons through sites (>= 2 site wraps, visible rgba) are the design builder's wires: the renderer draws them
+// as tubes. Pulleys / geom wraps are not tubes (their wrap points are not kept here).
+std::vector<TubeVisual> MujocoSolver::tubes() const {
+  std::vector<TubeVisual> out;
+  if (m_->ntendon == 0) return out;
+  mj_kinematics(m_, d_);  // site_xpos
+  for (int t = 0; t < m_->ntendon; ++t) {
+    if (m_->tendon_rgba[4 * t + 3] <= 0) continue;
+    TubeVisual v;
+    for (int k = m_->tendon_adr[t]; k < m_->tendon_adr[t] + m_->tendon_num[t]; ++k)
+      if (m_->wrap_type[k] == mjWRAP_SITE)
+        for (int c = 0; c < 3; ++c) v.pts.push_back(d_->site_xpos[3 * m_->wrap_objid[k] + c]);
+    if (v.pts.size() < 6) continue;
+    v.radius = m_->tendon_width[t];  // MuJoCo's tendon "width" is the rendered cross-section RADIUS
+    v.length = m_->tendon_lengthspring[2 * t];
+    for (int c = 0; c < 4; ++c) v.rgba[c] = m_->tendon_rgba[4 * t + c];
+    out.push_back(std::move(v));
   }
   return out;
 }

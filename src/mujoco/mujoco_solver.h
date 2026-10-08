@@ -31,6 +31,7 @@ class MujocoSolver final : public Solver {
   std::uint64_t state_hash() const override;
   std::vector<GeomVisual> visuals() const override;
   std::vector<GeomPose> poses() const override;
+  std::vector<TubeVisual> tubes() const override;
   std::vector<double> raycast(std::span<const double> origin, std::span<const double> directions) const override;
   Result spawn(const std::string& model_path, const std::string& at, std::span<const double> pos,
                std::span<const double> quat) override;

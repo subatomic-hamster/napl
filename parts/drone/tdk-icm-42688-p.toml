@@ -31,6 +31,21 @@ accel_odr_min          = { value = 1.5625, unit = "Hz", src = "S1", fidelity = "
 accel_adc_bits         = { value = 16, unit = "bit", src = "S1", fidelity = "datasheet" }
 accel_scale_factor_tolerance = { value = 0.5, unit = "%", src = "S1", fidelity = "datasheet" }
 
+[visual]                            # cosmetic only: the bare LGA package, size from the datasheet
+src = "V1"
+note = "2.5 x 3 x 0.91 mm 14-pin LGA (datasheet)."
+
+[[visual.elements]]
+gen = "sensor_ic"
+params = { size = [0.003, 0.0025, 0.00091] }
+
+[[sources]]
+id = "V1"
+url = "https://pcbsync.com/wp-content/uploads/2026/07/ICM-42688-P-Datasheet-TDK.pdf"
+title = "ICM-42688-P Datasheet DS-000347 Revision 1.6 (package size)"
+accessed = "2026-10-08"
+quote = "The device is housed in a small 2.5x3x0.91 mm 14-pin LGA package."
+
 [[sources]]
 id = "S1"
 url = "https://pcbsync.com/wp-content/uploads/2026/07/ICM-42688-P-Datasheet-TDK.pdf"

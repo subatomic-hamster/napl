@@ -23,6 +23,21 @@ adc_bits                  = { value = 24, unit = "bit", src = "S1", fidelity = "
 response_time_osr4096     = { value = 8.22e-3, unit = "s", src = "S1", fidelity = "datasheet" }
 response_time_osr256      = { value = 0.5e-3, unit = "s", src = "S1", fidelity = "datasheet" }
 
+[visual]                            # cosmetic only: the bare package, size from the datasheet
+src = "V1"
+note = "5.0 x 3.0 x 1.0 mm QFN-style package (datasheet)."
+
+[[visual.elements]]
+gen = "sensor_ic"
+params = { size = [0.005, 0.003, 0.001] }
+
+[[sources]]
+id = "V1"
+url = "https://static.chipdip.ru/lib/444/DOC011444630.pdf"
+title = "MS5611-01BA03 data sheet (package size)"
+accessed = "2026-10-08"
+quote = "QFN package 5.0 x 3.0 x 1.0 mm3"
+
 [[sources]]
 id = "S1"
 url = "https://static.chipdip.ru/lib/444/DOC011444630.pdf"

@@ -136,6 +136,8 @@ DEFAULTS = {
     "structure.bearing": "bearing",
     "structure.standoff": "standoff",
     "fastener": "screw",
+    "fastener.insert": "heat_insert",
+    "ammo.pellet": "diabolo_pellet",
     "sensor.camera": "camera_module",
     "sensor.rangefinder": "sensor_module",
     "sensor.flow": "sensor_module",
@@ -146,7 +148,7 @@ DEFAULTS = {
     "connector": "connector",
     "structure.pulley": "pulley",
     "structure.shaft-collar": "shaft_collar",
-    "structure.hub": "pulley",
+    "structure.hub": "hub_disc",
     "shaft-hub": "pulley",
     "frame": "shapes",
     "frame.printed": "shapes",
@@ -191,6 +193,10 @@ def default_family(part):
     cat = part.category
     if cat.startswith("motor.servo"):  # servo style follows the maker
         v = str(part.raw.get("vendor", "")).lower()
+        if (
+            part.value("envelope_length") is not None
+        ):  # micro analog servo (Feetech FS), not a bus servo
+            return "hobby_servo"
         return (
             "dxl_servo"
             if "robotis" in v
@@ -236,12 +242,14 @@ def has_visual(part) -> bool:
 
 
 def applies(part) -> bool:
-    """Whether a build draws the visual in place of the plain shape: an explicit [visual], or a category default for a
-    part that has [geometry] (a default has no known placement for a part without any)."""
-    return part.raw.get("visual") is not None or (
-        has_visual(part)
-        and bool(part.geometry.get("shapes") or "shape" in part.geometry)
-    )
+    """Whether a build draws the visual in place of the plain shape: an explicit [visual], or a category default. A part
+    without [geometry] is drawn at the instance frame from its own params (the generators' dimension fallbacks), with the
+    zero-mass point body it already has; `shapes` needs [geometry], so there it draws nothing."""
+    if part.raw.get("visual") is not None:
+        return True
+    if part.geometry.get("shapes") or "shape" in part.geometry:
+        return has_visual(part)
+    return has_visual(part) and default_family(part) != "shapes"
 
 
 @dataclass
