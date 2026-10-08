@@ -109,6 +109,20 @@ def _counts(fs):
     return {s: sum(f.severity == s for f in fs) for s in ("error", "warning", "info")}
 
 
+def _note(ops) -> str:
+    """One line for an undo-history entry: the first op ("add esc1", "wire pdb.out1 -> esc1.power_in") and how many more."""
+    if not ops:
+        return "edit"
+    o = ops[0]
+    what = o.get("id") or o.get("name") or o.get("instance") or o.get("part") or ""
+    if o.get("op") in ("wire", "autowire") and (o.get("from") or o.get("a")):
+        what = f"{o.get('from') or o.get('a')} -> {o.get('to') or o.get('b') or '...'}"
+    elif o.get("op") in ("mate", "unmate") and o.get("a"):
+        what = f"{o['a']} + {o.get('b', '')}".strip(" +")
+    s = f"{o.get('op', 'edit')} {what}".strip()
+    return s + (f"  (+{len(ops) - 1} more)" if len(ops) > 1 else "")
+
+
 @dataclass
 class EditResult:
     changes: list  # one dict per applied op: what changed (swap: kept / lost mates + wires, dangling references, ...)
@@ -140,6 +154,8 @@ class Design:
         self.asm, self.lib, self.path = asm, lib, path
         self._undo: list = []
         self._redo: list = []
+        self._undo_notes: list = []  # one short line per undo / redo step (the viewer's HISTORY tab), kept in step with the stacks
+        self._redo_notes: list = []
         self._findings = None
 
     # ---- open / save -------------------------------------------------------------------------------------------------
@@ -1632,6 +1648,8 @@ class Design:
             ) from None
         self._undo.append(snap)
         self._redo.clear()
+        self._undo_notes.append(_note(ops))
+        del self._redo_notes[:]
         return self._result(changes, before)
 
     def _result(self, changes, before) -> EditResult:
@@ -1819,6 +1837,13 @@ class Design:
         before = self.findings()
         dst.append(copy.deepcopy(self.doc))
         self.asm.doc = src.pop()
+        a, b = (
+            (self._undo_notes, self._redo_notes)
+            if what == "undo"
+            else (self._redo_notes, self._undo_notes)
+        )
+        if a:
+            b.append(a.pop())
         return self._result([{"op": what}], before)
 
     # ---- suggestions -------------------------------------------------------------------------------------------------

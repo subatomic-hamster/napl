@@ -432,10 +432,13 @@ CLI: `napl design suggest <asm> <inst.port|inst> [--limit N] [--json]`.
 
 ## Build UI (`napl design view`): modes, free placement and the scriptable operations
 
-**Modes** (top bar tabs): BUILD (3D view, sidebar with the compact library, inspector with INSPECT / PARTS / DRC / PLACE tabs),
-LIBRARY (fuzzy search, category tree, parameter range filters, thumbnail grid from `build/thumbs/<id>.png` (the PARTS worker's thumbnail renders; a
-category placeholder when absent), detail panel with provenance, ADD / SWAP), WIRING (the 2D wiring view, LOOK's `wire2d_draw`; a
-placeholder when that file is not built), SIMULATE (run / pause / step / rate, inspector), PROGRAM (read-only assembly TOML, `design_text`).
+**Modes** (top bar tabs): BUILD (3D view, sidebar with the compact library, inspector with INSPECT / PARTS / DRC / PLACE / HISTORY tabs;
+HISTORY lists the undo steps, a click travels to one), LIBRARY (fuzzy search, category tree, parameter range filters, thumbnail grid from
+`build/thumbs/<id>.png`, detail panel with provenance, ADD / SWAP). Missing thumbnails are rendered on demand: `napl design view`, the MCP
+window and the screenshot / record tools start `tools/thumbs.py --missing` in the background (the parts of the open design first; needs a
+Vulkan device, `NAPL_THUMBS=0` disables it); the grid fills in as they land and the cache in `build/thumbs` is kept between runs (tiles of
+dark parts are brightened by a gamma lift, the scene lighting is untouched). WIRING (the 2D wiring canvas, `wire2d.cpp`: a layered
+signal-flow layout, sources on the left, loads on the right, orthogonal wires that never cross a card, a legend), SIMULATE (run / pause / step / rate, inspector), PROGRAM (read-only assembly TOML, `design_text`).
 The status bar shows the selection, DRC counts and the sim time. A card dragged from LIBRARY or the BUILD sidebar shows a ghost that
 snaps to the open compatible ports; dropping it is `add` + snap = ONE undo step. BUILD: click / shift-click (or Ctrl-click) multi-select, an axis-
 coloured move / rotate gizmo (grid 5 mm, 15 degrees, numeric fields in the inspector), Figma-style guides (edge / centre / corner
@@ -465,7 +468,9 @@ document) and queues an *event* the window drains with `ui_poll` (every 100 ms) 
 | `ui.camera` | `preset` top / front / side / iso, or `yaw`, `pitch`, `dist` | a camera flight |
 | `ui.frame` | `instances?` | the camera frames them |
 | `ui.gizmo` / `ui.guides` / `ui.snap` | `mode` move / rotate / none; `on`; `grid_m?`, `angle_deg?`, `edges?`, `ports?` | toolbar state |
-| `ui.state` | | the `Backend.ui` dict (mode, selection, search, snap settings) |
+| `ui.view` | `tooltips?` auto / on / off, `emphasise_wires?` | hover cards: auto = only while a person moves the mouse (recordings stay clean), on = always, off = never; emphasise = cables at least 4 px wide in BUILD / LIBRARY / WIRING (the data keeps their diameter) |
+| `ui.hover` | `instance`, `seconds?` | that part's compact tooltip (name, id, mass, three parameters) for ~6 s, whatever `tooltips` says; switches to BUILD |
+| `ui.state` | | the `Backend.ui` dict (mode, selection, search, snap settings, tooltips, emphasise_wires) |
 | `select` | `instances`, `add?` | highlight + gizmo |
 | `library.search` | `text`, `filters` {param: [lo, hi]}, `category`, `limit`, `offset`, `type_ms?` | the box fills; the grid filters |
 | `library.categories` / `.ranges` / `.info` / `.targets` | `{}` / `category?` / `part` / `part` | filters, detail panel, ghost poses on every open compatible port |

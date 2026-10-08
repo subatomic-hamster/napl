@@ -78,6 +78,9 @@ def is_edit(tool):
 def main(out, fbdir):
     d = Design.open(REPO / "assemblies" / "x500v2.toml")
     b = Backend(lambda: d, tempfile.mkdtemp(prefix="napl-shot-"))
+    b.auto_thumbs = (
+        True  # real library thumbnails (background job, cached in build/thumbs)
+    )
     sim = Sim.load(b.state(d)["xml"], host=True)
     shot = []
 

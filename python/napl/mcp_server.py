@@ -1055,4 +1055,5 @@ def serve(
             save_to=srv._design_save_to,
             max_wall_s=srv.max_wall_s or 600.0,
         )
+        backend.auto_thumbs = True  # missing library thumbnails are rendered in the background (build/thumbs)
         srv.sim.show(design=backend)

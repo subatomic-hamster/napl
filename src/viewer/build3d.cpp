@@ -196,6 +196,8 @@ void draw_box(ImDrawList* dl, const Cam& cam, const Box& b, ImU32 col, float th)
   ImVec2 p[8];
   bool ok[8];
   for (int i = 0; i < 8; ++i) ok[i] = cam.project(c[i], p[i]);
+  for (const auto& e : kEdges)  // a soft dark halo under each edge keeps the outline crisp on the light studio floor
+    if (ok[e[0]] && ok[e[1]]) dl->AddLine(p[e[0]], p[e[1]], IM_COL32(6, 8, 12, 70), th + 2.4f);
   for (const auto& e : kEdges)
     if (ok[e[0]] && ok[e[1]]) dl->AddLine(p[e[0]], p[e[1]], col, th);
 }
@@ -209,7 +211,10 @@ void draw_brackets(ImDrawList* dl, const Cam& cam, V3 lo, V3 hi, ImU32 col, floa
       V3 e = c;
       e[ax] += ((i >> ax) & 1 ? -1 : 1) * ext[ax] * 0.22;
       ImVec2 pe;
-      if (cam.project(e, pe)) dl->AddLine(pc, pe, col, th);
+      if (cam.project(e, pe)) {
+        dl->AddLine(pc, pe, IM_COL32(6, 8, 12, 80), th + 2.4f);
+        dl->AddLine(pc, pe, col, th);
+      }
     }
   }
 }

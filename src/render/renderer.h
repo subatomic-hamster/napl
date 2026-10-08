@@ -26,8 +26,10 @@ struct RenderStyle {
   bool shadows = true;  // the sun shadow map
   bool edges = false;   // dark crease edges (CAD look)
   bool tubes = true;    // draw cables (TubeVisual)
+  float wire_px = 0;    // > 0: cables are never thinner than this many pixels on screen (the data keeps their true diameter); 0: ~1.4 px floor
 };
-// "studio,edges,noshadows,nowires" (comma separated; "outdoor" "shadows" "noedges" "wires" are the opposites) applied on top of `base`.
+// "studio,edges,noshadows,nowires,boldwires" (comma separated; "outdoor" "shadows" "noedges" "wires" "plainwires" are the opposites)
+// applied on top of `base`; "boldwires" = cables at least 4 px wide on screen.
 // Unknown words throw std::invalid_argument.
 RenderStyle parse_render_style(const std::string& words, RenderStyle base = {});
 // Process-wide default every Renderer / WindowRenderer starts with and re-reads per frame unless it was given its own

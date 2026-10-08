@@ -8,6 +8,9 @@ an event the window turns back into the real op when the animation ends) -- only
 Ops (args -> result):
   ui.mode {name: build|library|wiring|simulate|program}     ui.camera {preset: top|front|side|iso | yaw, pitch, dist}
   ui.frame {instances?}   ui.gizmo {mode: move|rotate|none}   ui.guides {on}   ui.snap {grid_m?, angle_deg?, edges?, ports?}
+  ui.view {tooltips?: auto|on|off, emphasise_wires?: bool}   (auto = hover tooltips only while a person moves the mouse: recordings stay
+  clean; on = always; off = never. emphasise_wires = cables at least 4 px wide on screen in BUILD / LIBRARY / WIRING, data unchanged)
+  ui.hover {instance, seconds?}   show that instance's compact tooltip (about 6 s) even when tooltips are auto / off
   ui.state {}  (the Backend.ui dict)      select {instances: [..], add?: bool}
   library.search {text, filters, category, limit, offset, type_ms?}   library.categories {}   library.ranges {category?}
   library.info {part}   library.targets {part}  (ghost poses on every open compatible port)
@@ -34,6 +37,8 @@ UI_TOOLS = {
     "ui.gizmo",
     "ui.guides",
     "ui.snap",
+    "ui.view",
+    "ui.hover",
     "ui.state",
     "select",
     "library.search",
@@ -213,6 +218,29 @@ class UiOps:
             return self._ok({"mode": a["name"]})
         if tool == "ui.state":
             return self._ok(dict(ui))
+        if tool == "ui.view":
+            if a.get("tooltips", ui["tooltips"]) not in ("auto", "on", "off"):
+                raise DesignError("ui.view: tooltips is auto, on or off")
+            for k in ("tooltips", "emphasise_wires"):
+                if k in a:
+                    ui[k] = a[k]
+            ui["emphasise_wires"] = bool(ui["emphasise_wires"])
+            self._event(
+                cmd="view",
+                tooltips=ui["tooltips"],
+                emphasise_wires=ui["emphasise_wires"],
+            )
+            return self._ok({k: ui[k] for k in ("tooltips", "emphasise_wires")})
+        if tool == "ui.hover":
+            ids = {i["id"] for i in self._design().doc["instances"]}
+            if a.get("instance") not in ids:
+                raise DesignError(f"ui.hover: unknown instance {a.get('instance')!r}")
+            self._event(
+                cmd="hover",
+                instance=a["instance"],
+                seconds=float(a.get("seconds", 6.0)),
+            )
+            return self._ok({"instance": a["instance"]})
         if tool == "ui.camera":
             if "preset" in a:
                 if a["preset"] not in PRESETS:

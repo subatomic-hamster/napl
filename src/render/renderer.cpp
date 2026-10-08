@@ -207,7 +207,7 @@ V3 unit(V3 a) {
 
 // Cable -> triangles (camera-relative floats). The polyline sags (gravity, a parabola per segment) by its slack:
 // length L, chord D -> L ~ D + 8 h^2 / (3 D), so h = sqrt(3 D slack / 8) (capped at 30 % of D).
-void build_tube(Verts& o, const TubeVisual& t, V3 cam, double px_world) {
+void build_tube(Verts& o, const TubeVisual& t, V3 cam, double px_world, double min_px) {
   std::vector<V3> p;
   for (std::size_t i = 0; i + 2 < t.pts.size(); i += 3) p.push_back({t.pts[i], t.pts[i + 1], t.pts[i + 2]});
   if (p.size() < 2) return;
@@ -247,7 +247,7 @@ void build_tube(Verts& o, const TubeVisual& t, V3 cam, double px_world) {
     nrm[i] = nn;
   }
   auto ring = [&](std::size_t i, int k) {
-    const double r = std::max(t.radius, 0.7 * px_world * norm(rel[i]));  // never thinner than ~1.4 px
+    const double r = std::max(t.radius, std::max(0.7, 0.5 * min_px) * px_world * norm(rel[i]));  // never thinner than ~1.4 px (min_px when set)
     const double a = 2 * kPi * k / kSides;
     const V3 b = cross(tan[i], nrm[i]), d = nrm[i] * std::cos(a) + b * std::sin(a);
     return Pn{{rel[i].x + r * d.x, rel[i].y + r * d.y, rel[i].z + r * d.z}, {d.x, d.y, d.z}};
@@ -328,7 +328,9 @@ RenderStyle parse_render_style(const std::string& words, RenderStyle s) {
     else if (w == "noshadows") s.shadows = false;
     else if (w == "wires") s.tubes = true;
     else if (w == "nowires") s.tubes = false;
-    else throw std::invalid_argument("render style: unknown word '" + w + "' (studio outdoor edges noedges shadows noshadows wires nowires)");
+    else if (w == "boldwires") s.wire_px = 4.f;
+    else if (w == "plainwires") s.wire_px = 0.f;
+    else throw std::invalid_argument("render style: unknown word '" + w + "' (studio outdoor edges noedges shadows noshadows wires nowires boldwires plainwires)");
   }
   return s;
 }
@@ -910,7 +912,7 @@ struct Renderer::Impl {
       const double px = 2 * std::tan(cam.fovy * kPi / 360) / h;
       for (const TubeVisual& t : tubes_in) {
         const std::size_t before = tv.size();
-        build_tube(tv, t, v.pos, px);
+        build_tube(tv, t, v.pos, px, cur.wire_px);
         if (tv.size() == before) continue;
         GpuDraw d{};
         d.rot[0] = d.rot[5] = d.rot[10] = 1;

@@ -25,6 +25,9 @@ from napl.design.build import appearance_rgba, shape_frame, vec
 from napl.design.library import Library
 from napl.design.visuals.stl import read_stl
 
+VERSION = 2  # the look of the tiles; python/napl/design/thumbjob.py compares it with the cache's stamp (a bump re-renders everything)
+TARGET_MEAN, MIN_GAMMA = 0.42, 0.45  # brightness lift of dark parts (finish())
+
 
 def _pose(pos, R):
     from napl.design.build import pose_attrs
@@ -108,7 +111,13 @@ def finish(rgba, depth, size):
         [np.broadcast_to(236 - 26 * t, (h, h, 1))] * 3 + [np.full((h, h, 1), 255.0)],
         axis=2,
     )
-    img = np.where(np.isfinite(depth)[..., None], rgba.astype(np.float32), bg)
+    hit = np.isfinite(depth)
+    obj = rgba.astype(np.float32)
+    if hit.any():  # dark parts (carbon, IMU / rangefinder PCBs) get a gamma lift toward a mean brightness of ~0.42; scene lighting is untouched
+        mean = float(np.clip((obj[..., :3][hit] / 255.0).mean(), 1e-3, 0.99))
+        gamma = float(np.clip(np.log(TARGET_MEAN) / np.log(mean), MIN_GAMMA, 1.0))
+        obj[..., :3] = 255.0 * (obj[..., :3] / 255.0) ** gamma
+    img = np.where(hit[..., None], obj, bg)
     img = img.reshape(size, 2, size, 2, 4).mean((1, 3))
     return img.round().astype(np.uint8)
 
@@ -131,6 +140,15 @@ def main():
         "their id order (row-major)",
     )
     ap.add_argument("--sheet-rows", type=int, default=5)
+    ap.add_argument(
+        "--missing",
+        action="store_true",
+        help="keep the cache in --out, render only the parts it lacks (the viewer's on-demand job)",
+    )
+    ap.add_argument(
+        "--priority", default="", help="comma-separated part ids to render first"
+    )
+    ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -138,7 +156,28 @@ def main():
     cache = out.resolve() / "visuals"
     index, skipped, tiles, by_cat = {}, [], [], {}
     ids = a.ids or sorted(lib.parts)
+    if a.priority:  # these first (the viewer asks for the parts of the open design)
+        first = [p for p in a.priority.split(",") if p in lib.parts]
+        ids = first + [p for p in ids if p not in first]
+    if a.missing:  # keep the cache: render only what it lacks
+        try:
+            old = json.loads((out / "index.json").read_text())
+        except (OSError, ValueError):
+            old = {}
+        if old.get("_v") == VERSION:
+            index = {k: v for k, v in old.items() if k != "_v"}
+        ids = [p for p in ids if p not in index and not (out / f"{p}.png").is_file()]
+    done = 0
+
+    def save_index():
+        tmp = out / "index.json.tmp"
+        tmp.write_text(json.dumps({**index, "_v": VERSION}, indent=1, sort_keys=True))
+        tmp.replace(out / "index.json")
+
     for pid in ids:
+        done += 1
+        if a.missing and done % 20 == 0:
+            save_index()
         part = lib.get(pid)
         try:
             sc = part_scene(lib, part, cache)
@@ -153,6 +192,14 @@ def main():
         ) as e:  # a generator bug must not stop the sweep; it is reported at the end
             print(f"{pid}: visual failed: {type(e).__name__}: {e}", file=sys.stderr)
             skipped.append(pid)
+            if a.missing:  # do not retry on every launch
+                index[pid] = {
+                    "name": pid,
+                    "category": part.category,
+                    "vendor": "",
+                    "thumb": None,
+                    "failed": True,
+                }
             continue
         meta = {
             "name": part.raw.get("name", pid),
@@ -185,7 +232,11 @@ def main():
                 ),
                 a.size,
             )
-            (out / f"{pid}.png").write_bytes(_napl.encode_png(rgba))
+            tmp_png = (
+                out / f".{pid}.png.tmp"
+            )  # atomic: the viewer may be reading the folder
+            tmp_png.write_bytes(_napl.encode_png(rgba))
+            tmp_png.replace(out / f"{pid}.png")
             tiles.append(rgba)
             by_cat.setdefault(".".join(part.category.split(".")[:2]), []).append(
                 (pid, rgba)
@@ -193,7 +244,7 @@ def main():
             meta["thumb"] = f"{pid}.png"
         finally:
             Path(fh.name).unlink(missing_ok=True)
-    (out / "index.json").write_text(json.dumps(index, indent=1, sort_keys=True))
+    save_index()
     if (
         a.sheet and tiles
     ):  # contact sheet of the rendered tiles in order (for eyeballing a batch)
@@ -224,7 +275,8 @@ def main():
                 (sd / name).write_bytes(_napl.encode_png(sheet))
                 print(f"sheet {name}: " + " ".join(p for p, _ in chunk))
     n = sum(1 for m in index.values() if m["thumb"])
-    print(f"{n}/{len(ids)} thumbnails in {out}; {len(skipped)} failed {skipped}")
+    if not a.quiet:
+        print(f"{n}/{len(ids)} thumbnails in {out}; {len(skipped)} failed {skipped}")
     return 1 if skipped else 0
 
 
