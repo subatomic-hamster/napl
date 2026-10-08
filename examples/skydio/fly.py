@@ -4,8 +4,9 @@ to the napl-native controller. Two missions (SKYDIO_MISSION): `goal` flies from 
 with NAPL_MODEL / NAPL_RUN_DIR set also works (see run_mission for a one-call version that builds the scene itself).
 
 WHAT THE PLANNER SEES. Inputs of every replan: the depth frame of the D435i rangefinder device (160 x 90, 25 Hz, delivered LATENCY_S after it was
-sampled, with the camera pose of the sampling instant), the vehicle's pose / velocity estimate (the simulator's rigid-body state: a stand-in for
-visual-inertial odometry, no estimator error is added), the goal position (goal mission), the detector's pixel box of the subject (follow mission).
+sampled, with the camera pose of the estimate at that instant), the vehicle's pose / velocity ESTIMATE (estimator.py: an error-state Kalman filter on the
+simulated IMU, a statistical VIO model and the simulated barometer; the kernel's rigid-body state is `Flyer.truth`, used by evaluation only), the goal
+position (goal mission), the person detector's output on the depth image (detector.py, follow mission; no ground-truth subject position).
 It never reads an obstacle position: `forest.py` (ground truth) is used by evaluation only (clearance, trace.csv) and by the scene builder.
 
 CONTROL. The planner outputs one primitive (velocity ramp + hold + braking tail, planner.py). Every control period (4 ms) the primitive is sampled at the
@@ -173,7 +174,7 @@ class Skydio:
         if mission == "follow":
             self.subject = F.Subject(self.sim, self.forest.path)
             self.det = PersonDetector(self.cam)
-            self.trk = Tracker()
+            self.trk = Tracker(keep_s=float(os.environ.get("SKYDIO_KEEP_S", 5.0)))
         self.last_det, self.last_dets, self.last_flags, self.det_stats = (
             None,
             [],
@@ -625,10 +626,7 @@ class Skydio:
                     break
             if self.subject and self.subject.s >= self.subject.length - 0.5:
                 subject_done = subject_done or self.t
-                if (
-                    self.t - subject_done > 1.0
-                ):  # the mission ends when the walk does (a person standing inside the camera's blind zone is not tracked)
-                    break
+                break  # the mission ends when the walk does (a person standing inside the camera's blind zone is not tracked)
             if self.flyer.last is not None and self.crashed():
                 break
         return self.finish()

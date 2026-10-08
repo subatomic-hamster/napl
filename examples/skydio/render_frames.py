@@ -62,6 +62,38 @@ def camera(kind, p, R, vel):
     )
 
 
+def draw_detections(img, cam, dets):
+    """Outline each detection (world box: feet to z_top, `width` wide) on an fpv frame; green = the subject, red = anything else."""
+    h, w = img.shape[:2]
+    d = cam["lookat"] - cam["pos"]
+    d = d / np.linalg.norm(d)
+    right = np.cross(d, [0, 0, 1.0])
+    right /= np.linalg.norm(right)
+    up = np.cross(right, d)
+    f = (h / 2) / np.tan(np.radians(cam["fovy"]) / 2)
+    out = img.copy()
+    for det in dets:
+        us, vs = [], []
+        for dx in (-0.5, 0.5):
+            for z in (0.0, det["z_top"]):
+                c = np.array([*det["xy"], z]) + dx * det["width"] * right - cam["pos"]
+                if c @ d < 0.3:
+                    break
+                us.append(w / 2 + f * (c @ right) / (c @ d))
+                vs.append(h / 2 - f * (c @ up) / (c @ d))
+        if len(us) < 4:
+            continue
+        u0, u1 = int(max(min(us), 0)), int(min(max(us), w - 1))
+        v0, v1 = int(max(min(vs), 0)), int(min(max(vs), h - 1))
+        col = ([0, 255, 0, 255] if det.get("on_subject") else [255, 0, 0, 255])[
+            : img.shape[2]
+        ]
+        for t in range(2):
+            out[v0 : v1 + 1, [u0 + t, u1 - t]] = col
+            out[[v0 + t, v1 - t], u0 : u1 + 1] = col
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
@@ -72,6 +104,11 @@ def main():
     ap.add_argument("--to", dest="t1", type=float, default=0.0)
     ap.add_argument("--cam", default="chase", choices=["chase", "side", "top", "fpv"])
     ap.add_argument("--size", default="960x540")
+    ap.add_argument(
+        "--detections",
+        action="store_true",
+        help="fpv only: outline telemetry.jsonl detections (follow runs)",
+    )
     a = ap.parse_args()
     w, h = (int(v) for v in a.size.split("x"))
     out = Path(a.out)
@@ -91,6 +128,10 @@ def main():
         times = list(np.linspace(0.2 * t_end, 0.95 * t_end, 5))
     col = {k: r.col(k) for k in ("t", "x", "y", "z", "qw", "qx", "qy", "qz")}
     meta = []
+    if a.detections:
+        tele = [json.loads(ln) for ln in open(Path(a.run) / "telemetry.jsonl")]
+        tele = [x for x in tele if x.get("subject")]
+        tel_t = np.array([x["t"] for x in tele])
     for k, t in enumerate(times):
         tick = r.to(t)
         j = min(int(np.searchsorted(col["t"], t)), len(col["t"]) - 1)
@@ -100,7 +141,13 @@ def main():
         vel = (p - np.array([col["x"][jp], col["y"][jp], col["z"][jp]])) / max(
             col["t"][j] - col["t"][jp], 1e-6
         )
-        img, _ = r.sim.render(width=w, height=h, **camera(a.cam, p, quat_rot(q), vel))
+        cam = camera(a.cam, p, quat_rot(q), vel)
+        img, _ = r.sim.render(width=w, height=h, **cam)
+        if a.detections:
+            i = min(int(np.searchsorted(tel_t, t)), len(tel_t) - 1)
+            img = draw_detections(
+                np.asarray(img), cam, tele[i]["subject"]["detections"]
+            )
         (out / f"f{k:05d}.png").write_bytes(_napl.encode_png(np.ascontiguousarray(img)))
         meta.append(
             dict(frame=k, t=round(float(t), 3), tick=int(tick), pos=p.round(3).tolist())

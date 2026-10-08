@@ -3,7 +3,8 @@
 The detector sees NOTHING but the depth frame, the camera intrinsics and the vehicle's pose ESTIMATE; the subject's true position never enters.
 Classical pipeline (no network): back-project the frame to world points with the estimate, drop the ground (z < GROUND_Z), label connected
 components of the remaining pixels (4-neighbours, depth step below 5 % of range + 0.12 m), and keep the components whose metric size fits a standing
-person: top between 1.25 and 2.1 m, reaching down to within 0.9 m of the ground, 0.25-1.1 m wide, shallow in depth, not touching the top of the image
+person: top between 1.25 and 2.1 m, reaching down to within 0.9 m of the ground (2nd-percentile height) with at least MIN_SPAN = 0.9 m of visible
+height, 0.25-1.1 m wide, shallow in depth, not touching the top of the image
 (a trunk runs off it), with background (far or no return) above its top. Trunks, poles, the arch and walls fail the height / width test; boulders
 fail the height test. It is a size-prior detector: anything else person-sized (a stump, a post) would pass, and a person occluded below the
 waist is missed. `Detection` carries the pixel box (for the HUD and the map mask), the range, and the body-centre position in the world frame.

@@ -11,7 +11,7 @@ script = "scene_follow.py"
 
 [program]
 cmd = ["python", "{dir}/fly.py"]
-env = { SKYDIO_MISSION = "follow", SKYDIO_SEED = "1" }
+env = { SKYDIO_MISSION = "follow", SKYDIO_SEED = "1" }  # the model script (scene_follow.py) builds the forest from the default seed 1: do not change this alone
 
 [limits]
 wall_s = 600
