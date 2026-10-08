@@ -176,7 +176,7 @@ def generate(seed, mission="goal") -> Forest:
         int(rng.integers(50, 66)) if mission == "goal" else int(rng.integers(44, 58))
     )
     for _ in range(4000):
-        if len([o for o in f.obstacles if o.name.startswith("tree")]) >= n_tree:
+        if len([o for o in f.obstacles if o.name.endswith("_trunk")]) >= n_tree:
             break
         x, y = float(rng.uniform(X0, X1)), float(rng.uniform(-YMAX, YMAX))
         if (
@@ -192,7 +192,7 @@ def generate(seed, mission="goal") -> Forest:
             continue
         r = float(np.exp(rng.uniform(np.log(0.12), np.log(0.34))))
         h = float(rng.uniform(5.5, 8.0))
-        i = len([o for o in f.obstacles if o.name.startswith("tree")])
+        i = len([o for o in f.obstacles if o.name.endswith("_trunk")])
         f.obstacles.append(
             Obstacle("cyl", f"tree{i}_trunk", (x, y, h / 2), (r, h / 2), 0.0, BARK)
         )

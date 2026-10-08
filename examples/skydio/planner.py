@@ -22,6 +22,7 @@ class Params:
     v_cruise: float = 5.0  # m/s: fastest candidate
     a_max: float = 3.2  # m/s^2: acceleration asked of the controller (tilt atan(3.2 / 9.81) = 18 deg)
     a_brake: float = 3.0  # m/s^2: braking in the safety tail
+    a_emerg: float = 4.6  # m/s^2: braking when no safe primitive exists (tilt atan(4.6 / 9.81) = 25 deg, inside the Flyer's 26 deg limit)
     horizon: float = 1.4  # s of constant-velocity plan before the braking tail
     dt: float = 0.1  # s between trajectory samples
     r_safe: float = 0.62  # m: x500 prop-tip radius 0.38 + 0.24 for pose error, tracking error and map quantisation
@@ -209,7 +210,7 @@ class Planner:
             p.copy(),
             v.copy(),
             vdes[best].copy(),
-            prm.a_max,
+            prm.a_max if mode in ("track", "brake") else prm.a_emerg,
             prm.a_brake,
             prm.horizon,
             mode,
