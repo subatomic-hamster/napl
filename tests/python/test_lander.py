@@ -131,6 +131,69 @@ def test_landing_motor_can_stop_the_vehicle_from_a_hop():
     assert best < 2.0
 
 
+# ------------------------------------------------------------------------------------------------------------- energy management
+def test_rollout_level_thrust_agrees_with_the_guidance_touchdown_speed():
+    """The onboard predictor (energy.rollout, 30 ms step) against the reference integrator (guidance.touchdown_speed, 4 ms step) for level thrust."""
+    import energy as en
+
+    land = veh.Motor(veh.LANDING_MOTOR)
+    m0 = veh.M_LOADED - veh.Motor(veh.ASCENT_MOTOR).prop
+    one = np.ones(1)
+    for z0, v0 in [(3.0, -3.0), (5.0, -6.0), (8.0, -2.0), (10.0, -5.0), (12.0, -3.0)]:
+        vtd, _, _ = en.rollout(land, 0.0, z0, v0, m0, 1.0, one, one, 0.0 * one, 0.0)
+        ref = -gd.touchdown_speed(land, m0, [z0], v0, dt=0.004)[0]
+        assert vtd[0] == pytest.approx(ref, rel=0.03), (z0, v0)
+
+
+def test_rollout_closed_form_free_fall():
+    """After the burn (thrust zero) a vehicle dropped from 4 m touches the floor at sqrt(2 g h) less the (small) drag."""
+    import energy as en
+
+    land = veh.Motor(veh.LANDING_MOTOR)
+    m0 = veh.M_LOADED - veh.Motor(veh.ASCENT_MOTOR).prop
+    one = np.ones(1)
+    vtd, ttd, zmax = en.rollout(
+        land, land.burn, 4.0, 0.0, m0 - land.prop, 1.0, one, one, 0.0 * one, 0.0
+    )
+    assert vtd[0] == pytest.approx(math.sqrt(2 * veh.G * 4.0), rel=0.04)
+    assert zmax[0] == pytest.approx(4.0)
+
+
+def test_a_strong_motor_is_dumped_by_tilting_and_a_weak_one_is_not():
+    import energy as en
+
+    land = veh.Motor(veh.LANDING_MOTOR)
+    m0 = veh.M_LOADED - veh.Motor(veh.ASCENT_MOTOR).prop
+    ln = en.Lander(land, en.TiltFamily(40.0), t_lev=0.4, w_lat=0.5)
+    # low, slow and 30 % too strong: level thrust would carry the vehicle up and drop it; a tilt lowers the predicted hardest contact
+    c_strong, v_strong, _ = ln.plan(1.0, 0.5, -1.0, m0 - 0.02, 1.3)
+    J, vtd = ln._cost(1.0, 0.5, -1.0, m0 - 0.02, 1.3)
+    level = int(np.argmax((ln.fam.cos1 == 1.0) & (ln.fam.cos2 == 1.0)))
+    assert c_strong < 1.0 and v_strong < vtd[level]
+    # the family always contains level thrust: the plan is never worse than not dumping
+    assert J.min() <= J[level]
+
+
+def test_ascent_dump_is_the_least_tilt_that_meets_the_apogee_cap():
+    import energy as en
+
+    asc = veh.Motor(veh.ASCENT_MOTOR)
+    c0, apo0, free = en.ascent_dump(asc, 0.0, 0.0, 0.0, veh.M_LOADED, 1.0, cap=99.0)
+    assert c0 == 1.0 and apo0 == pytest.approx(free)
+    cap = 0.7 * free
+    c, apo, free2 = en.ascent_dump(asc, 0.0, 0.0, 0.0, veh.M_LOADED, 1.0, cap=cap)
+    assert free2 == pytest.approx(free) and c < 1.0 and apo <= cap + 1e-9
+    # the search is over a grid of tilts (0..30 deg, 13 values): the next-smaller grid tilt overshoots the cap
+    grid = np.cos(np.radians(np.linspace(0.0, 30.0, 13)))
+    k = int(np.argmin(np.abs(grid - c)))
+    assert k >= 1
+    prev = grid[k - 1 : k]
+    _, _, z_prev = en.rollout(
+        asc, 0.0, 0.0, 0.0, veh.M_LOADED, 1.0, prev, prev, np.zeros(1), 0.3
+    )
+    assert z_prev[0] > cap
+
+
 # ----------------------------------------------------------------------------------------------------------------- estimators
 def _rot_x(a):
     c, s = math.cos(a), math.sin(a)
@@ -197,6 +260,36 @@ def test_attitude_gyro_only_drift_is_bounded():
             bias + 1e-3 * rng.standard_normal(3), np.array([0.0, 0.0, 2 * est.G]), 0.004
         )
     assert math.degrees(att.tilt) < 0.3
+
+
+def test_attitude_is_not_pulled_upright_by_a_thrust_that_reads_one_g():
+    """The tail of the landing motor is about the vehicle's weight, so the specific force along the (tilted) body axis reads ~1 g: the accelerometer
+    correction must be off while a motor thrusts (`aid=False`), or it pulls the estimate to zero whatever the true tilt is."""
+
+    def hold(aid):
+        rng = np.random.default_rng(5)
+        bias = np.array([0.004, -0.002, 0.001])
+        att = est.Attitude()
+        for _ in range(500):
+            att.calibrate(
+                bias + 1e-3 * rng.standard_normal(3),
+                np.array([0.0, 0.0, est.G]) + 0.02 * rng.standard_normal(3),
+            )
+        att.finish_calibration()
+        dt = 0.004
+        for _ in range(int(0.5 / dt)):  # tilt 10 deg about x
+            att.update(
+                bias + np.array([math.radians(20.0), 0.0, 0.0]),
+                np.array([0.0, 0.0, 0.93 * est.G]),
+                dt,
+                aid=aid,
+            )
+        for _ in range(int(2.0 / dt)):  # then hold, thrust along the body axis
+            att.update(bias, np.array([0.0, 0.0, 0.93 * est.G]), dt, aid=aid)
+        return math.degrees(att.tilt)
+
+    assert hold(False) == pytest.approx(10.0, abs=0.3)
+    assert hold(True) < 5.0  # the failure the gate removes
 
 
 def test_axis_filter_tracks_a_motion_with_a_biased_accelerometer_and_delayed_fixes():
@@ -288,7 +381,11 @@ def test_params_declared_resolve_and_validate():
         "impulse_sigma",
         "delay_jitter_s",
         "misalign_deg",
-        "aim_bias_m",
+        "s_plan",
+        "j_fire",
+        "dump_max_deg",
+        "apogee_cap_m",
+        "alt_period",
         "kp_pos",
         "kd_vel",
         "td_gimbal_deg",
@@ -486,6 +583,6 @@ def test_mc_one_flight_is_reproducible(tmp_path, monkeypatch):
     import mc
 
     monkeypatch.setattr(mc, "SCRATCH", tmp_path)
-    r1 = mc.one((5003, {"aim_bias_m": 0.0}))
-    r2 = mc.one((5003, {"aim_bias_m": 0.0}))
+    r1 = mc.one((5003, {"s_plan": 1.0}))
+    r2 = mc.one((5003, {"s_plan": 1.0}))
     assert r1 == r2 and r1["landed"] in (0, 1)

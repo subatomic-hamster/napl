@@ -151,31 +151,86 @@ label = "Launch time"
 doc = "Time the ascent motor is fired (after the 2 s pad calibration)."
 
 [[parameters]]
-name = "aim_bias_m"
+name = "s_plan"
 type = "float"
-default = -0.3
-min = -3.0
-max = 3.0
-unit = "m"
+default = 0.99
+min = 0.8
+max = 1.2
+unit = "1"
 group = "flight"
-label = "Landing-burn ignition bias"
-doc = "Positive lights the landing motor earlier. Picked on separate Monte Carlo training seeds (docs/lander.md): the best of -0.3 ... +1.0 by success rate, though the five candidates are within the training noise of each other."
+label = "Planned landing-motor thrust scale"
+doc = "Thrust scale (1 = the certified curve) the landing-ignition rule plans for. Below 1 lights the motor earlier, so that even a weak motor stops the vehicle; a stronger one is dumped by tilting. Picked on separate Monte Carlo training seeds (docs/lander.md)."
 
 [[parameters]]
-name = "v_target"
+name = "j_fire"
 type = "float"
-default = 0.8
-min = 0.1
+default = 1.0
+min = 0.2
 max = 3.0
 unit = "m/s"
 group = "flight"
-label = "Table touchdown speed"
-doc = "Touchdown speed the ignition table aims for."
+label = "Ignition rule: tolerated predicted touchdown cost"
+doc = "The landing motor is lit at the latest moment at which the planned landing (scale s_plan, best tilt schedule) is still predicted to cost no more than this (about the hardest touchdown speed plus a small price on the tilt)."
+
+[[parameters]]
+name = "apogee_cap_m"
+type = "float"
+default = 15.0
+min = 2.0
+max = 15.0
+unit = "m"
+group = "flight"
+label = "Hop height cap"
+doc = "The ascent burn throws thrust away sideways (tilts) to keep the predicted apogee under this. The E16's natural apogee for the NFPA impulse scatter is 6.7-9 m, so the default 15 m never binds (off); caps of 6-8 m cost more in lateral drift than they gain (docs/lander.md)."
+
+[[parameters]]
+name = "dump_max_deg"
+type = "float"
+default = 12.0
+min = 10.0
+max = 60.0
+unit = "deg"
+group = "flight"
+label = "Landing-burn tilt limit"
+doc = "Largest tilt the landing burn may use to throw excess thrust away sideways."
+
+[[parameters]]
+name = "t_lev"
+type = "float"
+default = 0.8
+min = 0.1
+max = 1.0
+unit = "s"
+group = "flight"
+label = "Level-out time"
+doc = "The last part of the landing burn is flown level: the tilt is brought back to zero before the thrust ends."
+
+[[parameters]]
+name = "w_lat"
+type = "float"
+default = 0.5
+min = 0.0
+max = 4.0
+unit = "m/s"
+group = "flight"
+label = "Price of sideways thrust in the landing plan"
+doc = "Cost (in m/s of touchdown speed) of a unit mean sin(tilt) over the dump phase of the landing plan: the larger, the less the planner tilts to throw thrust away."
+
+[[parameters]]
+name = "alt_period"
+type = "float"
+default = 3.0
+min = 0.8
+max = 6.0
+unit = "s"
+group = "flight"
+label = "Dump direction alternation period"
+doc = "The sideways part of the dumped thrust alternates in direction with this period, so the lateral push averages out."
 
 [[parameters]]
 name = "wn_att"
 type = "float"
-default = 13.0
+default = 8.0
 min = 4.0
 max = 30.0
 unit = "rad/s"
@@ -186,7 +241,7 @@ doc = "Closed-loop natural frequency of the TVC attitude loop."
 [[parameters]]
 name = "kp_pos"
 type = "float"
-default = 0.35
+default = 0.8
 min = 0.0
 max = 2.0
 unit = "1/s^2"
@@ -197,7 +252,7 @@ doc = "Commanded lateral acceleration per metre of horizontal error."
 [[parameters]]
 name = "kd_vel"
 type = "float"
-default = 1.1
+default = 1.3
 min = 0.0
 max = 4.0
 unit = "1/s"
@@ -230,7 +285,7 @@ doc = "Height below which the landing burn trades position hold for sideways-spe
 [[parameters]]
 name = "td_gimbal_deg"
 type = "float"
-default = 2.5
+default = 7.0
 min = 0.0
 max = 8.0
 unit = "deg"
@@ -241,7 +296,7 @@ doc = "Largest attitude correction (deg of gimbal) allowed after touchdown while
 [[parameters]]
 name = "tilt_cmd_max_deg"
 type = "float"
-default = 8.0
+default = 10.0
 min = 1.0
 max = 20.0
 unit = "deg"
@@ -373,11 +428,37 @@ label = "Landing motor"
 doc = "idle, delay, burning or spent."
 
 [[telemetry]]
+name = "motors.a.scale_est"
+group = "propulsion"
+label = "Ascent motor thrust scale (estimate)"
+doc = "Measured thrust over the certified curve, from the accelerometer while the motor burns (1 = nominal; the NFPA impulse scatter shows up here)."
+
+[[telemetry]]
+name = "motors.b.scale_est"
+group = "propulsion"
+label = "Landing motor thrust scale (estimate)"
+doc = "As the ascent motor's; it starts at 1 until the landing motor has lit."
+
+[[telemetry]]
 name = "landing.ign_margin_m"
+unit = "m/s"
+group = "landing"
+label = "Ignition margin (predicted cost)"
+doc = "j_fire minus the best predicted landing cost (m/s, about the hardest touchdown speed plus a small price on the tilt) if the motor is lit at the next look. The motor is lit when it falls below zero."
+
+[[telemetry]]
+name = "landing.dump_deg"
+unit = "deg"
+group = "landing"
+label = "Tilt used to throw thrust away"
+doc = "Tilt of the thrust axis that the energy management asks for (low-passed), in the ascent or the landing burn; the direction alternates, see alt_period."
+
+[[telemetry]]
+name = "landing.apogee_pred_m"
 unit = "m"
 group = "landing"
-label = "Height above the ignition point"
-doc = "Predicted height at thrust onset minus the table height for the speed then. The motor is lit when this reaches zero."
+label = "Predicted apogee (ascent)"
+doc = "Apogee predicted from the measured thrust scale while the ascent motor burns."
 
 [[telemetry]]
 name = "landing.pred_touchdown_ms"

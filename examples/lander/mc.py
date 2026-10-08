@@ -3,10 +3,11 @@
     python examples/lander/mc.py --train 60 --test 300 --workers 6 --out runs/lander-mc.json
 
 Protocol (the point of keeping two seed ranges apart):
-  1. TRAINING seeds (1000...) pick the one tunable landing-ignition `aim_bias_m` from a short list. It is the only thing tuned.
-  2. TEST seeds (5000...) are then flown ONCE with that bias, and the success rate and the touchdown speed / position distributions are reported as they came out.
+  1. TRAINING seeds (1000...) pick the tunable(s) of the flight software from a short list of candidates (default: the planned thrust scale `s_plan` of the
+     ignition rule). Nothing else is tuned on them.
+  2. TEST seeds (5000...) are then flown ONCE with the pick, and the success rate and the touchdown speed / position distributions are reported as they came out.
   3. The same test seeds are re-flown with one scatter changed at a time (igniter-delay jitter 0 / 0.02 / 0.08 s, motor impulse sigma 0 / 2 / 6.67 % = the NFPA 1125
-     cap, wind fixed at 0 / 4 m/s) for a sensitivity table, bias unchanged.
+     cap, wind fixed at 0 / 2 / 4 m/s) for a sensitivity table, pick unchanged.
 Each flight draws its own wind (speed uniform 0..wind_max, direction uniform; the Dryden intensity `w20` of the environment device is the same speed) from the
 seed, so the wind is part of the scatter. A flight is a success when it lands (not aborted) with all of: touchdown speed < 2 m/s, touchdown tilt < 10 deg, within
 `MAX_DIST` of the pad, upright at the end, servo saturation < 10 % of the powered time (the monitors of land.scenario.toml).
@@ -35,7 +36,9 @@ MAX_SPEED = 2.0  # m/s
 MAX_TILT = 10.0  # deg at touchdown
 MAX_FINAL_TILT = 15.0  # deg at the end of the run
 MAX_SAT = 0.10
-AIM_CHOICES = (-0.6, -0.3, 0.0, 0.3, 0.6)  # m, the landing-ignition aim bias candidates
+CANDIDATES = [
+    {"s_plan": x} for x in (0.96, 0.99, 1.02, 1.05)
+]  # parameter overrides tried on the training seeds
 TRAIN_BASE, TEST_BASE = 1000, 5000
 WIND_MAX = 4.0  # m/s
 SCRATCH = Path(os.environ.get("NAPL_MC_TMP", "/tmp/napl-lander-mc"))
@@ -132,21 +135,23 @@ def fmt(tag, s):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument(
-        "--train", type=int, default=60, help="training seeds per aim-bias candidate"
+        "--train", type=int, default=60, help="training seeds per candidate"
     )
     ap.add_argument("--test", type=int, default=300, help="report seeds")
     ap.add_argument("--workers", type=int, default=6, help="processes (<= 6)")
     ap.add_argument("--out", default="")
     ap.add_argument(
-        "--aim",
-        type=float,
+        "--pick",
         default=None,
-        help="skip the training and use this aim bias",
+        help="JSON of parameter overrides: skip the training and use these",
     )
     ap.add_argument(
-        "--aims",
-        default=",".join(str(x) for x in AIM_CHOICES),
-        help="comma list of aim-bias candidates (m) for the training",
+        "--cands",
+        default=json.dumps(CANDIDATES),
+        help="JSON list of parameter-override dicts tried on the training seeds",
+    )
+    ap.add_argument(
+        "--test-base", type=int, default=TEST_BASE, help="first report seed"
     )
     ap.add_argument(
         "--no-sweep",
@@ -171,29 +176,29 @@ def main(argv=None):
     }
     with mp.get_context("spawn").Pool(a.workers) as pool:
         train = {}
-        if a.aim is None:
+        if a.pick is None:
             tr_seeds = range(TRAIN_BASE, TRAIN_BASE + a.train)
-            aims = [float(x) for x in a.aims.split(",")]
-            for aim in aims:
-                s = summarize(run(pool, tr_seeds, {**base, "aim_bias_m": aim}))
-                train[str(aim)] = s
-                sys.stdout.write(fmt(f"train aim {aim:+.1f} m", s) + "\n")
+            cands = json.loads(a.cands)
+            for c in cands:
+                s = summarize(run(pool, tr_seeds, {**base, **c}))
+                train[json.dumps(c, sort_keys=True)] = s
+                sys.stdout.write(fmt(f"train {json.dumps(c)}", s) + "\n")
                 sys.stdout.flush()
             # best success rate, ties by the lower median speed
-            aim = max(
-                aims,
-                key=lambda x: (
-                    train[str(x)]["success"],
-                    -(train[str(x)]["speed_ms"]["p50"] or 99),
+            pick = max(
+                cands,
+                key=lambda c: (
+                    train[json.dumps(c, sort_keys=True)]["success"],
+                    -(train[json.dumps(c, sort_keys=True)]["speed_ms"]["p50"] or 99),
                 ),
             )
         else:
-            aim = a.aim
+            pick = json.loads(a.pick)
         out["train"] = train
-        out["aim_bias_m"] = aim
-        sys.stdout.write(f"chosen aim bias {aim:+.1f} m\n")
-        te_seeds = list(range(TEST_BASE, TEST_BASE + a.test))
-        res = run(pool, te_seeds, {**base, "aim_bias_m": aim})
+        out["pick"] = pick
+        sys.stdout.write(f"chosen {json.dumps(pick)}\n")
+        te_seeds = list(range(a.test_base, a.test_base + a.test))
+        res = run(pool, te_seeds, {**base, **pick})
         out["test"] = summarize(res)
         out["test_flights"] = res
         sys.stdout.write(fmt("TEST (report seeds)", out["test"]) + "\n")
@@ -208,9 +213,11 @@ def main(argv=None):
                 ("impulse_sigma", v, f"impulse sigma {100 * v:.2f} %")
                 for v in (0.0, 0.02, 0.0667)
             ]
-            cases += [("wind_ms", v, f"wind fixed {v:.0f} m/s") for v in (0.0, 4.0)]
+            cases += [
+                ("wind_ms", v, f"wind fixed {v:.0f} m/s") for v in (0.0, 2.0, 4.0)
+            ]
             for key, v, tag in cases:
-                s = summarize(run(pool, te_seeds, {**base, "aim_bias_m": aim, key: v}))
+                s = summarize(run(pool, te_seeds, {**base, **pick, key: v}))
                 out["sweep"][f"{key}={v}"] = s
                 sys.stdout.write(fmt(tag, s) + "\n")
                 sys.stdout.flush()

@@ -72,10 +72,14 @@ class Attitude:
         self.bias = self._g / self._n
         self.q = quat_from_up(self._a / self._n)
 
-    def update(self, gyro, accel, dt):
+    def update(self, gyro, accel, dt, aid=True):
+        """`aid` False while a motor thrusts: the specific force is then the thrust along the body axis, which can read 1 g (a landing motor's tail is about the
+        vehicle's weight) and would pull the tilt estimate to zero whatever the true tilt is."""
         w = np.asarray(gyro, float) - self.bias
         f = float(np.linalg.norm(accel))
-        if abs(f - G) < self.gate * G:  # near 1 g: gravity is the specific force
+        if (
+            aid and abs(f - G) < self.gate * G
+        ):  # near 1 g: gravity is the specific force
             u_meas = np.asarray(accel, float) / f
             u_pred = quat_to_mat(self.q).T[:, 2]  # body-frame up (R^T z)
             w = w + self.kp * np.cross(u_meas, u_pred)
