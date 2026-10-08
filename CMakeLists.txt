@@ -109,7 +109,7 @@ if(NAPL_VIEWER)
   file(CONFIGURE OUTPUT ${NAPL_GEN_DIR}/ui_font.cpp @ONLY CONTENT
     "#include <cstddef>\nextern unsigned char kUiFont[] = {@_font_hex@};\nextern const std::size_t kUiFontSize = sizeof kUiFont;\nextern unsigned char kUiMono[] = {@_mono_hex@};\nextern const std::size_t kUiMonoSize = sizeof kUiMono;\n")
   add_library(napl_viewer STATIC src/viewer/viewer.cpp src/viewer/theme.cpp src/viewer/build3d.cpp src/viewer/library_ui.cpp
-    ${NAPL_GEN_DIR}/ui_font.cpp)
+    src/viewer/hud.cpp ${NAPL_GEN_DIR}/ui_font.cpp)
   target_include_directories(napl_viewer PRIVATE ${stb_image_SOURCE_DIR})
   # LOOK's 2D wiring mode (src/viewer/wire2d.cpp, `void wire2d_draw(const Wire2dSlot&)`, see viewer/wire2d_slot.h) is linked in
   # when the file exists; without it the WIRING tab shows a placeholder.
