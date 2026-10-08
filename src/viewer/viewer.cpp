@@ -1034,7 +1034,7 @@ class Viewer {
     if (opts_.clean) {  // HUD / recording: the whole window is the viewport
       pane_l_ = pane_r_ = 0;
       full_page_ = false;
-      vp_ = {0, 0, W, H};
+      vp_goal_ = vp_ = {0, 0, W, H};  // (vp_ eases toward vp_goal_ each frame: set both)
       return;
     }
     full_page_ = mode_ == Mode::Wiring || mode_ == Mode::Program;

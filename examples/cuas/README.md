@@ -25,14 +25,13 @@ committed: frames and plots stay in the run dir on hfbox and in `remote-out/` (g
 
 | | |
 |---|---|
-| rounds fired | 23 (first at 0.6 s) |
-| hits on a drone | 4 (hit rate **17 %**, impact speed 146-158 m/s); 13 rounds missed and hit the ground 298-337 m away (the monitor's box is 400 m), 6 were still in flight or expired when the run ended |
-| hits with functional damage | 2: `drone4` arm `con2` -> ESC 2 open (t = 17.8 s), `drone3` arm `con4` -> ESC 4 open (t = 37.3 s); the other 2 hit `drone1`'s `hanger8` and `platform` (frame parts: no effect) |
-| drones destroyed | **2 of 4** (`drone4` at 18.4 s, `drone3` at 37.8 s: tilted past 80 deg a few hundred ms after losing a motor, then fell) |
-| drones fired at | 4 (`drone1`..`drone4`; a round counts as fired at a drone when it passed within 3 m of it) |
-| authorizations | 16 requests: 13 granted, 3 denied (target beyond the 55 m envelope); 0 shots refused for lack of authorization |
-| closest approach of the 23 rounds to the drone it was fired at | median 0.21 m, best 0.05 m (seen from the side a drone's physical cross-section is a few cm of arm, motor and plate edge) |
-| replay | state hash `5e91ef685aa7c360` at tick 60000 in two separate runs; `napl-replay` reproduces it |
+| rounds fired | 13 |
+| hits on a drone | 3 (hit rate **23 %**); 4 rounds hit the ground (the monitor's box is 400 m: farthest 329 m), the rest were still in flight or expired when the run ended |
+| drones destroyed | **2 of 4** (`drone3` at 8.0 s, `drone4` at 20.7 s: functional damage, then tilted past 80 deg or fell) |
+| drones fired at | 3 (`drone1`, `drone3`, `drone4`; a round counts as fired at a drone when it passed within 3 m of it) |
+| authorizations | 10 requests: 8 granted, 2 denied (target beyond the envelope); 0 shots refused for lack of authorization |
+| closest approach of the 13 rounds to the drone it was fired at | median 0.22 m, best 0.09 m (seen from the side a drone's physical cross-section is a few cm of arm, motor and plate edge) |
+| replay | state hash `59fe2bdd7b2009c8` at tick 60000 (the turret's Pi 5 sits on 4 standoffs and the detector is the local-sky one: this replaces the earlier `5e91ef685aa7c360`); `napl-replay` reproduces it |
 | monitors | all 6 pass |
 
 The hit rate is low and it is what the model gives: the quads in the library are thin (2 mm plates, 15 mm arm tubes, 28 mm motors, 254 x 30 mm
@@ -126,7 +125,7 @@ board (`fc`, `pdb`, `pm02`, aos5 `esc`) -> every ESC open; the battery pack -> `
 ## Determinism
 
 The physics, the SetAttr stream (throttles, servo goals, fire) and the state hash are the kernel's: two runs on the same machine give the same
-hash (`5e91ef685aa7c360` twice, and again after code edits that did not change behaviour), and `napl-replay` of `replay.naplog` reproduces it.
+hash (`59fe2bdd7b2009c8` on this box and driver, the same as the coordinator's run), and `napl-replay` of `replay.naplog` reproduces it.
 **Camera pixels are deterministic per GPU / driver only** (`Sim.render`'s contract). The hash does not depend on the frames, but the program's
 decisions do (they come from pixels): on another GPU, driver or a software rasteriser a threshold can flip on one edge pixel, the SetAttr stream
 can then differ, and so can the hash and the hit rate. The detector uses margins (threshold 18 on a 25/31/41 sky versus a drone at 5/5/6), so
