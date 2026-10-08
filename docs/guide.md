@@ -330,6 +330,18 @@ the matching `Design` method, rebuilds and reloads the model keeping camera and 
 after each edit (red = error, `*` = new from the last edit; clicking one selects the instance involved). Edits are not saved
 until you press save; comments of a hand-written TOML are not kept by a save.
 
+#### A HUD over the 3D view **[not run here: needs a display and a Vulkan device]**
+
+`Sim.load(model, host=True)` + `sim.show(hud=napl.hud.Hud(), clean=True)` opens the SIMULATE view with no panes; any thread then calls
+`hud.set(napl.hud.doc([...items...], seq=n))` and the window draws the latest document every frame: text boxes, label / value tables,
+tab rows with an underline, rectangles, lines, images (PNG files, optionally cropped) and groups with their own pixel space (a camera
+frame and the boxes drawn on it), plus world-anchored labels, polylines, rings and dots projected with the camera the scene was rendered
+with. A `camera=dict(target=, yaw=, pitch=, dist=)` in the document drives the orbit camera. The schema is the comment block of
+`src/viewer/hud.h`; the builders are `python/napl/hud.py`. The counter-UAS display (stage tabs, counters, track labels, tracers, the
+TURRET CAMERA picture-in-picture) is `python/napl/cuas/hudview.py`; `tools/record_sim.py play|frames|encode` replays a `napl program`
+run under the viewer with it and records it (see `examples/cuas/README.md`). `Hud.dry_run(...)` draws a document with no window, which
+is what `tests/python/test_hud.py` uses.
+
 ### Build and the mass budget
 
 ```

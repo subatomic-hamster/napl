@@ -288,6 +288,7 @@ class Viewer {
     }
     for (auto& p : cmds_) p.second.wait();  // scripted / UI commands issued last are applied before we return
     poll();
+    if (opts_.on_close) opts_.on_close();
     thumbs_ = nullptr;  // (the textures are unregistered by `thumbs` before the ImGui context goes)
   }
 
@@ -1008,6 +1009,12 @@ class Viewer {
     }
     pane_l_ = l;
     pane_r_ = r;
+    if (opts_.clean) {  // HUD / recording: the whole window is the viewport
+      pane_l_ = pane_r_ = 0;
+      full_page_ = false;
+      vp_ = {0, 0, W, H};
+      return;
+    }
     full_page_ = mode_ == Mode::Wiring || mode_ == Mode::Program;
     vp_ = full_page_ ? ImVec4{0, 0, 0, 0} : mode_ == Mode::Library ? ImVec4{l, kTop, W, H - kStatus} : ImVec4{l, kTop, W - r, H - kStatus};
   }
@@ -1726,6 +1733,16 @@ class Viewer {
     const float W = io.DisplaySize.x, H = io.DisplaySize.y;
     const double now = ImGui::GetTime();
     if (cam_anim_.active) step_cam_anim(now);
+    if (opts_.camera) {
+      CameraCtl c;
+      for (int k = 0; k < 3; ++k) c.target[k] = orbit_.target[k];
+      c.yaw = orbit_.yaw, c.pitch = orbit_.pitch, c.dist = orbit_.dist;
+      if (opts_.camera(c)) {
+        for (int k = 0; k < 3; ++k) orbit_.target[k] = c.target[k];
+        orbit_.yaw = c.yaw, orbit_.pitch = c.pitch, orbit_.dist = c.dist;
+        cam_anim_.active = false;
+      }
+    }
     layout(W, H);
     view_cam_ = view_camera(W, H);
     libui::Actions la;
@@ -1735,16 +1752,18 @@ class Viewer {
       lib_busy_ = true;
       dreq("search", [this] { return search_req(); }, true);
     }
-    top_bar(W);
-    switch (mode_) {
-      case Mode::Build: build_panes(W, H); break;
-      case Mode::Library: library_page(H); break;
-      case Mode::Wiring: wiring_page(W, H); break;
-      case Mode::Simulate: simulate_panes(W, H); break;
-      case Mode::Program: program_page(W, H); break;
+    if (!opts_.clean) {
+      top_bar(W);
+      switch (mode_) {
+        case Mode::Build: build_panes(W, H); break;
+        case Mode::Library: library_page(H); break;
+        case Mode::Wiring: wiring_page(W, H); break;
+        case Mode::Simulate: simulate_panes(W, H); break;
+        case Mode::Program: program_page(W, H); break;
+      }
+      status_bar(W, H);
+      confirm_popup();
     }
-    status_bar(W, H);
-    confirm_popup();
     if (!full_page_) viewport_layer(W, H, now);
     if (opts_.overlay && !full_page_) {
       OverlayCtx o;

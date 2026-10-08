@@ -24,8 +24,13 @@ struct OverlayCtx {
   double sim_time = 0;
 };
 
+// The viewer's orbit camera (target, yaw / pitch in rad, distance in m; position = target + dist * (cos p cos y, cos p sin y, sin p)).
+struct CameraCtl {
+  double target[3] = {0, 0, 0}, yaw = 0, pitch = 0, dist = 1;
+};
+
 struct ViewerOptions {
-  int frames = 0;                           // > 0: leave after this many frames (smoke tests); 0: until the window closes
+  int frames = 0;                          // > 0: leave after this many frames (smoke tests); 0: until the window closes
   std::string script;                       // UI-equivalent commands issued at given frames, see parse_script
   std::string design_report;                // optional <name>.report.json of a `napl design build`: shows the Design window
   // Optional editing backend (python: napl.design.viewer.Backend): JSON request in, JSON reply out (see viewer/design.h
@@ -36,6 +41,10 @@ struct ViewerOptions {
   std::function<std::string(const std::string&)> design_api;
   // Optional per-frame overlay hook (HUD): called on the viewer thread inside the ImGui frame.
   std::function<void(const OverlayCtx&)> overlay;
+  // Optional camera driver (HUD chase / presets): called each frame with the current orbit; returning true replaces it.
+  std::function<bool(CameraCtl&)> camera;
+  std::function<void()> on_close;  // called on the viewer thread just before ImGui is shut down (free what the overlay registered)
+  bool clean = false;  // SIMULATE with no panes, top bar or status bar: the 3D view fills the window (HUD / recording)
   int width = 1280, height = 720;
   const std::atomic<bool>* stop = nullptr;  // optional: another thread sets it to close the viewer
 };

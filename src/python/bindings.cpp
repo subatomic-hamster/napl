@@ -28,6 +28,10 @@
 #include "napl_schema_json.h"
 #include "render/renderer.h"
 #ifdef NAPL_HAS_VIEWER
+#include <nanobind/stl/array.h>
+#include <nanobind/stl/string.h>
+
+#include "viewer/hud.h"
 #include "viewer/viewer.h"
 #endif
 
@@ -275,14 +279,21 @@ struct PyApi {
 };
 
 void view(Host& host, int frames, const std::string& script, int width, int height, const std::atomic<bool>* stop,
-          nb::object design) {
+          nb::object design, nb::object hud, bool clean) {
   ViewerOptions o;
   o.frames = frames;
   o.script = script;
   o.width = width;
   o.height = height;
   o.stop = stop;
+  o.clean = clean;
   if (!design.is_none()) o.design_api = PyApi(std::move(design));
+  if (!hud.is_none()) {  // a napl.Hud (the caller's reference keeps it alive for the whole call)
+    hud::Overlay* h = nb::cast<hud::Overlay*>(hud);
+    o.overlay = h->callback();
+    o.camera = h->camera_driver();
+    o.on_close = [h] { h->release(); };
+  }
   nb::gil_scoped_release nogil;
   run_viewer(host, o);  // throws std::runtime_error (-> RuntimeError) with the reason: no display, no Vulkan device, ...
 }
@@ -326,7 +337,7 @@ NB_MODULE(_napl, m) {
       // Hands the World to a Host (its own sim thread) and runs the viewer on this thread until the window closes or
       // `frames` frames were drawn; then takes the World back. The session's commands are logged like any Host's.
       .def("show",
-           [](Sim& s, int frames, const std::string& script, int width, int height, nb::object design) {
+           [](Sim& s, int frames, const std::string& script, int width, int height, nb::object design, nb::object hud, bool clean) {
 #ifdef NAPL_HAS_VIEWER
              Host host(std::move(s.w), s.s);
              struct TakeBack {  // also on an exception: the Sim must get its World back
@@ -337,12 +348,13 @@ NB_MODULE(_napl, m) {
                  s.w = std::move(h.world());
                }
              } take_back{s, host};
-             view(host, frames, script, width, height, nullptr, std::move(design));
+             view(host, frames, script, width, height, nullptr, std::move(design), std::move(hud), clean);
 #else
              no_viewer();
 #endif
            },
-           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720, "design"_a = nb::none());
+           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720, "design"_a = nb::none(), "hud"_a = nb::none(),
+           "clean"_a = false);
 
   // A Sim whose World lives on a Host thread: what `napl mcp --view` serves, with the viewer on the main thread.
   nb::class_<HostSim> host(m, "Host");
@@ -356,17 +368,53 @@ NB_MODULE(_napl, m) {
            "caps"_a = std::vector<std::string>{"read", "control", "destructive"}, "max_steps_per_call"_a = INT_MAX);
   bind_common(host);
   host.def("view",
-           [](HostSim& s, int frames, const std::string& script, int width, int height, nb::object design) {
+           [](HostSim& s, int frames, const std::string& script, int width, int height, nb::object design, nb::object hud, bool clean) {
 #ifdef NAPL_HAS_VIEWER
-             view(*s.h, frames, script, width, height, &s.close, std::move(design));  // request_close() latches: later views return at once
+             view(*s.h, frames, script, width, height, &s.close, std::move(design), std::move(hud), clean);  // request_close() latches: later views return at once
 #else
              no_viewer();
 #endif
            },
-           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720, "design"_a = nb::none())
+           "frames"_a = 0, "script"_a = "", "width"_a = 1280, "height"_a = 720, "design"_a = nb::none(), "hud"_a = nb::none(),
+           "clean"_a = false)
       .def("request_close", [](HostSim& s) { s.close = true; })  // callable from any thread
       .def("stop", [](HostSim& s) {
         nb::gil_scoped_release nogil;
         s.h->stop();
       });
+
+#ifdef NAPL_HAS_VIEWER
+  // The viewer's data-driven HUD (src/viewer/hud.h): `Sim.show(hud=Hud())`, then `hud.set(json)` from any thread.
+  auto labels_of = [](const std::vector<hud::Label>& v) {
+    nb::list out;
+    for (const hud::Label& l : v) out.append(nb::make_tuple(l.text, l.x, l.y, l.visible));
+    return out;
+  };
+  nb::class_<hud::Overlay>(m, "Hud")
+      .def(nb::init<>())
+      .def("set", [](hud::Overlay& h, const std::string& json) { h.set(json); }, "json"_a)  // bad JSON -> RuntimeError
+      // -> dict(seq, tick, stable, frames, error): what the window drew last (see hud::Overlay::Progress)
+      .def("progress", [](hud::Overlay& h) {
+        const hud::Overlay::Progress p = h.progress();
+        nb::dict d;
+        d["seq"] = p.seq, d["tick"] = p.tick, d["stable"] = p.stable, d["frames"] = p.frames, d["error"] = p.error;
+        return d;
+      })
+      .def("labels", [labels_of](hud::Overlay& h) { return labels_of(h.labels()); })  // [(text, x, y, visible)] of the last frame
+      // Headless draw of the current document (no window, no GPU) -> dict(labels, vertices, error). Not while a viewer runs.
+      .def("dry_run",
+           [labels_of](hud::Overlay& h, std::array<double, 3> pos, std::array<double, 3> look, double fovy, double w, double hgt,
+                       std::array<double, 4> vp) {
+             OverlayCtx c;
+             for (int k = 0; k < 3; ++k) c.cam_pos[k] = pos[k], c.cam_look[k] = look[k];
+             c.cam_fovy = fovy, c.window_w = w, c.window_h = hgt;
+             c.x = static_cast<float>(vp[0]), c.y = static_cast<float>(vp[1]), c.w = static_cast<float>(vp[2]), c.h = static_cast<float>(vp[3]);
+             if (c.w <= 0) c.x = 0, c.y = 0, c.w = static_cast<float>(w), c.h = static_cast<float>(hgt);
+             const hud::Overlay::DryRun r = h.dry_run(c);
+             nb::dict d;
+             d["labels"] = labels_of(r.labels), d["vertices"] = r.vertices, d["error"] = r.error;
+             return d;
+           },
+           "cam_pos"_a, "cam_look"_a, "fovy"_a, "width"_a, "height"_a, "viewport"_a = std::array<double, 4>{0, 0, 0, 0});
+#endif
 }
