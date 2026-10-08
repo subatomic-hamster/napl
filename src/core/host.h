@@ -25,6 +25,7 @@ struct Frame {
   bool new_scene = false;            // visuals below are valid (first frame, and after each scene change)
   std::vector<GeomVisual> visuals;
   std::vector<GeomPose> poses;       // index-parallel to visuals
+  std::vector<TubeVisual> tubes;     // every frame
   double dt = 0;                     // seconds per tick
   bool running = false, diverged = false;
   double rate = 0;                   // Run rate while running (0 = as fast as possible)

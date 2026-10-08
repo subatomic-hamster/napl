@@ -23,6 +23,7 @@
 #include "napl_generated.h"
 #include "render/window_renderer.h"
 #include "viewer/design.h"
+#include "viewer/wire2d.h"
 
 namespace {
 using Env = std::vector<std::uint8_t>;
@@ -230,6 +231,11 @@ class Viewer {
       return s;
     };
     WindowRenderer renderer(surf);
+    if (opts_.design_api) {  // the build view looks like a studio; NAPL_RENDER_STYLE still overrides
+      RenderStyle st = default_render_style();
+      st.sky = RenderStyle::Sky::studio;
+      set_default_render_style(st);
+    }
     ImGuiBackends gui(window.w, renderer.handles());
 
     if (opts_.design_api) d_state(true);  // the design behind the model on screen (quiet: an MCP server may not have one yet)
@@ -257,6 +263,7 @@ class Viewer {
 
       int fw = 0, fh = 0;
       glfwGetFramebufferSize(window.w, &fw, &fh);
+      renderer.set_tubes(cur_.tubes);
       const bool drawn = renderer.frame(cur_.poses, orbit_.camera(), fw, fh, [](VkCommandBuffer cb) {
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
       });
@@ -511,7 +518,7 @@ class Viewer {
       }
       if (dq_.empty()) {
         const auto now = std::chrono::steady_clock::now();
-        if (!draining_ && now - last_poll_ > std::chrono::seconds(1)) {
+        if (!draining_ && now - last_poll_ > (flat_.active() ? std::chrono::milliseconds(250) : std::chrono::milliseconds(1000))) {
           last_poll_ = now;
           dq_.push_back({"rev", true, [] { return design::request("rev"); }});
         } else {
@@ -540,6 +547,11 @@ class Viewer {
       dstatus_ = rq.kind + ": " + e.what();
       return;
     }
+    if (rq.kind.rfind("flatten.", 0) == 0) {  // the 2D wiring canvas (wire2d.cpp) owns these replies
+      flat_.on_reply(rq.kind, j);
+      if (j.at("ok").num != 0 && j.at("state").kind == design::Json::Obj) apply_state(j.at("state"));
+      return;
+    }
     if (j.at("ok").num == 0) {
       if (!rq.quiet) dstatus_ = rq.kind + ": " + j.s("error");
       if (rq.kind == "edit") cycling_ = -1;
@@ -548,6 +560,7 @@ class Viewer {
     dstatus_.clear();
     const design::Json& res = j.at("result");
     if (rq.kind == "rev") {
+      flat_.poll(static_cast<int>(res.n("flat_rev")));
       if (!res.at("rev").str.empty() && res.at("rev").str != dstate_.rev) d_state(true);
       return;
     }
@@ -1058,6 +1071,7 @@ class Viewer {
     }
     ImGui::End();
     if (has_design_) design_ui();
+    if (opts_.design_api) flat_.ui(dstate_, sel_instance() ? sel_instance()->id : "");  // 2D wiring (wire2d.cpp)
   }
 
   Host& host_;
@@ -1072,6 +1086,9 @@ class Viewer {
   // Design editing (all driven through opts_.design_api, see viewer.h)
   design::State dstate_;
   std::deque<DReq> dq_;
+  wire2d::Canvas flat_{[this](const std::string& tool, const std::string& args, bool quiet) {
+    dq_.push_back({tool, quiet, [tool, args] { return design::request(tool, args); }});
+  }};
   DReq dcur_;
   std::future<std::string> dfut_;
   bool draining_ = false, keep_camera_ = false;

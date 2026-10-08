@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 from .library import DesignError
+from .wire2d import Flatten
 
 
 def _involved(doc, where) -> list:
@@ -44,6 +45,7 @@ class Backend:
         self.save_to, self.max_wall_s = save_to, max_wall_s
         self.log = []  # [(request dict, reply dict)] of every request, for tests and replay of a UI session
         self._cache = None  # (design, rev, state)
+        self.flat = Flatten()  # the 2D wiring mode (wire2d.py): the flatten.* tools
 
     # ---- entry point -------------------------------------------------------------------------------------------------
     def __call__(self, text: str) -> str:
@@ -77,9 +79,14 @@ class Backend:
             d = self.get_design()
             return {
                 "ok": True,
-                "result": {"rev": self.rev_of(d) if d is not None else None},
+                "result": {
+                    "rev": self.rev_of(d) if d is not None else None,
+                    "flat_rev": self.flat.rev,
+                },
             }
         d = self._design()
+        if (tool or "").startswith("flatten."):
+            return self.flat.handle(self, d, tool, a)
         if tool == "state":
             return {"ok": True, "result": {}, "state": self.state(d)}
         if tool == "design_edit":

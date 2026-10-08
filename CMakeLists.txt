@@ -100,7 +100,7 @@ if(NAPL_VIEWER)
   target_compile_definitions(napl_imgui PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
   target_link_libraries(napl_imgui PUBLIC napl_volk napl_glfw)
 
-  add_library(napl_viewer STATIC src/viewer/viewer.cpp)
+  add_library(napl_viewer STATIC src/viewer/viewer.cpp src/viewer/wire2d.cpp)
   target_link_libraries(napl_viewer PUBLIC napl_render napl_core PRIVATE napl_imgui napl_glfw napl_volk)
   set_target_properties(napl_glfw napl_imgui napl_viewer PROPERTIES POSITION_INDEPENDENT_CODE ON)  # linked into _napl.so
 

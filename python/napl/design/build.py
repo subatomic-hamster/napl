@@ -22,6 +22,7 @@ from .snap import (
     select_fasteners,
     solve_tree,
 )
+from .wiretubes import wire_tubes
 
 POINT_MASS_RADIUS = 1e-3  # m: size of the placeholder sphere that carries the mass of a part without geometry (numerical, not physical)
 ESTIMATED_TOL = (
@@ -646,6 +647,9 @@ def compute(asm, parts_dir, out_dir, lib=None):
 
     # devices
     devices, dev_report, sites = build_devices(ctx, wires, joint_of)
+    tendon_lines = wire_tubes(
+        wires, tree.T, sites
+    )  # cables as visual-only tendons (the mass capsules above are hidden)
 
     # placement: free base sits on the floor (lowest collision point at z = 0)
     zmin = 0.0
@@ -706,7 +710,10 @@ def compute(asm, parts_dir, out_dir, lib=None):
             T = np.eye(4)
             T[:3, :3], T[:3, 3] = g["R"], g["pos"]
             s += pose_attrs(T)
-        s += f' rgba="{vec(appearance_rgba(lib, lib.get(g["part"])))}"'
+        hidden = (
+            g["name"].startswith("wire:") and ":conn:" not in g["name"]
+        )  # drawn as a tube instead (wiretubes.py)
+        s += f' rgba="{"0 0 0 0" if hidden else vec(appearance_rgba(lib, lib.get(g["part"])))}"'
         if g.get(
             "friction"
         ):  # priority 1: this geom's friction replaces the floor's (MuJoCo default is the max of the two)
@@ -759,6 +766,8 @@ def compute(asm, parts_dir, out_dir, lib=None):
         '    <geom name="floor" type="plane" size="0 0 1" contype="1" conaffinity="1" group="0" rgba="0.80 0.82 0.84 1"/>',
     ]
     tail = ["  </worldbody>"]
+    if tendon_lines:
+        tail += ["  <tendon>", *tendon_lines, "  </tendon>"]
     if devices:
         data = escape(
             json.dumps(devices, sort_keys=True, separators=(",", ":")), {"'": "&apos;"}
