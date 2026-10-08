@@ -16,6 +16,13 @@ unit = "kg"
 fidelity = "derived"
 derivation = "0.20 x 0.20 x 0.006 m x 2700 kg/m3 (aluminium-6061 density, parts/common) = 0.648 kg; holes not subtracted."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+rationale = "Custom-machined 6061 plate: bare brushed aluminium with the compute-seat bolt holes."
+
+[[visual.elements]]
+gen = "plate_outline"
+colors = { plate = "alu-brushed" }
+
 [geometry]
 shape = "box"
 size = [0.10, 0.10, 0.003]

@@ -98,6 +98,22 @@ rows = [[6.0, 0.238, 42, 0.13, 16.5, 2.0, 4.0, 0.5], [7.4, 0.192, 52, 0.15, 19.5
 src = "S1"
 fidelity = "datasheet"
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer"); the generator's Koch-style servo frame is placed on the mesh frame
+src = "V1"
+note = "Black case, silver output horn disc with four holes, inset black cover, label on the side, two three-pin ports in the end (Feetech / SO-ARM100 photos). Mesh frame: shaft at x = +12.5 mm, horn face at z = -17.7 mm facing -z."
+
+[[visual.elements]]
+gen = "bus_servo"
+pos = [0.0125, 0.0, -0.0177]
+rpy = [0.0, 3.141592653589793, 0.0]
+
+[[sources]]
+id = "V1"
+url = "https://github.com/TheRobotStudio/SO-ARM100/blob/a758567c3978dfeefe282ede0500085a48fe8f78/README.md"
+title = "SO-ARM100 / SO-101 README (build photos of the STS3215 servos in the arm)"
+accessed = "2026-10-08"
+quote = "[image] SO-101 arm assembled from STS3215 servos: black rectangular case with a round silver horn"
+
 [geometry]
 shape = "mesh"
 mesh = "meshes/so101/sts3215_03a_v1.stl"

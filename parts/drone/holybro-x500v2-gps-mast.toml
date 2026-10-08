@@ -82,6 +82,13 @@ unit = "m"
 fidelity = "derived"
 derivation = "STEP tray TUOPAN top face y_STEP = +107.0 mm minus the platform board top face y_STEP = -26.0 mm = 133 mm above the base seat."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+rationale = "Black plastic base and top tray with a thin carbon-look pole; the [geometry] shapes with softened edges."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "plastic-dark", s3 = "carbon-fibre" }
+
 [geometry]
 material = "nylon-pa66"   # nominal; masses are set per shape by mass_param
 

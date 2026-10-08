@@ -20,6 +20,7 @@ from .snap import (
     inv_T,
     nut_height,
     port_frame,
+    pose_matrix,
     select_fasteners,
     solve_tree,
 )
@@ -412,7 +413,12 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True):
         if s.name in seen:
             raise DesignError(f"duplicate mate name '{s.name}'")
         seen.add(s.name)
-    tree = solve_tree(root, onboard, specs)
+    placed = {
+        i: pose_matrix(x.pos, x.rpy)
+        for i, x in ctx.insts.items()
+        if x.placed and not x.offboard and not x.root
+    }
+    tree = solve_tree(root, onboard, specs, placed=placed)
     used = {
         u.name: u for _, u in tree.parent.values()
     }  # mate name -> MateSpec as placed (a = parent)
@@ -718,11 +724,16 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True):
             T[:3, :3], T[:3, 3] = g["R"], g["pos"]
             s += pose_attrs(T)
         rgba = appearance_rgba(lib, lib.get(g["part"]))
+        owner = ctx.insts.get(g["name"]) or ctx.insts.get(g["name"].rpartition(":")[0])
+        if (
+            owner is not None and owner.color
+        ):  # instance colour override: cosmetic, the part's own geoms only
+            rgba = (*owner.color[:3], owner.color[3] if len(owner.color) > 3 else 1.0)
         hidden = (
             g.get("hide")
             or (g["name"].startswith("wire:") and ":conn:" not in g["name"])
-        )  # wire mass capsules: drawn as a tube instead (wiretubes.py); alpha 0 = skipped by the renderer
-        s += f' rgba="{vec(rgba[:3] + (0.0,) if hidden else rgba)}"'
+        )  # wire mass capsules: drawn as a tube instead (wiretubes.py); hidden = alpha 0 (renderer skips it)
+        s += f' rgba="{vec(tuple(rgba[:3]) + (0.0,) if hidden else rgba)}"'
         if g.get(
             "friction"
         ):  # priority 1: this geom's friction replaces the floor's (MuJoCo default is the max of the two)
@@ -747,8 +758,12 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True):
             vis_mats[mname] = m
             T = np.eye(4)
             T[:3, :3], T[:3, 3] = p.R, p.pos
+            c = ctx.insts[
+                iid
+            ].color  # instance colour override: every piece of the part takes it
+            rgba = (*c[:3], c[3] if len(c) > 3 else 1.0) if c else m["rgba"]
             out.append(
-                f'<geom name={q(f"{iid}:v{k}")} type="mesh" mesh="v_{p.name}" material={q(mname)} rgba="{vec(m["rgba"])}"'
+                f'<geom name={q(f"{iid}:v{k}")} type="mesh" mesh="v_{p.name}" material={q(mname)} rgba="{vec(rgba)}"'
                 f'{pose_attrs(T)} mass="0" contype="0" conaffinity="0" group="{VEHICLE_GROUP}"/>'
             )
         return out

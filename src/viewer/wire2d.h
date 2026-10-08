@@ -4,6 +4,8 @@
 // `flatten.*` design_api request (python/napl/design/wire2d.py, listed there) and the canvas draws the state the replies and
 // the rev poll bring back -- so a scripted agent driving the same ops through napl.design.viewer.Backend sees the UI react:
 // cards pop in, a wire is drawn with a drag animation.
+#include <imgui.h>
+
 #include <functional>
 #include <map>
 #include <set>
@@ -39,9 +41,9 @@ class Canvas {
   explicit Canvas(Send send) : send_(std::move(send)) {}
 
   bool active() const { return active_; }
-  // Once per frame inside the ImGui frame: the selection window (3D mode) or the canvas overlay (flattened).
-  // `selected`: the instance selected in the Design window ("" = none).
-  void ui(const design::State& st, const std::string& selected);
+  // Inside the viewer's WIRING pane window (cursor at the pane's top-left, `size` = its content area): the component /
+  // terminal picker, or the flattened canvas + side panel. `selected`: the instance selected in the viewer ("" = none).
+  void page(ImVec2 size, const design::State& st, const std::string& selected);
   // The reply (parsed JSON) of a flatten.* request, failed ones included.
   void on_reply(const std::string& tool, const design::Json& reply);
   // From the viewer's rev poll: the backend's canvas revision; a change fetches the state.
@@ -71,6 +73,7 @@ class Canvas {
   int hidden_wires_ = 0;
   std::string sel_wire_, hover_wire_;
   Drag drag_;
+  ImVec2 org_{0, 0}, sz_{800, 600};  // the pane (screen coordinates), set by page()
   float zoom_ = 1, ox_ = 40, oy_ = 40;  // canvas -> screen: screen = o + canvas * zoom
   bool fit_pending_ = false;
   std::string toast_;

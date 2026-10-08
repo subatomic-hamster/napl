@@ -82,3 +82,17 @@ def test_visual_build_replays_identically(path, tmp_path, lib):
             hs.append(s.state_hash())
         hashes.append(hs)
     assert hashes[0] == hashes[1]
+
+
+def test_geometry_bearing_parts_are_95_percent_covered(lib):
+    """Every part with [geometry] draws a purpose-built visual (explicit [visual], family default, or a vendor mesh redrawn);
+    only the `shapes` fallback on bare primitives counts as uncovered. Wires are drawn by the wire layer, not here."""
+    import sys
+
+    sys.path.insert(0, str(REPO / "tools"))
+    from visual_coverage import classify
+
+    kinds = [classify(p) for p in lib.parts.values() if p.category != "wire"]
+    geo = [k for k in kinds if k != "exempt"]
+    cov = sum(k != "fallback" for k in geo) / len(geo)
+    assert cov >= 0.95, f"{cov:.1%} of geometry-bearing parts have a visual"

@@ -1,7 +1,6 @@
 #include "viewer/wire2d.h"
 
 #include <imgui.h>
-#include <imgui_internal.h>  // BringWindowToDisplayFront: the canvas covers every other window while flattened
 
 #include <algorithm>
 #include <cmath>
@@ -11,7 +10,7 @@
 namespace wire2d {
 namespace {
 constexpr float kHeadH = 30, kPad = 10, kRowH = 22;  // mirror python/napl/design/wire2d.py
-constexpr float kPinR = 6;
+constexpr float kPinR = 6, kSideW = 320;  // kSideW: the side panel of the flattened view
 constexpr double kFade = 0.45, kCardPop = 0.35, kWireAnim = 0.8;
 constexpr int kAwg[] = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30};
 
@@ -164,18 +163,17 @@ void Canvas::fit() {
   for (const Card& c : cards_) {
     x0 = std::min(x0, c.x), y0 = std::min(y0, c.y), x1 = std::max(x1, c.x + c.w), y1 = std::max(y1, c.y + c.h);
   }
-  const ImVec2 sz = ImGui::GetIO().DisplaySize;
-  const float aw = sz.x - 340, ah = sz.y - 110;  // the side panel and the title strip
+  const float aw = sz_.x - kSideW - 20, ah = sz_.y - 80;  // the side panel and the title strip
   zoom_ = std::clamp(std::min(aw / (x1 - x0 + 80), ah / (y1 - y0 + 60)), 0.35f, 1.4f);
-  ox_ = 30 + (aw - (x1 - x0) * zoom_) * 0.5f - x0 * zoom_;
-  oy_ = 70 + (ah - (y1 - y0) * zoom_) * 0.5f - y0 * zoom_;
+  ox_ = org_.x + 10 + (aw - (x1 - x0) * zoom_) * 0.5f - x0 * zoom_;
+  oy_ = org_.y + 50 + (ah - (y1 - y0) * zoom_) * 0.5f - y0 * zoom_;
 }
 
 // ---- 3D mode: choose components and terminals ----------------------------------------------------------------------------
 void Canvas::select_ui(const design::State& st, const std::string& selected) {
-  ImGui::SetNextWindowPos({10, ImGui::GetIO().DisplaySize.y - 330}, ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowSize({330, 320}, ImGuiCond_FirstUseEver);
-  ImGui::Begin("wiring (2D)");
+  ImGui::SetCursorPos({24, 24});
+  ImGui::BeginGroup();
+  ImGui::PushItemWidth(std::min(360.f, sz_.x - 80));
   ImGui::TextWrapped("Pick components and the terminals to wire, then flatten them into a 2D wiring canvas.");
   ImGui::InputText("filter", filter_, sizeof filter_);
   if (ImGui::Button("add selected") && !selected.empty()) {
@@ -202,7 +200,7 @@ void Canvas::select_ui(const design::State& st, const std::string& selected) {
   }
   ImGui::EndDisabled();
   ImGui::Separator();
-  ImGui::BeginChild("pick", {0, 0});
+  ImGui::BeginChild("pick", {std::min(520.f, sz_.x - 48), sz_.y - ImGui::GetCursorPosY() - 16});
   const std::string f = filter_;
   for (const design::Instance& i : st.report.instances) {
     auto pit = st.ports.find(i.id);
@@ -239,7 +237,8 @@ void Canvas::select_ui(const design::State& st, const std::string& selected) {
     ImGui::PopID();
   }
   ImGui::EndChild();
-  ImGui::End();
+  ImGui::PopItemWidth();
+  ImGui::EndGroup();
 }
 
 // ---- flattened: the canvas ------------------------------------------------------------------------------------------------
@@ -247,21 +246,17 @@ void Canvas::canvas_ui() {
   ImGuiIO& io = ImGui::GetIO();
   const double now = ImGui::GetTime();
   const float a = static_cast<float>(alpha_);
-  ImGui::SetNextWindowPos({0, 0});
-  ImGui::SetNextWindowSize(io.DisplaySize);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
-  ImGui::PushStyleColor(ImGuiCol_WindowBg, {0, 0, 0, 0});
-  ImGui::Begin("##canvas", nullptr,
-               ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse |
-                   ImGuiWindowFlags_NoBringToFrontOnFocus);
+  // The canvas fills the pane left of the side panel: org_ / sz_ (screen). Everything below draws in screen coordinates.
+  const ImVec2 cs{sz_.x - kSideW, sz_.y};
   ImDrawList* dl = ImGui::GetWindowDrawList();
-  ImGui::InvisibleButton("##bg", io.DisplaySize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
+  ImGui::SetCursorScreenPos(org_);
+  ImGui::InvisibleButton("##bg", cs, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
   const bool bg_hover = ImGui::IsItemHovered();
-  // backdrop: dims the 3D view; the grid of the canvas fades in with it
-  dl->AddRectFilled({0, 0}, io.DisplaySize, IM_COL32(14, 17, 22, static_cast<int>(238 * a)));
-  for (float g = std::fmod(ox_, 40 * zoom_); g < io.DisplaySize.x; g += 40 * zoom_) dl->AddLine({g, 0}, {g, io.DisplaySize.y}, IM_COL32(255, 255, 255, static_cast<int>(8 * a)));
-  for (float g = std::fmod(oy_, 40 * zoom_); g < io.DisplaySize.y; g += 40 * zoom_) dl->AddLine({0, g}, {io.DisplaySize.x, g}, IM_COL32(255, 255, 255, static_cast<int>(8 * a)));
+  dl->PushClipRect(org_, {org_.x + cs.x, org_.y + cs.y}, true);
+  // backdrop; the grid of the canvas fades in with the transition
+  dl->AddRectFilled(org_, {org_.x + cs.x, org_.y + cs.y}, IM_COL32(14, 17, 22, 255));
+  for (float g = org_.x + std::fmod(ox_ - org_.x, 40 * zoom_); g < org_.x + cs.x; g += 40 * zoom_) dl->AddLine({g, org_.y}, {g, org_.y + cs.y}, IM_COL32(255, 255, 255, static_cast<int>(8 * a)));
+  for (float g = org_.y + std::fmod(oy_ - org_.y, 40 * zoom_); g < org_.y + cs.y; g += 40 * zoom_) dl->AddLine({org_.x, g}, {org_.x + cs.x, g}, IM_COL32(255, 255, 255, static_cast<int>(8 * a)));
   const float intro = static_cast<float>(ease_out(alpha_));
   ImFont* font = ImGui::GetFont();
   const float fs = ImGui::GetFontSize();
@@ -428,33 +423,29 @@ void Canvas::canvas_ui() {
   }
 
   // title strip + toast
-  dl->AddRectFilled({0, 0}, {io.DisplaySize.x, 34}, IM_COL32(8, 10, 14, static_cast<int>(230 * a)));
-  dl->AddText(font, fs * 1.15f, {14, 8}, IM_COL32(236, 239, 244, static_cast<int>(255 * a)), "2D WIRING");
+  const float x0 = org_.x, y0 = org_.y;
+  dl->AddRectFilled({x0, y0}, {x0 + cs.x, y0 + 34}, IM_COL32(8, 10, 14, static_cast<int>(230 * a)));
+  dl->AddText(font, fs * 1.15f, {x0 + 14, y0 + 8}, IM_COL32(236, 239, 244, static_cast<int>(255 * a)), "2D WIRING");
   char sub[96];
   std::snprintf(sub, sizeof sub, "%zu components   %zu wires%s", cards_.size(), wires_.size(),
                 hidden_wires_ ? ("   (+" + std::to_string(hidden_wires_) + " to terminals not shown)").c_str() : "");
-  dl->AddText(font, fs * 0.9f, {140, 10}, IM_COL32(150, 160, 178, static_cast<int>(255 * a)), sub);
+  dl->AddText(font, fs * 0.9f, {x0 + 140, y0 + 10}, IM_COL32(150, 160, 178, static_cast<int>(255 * a)), sub);
   const double age = now - toast_t_;
   if (age < 7 && !toast_.empty()) {
     const ImVec2 ts = font->CalcTextSizeA(fs, 1e9f, 0, toast_.c_str());
-    const float y = io.DisplaySize.y - 44;
+    const float y = y0 + cs.y - 44;
     const int al = static_cast<int>(255 * std::min(1.0, (7 - age)) * a);
-    dl->AddRectFilled({14, y - 6}, {14 + std::min(ts.x, io.DisplaySize.x - 360) + 20, y + ts.y + 8}, toast_bad_ ? IM_COL32(120, 30, 30, al) : IM_COL32(24, 80, 52, al), 5);
-    dl->PushClipRect({14, y - 6}, {io.DisplaySize.x - 340, y + ts.y + 8}, true);
-    dl->AddText({24, y}, IM_COL32(255, 255, 255, al), toast_.c_str());
+    dl->AddRectFilled({x0 + 14, y - 6}, {x0 + 14 + std::min(ts.x, cs.x - 40) + 20, y + ts.y + 8}, toast_bad_ ? IM_COL32(120, 30, 30, al) : IM_COL32(24, 80, 52, al), 5);
+    dl->PushClipRect({x0 + 14, y - 6}, {x0 + cs.x - 10, y + ts.y + 8}, true);
+    dl->AddText({x0 + 24, y}, IM_COL32(255, 255, 255, al), toast_.c_str());
     dl->PopClipRect();
   }
-  ImGui::End();
-  ImGui::PopStyleColor();
-  ImGui::PopStyleVar(2);
+  dl->PopClipRect();
 }
 
 void Canvas::side_ui() {
-  const ImGuiIO& io = ImGui::GetIO();
-  ImGui::SetNextWindowPos({io.DisplaySize.x - 320, 44}, ImGuiCond_Always);
-  ImGui::SetNextWindowSize({310, io.DisplaySize.y - 60}, ImGuiCond_Always);
-  ImGui::SetNextWindowBgAlpha(0.88f * static_cast<float>(alpha_));
-  ImGui::Begin("wiring tools", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+  ImGui::SetCursorScreenPos({org_.x + sz_.x - kSideW + 10, org_.y + 44});
+  ImGui::BeginChild("wiring tools", {kSideW - 20, sz_.y - 60});
   if (ImGui::Button("< back to 3D")) send_("flatten.end", "{}", false);
   ImGui::SameLine();
   if (ImGui::Button("auto layout")) {
@@ -507,10 +498,11 @@ void Canvas::side_ui() {
     if (ImGui::Selectable(row.c_str(), w.name == sel_wire_)) sel_wire_ = w.name;
   }
   ImGui::EndChild();
-  ImGui::End();
+  ImGui::EndChild();
 }
 
-void Canvas::ui(const design::State& st, const std::string& selected) {
+void Canvas::page(ImVec2 size, const design::State& st, const std::string& selected) {
+  org_ = ImGui::GetCursorScreenPos(), sz_ = size;
   const double dt = std::min(0.1, static_cast<double>(ImGui::GetIO().DeltaTime));
   alpha_ = std::clamp(alpha_ + (active_ ? dt : -dt) / kFade, 0.0, 1.0);
   if (fit_pending_ && !cards_.empty()) {
@@ -521,12 +513,8 @@ void Canvas::ui(const design::State& st, const std::string& selected) {
     select_ui(st, selected);
     return;
   }
-  if (ImGuiWindow* w = ImGui::FindWindowByName("##canvas")) ImGui::BringWindowToDisplayFront(w);
   canvas_ui();
-  if (active_) {
-    if (ImGuiWindow* w = ImGui::FindWindowByName("wiring tools")) ImGui::BringWindowToDisplayFront(w);
-    side_ui();
-  }
+  if (active_) side_ui();
 }
 
 }  // namespace wire2d

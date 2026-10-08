@@ -229,6 +229,18 @@ inline std::string request(const std::string& tool, const std::string& args = "{
 struct Port {
   std::string name, kind, type;
   bool used = false;
+  bool placed = false;      // pos / axis valid (mech ports of a built design: world frame)
+  double pos[3] = {0, 0, 0}, axis[3] = {0, 0, 1};
+};
+// World geometry of one instance as built (backend `geo`): part-frame origin + rotation, AABB, oriented boxes of its shapes.
+struct GeoBox {
+  double c[3], R[9], h[3];
+};
+struct Geo {
+  double pos[3] = {0, 0, 0}, R[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1}, lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+  std::vector<GeoBox> boxes;
+  bool has_color = false;
+  float color[4] = {0, 0, 0, 1};
 };
 // What the backend reports about the design as built: the report (mass, instances, DRC findings) plus the model file and ports.
 struct State {
@@ -236,7 +248,13 @@ struct State {
   int undo = 0, redo = 0;
   Report report;
   std::map<std::string, std::vector<Port>> ports;  // instance id -> its ports
+  std::map<std::string, Geo> geo;
+  std::string root;               // id of the root instance
+  std::vector<std::string> free;  // instances placed freely (pos / rpy in the document) rather than held by a mate
 };
+inline void vec_from(const Json& a, double* out, int n) {
+  for (int i = 0; i < n && i < static_cast<int>(a.arr.size()); ++i) out[i] = a.arr[i].num;
+}
 inline State state_from(const Json& j) {
   State s;
   s.rev = j.s("rev");
@@ -248,8 +266,36 @@ inline State state_from(const Json& j) {
   s.report = report_from(j.at("report"));
   for (const auto& [id, list] : j.at("ports").obj) {
     std::vector<Port>& v = s.ports[id];
-    for (const Json& p : list.arr) v.push_back({p.s("name"), p.s("kind"), p.s("type"), p.at("used").num != 0});
+    for (const Json& p : list.arr) {
+      Port q{p.s("name"), p.s("kind"), p.s("type"), p.at("used").num != 0};
+      if (p.at("pos").kind == Json::Arr) {
+        q.placed = true;
+        vec_from(p.at("pos"), q.pos, 3);
+        vec_from(p.at("axis"), q.axis, 3);
+      }
+      v.push_back(q);
+    }
   }
+  for (const auto& [id, g] : j.at("geo").obj) {
+    Geo& o = s.geo[id];
+    vec_from(g.at("pos"), o.pos, 3);
+    vec_from(g.at("R"), o.R, 9);
+    vec_from(g.at("lo"), o.lo, 3);
+    vec_from(g.at("hi"), o.hi, 3);
+    for (const Json& b : g.at("boxes").arr) {
+      GeoBox x{};
+      vec_from(b.at("c"), x.c, 3);
+      vec_from(b.at("R"), x.R, 9);
+      vec_from(b.at("h"), x.h, 3);
+      o.boxes.push_back(x);
+    }
+    if (g.at("color").kind == Json::Arr && g.at("color").arr.size() >= 3) {
+      o.has_color = true;
+      for (int i = 0; i < 4; ++i) o.color[i] = i < static_cast<int>(g.at("color").arr.size()) ? static_cast<float>(g.at("color").arr[i].num) : 1.f;
+    }
+  }
+  s.root = j.s("root");
+  for (const Json& f : j.at("free").arr) s.free.push_back(f.str);
   return s;
 }
 

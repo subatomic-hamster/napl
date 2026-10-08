@@ -5,6 +5,7 @@
 Xvfb's -fbdir keeps the screen as an XWD file; this reads it while the window is up (the viewer has no readback of its own).
 """
 
+import os
 import struct
 import sys
 import tempfile
@@ -48,6 +49,32 @@ def xwd_rgba(path):
     )
 
 
+def watchdog(sim, seconds=240):
+    """Every headless run must end: a helper thread that raised (or waited on a reply that never came) used to leave
+    sim.show() blocking forever (the 2 h hang). After SECONDS the viewer is asked to close; 15 s later the process dies."""
+
+    def run():
+        time.sleep(seconds)
+        print(f"watchdog: {seconds}s budget spent, closing the viewer", flush=True)
+        sim.close_viewer()
+        time.sleep(15)
+        print("watchdog: viewer did not close, exiting", flush=True)
+        os._exit(3)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def is_edit(tool):
+    """A design request the script made (not the window's own housekeeping: rev / state polls, ui_poll, library browsing)."""
+    return tool not in (
+        "rev",
+        "state",
+        "ui_poll",
+        "select",
+        "design_text",
+    ) and not tool.startswith("library.")
+
+
 def main(out, fbdir):
     d = Design.open(REPO / "assemblies" / "x500v2.toml")
     b = Backend(lambda: d, tempfile.mkdtemp(prefix="napl-shot-"))
@@ -55,22 +82,27 @@ def main(out, fbdir):
     shot = []
 
     def grab():
-        t0 = time.time()
-        while (
-            time.time() - t0 < 120
-            and sum(q["tool"] not in ("rev", "state") for q, _ in b.log) < EXPECT
-        ):
-            time.sleep(0.2)
-        time.sleep(2.5)  # reload + a few frames
-        shot.append(xwd_rgba(Path(fbdir) / "Xvfb_screen0"))
-        sim.close_viewer()
+        try:
+            t0 = time.time()
+            while (
+                time.time() - t0 < 120
+                and sum(is_edit(q["tool"]) for q, _ in b.log) < EXPECT
+            ):
+                time.sleep(0.2)
+            time.sleep(2.5)  # reload + a few frames
+            shot.append(xwd_rgba(Path(fbdir) / "Xvfb_screen0"))
+        finally:
+            sim.close_viewer()  # also when the grab raised: otherwise show() never returns
 
     threading.Thread(target=grab, daemon=True).start()
+    watchdog(sim)
     sim.show(script=SCRIPT, width=1280, height=720, design=b)
+    if not shot:
+        raise SystemExit("no screenshot was taken")
     img = shot[0]
     Path(out).write_bytes(_napl.encode_png(img))
     print(
-        f"wrote {out}: {img.shape[1]}x{img.shape[0]}, {Path(out).stat().st_size} bytes; requests {[q['tool'] for q, _ in b.log if q['tool'] != 'rev']}"
+        f"wrote {out}: {img.shape[1]}x{img.shape[0]}, {Path(out).stat().st_size} bytes; requests {[q['tool'] for q, _ in b.log if is_edit(q['tool'])]}"
     )
 
 

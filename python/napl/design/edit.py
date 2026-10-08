@@ -20,12 +20,23 @@ import numpy as np
 from . import assembly as A
 from . import auto_devices as AD
 from . import wiring as W
+from .assembly import Ctx
+from .build import _mate_spec
 from .build import build as _build
 from .build import compute as _compute
 from .drc import _default_parts, _World, joint_holding, placement_metrics
 from .drc import check as _check
 from .library import DesignError, Library, Part, genders_ok, types_ok
-from .snap import find_compatible_ports, incompatible, n_mate, symmetry, thread_of
+from .snap import (
+    find_compatible_ports,
+    incompatible,
+    matrix_rpy,
+    n_mate,
+    pose_matrix,
+    solve_tree,
+    symmetry,
+    thread_of,
+)
 
 # suggest / snap score weights (design choices)
 W_EXACT, W_FAMILY = (
@@ -292,12 +303,31 @@ class Design:
             a, b = _split(m["a"])[0], _split(m["b"])[0]
             adj.setdefault(a, set()).add(b)
             adj.setdefault(b, set()).add(a)
+        for d in doc["instances"]:  # free-placed (pos / rpy): welded to the root
+            if ("pos" in d or "rpy" in d) and not d.get("root"):
+                adj.setdefault(root, set()).add(d["id"])
         seen, todo = {root}, [root]
         while todo:
             for n in adj.get(todo.pop(), set()) - seen:
                 seen.add(n)
                 todo.append(n)
         return seen
+
+    def poses(self, doc=None) -> dict:
+        """{instance id: 4x4 pose in the root frame} of every on-board instance, from the mates and free placements."""
+        doc = doc or self.doc
+        ctx = Ctx(A.Assembly(doc), self.lib)
+        onboard = [i for i, x in ctx.insts.items() if not x.offboard]
+        root = next(i for i, x in ctx.insts.items() if x.root)
+        specs = [_mate_spec(ctx, m) for m in doc.get("mates", [])]
+        placed = {
+            i: pose_matrix(x.pos, x.rpy)
+            for i, x in ctx.insts.items()
+            if x.placed and not x.offboard and not x.root
+        }
+        tree = solve_tree(root, onboard, specs, placed=placed)
+        self._tree = tree
+        return tree.T
 
     # ---- snapping ----------------------------------------------------------------------------------------------------
     @staticmethod
@@ -614,7 +644,7 @@ class Design:
         if iid in ids:
             raise DesignError(f"instance id '{iid}' already exists")
         inst = {"id": iid, "part": part.id}
-        for k in ("group", "offboard"):
+        for k in ("group", "offboard", "color"):
             if s.get(k) is not None:
                 inst[k] = s[k]
         ch = {"op": "add", "id": iid, "part": part.id}
@@ -677,10 +707,15 @@ class Design:
         else:
             if s.get("port") or s.get("k") is not None:
                 raise DesignError("add: port / k only apply together with `to`")
+            if s.get("pos") is not None or s.get("rpy") is not None:
+                inst["pos"] = [float(x) for x in s.get("pos") or [0, 0, 0]]
+                inst["rpy"] = [float(x) for x in s.get("rpy") or [0, 0, 0]]
+                ch["note"] = "free-placed at pos / rpy (root frame), welded to the root"
+            else:
+                ch["note"] = (
+                    "not mated: it is floating until a mate connects it (design suggest <inst.port> lists parts / ports)"
+                )
             doc["instances"].append(inst)
-            ch["note"] = (
-                "not mated: it is floating until a mate connects it (design suggest <inst.port> lists parts / ports)"
-            )
         return ch
 
     def _drop_refs(self, doc, iid, mate_names, ch):
@@ -1430,6 +1465,116 @@ class Design:
         return out
 
     # ---- transaction -------------------------------------------------------------------------------------------------
+    # ---- placement and cosmetics (UI: gizmo, colour, duplicate, mirror) ------------------------------------------------------
+    @staticmethod
+    def _vec3(v, what):
+        if not (isinstance(v, (list, tuple)) and len(v) == 3):
+            raise DesignError(f"{what}: three numbers [x, y, z]")
+        return np.array([float(x) for x in v])
+
+    def _op_place(self, doc, s) -> dict:
+        """Free-place instance `id` (pose in the ROOT frame, metres / radians): `pos` / `rpy` absolute, or `delta` (added to the
+        position) and `rot` (3x3 matrix, premultiplied about `about` = the instance origin by default). A mated instance
+        must say `unmate = true`: the mate that holds it to the root side is dropped (its own children stay mated to it)."""
+        iid = s["id"]
+        inst = self._inst(doc, iid)
+        if inst.get("root"):
+            raise DesignError(
+                f"place {iid}: the root defines the frame; move the other instances"
+            )
+        if inst.get("offboard"):
+            raise DesignError(f"place {iid}: offboard instances have no pose")
+        T = self.poses(doc)[iid]
+        ch = {"op": "place", "id": iid, "unmated": []}
+        if "pos" not in inst and "rpy" not in inst:  # held by a mate
+            held = self._tree.parent[iid][1].name
+            if not s.get("unmate"):
+                raise DesignError(
+                    f"place {iid}: it is mated (mate '{held}'); pass unmate=true to detach it and place it freely"
+                )
+            self._op_unmate(doc, {"name": held})
+            ch["unmated"].append(held)
+        R = T[:3, :3]
+        p = T[:3, 3]
+        if s.get("rot") is not None:
+            Rd = np.array(s["rot"], float).reshape(3, 3)
+            about = self._vec3(s["about"], "about") if s.get("about") else p
+            p = about + Rd @ (p - about)
+            R = Rd @ R
+        if s.get("rpy") is not None:
+            from .snap import rpy_matrix
+
+            R = rpy_matrix(self._vec3(s["rpy"], "rpy"))
+        if s.get("pos") is not None:
+            p = self._vec3(s["pos"], "pos")
+        if s.get("delta") is not None:
+            p = p + self._vec3(s["delta"], "delta")
+        inst["pos"] = [round(float(x), 6) for x in p]
+        inst["rpy"] = [round(float(x), 6) for x in matrix_rpy(R)]
+        ch.update(pos=inst["pos"], rpy=inst["rpy"])
+        return ch
+
+    def _op_color(self, doc, s) -> dict:
+        """Cosmetic colour override of instance `id`: rgba = [r, g, b(, a)] in 0..1, or None / [] to go back to the part's own."""
+        inst = self._inst(doc, s["id"])
+        c = s.get("rgba")
+        if c:
+            inst["color"] = [round(float(x), 4) for x in c]
+        else:
+            inst.pop("color", None)
+        return {"op": "color", "id": inst["id"], "color": inst.get("color")}
+
+    def _copy_of(self, doc, src, new_id, T, ch):
+        ids = {d["id"] for d in doc["instances"]}
+        if src.get("root"):
+            raise DesignError(f"the root '{src['id']}' cannot be copied")
+        iid = new_id or f"{src['id']}-2"
+        n = 2
+        while iid in ids:
+            n += 1
+            iid = f"{new_id or src['id']}-{n}"
+        c = {
+            k: copy.deepcopy(v)
+            for k, v in src.items()
+            if k not in ("id", "pos", "rpy", "root")
+        }
+        c.update(
+            id=iid,
+            pos=[round(float(x), 6) for x in T[:3, 3]],
+            rpy=[round(float(x), 6) for x in matrix_rpy(T[:3, :3])],
+        )
+        doc["instances"].append(c)
+        ch["created"].append(iid)
+
+    def _op_duplicate(self, doc, s) -> dict:
+        """Copy instance `id` (part, group, params, colour; no mates / wires / devices) free-placed at its pose + `delta`."""
+        src = self._inst(doc, s["id"])
+        T = self.poses(doc)[src["id"]].copy()
+        T[:3, 3] += self._vec3(s.get("delta", [0.02, 0.02, 0.0]), "delta")
+        ch = {"op": "duplicate", "id": src["id"], "created": []}
+        self._copy_of(doc, src, s.get("new_id"), T, ch)
+        return ch
+
+    def _op_mirror(self, doc, s) -> dict:
+        """Free-placed copies of instances `ids` mirrored across the plane axis = x|y|z at coordinate `at` (root frame). The
+        position is reflected, the orientation is M R M (a proper rotation): the part itself is not chirality-flipped."""
+        ax = "xyz".find(s.get("axis", "y"))
+        if ax < 0:
+            raise DesignError("mirror: axis is x, y or z")
+        M = np.eye(3)
+        M[ax, ax] = -1
+        at = float(s.get("at", 0.0))
+        ch = {"op": "mirror", "ids": list(s["ids"]), "created": []}
+        poses = self.poses(doc)
+        for iid in s["ids"]:
+            src = self._inst(doc, iid)
+            T = np.eye(4)
+            p = poses[iid][:3, 3].copy()
+            p[ax] = 2 * at - p[ax]
+            T[:3, :3], T[:3, 3] = M @ poses[iid][:3, :3] @ M, p
+            self._copy_of(doc, src, f"{iid}-m", T, ch)
+        return ch
+
     def _expand(self, ops):
         out = []
         for o in ops:
@@ -1450,6 +1595,10 @@ class Design:
             "wire": self._op_wire,
             "unwire": self._op_unwire,
             "set": self._op_set,
+            "place": self._op_place,
+            "color": self._op_color,
+            "duplicate": self._op_duplicate,
+            "mirror": self._op_mirror,
             "device_map": self._op_device_map,
             "device": self._op_device,
             "target": self._op_target,

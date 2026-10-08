@@ -23,7 +23,7 @@ GENERATORS: dict = {}  # name -> (fn, {slot: default material name})
 # the element gives `pos`. Every other generator draws in the part frame (motor base / prop hub / gearmotor face at the origin).
 BOTTOM_ANCHORED = {
     "lipo_pack", "cell_18650", "board_generic", "board_esc", "board_fc", "board_power", "board_sbc", "gnss_puck",
-    "camera_module", "sensor_module", "box_device",
+    "camera_module", "sensor_module", "box_device", "sbc_board", "sensor_ic",
 }  # fmt: skip
 
 
@@ -117,7 +117,11 @@ DEFAULTS = {
     "pcb.gps": "gnss_puck",
     "pcb.servo_driver": "board_generic",
     "pcb.motor_controller": "board_generic",
-    "computer.sbc": "board_sbc",
+    "computer.sbc": "sbc_board",
+    "sensor.imu": "sensor_ic",
+    "sensor.baro": "sensor_ic",
+    "sensor.mag": "sensor_ic",
+    "sensor.gnss": "sensor_ic",
     "driver": "board_generic",
     "motor.servo": "servo_case",
     "motor.dc.gearmotor": "gearmotor",
@@ -153,13 +157,47 @@ DEFAULTS = {
     "frame.landing_gear": "shapes",
     "frame.mount": "shapes",
     "bracket": "shapes",
-    "structure.bracket": "shapes",
+    "structure.bracket": "bracket_plate",
+    "structure.extrusion": "extrusion_profile",
+    "structure.tnut": "t_nut",
+    "structure.belt": "belt_loop",
+    "structure.nut": "flanged_nut",
+    "effector.launcher": "pcp_launcher",
     "caster": "shapes",
 }
 
 
+# Per-part finishes for a category default: (regex on the part id, {slot: material}); first match wins.
+TINTS = [
+    (r"sg9[02]", {"case": "plastic-blue"}),
+    (r"pololu-(a4988|drv8833|tb6612)", {"pcb": "soldermask-red"}),
+    (r"pololu-drv8825", {"pcb": "soldermask-purple"}),
+    (r"pololu-(vl53|minimu|altimu|lps)", {"pcb": "soldermask-black"}),
+    (r"amass-ec5", {"body": "plastic-blue"}),
+    (r"amass-mr(30|60)", {"body": "plastic-black"}),
+    (r"jst-(gh|sh)", {"body": "plastic-black"}),
+    (r"jst-(ph|xh)", {"body": "plastic-white"}),
+    (r"wurth-wr-phd|same-sky", {"body": "plastic-black"}),
+]
+
+
+def default_colors(part) -> dict:
+    import re
+
+    return next((c for rx, c in TINTS if re.search(rx, part.id)), {})
+
+
 def default_family(part):
     cat = part.category
+    if cat.startswith("motor.servo"):  # servo style follows the maker
+        v = str(part.raw.get("vendor", "")).lower()
+        return (
+            "dxl_servo"
+            if "robotis" in v
+            else "bus_servo"
+            if "feetech" in v
+            else "hobby_servo"
+        )
     best = max(
         (k for k in DEFAULTS if cat == k or cat.startswith(k + ".")),
         key=len,
@@ -187,7 +225,10 @@ def elements(part) -> list:
                 },
             }
         ]
-    return [{"gen": fam}] if fam else []
+    if not fam:
+        return []
+    col = default_colors(part)
+    return [{"gen": fam, "colors": col}] if col else [{"gen": fam}]
 
 
 def has_visual(part) -> bool:
@@ -376,6 +417,10 @@ def validate(part, root: Path, sources: set) -> list:
 
 from . import (  # noqa: F401  (register generators)
     gens_board,
+    gens_conn,
     gens_drone,
     gens_mech,
+    gens_sense,
+    gens_servo,
+    gens_struct,
 )

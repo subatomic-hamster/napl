@@ -18,6 +18,13 @@ unit = "kg"
 fidelity = "derived"
 derivation = "Turntable 0.14 x 0.09 x 0.004 m = 5.04e-5 m3 plus upright 0.07 x 0.006 x 0.095 m = 3.99e-5 m3, total 9.03e-5 m3 x 2700 kg/m3 (aluminium-6061, parts/common) = 0.244 kg; holes not subtracted."
 
+[visual]                            # cosmetic only (parts/README.md "Visual layer")
+rationale = "Custom-machined 6061 plate parts: bare brushed aluminium, the [geometry] boxes with softened edges."
+
+[[visual.elements]]
+gen = "shapes"
+colors = { "*" = "alu-brushed" }
+
 [[geometry.shapes]]
 shape = "box"
 size = [0.07, 0.045, 0.002]
