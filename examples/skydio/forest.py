@@ -14,6 +14,7 @@ World layout (x forward): start (0, 0) at the ground; forest between x = 4 and x
 the subject (a 1.75 m person-sized figure) walks a collision-free path, trees only plus the arch."""
 
 import math
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -154,7 +155,8 @@ def _arch(f, x, y):
     )
 
 
-def generate(seed, mission="goal") -> Forest:
+def generate(seed, mission="goal", thin=None) -> Forest:
+    """`thin`: add the thin-pole variant's poles; default from the environment (SKYDIO_THIN=1) so child processes and `napl program` follow it."""
     rng = np.random.default_rng(seed)
     f = Forest(seed, mission)
     f.goal = (58.0, float(rng.uniform(-4, 4)))
@@ -243,6 +245,26 @@ def generate(seed, mission="goal") -> Forest:
             )
             trunks.append((x, y))
             break
+    if thin is None:
+        thin = os.environ.get("SKYDIO_THIN", "0") == "1"
+    if thin:  # thin-pole variant: 10-14 more poles of 2.5-5 cm radius (rebar / conduit / antenna masts), from their own stream so seeds stay comparable
+        trng = np.random.default_rng(seed + 7777)
+        for i in range(int(trng.integers(10, 15))):
+            for _ in range(200):
+                x, y = float(trng.uniform(X0, X1)), float(trng.uniform(-YMAX, YMAX))
+                if (math.hypot(x - f.goal[0], y - f.goal[1]) < 3.0 or math.hypot(x - 6.0, y) < 2.0
+                        or any(math.hypot(x - sx, y - sy) < sr for sx, sy, sr in solid)
+                        or any(math.hypot(x - tx, y - ty) < 1.8 for tx, ty in trunks)):  # fmt: skip
+                    continue
+                h, r = float(trng.uniform(3.5, 4.5)), float(trng.uniform(0.025, 0.05))
+                f.obstacles.append(
+                    Obstacle(
+                        "cyl", f"thinpole{i}", (x, y, h / 2), (r, h / 2), 0.0, STEEL
+                    )
+                )
+                trunks.append((x, y))
+                break
+        f.notes["thin"] = True
     if mission == "follow":
         f.path = subject_path(f, rng)
         f.goal = f.path[-1]

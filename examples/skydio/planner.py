@@ -150,8 +150,11 @@ class Planner:
         out += [np.asarray(e, float) for e in extra]
         return np.array(out)
 
-    def plan(self, p, v, yaw, win: Window, bearing, objective, extra=()):
-        """-> Plan. `objective(P, times, vdes)` -> cost (C,) over the safe candidates' paths (lower is better)."""
+    def plan(self, p, v, yaw, win: Window, bearing, objective, extra=(), moving=None):
+        """-> Plan. `objective(P, times, vdes)` -> cost (C,) over the safe candidates' paths (lower is better). `extra`: more candidate velocities.
+        `moving`: [(position xy, velocity xy, radius m)] of moving obstacles (the followed person): every sample of a primitive, braking tail
+        included, must stay `radius` from its constant-velocity prediction at the same time (a static sphere at its current position would force the
+        follower to hang back by the horizon's travel distance)."""
         prm = self.prm
         vdes = self.candidates(p, v, yaw, bearing, extra)
         P, times = rollout(p, v, vdes, prm)
@@ -167,6 +170,9 @@ class Planner:
         )  # inside the exempt radius only the occupied test applies
         alt_ok = ((P[:, :, 2] >= prm.z_min) & (P[:, :, 2] <= prm.z_max)).all(axis=1)
         collide_free = (clear >= prm.r_safe).all(axis=1) & alt_ok
+        for pm, vm, rm in moving or ():
+            gap = np.linalg.norm(P[:, :, :2] - (pm + vm * times[:, None]), axis=2)
+            collide_free &= (gap >= rm).all(axis=1)
         seen = (known | near).all(axis=1)
         min_clear = clear.min(axis=1)
         safe = collide_free & seen
@@ -203,7 +209,15 @@ class Planner:
             cost[idx] = c
             best = int(idx[np.argmin(c)])
         else:  # no safe primitive at all: the one with the most clearance that slows down (escape), or hold still (scan)
-            score = min_clear - 0.3 * np.linalg.norm(vdes, axis=1) - 5.0 * (~alt_ok)
+            # escape: clearance 0.8 s in (must grow) + the worst clearance from 0.2 s on (must not shrink on the way). The plain path minimum is the
+            # start point inside the margin, identical for every candidate, so it left the vehicle hovering next to the obstacle for 20 s.
+            k8 = min(7, K - 1)
+            score = (
+                clear[:, k8]
+                + clear[:, 2 : k8 + 2].min(axis=1)
+                - 0.2 * np.linalg.norm(vdes, axis=1)
+                - 5.0 * (~alt_ok)
+            )
             best = int(np.argmax(score)) if mode == "escape" else 0
         self.prev_vdes = vdes[best].copy()
         plan = Plan(

@@ -15,6 +15,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
+
 HERE = Path(__file__).parent
 
 
@@ -76,9 +78,25 @@ def table(rows, mission):
                 else "| time to goal | none |"
             ]
         else:
+            med = [r["follow_dist_median"] for r in ok if r.get("follow_dist_median")]
+            q1, q2, q3 = np.percentile(med, [25, 50, 75]) if med else (0, 0, 0)
             lines += [
-                f"| follow distance, mean of medians (m) | {mean('follow_dist_median'):.2f} |",
+                f"| follow distance, median of per-run medians / IQR (m) | {q2:.2f} / {q1:.2f}-{q3:.2f} |",
                 f"| subject seen (fraction) | {mean('subject_seen_frac'):.2f} |",
+            ]
+            det = [r["detection"] for r in ok if "detection" in r]
+            if det:
+                lines += [
+                    f"| detector recall on visible frames, mean | {st.mean(d['recall'] for d in det):.2f} |",
+                    f"| detector false positives per frame, mean / worst run | {st.mean(d['fp_per_frame'] for d in det):.3f} / {max(d['fp_per_frame'] for d in det):.3f} |",
+                ]
+        est = [r["estimation"] for r in ok if "estimation" in r]
+        if est:
+            lines += [
+                f"| estimate position error RMS, mean / worst run (m) | {st.mean(e['pos_rms_m'] for e in est):.2f} / {max(e['pos_rms_m'] for e in est):.2f} |",
+                f"| estimate position error max, worst run (m) | {max(e['pos_max_m'] for e in est):.2f} |",
+                f"| drift at the end, mean / worst (% of path) | {st.mean(e['drift_pct_of_path'] for e in est):.2f} / {max(e['drift_pct_of_path'] for e in est):.2f} |",
+                f"| attitude error RMS, mean (deg) | {st.mean(e['att_rms_deg'] for e in est):.2f} |",
             ]
         lines += [
             f"| planner replan, mean / worst (ms) | {st.mean(r['planner']['mean_ms'] for r in ok):.0f} / {max(r['planner']['max_ms'] for r in ok):.0f} |"
@@ -95,7 +113,14 @@ def main():
     ap.add_argument("--first", type=int, default=100)
     ap.add_argument("--workers", type=int, default=5)
     ap.add_argument("--out", default="build/skydio_mc")
+    ap.add_argument(
+        "--thin",
+        action="store_true",
+        help="thin-pole variant of every forest (forest.py)",
+    )
     a = ap.parse_args()
+    if a.thin:
+        os.environ["SKYDIO_THIN"] = "1"  # inherited by the per-run processes
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     root, cal = Path(str(out) + "_runs"), Path(str(out) + "_cal")
