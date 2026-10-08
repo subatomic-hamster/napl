@@ -96,14 +96,14 @@ def _pip(v, ui):
             col = SELECTED if sel else H.CYAN
             inner.append(
                 H.rect(
-                    (x0b - 3, y0b - 3),
-                    (x1b - x0b + 7, y1b - y0b + 7),
+                    (x0b - 8, y0b - 8),
+                    (x1b - x0b + 17, y1b - y0b + 17),
                     line=_a(col, 0.45 if tk.get("coasting") else 1),
                     lw=1.2,
                 )
             )
             inner.append(
-                H.text(tk["id"], (x0b - 3, y0b - 5), a="bl", size=10 * ui, col=col)
+                H.text(tk["id"], (x0b - 8, y0b - 9), a="bl", size=10 * ui, col=col)
             )
         cx, cy, s = fw / 2, fh / 2, 16
         inner += [H.line([(cx - s, cy), (cx - 4, cy)], H.WHITE, 1.0), H.line([(cx + 4, cy), (cx + s, cy)], H.WHITE, 1.0),
@@ -282,9 +282,9 @@ def items(v: View):
 
     # the 3D view: a small black "A 24 m" label above each confirmed track, tracers from the muzzle
     for tk in rec["tracks"]:
-        if not tk["confirmed"]:
-            continue
         sel = tk["id"] == rec.get("selected")
+        if not tk["confirmed"] or not (sel or tk["range_m"] < 60):
+            continue
         out.append(H.wtext(tk["world_xyz_est"], f"{tk['id']}  {tk['range_m']:.0f} m", off=(0, -14 * ui), size=12 * ui,
                            col=H.WHITE if sel else H.DIM, bg=_a(H.BLACK, 0.85 if sel else 0.7), pad=4 * ui))  # fmt: skip
     if v.muzzle is not None:
@@ -297,7 +297,12 @@ def items(v: View):
                 H.wline([mz, sel["world_xyz_est"]], col=(255, 255, 255, 60), lw=1.0)
             )
         for p in v.pellets:
-            out.append(H.wline([mz, list(p)], col=(255, 255, 255, 235), lw=1.2))
+            d = math.dist(mz, p)
+            k = (
+                max(0.0, 1 - 70.0 / d) if d > 70 else 0.0
+            )  # the tracer is at most the last 70 m behind the pellet
+            a = [mz[i] + (p[i] - mz[i]) * k for i in range(3)]
+            out.append(H.wline([a, list(p)], col=(255, 255, 255, 235), lw=1.2))
             out.append(H.wdot(p, r=2.2 * ui, col=H.WHITE))
     out += _pip(v, ui)
     return out
@@ -350,20 +355,37 @@ def camera_for(
             dist=26.0,
         )
     elif preset == "target" and target is not None:
+        m2 = [
+            (turret[i] + target[i]) / 2 for i in range(3)
+        ]  # both the turret and the selected target stay in frame
         goal = dict(
-            target=list(target),
-            yaw=math.atan2(turret[1] - target[1], turret[0] - target[0]) + 0.35,
-            pitch=0.22,
-            dist=34.0,
+            target=m2,
+            yaw=math.atan2(turret[1] - m2[1], turret[0] - m2[0]) + 0.4,
+            pitch=0.12,
+            dist=max(30.0, 1.5 * math.dist(turret, target) + 14.0),
         )
     elif preset == "top":
         goal = dict(target=mid, yaw=math.pi, pitch=1.45, dist=fit * 1.15)
     else:  # overview (also the fallback of "target" before there is one): behind and beside the turret, slowly drifting
+        c = [
+            cx[0],
+            cx[1],
+            cx[2] * 0.7,
+        ]  # camera: behind the turret, a little to the side, looking at the swarm
+        hd = math.hypot(c[0] - turret[0], c[1] - turret[1])
+        back = (
+            math.atan2(turret[1] - c[1], turret[0] - c[0])
+            + 0.1 * math.sin(0.1 * t)
+            + 0.3
+        )
         goal = dict(
-            target=[mid[0], mid[1], mid[2] * 0.7],
-            yaw=math.pi - 0.45 + 0.12 * math.sin(0.08 * t),
-            pitch=0.24,
-            dist=max(24.0, fit),
+            target=c,
+            yaw=back,
+            pitch=0.05,
+            dist=1.5
+            * (
+                hd + 10.0
+            ),  # (searched so turret and swarm stay in a 16:9 frame with margin)
         )
     if prev is None:
         return goal

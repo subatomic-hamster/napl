@@ -249,6 +249,10 @@ class Viewer {
     }
     ImGuiBackends gui(window.w, renderer.handles());
     theme::init();
+    if (opts_.clean) {  // a recording / HUD view: no pointer drawn over the picture
+      glfwSetInputMode(window.w, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+      ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+    }
     libui::Thumbs thumbs;
     thumbs_ = &thumbs;
 

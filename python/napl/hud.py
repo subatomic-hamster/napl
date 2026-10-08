@@ -28,7 +28,7 @@ try:
 except ImportError:  # no built kernel: the builders below still work
     Hud = None
 
-BLACK = (0, 0, 0, 205)  # the HUD boxes: small, black, slightly translucent
+BLACK = (0, 0, 0, 228)  # the HUD boxes: small, black, slightly translucent
 WHITE = (255, 255, 255)
 DIM = (160, 165, 175)
 CYAN = (60, 220, 255)

@@ -66,6 +66,8 @@ class Sim:
         width: int = 1280,
         height: int = 720,
         design=None,
+        hud=None,
+        clean: bool = False,
     ) -> None:
         """Open the Vulkan viewer on THIS thread and block until the window is closed (or `frames` > 0 frames were
         drawn). The Sim's World runs on a Host thread meanwhile: the UI's pause / run / step / rate and SetAttr
@@ -75,9 +77,11 @@ class Sim:
         UI-equivalent commands at given frames (see napl-view --script). Raises RuntimeError with the reason if there
         is no display, no Vulkan device, or this build has no viewer (`_napl.has_viewer`).
         `design` = a `napl.design.viewer.Backend` (JSON request -> JSON reply): turns the Design window into an editor
-        whose edits are the Design API's (see `napl.design.viewer.view` for the one-call form)."""
+        whose edits are the Design API's (see `napl.design.viewer.view` for the one-call form).
+        `hud` = a `napl.hud.Hud` whose latest document is drawn over the 3D view (and may drive the camera); `clean=True`
+        hides the panes, top and status bars so the view fills the window (see napl.hud)."""
         (self._c.view if isinstance(self._c, _napl.Host) else self._c.show)(
-            int(frames), script, int(width), int(height), design
+            int(frames), script, int(width), int(height), design, hud, bool(clean)
         )
 
     def close_viewer(self) -> None:

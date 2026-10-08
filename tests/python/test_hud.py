@@ -44,7 +44,7 @@ def test_recorded_telemetry_draws_and_labels_sit_where_the_camera_puts_them():
         want = [
             (f"{t['id']}  {t['range_m']:.0f} m", t["world_xyz_est"])
             for t in rec["tracks"]
-            if t["confirmed"]
+            if t["confirmed"] and (t["id"] == rec["selected"] or t["range_m"] < 60)
         ]
         assert [x[0] for x in r["labels"]] == [w[0] for w in want]
         for (text, x, y, vis), (_, p) in zip(r["labels"], want):
@@ -110,7 +110,13 @@ def test_camera_presets_keep_turret_and_drones_in_frame():
     for preset in hudview.PRESETS:
         c = hudview.camera_for(preset, turret, drones, [1, 0, 0], target=[30, 8, 14])
         pos, look = H.orbit_camera(c["target"], c["yaw"], c["pitch"], c["dist"])
-        for p in [turret] + drones if preset in ("overview", "top") else [turret]:
+        keep = {
+            "overview": [turret] + drones,
+            "top": [turret] + drones,
+            "chase": [turret],
+            "target": [turret, drones[0]],
+        }
+        for p in keep[preset]:
             xy = H.project(pos, look, 45.0, 1280, 720, p)
             assert xy is not None and 0 < xy[0] < 1280 and 0 < xy[1] < 720, (
                 preset,
