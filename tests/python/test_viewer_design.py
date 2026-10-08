@@ -134,7 +134,11 @@ def test_backend_involved_instances_of_a_finding(tmp_path):
 
 def test_backend_without_a_design_and_unknown_tools(tmp_path):
     b = Backend(lambda: None, tmp_path)
-    assert ask(b, "rev")["result"] == {"rev": None, "flat_rev": 0}
+    assert ask(b, "rev")["result"] == {
+        "rev": None,
+        "flat_rev": 0,
+        "thumb_rev": 0,
+    }
     assert not ask(b, "state")["ok"]
     d = Design.open(X500)
     assert "unknown tool" in ask(Backend(lambda: d, tmp_path), "bogus")["error"]
