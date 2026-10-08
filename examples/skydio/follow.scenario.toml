@@ -1,0 +1,52 @@
+# napl program examples/skydio/follow.scenario.toml --runs-dir <dir>
+# Mission (b): the quadrotor follows a walking person (a simulated detector gives a pixel box, a depth-based tracker the position) through the
+# forest, keeping ~4.5 m behind and avoiding trees from its own depth map. The subject walks a collision-free route (forest.py); the drone never
+# sees that route. See README.md.
+name = "skydio-follow"
+
+[model]
+script = "scene_follow.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/fly.py"]
+env = { SKYDIO_MISSION = "follow", SKYDIO_SEED = "1" }
+
+[limits]
+wall_s = 600
+cpu_s = 600
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_collision"                        # airframe vs obstacles and vs the subject (both contact sensors)
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "clearance_positive"
+column = "clearance_m"
+op = "always"
+lo = 0.05
+
+[[monitors]]
+name = "follow_distance_band"                # horizontal drone-subject distance once the walk is under way
+column = "follow_dist"
+op = "always"
+from = 10
+lo = 3.0
+hi = 8.0
+
+[[monitors]]
+name = "subject_tracked"                     # the detector/tracker has the subject in view at the end
+column = "subject_seen"
+op = "eventually"
+from = 20
+lo = 1
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45
