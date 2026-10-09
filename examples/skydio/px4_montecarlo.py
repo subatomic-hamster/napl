@@ -1,7 +1,7 @@
 """Monte Carlo of the PX4 path: python examples/skydio/px4_montecarlo.py [--mission goal|follow|both] [--seeds 12] [--first 100] [--workers 2] [--out build/skydio_px4_mc]
 
 One `napl program examples/skydio/<mission>.px4.scenario.toml` per seed (forest, wind, sensor noise: the same seeds as montecarlo.py, so the native table is
-the comparison), on its own PX4 instance (NAPL_PX4_INSTANCE = 20 + worker: tcp 4580+, udp 14560+...). Every flight is ~3-4 min of wall clock (PX4 boots in real
+the comparison), on its own PX4 instance (NAPL_PX4_INSTANCE = 5 + worker: tcp 4565+, udp 14545+...). Every flight is ~3-4 min of wall clock (PX4 boots in real
 time, the flight is lockstep at speed 1.0), so the default is a modest 12 seeds and 2 workers. Success is montecarlo.py's definition (goal: reached within 45 s,
 zero contacts; follow: zero contacts, subject tracked >= 50 %, median follow distance in 3-8 m) AND the PX4 flight completed (the program exited 0).
 The report adds Wilson 95 % intervals on the success rate and the PX4-specific rows (EKF2 vs the companion's estimate, scenario monitors passed, replay match).
@@ -141,7 +141,9 @@ def main():
     missions = ["goal", "follow"] if a.mission == "both" else [a.mission]
     instances = Queue()
     for i in range(a.workers):
-        instances.put(20 + i)
+        instances.put(
+            5 + i
+        )  # instances 0-9 only: PX4's rcS points the offboard link of every instance above 9 at udp 14549 (not 14540 + n)
     jobs = [
         (m, s, root, instances)
         for m in missions
