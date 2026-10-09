@@ -71,8 +71,9 @@ double ocv_at(const BatteryCfg& c, double soc) {  // piecewise linear, clamped a
 // original one bit for bit: x + 0.0 == x).
 struct Drv { int node; const MotorCfg* m; double cmd, omega, temp, i_limit; bool comp, open; double r_on = 0, sw = 0, iq = 0; };
 Drv drv_of(const EscCfg& c, const EscState& s) {
-  return {c.node, &c.motor, s.throttle, s.omega, s.temp, c.i_limit, c.complementary, !(s.throttle > 0) || s.fault_open > 0.5,
-          c.r_on, c.sw_loss, c.i_q};
+  // forward-only: open unless throttle > 0 (a negative value never gets here: set() rejects it); bidirectional: open only at exactly 0
+  return {c.node, &c.motor, s.throttle, s.omega, s.temp, c.i_limit, c.complementary,
+          (c.bidirectional ? s.throttle == 0 : !(s.throttle > 0)) || s.fault_open > 0.5, c.r_on, c.sw_loss, c.i_q};
 }
 double r_tot(const Drv& g) { return g.m->r_at(g.temp) + g.r_on; }  // winding + FET conduction resistance
 Drv drv_of(const ServoCfg& c, const ServoState& s) {
@@ -81,6 +82,10 @@ Drv drv_of(const ServoCfg& c, const ServoState& s) {
 
 // mode 0 normal, 1 phase open, 2 current-limited; ic: constant bus current in mode 2
 struct DrvEval { int mode; double ic; };
+
+// Switching loss of the drive as a signed duty offset: it follows the direction of the command (a reversing bidirectional ESC; for cmd >= 0
+// this is +sw, the original expression).
+double sw_signed(const Drv& g) { return g.cmd < 0 ? -g.sw : g.sw; }
 
 // Motor current that makes |I_m| = i_limit and the duty that gives it, at bus voltage V.
 void limited(const Drv& g, double V, double& im, double& duty) {
@@ -93,11 +98,11 @@ void limited(const Drv& g, double V, double& im, double& duty) {
 DrvEval eval_drv(const Drv& g, double V) {
   if (g.open) return {1, 0};
   const double i_free = (g.cmd * V - g.m->ke() * g.omega) / r_tot(g);
-  if (!g.comp && i_free < 0) return {1, 0};
+  if (!g.comp && (g.cmd < 0 ? i_free > 0 : i_free < 0)) return {1, 0};  // diode freewheel: the current cannot oppose the drive
   if (g.i_limit > 0 && std::abs(i_free) > g.i_limit && V > 1e-9) {
     double im, duty;
     limited(g, V, im, duty);
-    return {2, g.sw != 0 ? (duty + g.sw) * im : duty * im};
+    return {2, g.sw != 0 ? (duty + sw_signed(g)) * im : duty * im};
   }
   return {0, 0};
 }
@@ -169,7 +174,7 @@ void solve_electrical(Devices& dv, double dt) {
     for (std::size_t k = 0; k < nd; ++k) {
       const Drv g = drv(k);
       if (dv.drv_mode[k] == 0) {  // I_bus = (d + sw) I_m = ((d + sw) d / R) V - (d + sw) Ke w / R, R = winding + r_on
-        const double r = r_tot(g), d = g.cmd, db = g.sw != 0 ? d + g.sw : d;  // db: bus-side duty (keeps d's bits when sw = 0)
+        const double r = r_tot(g), d = g.cmd, db = g.sw != 0 ? d + sw_signed(g) : d;  // db: bus-side duty (keeps d's bits when sw = 0)
         cond(g.node, 0, db * d / r);
         inject(g.node, db * g.m->ke() * g.omega / r);
       } else if (dv.drv_mode[k] == 2) {
@@ -232,7 +237,7 @@ void solve_electrical(Devices& dv, double dt) {
     s.v = volt(g.node);
     drv_out(g, mode, s.v, s.duty, s.i_m);
     s.i_bus = s.duty * s.i_m;  // guarded so a servo / an ideal ESC keeps its bits (0 * -x = -0, -0 + 0 = +0)
-    if (g.sw != 0) s.i_bus += g.sw * s.i_m;
+    if (g.sw != 0) s.i_bus += sw_signed(g) * s.i_m;
     if (g.iq != 0) s.i_bus += g.iq;
   };
   for (std::size_t e = 0; e < ne; ++e) {

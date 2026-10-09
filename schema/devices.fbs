@@ -82,6 +82,10 @@ table Esc {
   r_on: double;
   sw_loss: double;
   i_q: double;
+  // bidirectional = true: a centre-stop ESC (e.g. the Blue Robotics Basic ESC, BLHeli_S): `throttle` in [-1, 1], its sign is the direction of
+  // rotation (a negative duty reverses the bridge). Default false: forward only, throttle in [0, 1], the model above bit for bit. Zero
+  // throttle is an open phase either way; sw_loss then applies to |duty|.
+  bidirectional: bool;
 }
 
 // STS3215-like bus servo (S3): DC motor + gearbox + output encoder + firmware position loop, on the gear OUTPUT
@@ -148,6 +152,9 @@ table Rotor {
   // to `stator_body` (the housing). 0 / empty = a bare propeller (nothing changes, bitwise).
   stator_body: string;
   swirl_recovery: double;
+  // Thrust factor in reverse spin (foils are asymmetric: T200 3.71 kgf forward, 2.92 kgf reverse at 12 V). Multiplies the thrust only
+  // (the torque is the mirrored table). 1 = symmetric (default, bitwise unchanged).
+  rev_thrust: double = 1.0;
 }
 
 // Jet vane: a flat plate on a hinge in the exhaust of a Rotor (a ducted fan, a slipstream), the thrust-vectoring surface of a
@@ -356,11 +363,25 @@ table Sea {
 // added_mass / damp_lin / damp_quad: 6 values each in the order surge, sway, heave, roll, pitch, yaw (positive: kg, N s/m, N s^2/m^2,
 // kg m^2, N m s, N m s^2 per axis), or empty (= 0). Added mass is solved exactly against the rest of the multibody (Woodbury,
 // vessel.cpp), not lagged.
+//
+// `fins`: fixed vertical lifting surfaces (skegs, keels) under the hull. A fin at body position pos (its centre) with side area A, depth
+// (span) h, lift-curve slope cl_alpha (per rad, whole fin, at the aspect ratio including the hull's end-plate effect) and cross-flow
+// drag coefficient cd_cross sees the water velocity at its centre (u forward, w to the left, relative to the current) and pushes
+// sideways with   F_y = -imm (rho / 2) A (cl_alpha |u| w + cd_cross |w| w),   imm = clamp(1/2 + (eta - z) / h, 0, 1)
+// (the normal force of a flat plate at incidence alpha = atan(w / |u|): C_N = cl_alpha sin(alpha) |cos(alpha)| + cd_cross sin(alpha) |sin(alpha)|
+// on A V^2 rho / 2). The force acts at the fin centre, so it gives a sway force and a yaw moment: a fin aft of the centre of gravity
+// opposes the destabilising Munk moment of the hull. Quasi-steady: no stall delay, no hull-fin interference beyond the effective aspect
+// ratio the caller put into cl_alpha, no free-surface effect other than the immersion factor.
+table Fin {
+  pos: [double];          // 3 values, body frame
+  area: double; span: double; cl_alpha: double; cd_cross: double;
+}
 table Vessel {
   name: string (required); parts: [string];
   body: string (required);
   hulls: [Hull];
   added_mass: [double]; damp_lin: [double]; damp_quad: [double];
+  fins: [Fin];
 }
 
 // Range sensor on a site (depth camera, ToF, lidar): deterministic CPU ray casts (mj_multiRay) against the geoms of `ray_groups`,

@@ -39,7 +39,13 @@ def _hull(L, W, H, n=36, stations=28):
     return loft(rings)
 
 
-@gen("catamaran_hull", hull="hull-orange", lid="plastic-dark", beam="alu-anodised-grey")
+@gen(
+    "catamaran_hull",
+    hull="hull-orange",
+    lid="plastic-dark",
+    beam="alu-anodised-grey",
+    skeg="plastic-dark",
+)
 def catamaran_hull(c, **_):
     L = c.p("hull_length", "length", default=1.2)
     W = c.p("hull_width", default=0.17)
@@ -54,7 +60,19 @@ def catamaran_hull(c, **_):
     beams = merge(
         rbox((0.04, 2 * off, 0.035), 0.004).at((x, 0, 0.55 * H)) for x in (-0.15, 0.30)
     )
-    return {"hull": hulls, "lid": lids, "beam": beams}
+    out = {"hull": hulls, "lid": lids, "beam": beams}
+    chord, depth = c.p("skeg_chord"), c.p("skeg_depth")
+    if (
+        chord and depth
+    ):  # fixed skeg under the stern of each hull (params skeg_chord / skeg_depth / skeg_x)
+        x = c.p("skeg_x", default=-0.45)
+        out["skeg"] = merge(
+            rbox((chord, 0.008, depth + 0.012), 0.002).at(
+                (x, s * off, -depth / 2 + 0.006)
+            )
+            for s in (1, -1)
+        )
+    return out
 
 
 @gen("ducted_thruster", can="alu-anodised-grey", duct="plastic-dark")

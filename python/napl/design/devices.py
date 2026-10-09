@@ -110,8 +110,10 @@ FIELD_UNITS = {
     "jet_factor": {"1": 1.0},
     "swirl_recovery": {"1": 1.0},  # rotor with a stator (EDF)
     "k_h": {"kg": 1.0},  # rotor H-force coefficient
+    "rev_thrust": {"1": 1.0},
     "n_h": {"px": 1.0},
     "n_v": {"px": 1.0},
+    "ray_groups": {"bitmask": 1.0},
 }
 INT_FIELDS = {
     "awg",
@@ -122,6 +124,7 @@ INT_FIELDS = {
     "height",
     "n_h",
     "n_v",
+    "ray_groups",
 }
 TYPE_KEY = {
     "battery": "batteries",
@@ -147,6 +150,9 @@ TYPE_KEY = {
     "jet_vane": "jet_vanes",
 }
 NODE_TYPES = {"battery", "psu", "load", "esc", "servo"}
+TEXT_FIELDS = {
+    "projection"
+}  # binding keys whose string value is emitted verbatim (rangefinder: "pinhole" | "spherical")
 RESERVED = {
     "type",
     "name",
@@ -619,7 +625,11 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
         ):  # role fields (instances) are not emitted; plain flags / dir are
             if k in RESERVED:
                 continue
-            if isinstance(v, str):
+            if (
+                k in TEXT_FIELDS
+            ):  # a string the device takes as is (not an instance reference)
+                d[k] = v
+            elif isinstance(v, str):
                 ctx.inst(v, f"{where} field '{k}'")
             else:
                 d[k] = v
@@ -658,6 +668,8 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
             )  # hits the vehicle geoms (group 4); group 5 = the pellet visuals
         if typ == "vessel" and "hulls" not in d:
             d["hulls"] = _hulls(inst, where)
+            if fins := _fins(ctx, inst, where, parts):
+                d["fins"] = fins
         if typ == "rangefinder":
             d.setdefault(
                 "ray_groups", RAY_GROUPS
@@ -700,6 +712,40 @@ def _hulls(inst, where: str) -> list:
             f"{where}: part {inst.part.id} has no geometry box with `cells = [nx, ny, nz]` (the vessel's buoyancy hulls)"
         )
     return out
+
+
+def _fins(ctx: Ctx, inst, where: str, parts: set) -> list:
+    """Skegs / keels of a vessel: the rows of the instance part's table `fins` (columns x, y, z, area, span, cl_alpha, cd_cross; metres, m^2, 1/rad, 1)."""
+    t = inst.part.raw.get("tables", {}).get("fins")
+    if not t:
+        return []
+    need = ["x", "y", "z", "area", "span", "cl_alpha", "cd_cross"]
+    if not set(need) <= set(t.get("columns", [])):
+        raise DesignError(
+            f"{where}: part {inst.part.id} table 'fins' needs the columns {need}"
+        )
+    idx = [t["columns"].index(c) for c in need]
+    ctx.note(
+        where,
+        "fins",
+        {
+            "fidelity": t.get("fidelity"),
+            "value": "table fins",
+            "unit": "",
+            "rationale": t.get("rationale", ""),
+        },
+    )
+    parts.add(inst.part.id)
+    return [
+        {
+            "pos": [float(r[i]) for i in idx[:3]],
+            "area": float(r[idx[3]]),
+            "span": float(r[idx[4]]),
+            "cl_alpha": float(r[idx[5]]),
+            "cd_cross": float(r[idx[6]]),
+        }
+        for r in t["rows"]
+    ]
 
 
 def _rotor_reynolds(ctx: Ctx, inst, d: dict, where: str, parts: set):

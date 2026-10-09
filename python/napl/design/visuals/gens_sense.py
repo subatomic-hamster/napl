@@ -446,3 +446,28 @@ def camera_module(c, **_):
         "conn": conn,
         "chip": chip,
     }
+
+
+@gen(
+    "lidar_2d",
+    body="plastic-black",
+    head="plastic-dark",
+    window="glass-dark",
+    ring="alu-anodised-grey",
+)
+def lidar_2d(c, **_):
+    """Spinning 2-D lidar (RPLIDAR style): a square base with rounded corners and mounting flange, and a round rotating head on
+    top with a dark optical window band at the scan plane (`scan_height` above the underside). Underside at z = 0, centred."""
+    L = c.p("size_length", default=0.077)
+    W = c.p("size_width", default=0.077)
+    H = c.p("size_height", default=0.03885)
+    zs = c.p("scan_height", default=0.65 * H)
+    base_h = 0.42 * H
+    r = 0.36 * min(L, W)
+    base = rbox([L, W, base_h], 0.006, 2).at([0, 0, base_h / 2])
+    head = cylinder(r, H - base_h, 48, base_h)
+    window = tube(
+        r + 0.0006, r - 0.001, 0.30 * (H - base_h), 48, zs - 0.15 * (H - base_h)
+    )
+    ring = tube(r + 0.0004, r - 0.001, 0.0015, 48, base_h)
+    return {"body": base, "head": head, "window": window, "ring": ring}

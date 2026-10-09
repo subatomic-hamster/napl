@@ -8,7 +8,8 @@
 //    tables are given: C *= f(x), x = |n| D^2 (docs/models.md). Thrust and aero torque are evaluated from the
 //    state at the start of the tick (rotor speed, CoM velocity). Below |n| = 1e-9 rev/s J is set to 0 (static values).
 //  - Reverse spin: thrust reverses (T ~ sign(dir w) n^2), J is measured in the thrust direction, and the same C_T, C_Q
-//    tables are used mirrored; a real propeller's reverse-flow performance differs and is not modelled.
+//    tables are used mirrored; a real propeller's reverse performance differs: only a constant thrust factor (`rev_thrust`,
+//    default 1) models it, the J dependence of the reverse curve and the torque are the mirrored forward ones.
 //  - Aero torque magnitude is C_Q rho n^2 D^5 and always opposes w; for C_Q < 0 (windmilling) it assists the spin.
 //  - H-force: F = -k_h |w| v_perp at the CoM (no moment about the hub, no blade-flapping coupling).
 //  - Ground effect: Cheeseman-Bennett T_IGE / T_OGE = 1 / (1 - (R / 4z)^2), z from one ray along the downwash (-s a, opposite
@@ -167,7 +168,7 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
       fq = interp(c.re_x, c.re_fq, x);
     }
     const double healthy = 1.0 - s.damage;  // F3 prop damage: fraction of thrust and torque lost (0 = x * 1.0, bitwise unchanged)
-    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy * imm;
+    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy * imm * (s_dir < 0 ? c.rev_thrust : 1.0);
     const double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter * healthy * imm;
     double* xf = d->xfrc_applied + 6 * c.bid;
     for (int i = 0; i < 3; ++i) {

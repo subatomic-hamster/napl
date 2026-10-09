@@ -44,7 +44,7 @@ void put_ok(Solver& s, const std::string& prim, const std::string& attr, std::ve
 struct Boat {
   double mass = 20.0, roll_deg = 0.0, thrust_n = 0.0, thrust_y = 0.0, current_x = 0.0, wave_a = 0.0, wave_t = 4.0;
   double aft_kg = 0.0;  // a welded child 0.4 m aft and 0.05 m up: shifts the CoM and gives the inertia a product (Ixz)
-  std::string added = "[5,5,4,0.1,0.5,1]", lin = "[4,4,200,1.0,2,4]", quad = "[6,6,0,0,0,0]", extra_sea;
+  std::string added = "[5,5,4,0.1,0.5,1]", lin = "[4,4,200,1.0,2,4]", quad = "[6,6,0,0,0,0]", extra_sea, fins;  // fins: the JSON array body
   bool no_sea = false;
 };
 std::string boat_xml(const Boat& b) {
@@ -69,7 +69,8 @@ std::string boat_xml(const Boat& b) {
     x << b.extra_sea << "}], ";
   }
   x << "\"vessels\": [{\"name\": \"v\", \"body\": \"hull\", \"hulls\": [{\"shape\": \"box\", \"pos\": [0,0,0], \"size\": [1.0, 0.4, 0.2], "
-    << "\"n\": [20, 10, 10]}], \"added_mass\": " << b.added << ", \"damp_lin\": " << b.lin << ", \"damp_quad\": " << b.quad << "}]";
+    << "\"n\": [20, 10, 10]}], \"added_mass\": " << b.added << ", \"damp_lin\": " << b.lin << ", \"damp_quad\": " << b.quad
+    << (b.fins.empty() ? "" : ", \"fins\": [" + b.fins + "]") << "}]";
   if (b.thrust_n > 0)
     x << ", \"solid_motors\": [{\"name\": \"fan\", \"body\": \"motor\", \"site\": \"nozzle\", \"time\": [0.001, 200, 200.001], "
       << "\"thrust\": [" << b.thrust_n << ", " << b.thrust_n << ", 0], \"propellant_mass\": 1e-6, \"total_mass\": 0.1, "
@@ -329,6 +330,87 @@ TEST(vessel, water_rotor_thrust_immersion_and_current) {
   const double n = get(*c, "/devices/prop", "omega") / (2 * kPi);
   // axis +x, spinning in the design direction: v_ax = (0 - 2) -> J = -2 / (|n| D)
   EXPECT_NEAR(get(*c, "/devices/prop", "advance_ratio"), -2.0 / (std::abs(n) * 0.05), 1e-9);
+}
+
+// Bidirectional ESC + reverse thrust: a negative throttle spins the propeller the other way, and the thrust is the forward coefficients' value scaled by
+// `rev_thrust` (a T200 gives 2.92 / 3.71 = 0.787 of its forward thrust in reverse at the same power). An ESC that is not bidirectional refuses a negative
+// throttle at the interface; both directions leave the forward behaviour (hashes of the existing models) untouched.
+TEST(vessel, bidirectional_esc_reverse_thrust_and_rev_ratio) {
+  auto make_bench = [&](bool bidi, double rev) {
+    std::ostringstream x;
+    x << "<mujoco model=\"prop\"><option timestep=\"0.001\" gravity=\"0 0 0\"/><worldbody>"
+      << "<body name=\"stator\" pos=\"0 0 -0.5\"><geom type=\"box\" size=\"0.02 0.02 0.02\" mass=\"0.1\" contype=\"0\" conaffinity=\"0\"/>"
+      << "<body name=\"rotor\"><joint name=\"shaft\" type=\"hinge\" axis=\"1 0 0\"/><geom type=\"sphere\" size=\"0.001\" mass=\"0.001\" "
+      << "contype=\"0\" conaffinity=\"0\"/></body></body></worldbody><custom><text name=\"napl.devices\" data='{"
+      << "\"seas\": [{\"name\": \"sea\", \"rho\": 998.2}], "
+      << "\"psus\": [{\"name\": \"bench\", \"node\": 1, \"voltage\": 12, \"r_series\": 0.001}], "
+      << "\"escs\": [{\"name\": \"m1\", \"node\": 1, \"joint\": \"shaft\", \"bidirectional\": " << (bidi ? "true" : "false")
+      << ", \"motor\": {\"kv\": 900, \"r20\": 0.1, \"i0\": 0.5, \"rotor_inertia\": 3e-5, \"c_th\": 2000, \"r_th\": 3}}], "
+      << "\"rotors\": [{\"name\": \"prop\", \"body\": \"rotor\", \"joint\": \"shaft\", \"diameter\": 0.05, \"water\": true, \"rev_thrust\": " << rev
+      << ", \"j\": [0, 0.5, 1.0], \"ct\": [0.40, 0.25, 0.05], \"cq\": [0.04, 0.03, 0.01]}]}'/></custom></mujoco>";
+    const std::string path = (std::filesystem::temp_directory_path() / ("napl_bidi_" + std::to_string(::getpid()) + ".xml")).string();
+    std::ofstream(path) << x.str();
+    auto s = load_mujoco(path);
+    std::remove(path.c_str());
+    return s;
+  };
+  const double d4 = std::pow(0.05, 4), rev = 0.787;
+  auto f = make_bench(true, rev), r = make_bench(true, rev);
+  put_ok(*f, "/devices/m1", "throttle", {0.3});
+  put_ok(*r, "/devices/m1", "throttle", {-0.3});
+  ASSERT_EQ(f->step(2500), 2500);
+  ASSERT_EQ(r->step(2500), 2500);
+  const double nf = get(*f, "/devices/prop", "omega") / (2 * kPi), nr = get(*r, "/devices/prop", "omega") / (2 * kPi);
+  EXPECT_GT(nf, 10.0);
+  EXPECT_LT(nr, -10.0);  // the other way round
+  EXPECT_NEAR(std::abs(nr), std::abs(nf), 0.02 * std::abs(nf));  // a symmetric bridge: the same speed for the same duty
+  const double tf = get(*f, "/devices/prop", "thrust"), tr = get(*r, "/devices/prop", "thrust");
+  EXPECT_NEAR(tf, 0.40 * kRho * nf * nf * d4, 2e-3 * tf);
+  EXPECT_LT(tr, 0.0);
+  EXPECT_NEAR(tr, -rev * 0.40 * kRho * nr * nr * d4, 2e-3 * std::abs(tr));
+  // a unidirectional ESC refuses the negative throttle, and the same one with rev_thrust = 1 gives the symmetric thrust
+  auto u = make_bench(false, 1.0);
+  const Result bad = u->set("/devices/m1", "throttle", "", std::vector<double>{-0.3});
+  EXPECT_NE(bad.code, Result::ok);
+  auto s1 = make_bench(true, 1.0);
+  put_ok(*s1, "/devices/m1", "throttle", {-0.3});
+  ASSERT_EQ(s1->step(2500), 2500);
+  EXPECT_NEAR(get(*s1, "/devices/prop", "thrust") / (tr / -rev) * -1.0, 1.0, 5e-3);  // rev_thrust 1: |T| = K_T rho n^2 D^4 in both directions
+}
+
+// Skeg (Vessel.fins): a fin aft of the centre sees the sideslip and pushes the stern back to the flow. Water 1 m/s along the hull and 0.1 m/s across
+// (a current past a hull at rest, no other hydrodynamics): F_y = -sum imm (rho / 2) A (cl_alpha |u| w + cd |w| w) at each fin, a yaw torque -x_f F_y
+// that turns the bow INTO the flow; without fins nothing acts.
+TEST(vessel, skeg_force_and_yaw_moment_oppose_sideslip) {
+  const double A = 0.03, cla = 1.02, cd = 1.1, xf = -0.45;
+  for (const bool with_fins : {true, false}) {
+    Boat b;
+    b.added = "[0,0,0,0,0,0]";
+    b.lin = "[0,0,0,0,0,0]";
+    b.quad = "[0,0,0,0,0,0]";
+    // the body origin floats 0.05 m above the water (draft 0.05 m): fins 0.15 m below it are 0.1 m deep, fully immersed (imm = 1, span 0.1 m)
+    if (with_fins)
+      b.fins = "{\"pos\": [-0.45, 0.1, -0.15], \"area\": 0.03, \"span\": 0.1, \"cl_alpha\": 1.02, \"cd_cross\": 1.1}, "
+               "{\"pos\": [-0.45, -0.1, -0.15], \"area\": 0.03, \"span\": 0.1, \"cl_alpha\": 1.02, \"cd_cross\": 1.1}";
+    auto s = make(b);
+    put_ok(*s, "/devices/sea", "wave_scale", {0});
+    put_ok(*s, "/devices/sea", "current", {-1.0, -0.1, 0.0});  // water moves past the hull: body-relative velocity (+1.0, +0.1)
+    ASSERT_EQ(s->step(1), 1);
+    const double fy = getv(*s, "/devices/v", "hydro")[1];
+    const double want = with_fins ? -2.0 * (kRho / 2) * A * (cla * 1.0 * 0.1 + cd * 0.1 * 0.1) : 0.0;
+    EXPECT_NEAR(fy, want, 1e-3 + 1e-3 * std::abs(want)) << (with_fins ? "with fins" : "without");
+    ASSERT_EQ(s->step(9), 9);  // 10 ms in all: the sway has not yet changed the relative flow
+    const double r = ms(*s).data().qvel[5];
+    if (with_fins) {
+      // torque about the CoM (x_com = 0 for the symmetric hull): tau = x_f F_y; r = tau t / Izz, Izz = m (L^2 + W^2) / 12 of the 1.0 x 0.4 box
+      const double tau = xf * want, izz = b.mass * (1.0 + 0.16) / 12.0;
+      EXPECT_NEAR(r, tau * 0.01 / izz, 0.05 * std::abs(tau * 0.01 / izz));
+      EXPECT_GT(r, 0.0) << "positive sideslip water velocity at the stern turns the bow to port, into the relative flow";
+    } else {
+      EXPECT_NEAR(r, 0.0, 1e-9);
+    }
+    EXPECT_FALSE(s->diverged());
+  }
 }
 
 // Vessel in waves, thrusting: save / restore / clone and a model reloaded from bytes are bitwise (sea clock, wave table in the state).
