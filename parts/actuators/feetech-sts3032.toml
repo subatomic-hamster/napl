@@ -63,6 +63,7 @@ note = "25T spline; OD not stated for this model."
 
 [[ports]]
 name = "power_in"
+pins = ["BUS.1", "BUS.2"]
 kind = "power"
 type = "servo-bus-3pin"
 gender = "female"
@@ -74,9 +75,33 @@ note = "Connector housing not stated on the AIFITLAB page (200 mm lead); generic
 
 [[ports]]
 name = "bus"
+pins = ["BUS.3"]
 kind = "signal"
 type = "feetech-ttl"
 gender = "female"
+
+# Pin level: the 3-pin TTL bus lead (200 mm per S1). S1 does not give the housing or pin order; GND / VCC / signal is the Feetech bus-servo order seen on the STS3215 page.
+[[connectors]]
+id = "BUS"
+name = "bus lead (3-pin, 200 mm)"
+type = "servo-bus-3pin"
+port_type = "servo-bus-3pin"
+gender = "female"
+pos = [-0.014, 0.0, -0.01]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives the lead length (Connector wire 200mm) but no housing, pitch or pin order: GND, VCC, signal at 2.54 mm is assumed from the STS3215 listing of the same vendor."
+pose_rationale = "Case dimensions are not in the sources, so the connector position is a positional estimate (end of the case, near the base)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VCC", kind = "power", dir = "in" },
+  { number = 3, name = "SIGNAL", kind = "signal", dir = "io", note = "TTL serial bus" },
+]
 
 [[sources]]
 id = "S1"
