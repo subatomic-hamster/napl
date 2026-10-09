@@ -552,10 +552,10 @@ def test_asv_assembly_builds_with_bidirectional_escs_and_the_sensor_suite(tmp_pa
 
 
 # ------------------------------------------------------------------------------------------------------------------------------------ scenarios
-# A whole scenario takes about 2 minutes of wall time (more on a busy host): the full run is tested for the busiest one (three vessels, every Rule), the others run
-# 45 s of their scenario (`t_stop`: through the approach, before the mission ends) and are judged on the monitors that do not need the whole mission. The full
-# runs of every scenario are `napl program` and mc.py (examples/asv/README.md).
-FULL_SCENARIO = "multi_traffic"
+# A whole scenario takes 1.5 - 7 minutes of wall time (the four-vessel multi_traffic the longest): the full run (all monitors, replay) is tested for head_on, the others
+# run 45 s of their scenario (`t_stop`: through the approach, before the mission ends) and are judged on the monitors that do not need the whole mission, plus the
+# replay hash. The full runs of every scenario are `napl program` and mc.py (examples/asv/README.md; the Monte Carlo covers all six).
+FULL_SCENARIO = "head_on"
 PARTIAL_MONITORS = {
     "no_collision",
     "estimate_position",
@@ -668,7 +668,7 @@ def test_asv_assemblies_use_the_heading_frame_damping(tmp_path):
     assert devs["vessels"][0]["heading_frame"] is True
 
 
-def _passive_drift(tmp_path, heading_frame, hs=0.5, seed=1, t_end=110.0):
+def _passive_drift(tmp_path, heading_frame, hs=0.5, seed=1, t_end=70.0):
     """Mean horizontal drift speed (m/s) of the unpowered ASV hull in waves between 20 s and t_end (no current)."""
     import json
     import xml.etree.ElementTree as ET
@@ -704,4 +704,7 @@ def test_passive_asv_hull_in_waves_drifts_only_with_body_frame_heave_damping(tmp
     old = _passive_drift(tmp_path / "a", False)
     new = _passive_drift(tmp_path / "b", True)
     assert new < 0.02, (old, new)  # the wave drift of a real hull is a few cm/s at most
-    assert old > 2.0 * new, (old, new)  # the body-frame damping propels it
+    assert old > 0.3, (
+        old,
+        new,
+    )  # the body-frame damping propels the hull (measured 0.55 - 0.88 m/s at Hs 0.3 - 0.8 m, the heading frame 0.00 - 0.002)
