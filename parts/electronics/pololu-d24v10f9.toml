@@ -38,6 +38,7 @@ type = "solder-pad"
 gender = "neutral"
 v_max = { value = 36, unit = "V", src = "S1", fidelity = "datasheet" }
 role = "sink"
+pins = ["IO.VIN", "IO.GND"]
 
 [[ports]]
 name = "vout"
@@ -47,7 +48,38 @@ gender = "neutral"
 v_max = { value = 9, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 1.0, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "source"
+pins = ["IO.VOUT", "IO.GND"]
 note = "Thermally limited; see the Pololu efficiency / maximum-current graphs"
+
+# Pin level: S2 lists five connections (PG, SHDN, VIN, GND, VOUT) on a 0.1 in grid; their order along the board edge is not in the page text, so it is estimated.
+[[connectors]]
+id = "IO"
+name = "5 solder pads on a 0.1 in grid"
+type = "pad-1x5-2.54mm"
+gender = "neutral"
+pos = [0.0, -0.0065, 0.0]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 5
+pitch = 0.00254
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "S2 gives the five connections; the left-to-right order along the board edge is not in the page text: estimated."
+pins = [
+  { number = "PG", name = "PG", kind = "signal", dir = "out", note = "open-drain power-good, low when VOUT is below 80 % or above 120 % of target; needs an external pull-up" },
+  { number = "SHDN", name = "SHDN", kind = "signal", dir = "in", note = "driven low (under 0.4 V) to turn the output off; 100 kohm pull-up to VIN, so it may be left open" },
+  { number = "VIN", name = "VIN", kind = "power", dir = "in", v_max = 36.0 },
+  { number = "GND", name = "GND", kind = "ground" },
+  { number = "VOUT", name = "VOUT", kind = "power", dir = "out", v = 9.0, i_max = 1.0 },
+]
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/2833"
+title = "Pololu D24V10Fx step-down regulator product page, Connections"
+accessed = "2026-10-09"
+quote = "The buck regulator has five connections: power good (PG). shutdown ( SHDN ), input voltage (VIN), ground (GND), and output voltage (VOUT). The 'power good' indicator, PG, is an open-drain output that drives low when the regulator's output voltage falls below 80% or rises above 120% of its target output voltage. ... The SHDN pin can be driven low (under 0.4 V) to turn off the output ... There is a 100 kohm pull-up resistor between the SHDN pin and VIN"
 
 [[sources]]
 id = "S1"

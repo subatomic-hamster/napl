@@ -37,6 +37,7 @@ type = "solder-pad"
 gender = "neutral"
 v_max = { value = 36, unit = "V", src = "S1", fidelity = "datasheet" }
 role = "sink"
+pins = ["IO.VIN", "IO.GND"]
 
 [[ports]]
 name = "vout"
@@ -46,7 +47,37 @@ gender = "neutral"
 v_max = { value = 12, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 0.5, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "source"
+pins = ["IO.VOUT", "IO.GND"]
 note = "Thermally limited; see the Pololu efficiency / maximum-current graphs"
+
+# Pin level: S2 lists four connections (SHDN, VIN, GND, VOUT) on a 0.1 in grid; their order along the board edge is not in the page text, so it is estimated.
+[[connectors]]
+id = "IO"
+name = "4 solder pads on a 0.1 in grid"
+type = "pad-1x4-2.54mm"
+gender = "neutral"
+pos = [0.0, -0.005, 0.0]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 4
+pitch = 0.00254
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "S2 gives the four connections; the left-to-right order along the board edge is not in the page text: estimated."
+pins = [
+  { number = "SHDN", name = "SHDN", kind = "signal", dir = "in", note = "driven low (under 0.4 V) to turn the output off; 100 kohm pull-up to VIN, so it may be left open" },
+  { number = "VIN", name = "VIN", kind = "power", dir = "in", v_max = 36.0 },
+  { number = "GND", name = "GND", kind = "ground" },
+  { number = "VOUT", name = "VOUT", kind = "power", dir = "out", v = 12.0, i_max = 0.5 },
+]
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/2846"
+title = "Pololu D24V5Fx step-down regulator product page, Connections"
+accessed = "2026-10-09"
+quote = "The buck regulator has four connections: shutdown ( SHDN ), input voltage (VIN), ground (GND), and output voltage (VOUT). The SHDN pin can be driven low (under 0.4 V) to turn off the output and put the board into a low-power state. There is a 100 kohm pull-up resistor between the SHDN pin and VIN"
 
 [[sources]]
 id = "S1"

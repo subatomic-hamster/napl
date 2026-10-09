@@ -37,6 +37,7 @@ gender = "male"
 v_max = { value = 58.8, unit = "V", fidelity = "derived", derivation = "2~14S per S1: 14 cells x 4.2 V full charge = 58.8 V." }
 i_max = { value = 70, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "passthrough"
+pins = ["BAT.1", "BAT.2"]
 note = "Stock XT60 plug and 12 AWG lead are 30 A continuous / 60 A burst (S2)"
 
 [[ports]]
@@ -47,6 +48,7 @@ gender = "female"
 v_max = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 3, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "source"
+pins = ["FC.1", "FC.2", "FC.3", "FC.4", "FC.5", "FC.6"]
 note = "6Pin GHR 1.25mm analog power cable"
 
 [[ports]]
@@ -56,6 +58,58 @@ type = "solder-pad"
 gender = "neutral"
 count = 4
 role = "source"
+
+# Pin level. BAT: the XT60 named in S1; polarity and 7.2 mm spacing are the XT60 family's (pin 1 +), which Holybro does not print: estimated.
+# FC: the 6-pin GHR 1.25 mm analog power cable named in S1. The page prints no module-side table; the pins are derived from the FC side (S3, the
+# Pixhawk 6C/6C Mini POWER1 port): 1-2 VDD5V_BRICK 5 V, 3 CURRENT, 4 VOLTAGE, 5-6 GND, so the module sources the 5 V and the two sense voltages.
+# The four B+ pads of S1 are not drawn (no GND pad count or positions are published).
+[[connectors]]
+id = "BAT"
+name = "battery XT60"
+type = "xt60"
+gender = "male"
+pos = [-0.0175, 0.0, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 lists an XT60 port but not its polarity or contact spacing: + then -, 7.2 mm of the XT60 family. Board position estimated."
+pins = [
+  { number = 1, name = "BAT+", kind = "power", dir = "in", i_max = 30.0, note = "XT60 contact rating (S2); the PCB is rated 70 A" },
+  { number = 2, name = "BAT-", kind = "ground", i_max = 30.0 },
+]
+
+[[connectors]]
+id = "FC"
+name = "FC power cable (6-pin GHR 1.25 mm)"
+type = "jst-gh-6"
+gender = "female"
+pos = [0.0175, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+fidelity = "derived"
+derivation = "The module-side pin table is not published as text. Derived from the Pixhawk 6C Mini POWER1 port table (S3: 1-2 VDD5V_BRICK1 5 V, 3 CURRENT1, 4 VOLTAGE1, 5-6 GND): a straight cable, so the module sources the 5 V and drives the two 3.3 V-range sense lines. The 5.2 V / 3 A limits are the S1 output ratings."
+pins = [
+  { number = 1, name = "VDD5V_BRICK", kind = "power", dir = "out", v = 5.2, i_max = 3.0 },
+  { number = 2, name = "VDD5V_BRICK", kind = "power", dir = "out", v = 5.2, i_max = 3.0 },
+  { number = 3, name = "CURRENT", kind = "signal", dir = "out", v = 3.3 },
+  { number = 4, name = "VOLTAGE", kind = "signal", dir = "out", v = 3.3 },
+  { number = 5, name = "GND", kind = "ground" },
+  { number = 6, name = "GND", kind = "ground" },
+]
+
+[[sources]]
+id = "S3"
+url = "https://docs.holybro.com/autopilot/pixhawk-6c-mini/pixhawk-6c-mini-ports"
+title = "Pixhawk 6C Mini Ports (Holybro docs), Power1 table (Holybro llms-full.txt text export)"
+accessed = "2026-10-09"
+quote = "Power1 | 1(red) VDD5V_BRICK1 (in) +5V | 2(black) VDD5V_BRICK1 (in) +5V | 3(black) CURRENT1 +3.3V | 4(black) VOLTAGE1 +3.3V | 5(black) GND GND | 6(black) GND GND"
 
 [[sources]]
 id = "S1"
