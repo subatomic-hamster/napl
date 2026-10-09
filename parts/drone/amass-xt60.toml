@@ -29,6 +29,7 @@ rationale = "mass (4.5 g per mated pair) is an unverified order-of-magnitude ass
 # (awg-* parts, type wire-lead) or a board pad. No geometry: the connector envelope is not recorded (instances ride on the host part).
 [[ports]]
 name = "male"
+pins = ["M.1", "M.2"]
 kind = "power"
 type = "xt60"
 gender = "male"
@@ -40,6 +41,7 @@ note = "XT60-M half. i_max = rated current RC 30 A, i_burst = instantaneous curr
 
 [[ports]]
 name = "female"
+pins = ["F.1", "F.2"]
 kind = "power"
 type = "xt60"
 gender = "female"
@@ -51,6 +53,7 @@ note = "XT60-F half; same ratings as the male half."
 
 [[ports]]
 name = "wire_male"
+pins = ["WM.1", "WM.2"]
 kind = "power"
 type = "wire-lead"
 gender = "neutral"
@@ -59,11 +62,93 @@ note = "Solder cup of the XT60-M half (recommended wire 12 AWG, params.recommend
 
 [[ports]]
 name = "wire_female"
+pins = ["WF.1", "WF.2"]
 kind = "power"
 type = "wire-lead"
 gender = "neutral"
 role = "passthrough"
 note = "Solder cup of the XT60-F half; as wire_male."
+
+# Pin level (estimated): XT60 is a 2-pole connector pair; contacts numbered 1..2 on each half, solder cup n joins contact n of its half.
+[[connectors]]
+id = "M"
+name = "XT60-M mating contacts (2-pole)"
+type = "xt60"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "estimated"
+rationale = "Two contacts per half is the XT60 design; S1 gives no contact numbering, polarity marking or pole spacing, so contacts are numbered 1..2 and the spacing is a typical value for the family."
+pose_rationale = "Connector body geometry is not in S1: contacts on the mating face at the origin."
+pins = [
+  { number = 1, name = "1", kind = "power" },
+  { number = 2, name = "2", kind = "power" },
+]
+
+[[connectors]]
+id = "F"
+name = "XT60-F mating contacts (2-pole)"
+type = "xt60"
+gender = "female"
+pos = [0.05, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "estimated"
+rationale = "As M."
+pose_rationale = "Second half placed 50 mm to the side so the two halves do not overlap (catalogue part with no assembled geometry)."
+pins = [
+  { number = 1, name = "1", kind = "power" },
+  { number = 2, name = "2", kind = "power" },
+]
+
+[[connectors]]
+id = "WM"
+name = "XT60-M solder cups (2)"
+type = "wire-lead"
+gender = "neutral"
+pos = [0.0, 0.0, -0.02]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "estimated"
+rationale = "One solder cup per contact; cup n joins contact n. Spacing follows the mating contacts (not published)."
+pose_rationale = "Cable side of the body at z = -20 mm (positional estimate)."
+pins = [
+  { number = 1, name = "1", kind = "power" },
+  { number = 2, name = "2", kind = "power" },
+]
+
+[[connectors]]
+id = "WF"
+name = "XT60-F solder cups (2)"
+type = "wire-lead"
+gender = "neutral"
+pos = [0.05, 0.0, -0.02]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "estimated"
+rationale = "As WM."
+pose_rationale = "Below the F half (positional estimate)."
+pins = [
+  { number = 1, name = "1", kind = "power" },
+  { number = 2, name = "2", kind = "power" },
+]
 
 [[sources]]
 id = "S1"

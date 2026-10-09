@@ -33,6 +33,7 @@ rationale = "+-0.1 g (about +-65 %): the solid fraction of the housing and the c
 
 [[ports]]
 name = "housing"
+pins = ["HOUSING.1", "HOUSING.2", "HOUSING.3", "HOUSING.4", "HOUSING.5", "HOUSING.6"]
 kind = "power"
 type = "jst-gh.6"
 gender = "female"
@@ -43,6 +44,7 @@ note = "Cable-side crimp housing; the 1.0 A rating is for AWG #26 wire"
 
 [[ports]]
 name = "header"
+pins = ["HEADER.1", "HEADER.2", "HEADER.3", "HEADER.4", "HEADER.5", "HEADER.6"]
 kind = "power"
 type = "jst-gh.6"
 gender = "male"
@@ -50,6 +52,47 @@ v_max = { value = 50, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 1.0, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "passthrough"
 note = "Board-side header"
+
+# Pin level (derived): 6 circuits in one row, numbered 1..6; the function of each contact is defined by the board that uses it, not by the connector.
+[[connectors]]
+id = "HOUSING"
+name = "cable-side crimp housing (6 circuits)"
+type = "jst-gh.6"
+gender = "female"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+src = "S1"
+fidelity = "derived"
+derivation = "Contact count is the part designation (6 positions); pitch is the S1 series value (1.25 mm); numbering 1..6 along the row is assumed."
+pose_rationale = "A catalogue connector has no board frame: mating face at the origin."
+pins = [
+  { number = 1, name = "1", kind = "power" }, { number = 2, name = "2", kind = "power" }, { number = 3, name = "3", kind = "power" },
+  { number = 4, name = "4", kind = "power" }, { number = 5, name = "5", kind = "power" }, { number = 6, name = "6", kind = "power" },
+]
+
+[[connectors]]
+id = "HEADER"
+name = "board-side header (6 circuits)"
+type = "jst-gh.6"
+gender = "male"
+pos = [0.03, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+src = "S1"
+fidelity = "derived"
+derivation = "As HOUSING."
+pose_rationale = "Placed 30 mm to the side of the housing so the halves do not overlap."
+pins = [
+  { number = 1, name = "1", kind = "power" }, { number = 2, name = "2", kind = "power" }, { number = 3, name = "3", kind = "power" },
+  { number = 4, name = "4", kind = "power" }, { number = 5, name = "5", kind = "power" }, { number = 6, name = "6", kind = "power" },
+]
 
 [[sources]]
 id = "S1"

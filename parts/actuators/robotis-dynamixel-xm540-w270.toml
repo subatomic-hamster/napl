@@ -81,6 +81,7 @@ note = "ROBOTIS X540 output horn interface; spline/bolt circle not published as 
 
 [[ports]]
 name = "power_in"
+pins = ["TTL.1", "TTL.2"]
 kind = "power"
 type = "jst-eh.3"
 gender = "female"
@@ -92,6 +93,7 @@ note = "TTL connector (JST EHR-03); the RS-485 connector (JST EHR-04) carries th
 
 [[ports]]
 name = "bus_ttl"
+pins = ["TTL.3"]
 kind = "signal"
 type = "dynamixel-ttl"
 gender = "female"
@@ -99,10 +101,110 @@ note = "TTL half-duplex multidrop on JST EHR-03; ROBOTIS notes the reference cir
 
 [[ports]]
 name = "bus_rs485"
+pins = ["RS485.3", "RS485.4"]
 kind = "signal"
 type = "rs485"
 gender = "female"
 note = "RS-485 on JST EHR-04 (DATA+/DATA-); same bus as TTL, alternative physical layer."
+
+# Pin level: TTL (JST EHR-03), RS-485 (JST EHR-04), External Port (Molex 51021-0500) and Dual Joint (Molex 51021-0300) connectors from the e-Manual Connector
+# Information table (P1). RS485.1 / RS485.2 (GND, VDD) are the same daisy-chain nets as TTL.1 / TTL.2 and stay in the connector's own synthetic port; EXT and DJ
+# have no port in this part and form synthetic ports named after the connector.
+[[connectors]]
+id = "TTL"
+name = "TTL connector (JST EHR-03)"
+type = "jst-eh-3"
+port_type = "jst-eh.3"
+gender = "female"
+pos = [-0.01675, 0.0, -0.015]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0025
+src = "P1"
+fidelity = "datasheet"
+rationale = "P1 gives the housing (JST EHR-03) and the pin functions; the 2.5 mm pitch is the JST EH-series pitch, not stated in P1."
+pose_rationale = "The e-Manual drawing is not machine-readable, so the connector position on the case is a positional estimate (side of the case, near the base)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "in" },
+  { number = 3, name = "DATA", kind = "signal", dir = "io", note = "half-duplex TTL (P1)" },
+]
+
+[[connectors]]
+id = "RS485"
+name = "RS-485 connector (JST EHR-04)"
+type = "jst-eh-4"
+port_type = "rs485"
+gender = "female"
+pos = [0.01675, 0.0, -0.015]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 4
+pitch = 0.0025
+src = "P1"
+fidelity = "datasheet"
+rationale = "P1 gives the housing (JST EHR-04) and the pin functions; the 2.5 mm pitch is the JST EH-series pitch, not stated in P1."
+pose_rationale = "The e-Manual drawing is not machine-readable, so the connector position on the case is a positional estimate (opposite side from the TTL connector)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "in" },
+  { number = 3, name = "DATA+", kind = "signal", dir = "io" },
+  { number = 4, name = "DATA-", kind = "signal", dir = "io" },
+]
+
+[[connectors]]
+id = "EXT"
+name = "External Port (Molex 51021-0500)"
+type = "molex-51021-5"
+gender = "female"
+pos = [0.005, 0.0, -0.03]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 5
+pitch = 0.00125
+src = "P1"
+fidelity = "datasheet"
+rationale = "P1 gives the housing (Molex 51021-0500) and the five pin names; the 1.25 mm pitch is the Molex 51021 family pitch, not stated in P1."
+pose_rationale = "The e-Manual drawing is not machine-readable, so the connector position on the case is a positional estimate (back face)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", note = "direction (supply out or in) is not stated in P1" },
+  { number = 3, name = "PORT 1", kind = "signal", dir = "io" },
+  { number = 4, name = "PORT 2", kind = "signal", dir = "io" },
+  { number = 5, name = "PORT 3", kind = "signal", dir = "io" },
+]
+
+[[connectors]]
+id = "DJ"
+name = "Dual Joint port (Molex 51021-0300)"
+type = "molex-51021-3"
+gender = "female"
+pos = [-0.008, 0.0, -0.03]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00125
+src = "P1"
+fidelity = "datasheet"
+rationale = "P1 gives the housing (Molex 51021-0300) and the three pin names; the 1.25 mm pitch is the Molex 51021 family pitch, not stated in P1."
+pose_rationale = "The e-Manual drawing is not machine-readable, so the connector position on the case is a positional estimate (back face)."
+pins = [
+  { number = 1, name = "PWM1", kind = "signal", dir = "io" },
+  { number = 2, name = "PWM2", kind = "signal", dir = "io" },
+  { number = 3, name = "ENABLE", kind = "signal", dir = "io" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://emanual.robotis.com/docs/en/dxl/x/xm540-w270/"
+title = "ROBOTIS e-Manual XM540-W270, Connector Information"
+accessed = "2026-10-09"
+quote = "Connector Information | Item | TTL | RS-485 | External Port | Dual Joint | Pinout | 1 | GND | 2 | VDD | 3 | DATA | 1 | GND | 2 | VDD | 3 | DATA+ | 4 | DATA- | 1 | GND | 2 | VDD | 3 | PORT 1 | 4 | PORT 2 | 5 | PORT 3 | 1 | PWM1 | 2 | PWM2 | 3 | ENABLE | Housing | JST EHR-03 | JST EHR-04 | MOLEX 51021-0500 | MOLEX 51021-0300 | PCB Header | JST B3B-EH-A | JST B4B-EH-A | MOLEX 53047-0510 | MOLEX 53398-0371 | Wire Gauge for DYNAMIXEL | 21 AWG | 21 AWG | 26 AWG | 26 AWG"
 
 [[sources]]
 id = "S1"

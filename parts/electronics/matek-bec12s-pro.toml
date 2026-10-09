@@ -23,6 +23,7 @@ pin_pitch           = { value = 3.81e-3, unit = "m", src = "S1", fidelity = "dat
 
 [[ports]]
 name = "vin"
+pins = ["VIN.1", "VIN.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -31,6 +32,7 @@ role = "sink"
 
 [[ports]]
 name = "vout"
+pins = ["VOUT.1", "VOUT.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -38,6 +40,49 @@ v_max = { value = 12, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 5, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "source"
 note = "Selectable 5.2 V (default), 8 V or 12 V; input must be >= 14 V for stable 12 V"
+
+# Pin level (estimated): two solder-pad pairs, input and output; the page text gives the pad pitch (3.81 mm) but not the pad labels or board positions.
+[[connectors]]
+id = "VIN"
+name = "input pads"
+type = "solder-pad"
+gender = "neutral"
+joinable = true
+pos = [-0.0155, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.00381
+src = "S1"
+fidelity = "estimated"
+rationale = "A DC-DC converter with a single input has a positive and a negative pad; their order and board positions are not on the page. Pitch 3.81 mm is the page's 'Pins distance'."
+pose_rationale = "Board layout is not published: input pads at the -x end, output at the +x end (positional estimate)."
+pins = [
+  { number = 1, name = "VIN+", kind = "power", dir = "in", v_max = 55.0 },
+  { number = 2, name = "VIN-", kind = "ground" },
+]
+
+[[connectors]]
+id = "VOUT"
+name = "output pads"
+type = "solder-pad"
+gender = "neutral"
+joinable = true
+pos = [0.0155, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.00381
+src = "S1"
+fidelity = "estimated"
+rationale = "As VIN; output is selectable 5.2 V / 8 V / 12 V (page), 5 A continuous."
+pose_rationale = "As VIN."
+pins = [
+  { number = 1, name = "VOUT+", kind = "power", dir = "out", v_max = 12.0, i_max = 5.0 },
+  { number = 2, name = "VOUT-", kind = "ground" },
+]
 
 [[sources]]
 id = "S1"

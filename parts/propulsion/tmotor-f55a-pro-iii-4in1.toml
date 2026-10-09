@@ -43,6 +43,7 @@ note = "30.5 x 30.5 mm / M3 per S1"
 
 [[ports]]
 name = "power_in"
+pins = ["BAT.1", "BAT.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -52,6 +53,7 @@ i_max = { value = 220.0, unit = "A", fidelity = "derived", derivation = "4 chann
 
 [[ports]]
 name = "motor_out_1"
+pins = ["M1.1", "M1.2", "M1.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -62,6 +64,7 @@ i_burst = { value = 65.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_2"
+pins = ["M2.1", "M2.2", "M2.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -72,6 +75,7 @@ i_burst = { value = 65.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_3"
+pins = ["M3.1", "M3.2", "M3.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -82,6 +86,7 @@ i_burst = { value = 65.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_4"
+pins = ["M4.1", "M4.2", "M4.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -92,9 +97,159 @@ i_burst = { value = 65.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "signal"
+pins = ["SIG.3", "SIG.4", "SIG.5", "SIG.6", "SIG.2", "SIG.9"]   # 1 .. 4 DShot inputs, CURT current sense, GND
 kind = "signal"
 type = "dshot"
 gender = "neutral"
+
+# ---- Connectors (pin level). P2 (retailer page) states a 'SH1.0-10P' signal cable that plugs into the T-Motor F7 flight controllers. The pin functions
+# are those of the earlier F55A Pro / Pro II 10-pin connector (P1, a forum wiring answer: TX, CURT, 1-4, two '+', two GND), assumed to carry over to
+# the Pro III; the Pro III has no BEC (S1), so the BEC position is listed as not connected. The physical order is not published (estimated).
+# Battery, motor pads and poses are estimates (S1 gives none).
+[[connectors]]
+id = "SIG"
+name = "ESC signal connector (SH1.0, 10 positions)"
+type = "jst-sh-10"
+gender = "male"
+pos = [0.0, 0.016, 0.0075]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 10
+pitch = 0.001
+src = "P1"
+fidelity = "estimated"
+rationale = "P2 gives the 10-position SH1.0 cable; the pin functions and order are those of the predecessor's connector (P1), whose physical order is itself not stated (wiring-table order)."
+pins = [
+  { number = 1, name = "TX", kind = "signal", dir = "out", note = "ESC telemetry (P1: TX -> FC R6; S1: 'Telemetry Support')" },
+  { number = 2, name = "CURT", kind = "signal", dir = "out", note = "current sensor (P1: CURT -> Curr; S1: 'Amperage meter 200')" },
+  { number = 3, name = "1", kind = "signal", dir = "in", note = "motor 1 signal" },
+  { number = 4, name = "2", kind = "signal", dir = "in", note = "motor 2 signal" },
+  { number = 5, name = "3", kind = "signal", dir = "in", note = "motor 3 signal" },
+  { number = 6, name = "4", kind = "signal", dir = "in", note = "motor 4 signal" },
+  { number = 7, name = "NC", kind = "nc", note = "the BEC '+' position of the Pro / Pro II; this ESC has 'BEC: No' (S1)" },
+  { number = 8, name = "VBAT", kind = "power", dir = "out", v_max = 33.6, note = "battery voltage to the FC (P1: '+ -> Vbat'); v_max 8S x 4.2 V (S1 3S-8S)" },
+  { number = 9, name = "GND", kind = "ground" },
+  { number = 10, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "BAT"
+name = "battery solder pads (BAT+ / BAT-)"
+type = "solder-pad-1x2"
+gender = "neutral"
+joinable = true
+pos = [0.0, -0.02, 0.00375]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.008
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives the 3S-8S rating and 55 A per channel, nothing on the pad layout: two pads, + then -, 8 mm apart on the edge opposite the signal connector."
+pins = [
+  { number = 1, name = "BAT+", kind = "power", dir = "in", v_max = 33.6, i_max = 220.0, fidelity = "derived", derivation = "v_max 8S x 4.2 V (S1 3S-8S); i_max 4 x 55 A continuous (S1)." },
+  { number = 2, name = "BAT-", kind = "ground", i_max = 220.0, fidelity = "derived", derivation = "4 x 55 A continuous (S1)." },
+]
+
+[[connectors]]
+id = "M1"
+name = "motor 1 solder pads"
+type = "solder-pad-1x3"
+gender = "neutral"
+joinable = true
+pos = [0.0155, -0.014, 0.00375]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives 55 A continuous / 65 A for 10 s per channel; the pad positions, the corner of motor 1 and the A B C labels are not published (conventions: swapping two phases reverses the motor)."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 55.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 55.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 55.0 },
+]
+
+[[connectors]]
+id = "M2"
+name = "motor 2 solder pads"
+type = "solder-pad-1x3"
+gender = "neutral"
+joinable = true
+pos = [-0.0155, -0.014, 0.00375]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 55.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 55.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 55.0 },
+]
+
+[[connectors]]
+id = "M3"
+name = "motor 3 solder pads"
+type = "solder-pad-1x3"
+gender = "neutral"
+joinable = true
+pos = [-0.0155, 0.014, 0.00375]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 55.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 55.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 55.0 },
+]
+
+[[connectors]]
+id = "M4"
+name = "motor 4 solder pads"
+type = "solder-pad-1x3"
+gender = "neutral"
+joinable = true
+pos = [0.0155, 0.014, 0.00375]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 55.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 55.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 55.0 },
+]
+
+[[sources]]
+id = "P1"
+url = "https://intofpv.com/printthread.php?tid=8093"
+title = "IntoFPV forum thread 'Wiring diagram' (T-Motor F55A Pro / Pro II to Lumenier LUX F7), SnowLeopardFPV's answer (predecessor of the Pro III)"
+accessed = "2026-10-09"
+quote = "using the white 10-pin and 8-pin ESC connectors ... F55A LUX F7: TX ----> R6; CURT --> Curr; 1 -----> S1; 2 -----> S2; 3 -----> S3; 4 -----> S4; + -----> Leave disconnected as this is +5v; + -----> Vbat; GND ---> G; GND ---> Leave disconnected"
+
+[[sources]]
+id = "P2"
+url = "https://rcdrone.top/products/t-motor-f55a-pro-iii-55a-3-8s-tphr8504-mos-4-in-1-esc"
+title = "rcdrone.top - T-Motor F55A Pro III 55A 3-8S 4-in-1 ESC, package contents"
+accessed = "2026-10-09"
+quote = "Direct plug-in support for F7 Pro FC ... What's Included: 61MM Double-ended SH1.0-10P silicon cable*1 (plug and play with F7, F7 HD FC) | 61mm single head SH1.0-10P silicon cable*1 (suitable for F7 Pro"
 
 [[sources]]
 id = "S1"

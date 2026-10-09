@@ -18,6 +18,7 @@ temp_max            = { value = 393.15, unit = "K", src = "S1", fidelity = "data
 
 [[ports]]
 name = "male"
+pins = ["MATE.1", "MATE.2"]
 kind = "power"
 type = "ec5"
 gender = "male"
@@ -25,6 +26,27 @@ v_max = { value = 500, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 40, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "passthrough"
 note = "Rated for AWG10-9 (4-6 mm2) cable, reverse-polarity protected"
+
+# Pin level (estimated): 2-pole connector; contacts numbered 1..2 in a line.
+[[connectors]]
+id = "MATE"
+name = "mating contacts (2-pole)"
+type = "ec5"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.011
+src = "S1"
+fidelity = "estimated"
+rationale = "Pole count is stated in S1 (2-poles), but not the contact numbering, polarity marking or pole spacing: contacts numbered 1..2, spacing is a typical value for the family."
+pose_rationale = "Connector body geometry is not in S1: contacts on the mating face at the origin, cable side opposite."
+pins = [
+  { number = 1, name = "1", kind = "power" },
+  { number = 2, name = "2", kind = "power" },
+]
 
 [[sources]]
 id = "S1"

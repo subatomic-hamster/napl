@@ -54,6 +54,7 @@ note = "Hitec A15T output spline (15 teeth); horns are not interchangeable acros
 
 [[ports]]
 name = "power_in"
+pins = ["SRV.1", "SRV.2"]
 kind = "power"
 type = "servo-3pin"
 gender = "female"
@@ -64,10 +65,40 @@ note = "Power shares the 3-pin servo connector with the signal; i_max not stated
 
 [[ports]]
 name = "signal"
+pins = ["SRV.3"]
 kind = "signal"
 type = "pwm"
 gender = "female"
 level = { value = 3.0, unit = "V", src = "S1", fidelity = "datasheet" }  # lower end of the 3-5V pulse amplitude
+
+# Pin level: the 3-pin servo lead. Wire colours and order from P1 (a Hitec retailer's description covering all Hitec servos); S1 does not describe the lead.
+[[connectors]]
+id = "SRV"
+name = "servo lead (3-pin Hitec/JR plug)"
+type = "servo-lead-3"
+port_type = "servo-3pin"
+gender = "female"
+pos = [-0.012, 0.0, -0.01]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "P1"
+fidelity = "literature"
+pose_rationale = "Servo case dimensions are not in the sources, so the lead exit is a positional estimate: at the -x end of a micro-size case, lead pointing out along -x."
+pins = [
+  { number = 1, name = "GND", kind = "ground", note = "black wire (P1)" },
+  { number = 2, name = "V+", kind = "power", dir = "in", note = "red, centre wire (P1)" },
+  { number = 3, name = "SIGNAL", kind = "signal", dir = "in", note = "yellow, third wire (P1)" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://www.superdroidrobots.com/shop/item.aspx/hs-422-servo/184"
+title = "SuperDroid Robots - HS-422 Servo (Hitec), product description"
+accessed = "2026-10-09"
+quote = "On all Hitec servos the Black wire is 'ground', the Red wire (center wire) is 'power', and the yellow (third) wire is 'signal'. This servo has a Hitec/JR connector which mates directly with a 0.1\" 3-pin header."
 
 [[sources]]
 id = "S1"

@@ -21,6 +21,7 @@ resistance_loop = { value = 0.0318, unit = "ohm", fidelity = "derived", derivati
 
 [[ports]]
 name = "plug"
+pins = ["PLUG.1", "PLUG.2", "PLUG.3"]
 kind = "power"
 type = "servo-3pin"
 gender = "male"
@@ -30,12 +31,59 @@ note = "Male Futaba J connector end (S1); power and signal share the 3-pin conne
 
 [[ports]]
 name = "socket"
+pins = ["SOCK.1", "SOCK.2", "SOCK.3"]
 kind = "power"
 type = "servo-3pin"
 gender = "female"
 i_max = { value = 3, unit = "A", src = "S2", fidelity = "literature" }
 role = "passthrough"
 note = "Female JR connector end (S1)"
+
+# Pin level: straight-through 3-wire extension, pin n to pin n (an extension cable maps pins 1:1 by construction). Kitronik does not state the pin order;
+# GND / V+ / signal in positions 1 / 2 / 3 is the order of the Hitec/JR servo leads in this library, so the pin names are estimated.
+[[connectors]]
+id = "PLUG"
+name = "male Futaba J plug (3-pin, 0.1 in)"
+type = "servo-lead-3"
+port_type = "servo-3pin"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 states connector type, count and 0.1 in spacing but not which conductor is ground, supply or signal; order GND, V+, SIGNAL assumed from the servo leads in this library."
+pose_rationale = "A cable has no geometry; the wire router places the ends on the mated connectors."
+pins = [
+  { number = 1, name = "GND", kind = "ground", i_max = 3.0 },
+  { number = 2, name = "V+", kind = "power", dir = "io", i_max = 3.0 },
+  { number = 3, name = "SIGNAL", kind = "signal", dir = "io" },
+]
+
+[[connectors]]
+id = "SOCK"
+name = "female JR socket (3-pin, 0.1 in)"
+type = "servo-lead-3"
+port_type = "servo-3pin"
+gender = "female"
+pos = [0.30, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "estimated"
+rationale = "As PLUG: pin order assumed, mapped straight through."
+pose_rationale = "As PLUG."
+pins = [
+  { number = 1, name = "GND", kind = "ground", i_max = 3.0 },
+  { number = 2, name = "V+", kind = "power", dir = "io", i_max = 3.0 },
+  { number = 3, name = "SIGNAL", kind = "signal", dir = "io" },
+]
 
 [[sources]]
 id = "S1"

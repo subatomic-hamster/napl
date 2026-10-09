@@ -91,12 +91,37 @@ symmetry = 360
 
 [[ports]]
 name = "phase"
+pins = ["PH.1", "PH.2", "PH.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
 role = "sink"
 v_max = { value = 21.0, unit = "V", fidelity = "derived", derivation = "5S x 4.2 V/cell = 21.0 V (upper end of the 3~5S range in the spec image, S2)." }
 i_max = { value = 40.35, unit = "A", src = "S2", fidelity = "datasheet" }
+
+# Pin level: three 20 AWG phase leads, 160 mm (S1 'Wire length:20AWG 160mm'; the listing names no connector, so they are bare / solder ends).
+# Lead exit and phase naming are conventions, as for the other outrunners in the library (no drawing carries them).
+[[connectors]]
+id = "PH"
+name = "phase leads (3 x 20 AWG, 160 mm)"
+type = "wire-lead"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [0.0, -0.01454, 0.004]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives the lead gauge and length (20AWG 160mm), not a connector, lead positions or phase labels: leads drawn side by side at the base, 3 mm apart, phases A B C by convention."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "in", i_max = 40.35 },
+  { number = 2, name = "B", kind = "power", dir = "in", i_max = 40.35 },
+  { number = 3, name = "C", kind = "power", dir = "in", i_max = 40.35 },
+]
 
 [[sources]]
 id = "S1"
