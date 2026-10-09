@@ -300,6 +300,7 @@ included_in = "motor"
 [[wires]]
 name = "batt_reg1"
 from = "batt.power_out"
+from_pins = ["LEAD.1", "LEAD.2"]   # spliced onto the pack's discharge lead (joinable), the same net as the XT60 feeding the ESC
 to = "reg1.vin"
 part = "awg-18-silicone-wire"
 length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "Battery to the +y regulator, 0.1 m plus slack." }
@@ -308,6 +309,7 @@ conductors = 2
 [[wires]]
 name = "batt_reg2"
 from = "batt.power_out"
+from_pins = ["LEAD.1", "LEAD.2"]   # spliced onto the pack's discharge lead (joinable), the same net as the XT60 feeding the ESC
 to = "reg2.vin"
 part = "awg-18-silicone-wire"
 length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "Battery to the -y regulator, 0.1 m plus slack." }
