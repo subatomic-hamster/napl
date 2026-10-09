@@ -49,6 +49,7 @@ note = "The data sheet drawing shows 2.89 mm mounting holes on a 1.43 inch (36.3
 
 [[ports]]
 name = "power_in"
+pins = ["BAT.1", "BAT.2"]
 kind = "power"
 type = "screw-terminal"
 gender = "neutral"
@@ -60,6 +61,7 @@ note = "Main battery + / - screw terminal (S2: 'Do not reverse main battery wire
 
 [[ports]]
 name = "m1_out"
+pins = ["M1.1", "M1.2"]
 kind = "power"
 type = "screw-terminal"
 gender = "neutral"
@@ -70,6 +72,7 @@ note = "Motor channel 1 (M1A / M1B). The output voltage is the PWM duty times th
 
 [[ports]]
 name = "m2_out"
+pins = ["M2.1", "M2.2"]
 kind = "power"
 type = "screw-terminal"
 gender = "neutral"
@@ -80,6 +83,7 @@ note = "Motor channel 2 (M2A / M2B). As m1_out."
 
 [[ports]]
 name = "enc1"
+pins = ["EN1.2", "EN1.1", "EN1.3", "EN1.4"]   # GND, +5V, A, B: the order of the gearmotor's encoder leads (green, blue, yellow, white)
 kind = "signal"
 type = "quadrature-encoder"
 gender = "neutral"
@@ -88,6 +92,7 @@ note = "EN1: 1A / 1B plus the + 5 V encoder supply and ground (S2: 'The pins lab
 
 [[ports]]
 name = "enc2"
+pins = ["EN2.2", "EN2.1", "EN2.3", "EN2.4"]
 kind = "signal"
 type = "quadrature-encoder"
 gender = "neutral"
@@ -96,11 +101,257 @@ note = "EN2: 2A / 2B, as enc1."
 
 [[ports]]
 name = "serial"
+pins = ["S1.1", "S2.1", "S1.3"]   # RX, TX, GND
 kind = "signal"
 type = "uart"
 gender = "neutral"
 level = { value = 3.3, unit = "V", src = "S2", fidelity = "datasheet" }
 note = "S1 = RX, S2 = TX of the TTL UART in Packet Serial mode (S2 control-interface table); non-inverted TTL, 8N1, 2400 - 460800 bit/s (S1: 'Available baud rates range from 2400 to 460800 bps'); the USB port speaks the same packet protocol. 'I/O Output Voltage 3.3 V', inputs 5 V tolerant."
+
+# ---- Connectors (pin level). Names, order and electrical roles are the data sheet's (S4: connector overview, "Control Interface" table, the
+# power / encoder / control-input paragraphs); where a pin sits on the board outline is estimated from the overview drawing (poses only).
+# Frame: z up, the screw terminals on the -y long edge, the headers on the +y edge, USB on +x.
+[[connectors]]
+id = "BAT"
+name = "main battery screw terminal"
+type = "screw-terminal-5.08mm"
+gender = "female"
+pos = [0.0, -0.0212, -0.0029]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.00508
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "Edge position from the overview drawing; the terminal pitch (5.08 mm) is the blue terminal-block family's, not stated by S4: estimated."
+pins = [
+  { number = 1, name = "B+", kind = "power", dir = "in", v_min = 6.0, v_max = 34.0, i_max = 15.0, note = "S4: 'The plus (+) symbol marks the positive terminal'; 'Do not reverse main battery wires or damage will occur'; main power 6 to 34 VDC" },
+  { number = 2, name = "B-", kind = "ground", i_max = 15.0, note = "S4: 'Do not disconnect the negative wire if other ground sources are connected, such as USB cable'" },
+]
+
+[[connectors]]
+id = "M1"
+name = "motor channel 1 screw terminal"
+type = "screw-terminal-5.08mm"
+gender = "female"
+pos = [-0.0135, -0.0212, -0.0029]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.00508
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "As BAT."
+pins = [
+  { number = 1, name = "M1A", kind = "power", dir = "out", i_max = 7.5, note = "S4: 'marked with M1A / M1B for channel 1'; output = PWM duty x main battery voltage, no v stated" },
+  { number = 2, name = "M1B", kind = "power", dir = "out", i_max = 7.5 },
+]
+
+[[connectors]]
+id = "M2"
+name = "motor channel 2 screw terminal"
+type = "screw-terminal-5.08mm"
+gender = "female"
+pos = [0.0135, -0.0212, -0.0029]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.00508
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "As BAT."
+pins = [
+  { number = 1, name = "M2A", kind = "power", dir = "out", i_max = 7.5, note = "S4: 'M2A / M2B for channel 2'" },
+  { number = 2, name = "M2B", kind = "power", dir = "out", i_max = 7.5 },
+]
+
+[[connectors]]
+id = "LB"
+name = "logic battery input (LB IN)"
+type = "header-1x2-2.54mm"
+gender = "male"
+pos = [-0.0215, 0.0185, -0.0049]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, -1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.00254
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "Position estimated from the overview drawing. S4 gives the polarity ('positive (+) terminal is located at the board edge and ground (-) is the inside pin closest to the heatsink') but no voltage range in the text, so none is stated here."
+pins = [
+  { number = 1, name = "LB+", kind = "power", dir = "in", note = "board-edge pin" },
+  { number = 2, name = "LB-", kind = "ground", note = "inside pin, closest to the heatsink" },
+]
+
+[[connectors]]
+id = "EN1"
+name = "encoder 1 header (power + A / B)"
+type = "header-2x2-2.54mm"
+gender = "male"
+pos = [0.0075, 0.0185, -0.0049]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 2
+cols = 2
+pitch = 0.00254
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "Board-edge row (+, A) and the inner row near the heatsink (-, B) as S4 describes ('A of both EN1 and EN2 are located at the board edge ... Channel B pins are located near the heatsink'); the 2.54 mm pitch is the 'standard male pin headers with 0.100 in spacing'. That each encoder has its own + / - pair is read off the overview drawing's labels; the position along the edge is estimated."
+pins = [
+  { number = 1, name = "+5V", kind = "power", dir = "out", v = 5.0, at = [0, 1], note = "S4: 'The positive (+) is located at the board edge and supplies +5VDC'" },
+  { number = 2, name = "GND", kind = "ground", at = [0, 0], note = "S4: 'The ground (-) pin is near the heatsink'" },
+  { number = 3, name = "1A", kind = "signal", dir = "in", v_max = 5.0, at = [1, 1], note = "quadrature channel A, 5 V tolerant (S4)" },
+  { number = 4, name = "1B", kind = "signal", dir = "in", v_max = 5.0, at = [1, 0], note = "quadrature channel B" },
+]
+
+[[connectors]]
+id = "EN2"
+name = "encoder 2 header (power + A / B)"
+type = "header-2x2-2.54mm"
+gender = "male"
+pos = [0.0135, 0.0185, -0.0049]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 2
+cols = 2
+pitch = 0.00254
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "As EN1."
+pins = [
+  { number = 1, name = "+5V", kind = "power", dir = "out", v = 5.0, at = [0, 1] },
+  { number = 2, name = "GND", kind = "ground", at = [0, 0] },
+  { number = 3, name = "2A", kind = "signal", dir = "in", v_max = 5.0, at = [1, 1] },
+  { number = 4, name = "2B", kind = "signal", dir = "in", v_max = 5.0, at = [1, 0] },
+]
+
+# S1 .. S5 control inputs: servo-style 3-pin headers, "The pins closest to the board edge are the I/0s, center pin is the +5V and the inside
+# pins are ground" (S4). S1 / S2 are RX / TX in UART TTL mode (S4 control table), S3 .. S5 are flip / E-stop / home / limit inputs.
+[[connectors]]
+id = "S1"
+name = "control input S1 (UART RX in serial mode)"
+type = "header-1x3-2.54mm"
+gender = "male"
+pos = [-0.0102, 0.017, -0.0049]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, -1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "Position estimated from the overview drawing (S1 .. S5 side by side along the edge)."
+pins = [
+  { number = 1, name = "S1", kind = "signal", dir = "in", v_max = 5.0, alt = ["UART RX", "analog / RC pulse motor 1 input"], note = "S4: 'All pins are 5V tolerant and output 3.3V'" },
+  { number = 2, name = "+5V", kind = "power", dir = "out", v = 5.0 },
+  { number = 3, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "S2"
+name = "control input S2 (UART TX in serial mode)"
+type = "header-1x3-2.54mm"
+gender = "male"
+pos = [-0.0076, 0.017, -0.0049]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, -1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "As S1."
+pins = [
+  { number = 1, name = "S2", kind = "signal", dir = "out", v = 3.3, alt = ["UART TX", "analog / RC pulse motor 2 input"], note = "S4: 'output 3.3V'" },
+  { number = 2, name = "+5V", kind = "power", dir = "out", v = 5.0 },
+  { number = 3, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "S3"
+name = "control input S3 (flip switch / E-stop / V-clamp)"
+type = "header-1x3-2.54mm"
+gender = "male"
+pos = [-0.0051, 0.017, -0.0049]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, -1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "As S1."
+pins = [
+  { number = 1, name = "S3", kind = "signal", dir = "io", v = 3.3, alt = ["flip switch (RC / analog)", "E-stop (active low, serial)", "V-clamp output"] },
+  { number = 2, name = "+5V", kind = "power", dir = "out", v = 5.0 },
+  { number = 3, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "S4"
+name = "control input S4 (E-stop / home / limit / V-clamp)"
+type = "header-1x3-2.54mm"
+gender = "male"
+pos = [-0.0025, 0.017, -0.0049]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, -1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "As S1."
+pins = [
+  { number = 1, name = "S4", kind = "signal", dir = "io", v = 3.3, alt = ["E-stop", "home / limit switch motor 1", "V-clamp output"] },
+  { number = 2, name = "+5V", kind = "power", dir = "out", v = 5.0 },
+  { number = 3, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "S5"
+name = "control input S5 (E-stop / home / limit / V-clamp)"
+type = "header-1x3-2.54mm"
+gender = "male"
+pos = [0.0, 0.017, -0.0049]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, -1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S4"
+fidelity = "datasheet"
+pose_rationale = "As S1."
+pins = [
+  { number = 1, name = "S5", kind = "signal", dir = "io", v = 3.3, alt = ["E-stop", "home / limit switch motor 2", "V-clamp output"] },
+  { number = 2, name = "+5V", kind = "power", dir = "out", v = 5.0 },
+  { number = 3, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "USB"
+name = "USB Micro-B"
+type = "usb-micro-b"
+gender = "female"
+pos = [0.02415, 0.0, -0.0049]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 5
+pitch = 0.0008
+src = "S5"
+fidelity = "literature"
+pose_rationale = "S1 states a USB Micro-B connector (Pololu product page: 'USB Micro-B connector'); the 5-pin assignment is the USB standard's, the position on the board edge is estimated."
+pins = [
+  { number = 1, name = "VBUS", kind = "power", dir = "in", v = 5.0 },
+  { number = 2, name = "D-", kind = "signal", dir = "io" },
+  { number = 3, name = "D+", kind = "signal", dir = "io" },
+  { number = 4, name = "ID", kind = "signal", dir = "in" },
+  { number = 5, name = "GND", kind = "ground" },
+]
 
 [visual]                            # cosmetic only (parts/README.md "Visual layer")
 src = "V1"
@@ -110,6 +361,20 @@ note = "Red PCB with blue screw terminals, two black electrolytic caps and pin h
 gen = "board_generic"
 params = { big = 2 }
 colors = { pcb = [0.62, 0.04, 0.04], conn = [0.05, 0.28, 0.75], metal = "plastic-black", pin = "gold" }
+
+[[sources]]
+id = "S4"
+url = "https://downloads.basicmicro.com/docs/roboclaw_datasheet_2x7A.pdf"
+title = "RoboClaw 2x7A Dual Channel Motor Controller Data Sheet (Basicmicro, 2016 copyright; the manufacturer's copy of S2, text extracted with pdftotext)"
+accessed = "2026-10-09"
+quote = "The RoboClaw uses standard male pin headers with 0.100 in (2.54mm) spacing. ... The pins closest to the board edge are the I/0s, center pin is the +5V and the inside pins are ground. ... The pins labeled + and - are the source power pins for encoders. The positive (+) is located at the board edge and supplies +5VDC. The ground (-) pin is near the heatsink. ... Channel A of both EN1 and EN2 are located at the board edge on the pin header. Channel B pins are located near the heatsink on the pin header."
+
+[[sources]]
+id = "S5"
+url = "https://en.wikipedia.org/wiki/USB_hardware"
+title = "USB hardware (Wikipedia), Micro-B pin assignments (read through a page summariser)"
+accessed = "2026-10-09"
+quote = "1: Power (VBUS, 5 V) | 2: Data- (D-) | 3: Data+ (D+) | 4: ID (On-The-Go) | 5: GND"
 
 [[sources]]
 id = "V1"

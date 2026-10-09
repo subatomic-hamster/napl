@@ -72,8 +72,32 @@ kind = "power"
 type = "motor-3phase"
 gender = "neutral"
 role = "sink"
+pins = ["PH.1", "PH.2", "PH.3"]
 lead = { length = "cable_length" }
 note = "The 1 m cable (S1 'with 1m cable') carries the three phase leads to the ESC and is inside the 427 g datasheet mass."
+
+# Connector (pin level): the thruster cable is 3 conductors of 16 AWG (S3); the page names no connector or colours, so the three phase
+# conductors are bare ends (the BlueROV2 splices them to the ESC's phase wires: 'Connect thruster wires to ESC motor phase wires').
+[[connectors]]
+id = "PH"
+name = "phase cable (3 x 16 AWG, bare ends)"
+type = "wire-lead"
+port_type = "motor-3phase"
+gender = "neutral"
+pos = [0.0, 0.05, 0.02]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S3"
+fidelity = "datasheet"
+pose_rationale = "Estimated: the cable leaves the motor can at its rear side; the product page gives no drawing text."
+pins = [
+  { number = 1, name = "PHASE A", kind = "power", dir = "in", note = "conductor colours not stated (S3); the three phases are interchangeable (swap two to reverse)" },
+  { number = 2, name = "PHASE B", kind = "power", dir = "in" },
+  { number = 3, name = "PHASE C", kind = "power", dir = "in" },
+]
 
 [visual]
 rationale = "T200 shape from the part's own diameter and body length: dark motor can with a rounded nose inside a short shroud held by four struts (approximate, not copied from CAD)."
@@ -94,3 +118,10 @@ url = "https://bluerobotics.com/store/thrusters/t200-thruster-r2-rp/"
 title = "T200 Thruster (R2-RP) product page, FAQ on water flow rate (Blue Robotics)"
 accessed = "2026-10-08"
 quote = "and spins at about 3075 RPM full throttle 12 V, and 3600 RPM 16 V."
+
+[[sources]]
+id = "S3"
+url = "https://bluerobotics.com/store/thrusters/t200-thruster-r2-rp/"
+title = "T200 Thruster (R2-RP) product page, cable and Basic ESC connection step (read through a page summariser)"
+accessed = "2026-10-09"
+quote = "T200 Thruster Cable (3 conductors, 16 AWG) ... Standard T200 (1m cable) ... Connect thruster wires to ESC motor phase wires."

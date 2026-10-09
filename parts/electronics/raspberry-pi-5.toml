@@ -72,6 +72,7 @@ type = "usb"
 gender = "female"
 count = 4
 connector = "2 x USB 3.0 + 2 x USB 2.0 Type-A"
+pins = ["USB1.1", "USB1.2", "USB1.3", "USB1.4", "USB1.5", "USB1.6", "USB1.7", "USB1.8", "USB1.9"]   # the first USB 3.0 receptacle (USB2 is the other)
 
 [[ports]]
 name = "csi"
@@ -358,16 +359,21 @@ pos = [0.0433, 0.0, 0.0058]
 axis = [1.0, 0.0, 0.0]
 ref = [0.0, 1.0, 0.0]
 rows = 1
-cols = 4
-pitch = 0.002
-src = "S7"
+cols = 9
+pitch = 0.0012
+src = "S9"
 fidelity = "literature"
-pose_rationale = "Stack position from the board layout, estimated; the SuperSpeed pins 5-9 of the USB 3.0 receptacle are not modelled."
+pose_rationale = "Stack position from the board layout, estimated; pins 1-4 are the USB 2.0 contacts (S7), pins 5-9 the SuperSpeed contacts of a USB 3.0 Standard-A receptacle (S9; the Pi 5 brief states the 3.0 ports, the pin table is the USB 3.0 standard's)."
 pins = [
   { number = 1, name = "VBUS", kind = "power", dir = "out", v = 5.0 },
   { number = 2, name = "D-", kind = "signal", dir = "io" },
   { number = 3, name = "D+", kind = "signal", dir = "io" },
   { number = 4, name = "GND", kind = "ground" },
+  { number = 5, name = "SSRX-", kind = "signal", dir = "in" },
+  { number = 6, name = "SSRX+", kind = "signal", dir = "in" },
+  { number = 7, name = "GND_DRAIN", kind = "ground" },
+  { number = 8, name = "SSTX-", kind = "signal", dir = "out" },
+  { number = 9, name = "SSTX+", kind = "signal", dir = "out" },
 ]
 
 [[connectors]]
@@ -380,9 +386,9 @@ pos = [0.0433, 0.0, 0.0128]
 axis = [1.0, 0.0, 0.0]
 ref = [0.0, 1.0, 0.0]
 rows = 1
-cols = 4
-pitch = 0.002
-src = "S7"
+cols = 9
+pitch = 0.0012
+src = "S9"
 fidelity = "literature"
 pose_rationale = "As USB1."
 pins = [
@@ -390,6 +396,11 @@ pins = [
   { number = 2, name = "D-", kind = "signal", dir = "io" },
   { number = 3, name = "D+", kind = "signal", dir = "io" },
   { number = 4, name = "GND", kind = "ground" },
+  { number = 5, name = "SSRX-", kind = "signal", dir = "in" },
+  { number = 6, name = "SSRX+", kind = "signal", dir = "in" },
+  { number = 7, name = "GND_DRAIN", kind = "ground" },
+  { number = 8, name = "SSTX-", kind = "signal", dir = "out" },
+  { number = 9, name = "SSTX+", kind = "signal", dir = "out" },
 ]
 
 [[connectors]]
@@ -529,6 +540,13 @@ url = "https://www.raspberrypi.com/documentation/computers/raspberry-pi.html"
 title = "Raspberry Pi documentation: Raspberry Pi hardware, GPIO and the 40-pin header, Raspberry Pi 5 connectors (read through a page summariser)"
 accessed = "2026-10-08"
 quote = "The GPIO headers on all boards have a 0.1in (2.54 mm) pin pitch. || A GPIO pin designated as an output pin can be set to high (3.3V) or low (0V). || Pins GPIO2 and GPIO3 have fixed pull-up resistors, but for other pins this can be configured in software. || GPIO pins 0 and 1 are present on the board (physical pins 27 and 28), but are reserved for advanced use. || each pin can individually draw up to 16mA || mini 22-pin, 0.5 mm (fine) pitch, 11.5 mm width, combined CSI (camera)/DSI (display) ports || four-pin JST-SH PWM fan connector || The Raspberry Pi 5 fan connector is a 1 mm pitch JST-SH socket containing the following four pins: Pin 1: +5V (red), Pin 2: PWM (blue), Pin 3: GND (black), Pin 4: Tach (yellow) || This can be battery powered through the J5 (BAT) connector on the board. || with a pre-fitted two-pin JST-SH plug and an adhesive mounting pad || single-lane PCIe FFC connector || UART connector || The Ethernet jack on Raspberry Pi 5 is PoE+ capable, supporting the IEEE 802.3at-2009 PoE standard."
+
+[[sources]]
+id = "S9"
+url = "https://en.wikipedia.org/wiki/USB_3.0"
+title = "USB 3.0 (Wikipedia), Pin assignments: Standard-A connector (read through a page summariser)"
+accessed = "2026-10-09"
+quote = "Pin 1 VBUS Power | Pin 2 D- USB 2.0 differential pair | Pin 3 D+ | Pin 4 GND Ground for power return | Pin 5 StdA_SSRX- SuperSpeed receiver differential pair | Pin 6 StdA_SSRX+ | Pin 7 GND_DRAIN Ground for signal return | Pin 8 StdA_SSTX- SuperSpeed transmitter differential pair | Pin 9 StdA_SSTX+ ... The five additional USB 3.0 pins are two differential pairs and one ground (GND_DRAIN)."
 
 [[sources]]
 id = "S7"

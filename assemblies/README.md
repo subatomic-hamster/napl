@@ -295,7 +295,7 @@ Ports that declare `i_peak` (servo sockets) state the device's own draw, not a t
 | `WIRE_INVALID` | error | a wire whose end instance / port / part is unknown, or whose ends are not both power or both signal | - |
 | `WIRE_CONNECTOR_MISMATCH` | error | connector part wire: ends not compatible (type + gender) or the part has no port of the end's type; cable part: a non-`wire-lead` cable end that does not mate the port | `types_ok` / `genders_ok`; fix lists wire / connector parts that mate the port |
 | `WIRE_RATING_UNKNOWN` | info | a wire part with no `i_max` on its ports (awg 10, 14, 16, 18 today): that wire cannot be checked | add `i_max` (AWG ampacity table) to the part |
-| `PIN_ALREADY_USED` | error | one connector pin on two conductors (ground pins may be shared) | pin lists of the wires |
+| `PIN_ALREADY_USED` | error | one connector pin on two conductors (ground pins and pins of a `joinable` connector may be shared) | pin lists of the wires |
 | `PIN_KIND_MISMATCH` | error / warning | a conductor joins unlike pins (power to ground, signal to power); a no-connect pin is a warning | `kind` of the pins in the part files |
 | `PIN_VOLTAGE_MISMATCH` | error / warning | a driving pin's `v` above the sink's `v_max` (error) or below `v_min` (warning); with no range the two nominal levels differ by more than max(0.5 V, 10 %) (signals: warning, a level shifter is needed) | `v`, `v_min`, `v_max` of the pins; **0.5 V / 10 % = design margin** |
 | `PIN_TWO_OUTPUTS` | error | two signal outputs (`dir = "out"`) drive one net | `dir` of the pins |

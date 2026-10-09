@@ -266,7 +266,9 @@ conductors = 2
 [[wires]]
 name = "lead_adapter_reducer"
 from = "adapter.servo_bus"
+from_pins = ["BUS2.2", "BUS2.1"]   # V, G of the board's second servo port (wiring diagram: the reducer is fed from a servo-port V / G pair)
 to = "reducer.power_in"
+to_pins = ["IN.1", "IN.2"]
 part = "awg-22-silicone-wire"
 length = { value = 0.1, unit = "m", fidelity = "estimated", rationale = "Not published; the reducer is a small loose module beside the board (wiring diagram, no dimensions): 0.1 m taken." }
 conductors = 2
@@ -274,10 +276,25 @@ conductors = 2
 [[wires]]
 name = "lead_reducer_servo3"
 from = "reducer.power_out"
+from_pins = ["OUT.1", "OUT.2"]
 to = "servo3.port_a"
+to_pins = ["J1.2", "J1.1"]   # OUT+ 5 V -> VDD (pin 2), OUT- GND -> GND (pin 1) of the XL330 chain cable
 part = "awg-22-silicone-wire"
 length = { value = 0.1, unit = "m", fidelity = "estimated", rationale = "Not published; solder-pad output of the reducer to the XL330 chain cable, 0.1 m taken (wiring diagram, no lengths)." }
 conductors = 2
+
+# The XL330 chain's DATA (pin 3) comes straight from the board's second servo port (wiring diagram, follower arm). It is the third conductor of
+# the reducer-to-chain lead above; its ~0.2 g of 22 AWG is not added to the mass so the arm's inertial baseline stays the one of the power-only lead.
+[[wires]]
+name = "lead_adapter_servo3_data"
+from = "adapter.bus"
+from_pins = ["BUS2.3"]
+to = "servo3.bus"
+to_pins = ["J1.3"]
+part = "awg-22-silicone-wire"
+length = { value = 0.1, unit = "m", fidelity = "estimated", rationale = "As lead_reducer_servo3: the same lead bundle, 0.1 m taken." }
+conductors = 1
+included_in = "servo3"
 
 [[wires]]
 name = "cable_servo3_servo4"

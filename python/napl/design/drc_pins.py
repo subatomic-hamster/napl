@@ -1,6 +1,6 @@
 """Pin-level design rules (parts/README.md "Connectors and pins"): run on every wire that resolves to concrete pins.
 
-    PIN_ALREADY_USED      error    one pin on two conductors
+    PIN_ALREADY_USED      error    one pin on two conductors (ground pins and pins of a `joinable` connector may be shared)
     PIN_KIND_MISMATCH     error    a conductor joins unlike pins (power-ground short, signal-power, ...); nc pins are a warning
     PIN_VOLTAGE_MISMATCH  error    both pins state a voltage and they differ (power); signal levels differ: warning (level shifter)
     PIN_TWO_OUTPUTS       error    two signal outputs drive one net
@@ -132,8 +132,8 @@ def pin_rules(ctx, F, add):
         periph = {}
         for ra, pa, rb, pb in rows:
             for r, p_ in ((ra, pa), (rb, pb)):
-                if p_["kind"] == "ground":
-                    continue  # a common return: several conductors may be spliced onto one ground pin
+                if p_["kind"] == "ground" or p_.get("joinable"):
+                    continue  # a common return, or a bare lead / solder pad / screw terminal: several conductors may be joined on one pin
                 if r in used and used[r] != name:
                     add(
                         F,

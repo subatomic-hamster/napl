@@ -63,6 +63,77 @@ kind = "signal"
 type = "usb-c"
 gender = "neutral"
 note = "USB-C peripheral connector (S1 section 3.7.5 lists D435i); USB 3.1 Gen 1 or USB 2.0."
+pins = ["USB.A4", "USB.A7", "USB.A6", "USB.A1", "USB.A3", "USB.A2", "USB.A12", "USB.B10", "USB.B11"]   # VBUS, D-, D+, GND, TX1-, TX1+, GND, RX1-, RX1+: what a USB-A (3.x) to USB-C cable carries
+
+# ---- Connectors (pin level). Pin tables are the datasheet's (S1 Table 3-43 USB peripheral connector, Table 3-42 sync connector). Part frame
+# as the [geometry]: z = depth, rear face at z = 0; the datasheet does not locate the connectors on the housing, so poses are estimates.
+[[connectors]]
+id = "USB"
+name = "USB Type-C peripheral connector"
+type = "usb-c"
+gender = "female"
+pos = [0.03, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 2
+cols = 12
+pitch = 0.0005
+layout = "seq"
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "Rear face, estimated (S1 section 3.7.5 gives the 24-pin map, Figure 3-18, not the location on the housing). Row A first (A1..A12), row B mirrored (B12..B1) so that B12 faces A1 as on the receptacle."
+pins = [
+  { number = "A1", name = "GND", kind = "ground" },
+  { number = "A2", name = "TX1+", kind = "signal", dir = "out", alt = ["USB 3.1 Gen 1 SuperSpeed TX pair 1"] },
+  { number = "A3", name = "TX1-", kind = "signal", dir = "out", alt = ["USB 3.1 Gen 1 SuperSpeed TX pair 1"] },
+  { number = "A4", name = "VBUS", kind = "power", dir = "in", v = 5.0 },
+  { number = "A5", name = "CC1", kind = "signal", dir = "io" },
+  { number = "A6", name = "D+", kind = "signal", dir = "io", alt = ["USB 2.0"] },
+  { number = "A7", name = "D-", kind = "signal", dir = "io", alt = ["USB 2.0"] },
+  { number = "A8", name = "SBU1", kind = "signal", dir = "io" },
+  { number = "A9", name = "VBUS", kind = "power", dir = "in", v = 5.0 },
+  { number = "A10", name = "RX2-", kind = "signal", dir = "in", alt = ["USB 3.1 Gen 1 SuperSpeed RX pair 2"] },
+  { number = "A11", name = "RX2+", kind = "signal", dir = "in", alt = ["USB 3.1 Gen 1 SuperSpeed RX pair 2"] },
+  { number = "A12", name = "GND", kind = "ground" },
+  { number = "B12", name = "GND", kind = "ground" },
+  { number = "B11", name = "RX1+", kind = "signal", dir = "in", alt = ["USB 3.1 Gen 1 SuperSpeed RX pair 1"] },
+  { number = "B10", name = "RX1-", kind = "signal", dir = "in", alt = ["USB 3.1 Gen 1 SuperSpeed RX pair 1"] },
+  { number = "B9", name = "VBUS", kind = "power", dir = "in", v = 5.0 },
+  { number = "B8", name = "SBU2", kind = "signal", dir = "io" },
+  { number = "B7", name = "D-", kind = "signal", dir = "io", alt = ["USB 2.0"] },
+  { number = "B6", name = "D+", kind = "signal", dir = "io", alt = ["USB 2.0"] },
+  { number = "B5", name = "CC2", kind = "signal", dir = "io" },
+  { number = "B4", name = "VBUS", kind = "power", dir = "in", v = 5.0 },
+  { number = "B3", name = "TX2-", kind = "signal", dir = "out", alt = ["USB 3.1 Gen 1 SuperSpeed TX pair 2"] },
+  { number = "B2", name = "TX2+", kind = "signal", dir = "out", alt = ["USB 3.1 Gen 1 SuperSpeed TX pair 2"] },
+  { number = "B1", name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "SYNC"
+name = "External sensor sync connector (JST SM09B-SRSS-TB, 9 positions)"
+type = "jst-sr-9"
+gender = "male"
+pos = [-0.03, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 9
+pitch = 0.001
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "Estimated: S1 Table 3-41 names the part (SM09B-SRSS-TB; the pitch, 1.0 mm, is the JST SR series') but not where it sits on the housing; rear face assumed."
+pins = [
+  { number = 1, name = "GPIO3", kind = "signal", dir = "io", alt = ["GVSYNC0: not defined"] },
+  { number = 2, name = "GPIO4", kind = "signal", dir = "io", alt = ["GVSYNC1: IR projector power down signal"] },
+  { number = 3, name = "GPIO5", kind = "signal", dir = "io", alt = ["GVSYNC2: external IR projector fault detect"] },
+  { number = 4, name = "GPIO6", kind = "signal", dir = "io", alt = ["GVSYNC3: external IR projector"] },
+  { number = 5, name = "Z_VSYNC", kind = "signal", dir = "io", alt = ["VSYNC: depth VSYNC"] },
+  { number = 6, name = "LASER_PWM0", kind = "signal", dir = "io", alt = ["laser control signal"] },
+  { number = 7, name = "LASER_PWM1", kind = "signal", dir = "io", alt = ["laser control signal"] },
+  { number = 8, name = "VDD33V", kind = "power", v = 3.3 },
+  { number = 9, name = "GND", kind = "ground" },
+]
 
 [visual]                            # cosmetic only (parts/README.md "Visual layer")
 rationale = "Generic camera-module block from the [geometry] bounds (90 x 25 x 25 mm); no product photo was used, the lens windows and IR projector are not drawn."

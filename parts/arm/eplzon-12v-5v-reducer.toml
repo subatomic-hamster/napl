@@ -23,6 +23,7 @@ current_limit = { value = 6.0, unit = "A", fidelity = "estimated", rationale = "
 # Electrical only. Solder-pad terminals (no connector named on the product title or in the wiring diagram).
 [[ports]]
 name = "power_in"
+pins = ["IN.1", "IN.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -33,6 +34,7 @@ note = "IN+ / IN- (S2); fed 12 V from the Waveshare board's servo-port V and G p
 
 [[ports]]
 name = "power_out"
+pins = ["OUT.1", "OUT.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -40,6 +42,46 @@ role = "source"
 v_max = { value = 5.3, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 3.5, unit = "A", src = "S1", fidelity = "datasheet" }
 note = "OUT+ 5 V / OUT- GND (S2) to the XL330 chain cable pins 2 (VDD) and 1 (GND); the DATA pin (3) of that cable comes straight from the Waveshare board (S2). v_max is the top of the title's 5-5.3 V range, below the XL330 6.0 V limit."
+
+# Connectors (pin level): four solder pads, labelled IN+ / IN- / OUT+ 5V / OUT- GND in the Koch wiring diagram (S2). The pad order and
+# spacing are not published (the Amazon listing has no drawing text), so the pose is an estimate: input pair at one end, output pair at the other.
+[[connectors]]
+id = "IN"
+name = "input solder pads (IN+ / IN-)"
+type = "solder-pad-1x2"
+gender = "neutral"
+pos = [-0.01, 0.0, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.005
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "Estimated: S2 names the pads, not their position on the module; 5 mm pad spacing assumed."
+pins = [
+  { number = 1, name = "IN+", kind = "power", dir = "in", v_min = 6.0, v_max = 36.0, note = "6 - 36 V input range from the product title (S1)" },
+  { number = 2, name = "IN-", kind = "ground" },
+]
+
+[[connectors]]
+id = "OUT"
+name = "output solder pads (OUT+ 5V / OUT- GND)"
+type = "solder-pad-1x2"
+gender = "neutral"
+pos = [0.01, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.005
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "As IN."
+pins = [
+  { number = 1, name = "OUT+ 5V", kind = "power", dir = "out", v = 5.0, v_max = 5.3, i_max = 3.5, note = "'OUT+ 5V' (S2); title range 5 - 5.3 V, 3.5 - 6 A (S1)" },
+  { number = 2, name = "OUT- GND", kind = "ground", i_max = 3.5 },
+]
 
 [[sources]]
 id = "S1"

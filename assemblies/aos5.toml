@@ -260,6 +260,7 @@ included_in = "bat"
 [[wires]]
 name = "bat-to-fc"
 from = "bat.power_out"
+from_pins = ["LEAD.1", "LEAD.2"]   # spliced onto the pack's discharge lead (joinable), the same net as the XT60; the FC's own BAT / G pins
 to = "fc.vbat_in"
 part = "awg-24-silicone-wire"
 length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Not published: the ESC-to-FC VBAT/GND harness of the stack, ~60 mm for a two-board stack." }

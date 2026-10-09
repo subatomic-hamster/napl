@@ -51,8 +51,52 @@ kind = "power"
 type = "xt60"
 gender = "neutral"
 role = "source"
+pins = ["OUT.1", "OUT.2"]
 v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V." }
 i_max = { value = 210.0, unit = "A", fidelity = "derived", derivation = "C rating x capacity = 150 C x 1.4 Ah = 210 A (S1 rating label); exceeds the XT60 connector's own continuous rating, which a DRC should flag." }
+
+# Pin level: the XT60 plug on the 65 mm discharge leads (S1: 'Discharge Plug | XT60'), drawn at the pack's front face (+x); the leads are inside
+# the pack mass. Polarity / spacing are the XT60 family's (pin 1 +, 7.2 mm), not stated by Tattu. No balance plug is listed in S1, so none is drawn.
+[[connectors]]
+id = "OUT"
+name = "discharge XT60"
+type = "xt60"
+gender = "male"
+pos = [0.039, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 names the XT60 plug and the 6S 22.2 V pack but not the pin polarity or contact spacing: + then -, 7.2 mm spacing of the XT60 family."
+pins = [
+  { number = 1, name = "BAT+", kind = "power", dir = "out", v = 25.2, i_max = 30.0, note = "v = 6S x 4.2 V full charge; i_max is the XT60 contact rating, below the pack's 150C burst (see the port)" },
+  { number = 2, name = "BAT-", kind = "ground", i_max = 30.0 },
+]
+
+# The 65 mm 12 AWG discharge lead itself (S1 'Discharge Wire Length 65 | Wire Gauge 12#'), the same net as the plug: a second consumer is
+# spliced onto it (the FC feed of assemblies/aos5.toml), so its two conductors may carry several wires.
+[[connectors]]
+id = "LEAD"
+name = "discharge lead splice point (12 AWG, 65 mm)"
+joinable = true
+type = "wire-lead"
+gender = "neutral"
+pos = [0.039, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives the lead's length and gauge, not where a tap would go: any point of the bare lead between pack and plug is the same net as OUT; drawn at the plug end, + then -."
+pins = [
+  { number = 1, name = "BAT+", kind = "power", dir = "out", v = 25.2, note = "same net as OUT.1" },
+  { number = 2, name = "BAT-", kind = "ground", note = "same net as OUT.2" },
+]
 
 [[sources]]
 id = "S1"

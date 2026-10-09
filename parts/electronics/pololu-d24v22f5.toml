@@ -39,6 +39,7 @@ type = "solder-pad"
 gender = "neutral"
 v_max = { value = 36, unit = "V", src = "S1", fidelity = "datasheet" }
 role = "sink"
+pins = ["IO.VIN", "IO.GND"]
 
 [[ports]]
 name = "vout"
@@ -48,7 +49,40 @@ gender = "neutral"
 v_max = { value = 5, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 2.5, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "source"
+pins = ["IO.VOUT", "IO.GND2"]
 note = "2.5 A is the typical maximum at 24 V in; thermally limited, see Pololu graph"
+
+# Pin level: S2 lists five main connection points (PG, EN, VIN, GND, VOUT) plus a second GND pad off the main row; the order along the board edge and the position of the
+# second ground are not in the page text, so they are estimated.
+[[connectors]]
+id = "IO"
+name = "5 solder pads on a 0.1 in grid plus a second ground"
+type = "pad-1x6-2.54mm"
+gender = "neutral"
+pos = [0.0, -0.0089, 0.0]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00254
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "S2 gives the five main connections and the second ground; the order along the board edge and the second pad's place are not in the page text: estimated."
+pins = [
+  { number = "PG", name = "PG", kind = "signal", dir = "out", note = "open-drain power-good, goes low when VOUT is below about 85 % of nominal, high-impedance above about 90 %; needs an external pull-up" },
+  { number = "EN", name = "EN", kind = "signal", dir = "in", note = "enable input; the page text gives no threshold here, left out" },
+  { number = "VIN", name = "VIN", kind = "power", dir = "in", v_max = 36.0 },
+  { number = "GND", name = "GND", kind = "ground", note = "main-row ground pad" },
+  { number = "VOUT", name = "VOUT", kind = "power", dir = "out", v = 5.0, i_max = 2.5 },
+  { number = "GND2", name = "GND", kind = "ground", note = "second ground pad off the main row, the same net" },
+]
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/2858"
+title = "Pololu D24V22Fx step-down regulator product page, Connections"
+accessed = "2026-10-09"
+quote = "These buck regulators have five main connection points for five different electrical nodes: power good (PG), enable (EN), input voltage (VIN), ground (GND), and output voltage (VOUT). The board also features a second ground connection point off the main row of connections that might be convenient for applications where you are soldering wires directly to the board"
 
 [[sources]]
 id = "S1"

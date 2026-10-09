@@ -21,7 +21,7 @@ DIRS = (
 LAYOUTS = ("dual", "line", "seq")
 CONN_KEYS = {
     "id", "name", "type", "gender", "pos", "axis", "ref", "rows", "cols", "pitch", "layout", "src", "fidelity", "derivation",
-    "rationale", "pins", "note", "pose_rationale", "housing", "port_type",
+    "rationale", "pins", "note", "pose_rationale", "housing", "port_type", "joinable",
 }  # fmt: skip
 PIN_KEYS = {
     "number", "name", "alt", "kind", "dir", "v", "v_min", "v_max", "i_max", "at", "offset", "src", "fidelity", "derivation", "rationale", "note",
@@ -87,6 +87,8 @@ def validate(doc: dict) -> list:
             bad(f"{lab}: missing type")
         if c.get("gender", "neutral") not in ("male", "female", "neutral"):
             bad(f"{lab}: gender {c.get('gender')!r}")
+        if not isinstance(c.get("joinable", False), bool):
+            bad(f"{lab}: 'joinable' must be true or false")
         for k in ("pos", "axis", "ref"):
             if not _vec3(c.get(k)):
                 bad(f"{lab}: '{k}' must be 3 numbers")
@@ -270,6 +272,7 @@ def connectors(part) -> dict:
                 cell=(col, row),
                 src=p.get("src", c.get("src")),
                 fidelity=p.get("fidelity", c.get("fidelity")),
+                joinable=bool(c.get("joinable", False)),
             )
             for k in ("v", "v_min", "v_max", "i_max"):
                 if isinstance(q.get(k), dict):
