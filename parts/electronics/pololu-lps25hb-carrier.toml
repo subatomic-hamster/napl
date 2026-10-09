@@ -36,6 +36,7 @@ kind = "power"
 type = "header-0.1in"
 gender = "neutral"
 role = "sink"
+pins = ["H.VIN", "H.GND"]
 v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
 v_min = { value = 2.5, unit = "V", src = "S1", fidelity = "datasheet" }
 note = "VIN; supply current 2 mA."
@@ -45,7 +46,41 @@ name = "i2c"
 kind = "signal"
 type = "i2c"
 gender = "neutral"
+pins = ["H.SDA", "H.SCL"]
 note = "The page says the output format is I2C/SPI; I2C is the default mode."
+
+# Pin level: the eight-pin 0.1 in header of S2, in the page's table order (the edge and order along it are not stated: estimated).
+[[connectors]]
+id = "H"
+name = "8-pin 0.1 in header"
+type = "header-1x8-2.54mm"
+gender = "neutral"
+pos = [0.0, -0.005, 0.0]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 8
+pitch = 0.00254
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "Pin names and functions from the S2 table; the edge used is not stated: estimated."
+pins = [
+  { number = "VDD", name = "VDD", kind = "power", dir = "out", v = 3.3, i_max = 0.15, note = "regulated 3.3 V output, almost 150 mA; may instead be a 3.3 V input with VIN disconnected" },
+  { number = "VIN", name = "VIN", kind = "power", dir = "in", v_min = 2.5, v_max = 5.5 },
+  { number = "GND", name = "GND", kind = "ground" },
+  { number = "SDA", name = "SDA/SDI/SDO", kind = "signal", dir = "io", note = "level-shifted I2C data and SPI data in (SDO in 3-wire mode)" },
+  { number = "SCL", name = "SCL/SPC", kind = "signal", dir = "in", note = "level-shifted I2C / SPI clock" },
+  { number = "SA0", name = "SDO/SA0", kind = "signal", dir = "io", v = 3.3, note = "SPI data out in 4-wire mode / I2C address select; not level-shifted" },
+  { number = "CS", name = "CS", kind = "signal", dir = "in", v = 3.3, note = "SPI chip select, pulled up to VDD to enable I2C; drive low for SPI" },
+  { number = "INT1", name = "INT1_DRDY", kind = "signal", dir = "out", v = 3.3, note = "programmable interrupt / data ready; not level-shifted" },
+]
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/2867"
+title = "Pololu LPS25HB pressure/altitude sensor carrier product page, Pinout"
+accessed = "2026-10-09"
+quote = "Pinout PIN Description VDD Regulated 3.3 V output. Almost 150 mA is available to power external components. VIN This is the main 2.5 V to 5.5 V power supply connection. GND SDA/SDI/SDO Level-shifted I2C data line and SPI data in line (also doubles as SDO in 3-wire mode) SCL/SPC Level-shifted I2C/SPI clock line SDO/SA0 SPI data out line in 4-wire mode: HIGH is VDD, LOW is 0 V. This output is not level-shifted. Also used as an input to determine I2C slave address. CS SPI enable (chip select). Pulled up to VDD to enable I2C communication by default; drive low to begin SPI communication. INT1_DRDY Programmable interrupt/data-ready indicator, a 3.3-V-logic-level output."
 
 [[sources]]
 id = "S1"

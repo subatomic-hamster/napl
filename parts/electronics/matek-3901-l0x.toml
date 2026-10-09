@@ -26,13 +26,47 @@ type = "solder-pad"
 gender = "neutral"
 v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
 role = "sink"
+pins = ["P.5V", "P.G"]
 
 [[ports]]
 name = "uart"
 kind = "signal"
 type = "uart"
 gender = "neutral"
+pins = ["P.RX", "P.TX"]
 note = "Interface UART, protocol MSP (INAV); ArduPilot uses SERIALn_PROTOCOL = 32"
+
+# Pin level: the 2 x 2 solder pads at the board end (5V, G, RX, TX) read from Matek's wiring image (S2); the page has no text pin table. The pad pitch and the
+# position are estimated. The uart port lists [RX, TX] so a pair-wise wire to an FC's [UART_TX, UART_RX] crosses correctly. The sonar pads (5V, G, Trig, Echo)
+# are unused ('Sonar connection (Trig & Echo) has not been implemented', S1) and are not drawn.
+[[connectors]]
+id = "P"
+name = "UART pads 5V, G, RX, TX"
+type = "solder-pad-2x2"
+gender = "neutral"
+pos = [0.0, 0.017, 0.0]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 2
+cols = 2
+pitch = 0.0025
+layout = "seq"
+src = "S2"
+fidelity = "estimated"
+rationale = "S2 is a wiring picture: red 5V and black G pads in the top row, yellow RX and blue TX pads in the second, wired to an F722-SE's 5V, G, TX6, RX6 (so the module's RX is the FC's TX). Pad pitch, side and board position are estimated; the logic level is not stated (3.3 V assumed)."
+pins = [
+  { number = "5V", name = "5V", kind = "power", dir = "in", v = 5.0, v_min = 4.5, v_max = 5.5, src = "S1", fidelity = "datasheet", note = "input voltage 4.5~5.5V (S1)" },
+  { number = "G", name = "GND", kind = "ground" },
+  { number = "RX", name = "RX", kind = "signal", dir = "in", v = 3.3 },
+  { number = "TX", name = "TX", kind = "signal", dir = "out", v = 3.3 },
+]
+
+[[sources]]
+id = "S2"
+url = "https://www.mateksys.com/wp-content/uploads/2019/11/3901-L0X_W.jpg"
+title = "Matek 3901-L0X wiring diagram image on the product page (read as an image, not text)"
+accessed = "2026-10-09"
+quote = "[image] wiring diagram: the 3901-L0X's 2 x 2 pads 5V (red wire) and G (black wire), RX (yellow wire to the F722-SE pad TX6) and TX (blue wire to the pad RX6); UART6 set to MSP 115200"
 
 [[sources]]
 id = "S1"

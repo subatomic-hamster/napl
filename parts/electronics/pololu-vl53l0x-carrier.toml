@@ -36,6 +36,7 @@ kind = "power"
 type = "header-0.1in"
 gender = "neutral"
 role = "sink"
+pins = ["H.VIN", "H.GND"]
 v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
 v_min = { value = 2.6, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 0.040, unit = "A", src = "S1", fidelity = "datasheet" }  # peak current
@@ -46,6 +47,39 @@ name = "i2c"
 kind = "signal"
 type = "i2c"
 gender = "neutral"
+pins = ["H.SDA", "H.SCL"]
+
+# Pin level: the seven-pin 0.1 in header of S2, in the page's table order (the order along the board edge is not in the page text: estimated).
+[[connectors]]
+id = "H"
+name = "7-pin 0.1 in header"
+type = "header-1x7-2.54mm"
+gender = "neutral"
+pos = [0.0, -0.0065, 0.0]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 7
+pitch = 0.00254
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "Pin names and functions from the S2 table; their order along the edge and the edge used are not stated: estimated."
+pins = [
+  { number = "VDD", name = "VDD", kind = "power", dir = "out", v = 2.8, i_max = 0.1, note = "regulated 2.8 V output, around 100 mA; may instead be a 2.6-3.5 V input with VIN disconnected" },
+  { number = "VIN", name = "VIN", kind = "power", dir = "in", v_min = 2.8, v_max = 5.5 },
+  { number = "GND", name = "GND", kind = "ground" },
+  { number = "SDA", name = "SDA", kind = "signal", dir = "io", note = "level-shifted I2C data: HIGH is VIN" },
+  { number = "SCL", name = "SCL", kind = "signal", dir = "in", note = "level-shifted I2C clock: HIGH is VIN" },
+  { number = "XSHUT", name = "XSHUT", kind = "signal", dir = "in", v = 2.8, note = "active-low shutdown, pulled up to VDD; not level-shifted, not 5 V tolerant" },
+  { number = "GPIO1", name = "GPIO1", kind = "signal", dir = "out", v = 2.8, note = "programmable interrupt, open drain, pulled up to VDD; not level-shifted" },
+]
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/2490"
+title = "Pololu VL53L0X time-of-flight distance sensor carrier product page, Connections"
+accessed = "2026-10-09"
+quote = "Pin Description: VDD Regulated 2.8 V output. Up to around 100 mA is available to power external components. VIN This is the main 2.8 V to 5.5 V power supply connection. GND The ground (0 V) connection for your power supply. SDA Level-shifted I2C data line: HIGH is VIN, LOW is 0 V. SCL Level-shifted I2C clock line. XSHUT This pin is an active-low shutdown input; the board pulls it up to VDD. GPIO1 Programmable interrupt output (VDD logic level)."
 
 [[sources]]
 id = "S1"

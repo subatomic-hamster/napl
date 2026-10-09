@@ -39,6 +39,7 @@ kind = "power"
 type = "header-0.1in"
 gender = "neutral"
 role = "sink"
+pins = ["H.VIN", "H.GND"]
 v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
 v_min = { value = 2.5, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 0.150, unit = "A", src = "S1", fidelity = "datasheet" }  # peak current
@@ -49,6 +50,40 @@ name = "i2c"
 kind = "signal"
 type = "i2c"
 gender = "neutral"
+pins = ["H.SDA", "H.SCL"]
+
+# Pin level: the eight-pin 0.1 in header of S2, in the page's table order (the order along the board edge is not in the page text: estimated).
+[[connectors]]
+id = "H"
+name = "8-pin 0.1 in header"
+type = "header-1x8-2.54mm"
+gender = "neutral"
+pos = [0.0, -0.0065, 0.0]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 8
+pitch = 0.00254
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "Pin names and functions from the S2 table; their order along the edge and the edge used are not stated: estimated."
+pins = [
+  { number = "VDD", name = "VDD", kind = "power", dir = "out", v = 3.3, i_max = 0.1, note = "regulated 3.3 V output, around 100 mA; may instead be a 2.5-3.6 V input with VIN disconnected" },
+  { number = "VIN", name = "VIN", kind = "power", dir = "in", v_min = 3.3, v_max = 5.5 },
+  { number = "GND", name = "GND", kind = "ground" },
+  { number = "SDA", name = "SDA", kind = "signal", dir = "io", note = "level-shifted I2C data: HIGH is VIN" },
+  { number = "SCL", name = "SCL", kind = "signal", dir = "in", note = "level-shifted I2C clock: HIGH is VIN" },
+  { number = "LPn", name = "LPn", kind = "signal", dir = "in", v = 3.3, note = "active-low I2C disable, pulled up to VDD; not level-shifted, not 5 V tolerant" },
+  { number = "INT", name = "INT", kind = "signal", dir = "out", v = 3.3, note = "programmable interrupt, open drain, pulled up to VDD; not level-shifted" },
+  { number = "I2C_RST", name = "I2C_RST", kind = "signal", dir = "in", v = 3.3, note = "active-high I2C reset, pulled down to GND; not level-shifted, not 5 V tolerant" },
+]
+
+[[sources]]
+id = "S2"
+url = "https://www.pololu.com/product/3417"
+title = "Pololu VL53L5CX time-of-flight multizone distance sensor carrier product page, Connections"
+accessed = "2026-10-09"
+quote = "Pin Description: VDD Regulated 3.3 V output. Up to around 100 mA is available to power external components. VIN This is the main 3.3 V to 5.5 V power supply connection. GND The ground (0 V) connection for your power supply. SDA Level-shifted I2C data line: HIGH is VIN, LOW is 0 V. SCL Level-shifted I2C clock line. LPn This pin is an active-low I2C disable input; the board pulls it up to VDD. INT Programmable interrupt output (VDD logic level). I2C_RST This pin is an active-high I2C reset input; the board pulls it down to GND by default."
 
 [[sources]]
 id = "S1"
