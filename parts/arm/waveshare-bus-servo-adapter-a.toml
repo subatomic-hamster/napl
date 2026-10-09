@@ -51,6 +51,7 @@ role = "sink"
 v_max = { value = 12.6, unit = "V", src = "S2", fidelity = "datasheet" }
 v_min = { value = 9.0, unit = "V", src = "S2", fidelity = "datasheet" }
 i_max = { value = 5.0, unit = "A", fidelity = "estimated", rationale = "Waveshare publishes no current rating; placeholder bound, see param max_continuous_current." }
+pins = ["DC.1", "DC.2"]   # centre contact (+), sleeve (-)
 note = "5.5 x 2.1 mm DC jack (S2). Note the SO-101 BOM feeds it 5 V, below the published 9 V minimum (see the voltage-limit mismatch recorded in docs/research/so101.md)."
 
 [[ports]]
@@ -62,6 +63,7 @@ role = "source"
 v_max = { value = 12.6, unit = "V", src = "S2", fidelity = "datasheet" }
 fidelity = "estimated"
 rationale = "The product page lists the compatible ST/SC servos but not the servo-port connector model or the number of ports, so this port is an assumption: 5264-3P because the STS3215 servo connector is 5264/2.54 3P (see feetech-sts3215-c001 S9) and the servo cable mates to it. The builder should treat all servo ports as one daisy-chain net carrying the DC input to the servos."
+pins = ["BUS.1", "BUS.2", "BUS.3"]
 note = "Servo-side supply output: the DC input passes to the servo ports (no series drop published, see param bus_forward_drop)."
 
 [[ports]]
@@ -69,7 +71,70 @@ name = "bus"
 kind = "signal"
 type = "feetech-ttl"
 gender = "female"
+pins = ["UART.1", "UART.2", "UART.3"]
 note = "UART / USB-C (jumper B) to the half-duplex servo bus bridge (S2); host side not modelled."
+
+# Connectors (pin level). The product page / wiki publish the interface types (5.5 x 2.1 mm DC jack, UART with 'RX-RX, TX-TX' wiring note,
+# jumper A = UART / B = USB) but no pin table or connector positions: pin names follow the servo-bus convention, poses are estimates
+# on the 42 x 33 mm board (box frame of the ports above).
+[[connectors]]
+id = "DC"
+name = "DC power jack"
+type = "dc-barrel-5.5x2.1"
+gender = "female"
+pos = [-0.021, -0.008, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.004
+src = "S2"
+fidelity = "estimated"
+rationale = "S2 states a 5.5 x 2.1 mm DC power connector; centre-positive polarity is the convention of the barrel family (not stated on the page); 9 to 12.6 V input range from S2."
+pins = [
+  { number = 1, name = "DC+", kind = "power", dir = "in", v = 12.0, v_min = 9.0, v_max = 12.6, note = "centre contact; 9 to 12.6 V (S2)" },
+  { number = 2, name = "DC-", kind = "ground", note = "sleeve" },
+]
+
+[[connectors]]
+id = "BUS"
+name = "Servo bus port (3-pin)"
+type = "5264-3p"
+gender = "female"
+pos = [0.021, 0.008, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S2"
+fidelity = "estimated"
+rationale = "S2 lists the compatible ST / SC bus servos but not the servo-port pinout; GND / VCC / SIGNAL is the order of the ST / SC servo cables, which the XL430 lead (GND / VDD / DATA) shares, so a straight 3-wire cable joins them pin for pin."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VCC", kind = "power", dir = "out", v = 12.0 },
+  { number = 3, name = "SIG", kind = "signal", dir = "io", v = 5.0 },
+]
+
+[[connectors]]
+id = "UART"
+name = "UART interface (jumper A)"
+type = "header-1x3-2.54mm"
+gender = "male"
+pos = [0.0, 0.0165, 0.006]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S2"
+fidelity = "estimated"
+rationale = "S2: 'communication interface: UART'; the wiki's 'RX-RX, TX-TX' note means the pins are labelled TX / RX (labels, not their order, are assumed here). 3.3 V / 5 V logic level not published."
+pins = [
+  { number = 1, name = "TXD", kind = "signal", dir = "out" },
+  { number = 2, name = "RXD", kind = "signal", dir = "in" },
+  { number = 3, name = "GND", kind = "ground" },
+]
 
 [[sources]]
 id = "S1"

@@ -134,6 +134,7 @@ type = "motor-3phase"
 gender = "neutral"
 role = "sink"
 lead = { length = "cable_length" }
+pins = ["PH.1", "PH.2", "PH.3"]
 v_max = { value = 16.8, unit = "V", src = "S2", fidelity = "derived", derivation = "4S x 4.2 V/cell = 16.8 V from the spec 'Rated Voltage(Lipo) 4S(4.2V/PC) / 16V'." }
 i_max = { value = 17.0, unit = "A", src = "S2", fidelity = "datasheet" }
 note = "i_max is the 180 s peak current (spec 'Peak Current(180s) 17A'); the cable (150 mm) is part of the motor, three bullet/solder leads to the ESC motor_out"
@@ -145,6 +146,28 @@ note = "Vented outrunner bell, cross mount base, M6 prop shaft; dark anodised fi
 [[visual.elements]]
 gen = "bldc_outrunner"
 colors = { bell = "alu-anodised-black", base = "alu-anodised-black", adapter = "alu-anodised-red" }
+
+# Pin level: the three phase leads (150 mm, part of the motor, ending in bullet / solder ends) leave the base towards -y. The spec drawing
+# carries no pin or lead position: the lead exit is an estimate and the phase naming a convention.
+[[connectors]]
+id = "PH"
+name = "phase leads"
+type = "bullet-3phase"
+gender = "neutral"
+pos = [0.0, -0.0139, 0.004]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S2"
+fidelity = "estimated"
+rationale = "S2 (the spec drawing) has no connector or lead drawing; the three leads A B C are drawn side by side at the base, 3 mm apart (convention)."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "in", i_max = 17.0 },
+  { number = 2, name = "B", kind = "power", dir = "in", i_max = 17.0 },
+  { number = 3, name = "C", kind = "power", dir = "in", i_max = 17.0 },
+]
 
 [[sources]]
 id = "V1"

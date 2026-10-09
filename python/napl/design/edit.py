@@ -19,6 +19,7 @@ import numpy as np
 
 from . import assembly as A
 from . import auto_devices as AD
+from . import pins as PN
 from . import wiring as W
 from .assembly import Ctx
 from .build import _mate_spec
@@ -115,7 +116,7 @@ def _note(ops) -> str:
         return "edit"
     o = ops[0]
     what = o.get("id") or o.get("name") or o.get("instance") or o.get("part") or ""
-    if o.get("op") in ("wire", "autowire") and (o.get("from") or o.get("a")):
+    if o.get("op") in ("wire", "autowire", "pinwire") and (o.get("from") or o.get("a")):
         what = f"{o.get('from') or o.get('a')} -> {o.get('to') or o.get('b') or '...'}"
     elif o.get("op") in ("mate", "unmate") and o.get("a"):
         what = f"{o['a']} + {o.get('b', '')}".strip(" +")
@@ -152,6 +153,7 @@ class EditResult:
 class Design:
     def __init__(self, asm: A.Assembly, lib: Library, path=None):
         self.asm, self.lib, self.path = asm, lib, path
+        PN.normalize_wires(asm.doc, lib)
         self._undo: list = []
         self._redo: list = []
         self._undo_notes: list = []  # one short line per undo / redo step (the viewer's HISTORY tab), kept in step with the stacks
@@ -394,7 +396,9 @@ class Design:
         """Build the trial design and measure the instances this edit just connected: -> dict, or {"error": why}."""
         moved = self._connected(doc2) - before
         try:
-            xml, _ = _compute(A.Assembly(doc2), self.lib.dir, self.lib.root, self.lib)
+            xml, _ = _compute(
+                A.Assembly(doc2), self.lib.dir, self.lib.root, self.lib, route=False
+            )
             world = _World(xml, self.lib.root)
         except (DesignError, KeyError, ValueError, StopIteration) as e:
             return {"error": str(e).splitlines()[0][:160]}
@@ -936,25 +940,47 @@ class Design:
         return ch
 
     def _op_wire(self, doc, s) -> dict:
+        # `from` / `to` = "inst.port" or the pin shorthand "inst.CONN.PIN"; `from_pins` / `to_pins` = ["CONN.PIN", ...] (one per conductor)
+        label = s.get("name") or f"{s['from']}--{s['to']}"
+        s = {**s}
+        PN.normalize_wires({"instances": doc["instances"], "wires": [s]}, self.lib)
         for end in ("from", "to"):
             iid, pn = _split(s[end])
             if pn is None:
                 raise DesignError(
-                    f"wire {end} '{s[end]}': name the port as 'inst.port'"
+                    f"wire {end} '{s[end]}': name the port as 'inst.port' or the pin as 'inst.CONN.PIN'"
                 )
-            p = self._part(self._inst(doc, iid)["part"]).port(pn)
+            part = self._part(self._inst(doc, iid)["part"])
+            p = part.port(pn)
             if p.get("kind") not in (POWER, SIGNAL):
                 raise DesignError(
                     f"wire {end} '{s[end]}': port kind {p.get('kind')!r}, wires join power or signal ports"
                 )
+            for ref in s.get(end + "_pins") or []:
+                if PN.find_pin(part, ref) is None:
+                    raise DesignError(
+                        f"wire {end} '{s[end]}': {part.id} has no pin '{ref}' (connectors: {sorted(part.connectors)})"
+                    )
+                if p.get("pins") and ref not in p["pins"]:
+                    raise DesignError(
+                        f"wire {end} '{s[end]}': pin {ref} is not on port {pn} (its pins: {p['pins']})"
+                    )
+        fa, fb = s.get("from_pins") or [], s.get("to_pins") or []
+        if fa and fb and len(fa) != len(fb):
+            raise DesignError(
+                f"wire {label}: from_pins and to_pins need one pin per conductor ({len(fa)} vs {len(fb)})"
+            )
         self._part(s["part"])
         w = {
-            "name": s.get("name") or f"{s['from']}--{s['to']}",
+            "name": label,
             "from": s["from"],
             "to": s["to"],
             "part": s["part"],
             "length": s["length"],
         }
+        for k in ("from_pins", "to_pins"):
+            if s.get(k):
+                w[k] = list(s[k])
         if s.get("conductors") is not None:
             w["conductors"] = s["conductors"]
         if s.get("included_in"):
@@ -1638,6 +1664,7 @@ class Design:
             "target": self._op_target,
             "autowire": lambda doc, s: W.autowire(self, doc, s),
             "autowire_all": lambda doc, s: W.autowire_all(self, doc, s),
+            "pinwire": lambda doc, s: W.pinwire(self, doc, s),
             "auto_devices": lambda doc, s: AD.auto_devices(self, doc, s),
         }
         before = self.findings()

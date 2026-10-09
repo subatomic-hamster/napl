@@ -11,6 +11,7 @@ import re
 import tomllib
 from pathlib import Path
 
+from . import pins
 from .library import DesignError, Library, Part
 
 FIDELITY = {"datasheet", "literature", "measured", "derived", "estimated"}
@@ -56,6 +57,8 @@ ALLOWED = {
         "conductors",
         "included_in",
         "connectors",
+        "from_pins",
+        "to_pins",
     },
     "targets": {"name", "groups", "all", "value", "reach", "workspace"},
 }
@@ -388,6 +391,9 @@ class Ctx:
 
     def __init__(self, asm: Assembly, lib: Library):
         self.asm, self.doc, self.lib = asm, asm.doc, lib
+        pins.normalize_wires(
+            self.doc, lib
+        )  # `from = "inst.CONN.PIN"` -> port + from_pins
         self.insts: dict[str, Inst] = {}
         for d in self.doc["instances"]:
             self.insts[d["id"]] = Inst(d, lib.get(d["part"]))

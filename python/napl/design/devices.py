@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from . import pins as _pins
 from .assembly import UNITS, Ctx
 from .library import DesignError
 from .reynolds import ref_scale, reynolds_shape
@@ -228,6 +229,9 @@ def resolve_wires(ctx: Ctx) -> list:
             "_part": part,
             "_len": lentry,
             "group": ia.group,
+            "_pairs": _pins.wire_pairs(
+                ctx, w
+            ),  # [(ref_a, ref_b)] pin of each conductor; [] = no pin data (port-level wire)
         }
         # mass
         if cable:

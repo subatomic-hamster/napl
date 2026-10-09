@@ -77,6 +77,7 @@ gender = "female"
 role = "passthrough"
 v_max = { value = 50.4, unit = "V", src = "S1", fidelity = "derived", derivation = "12S x 4.2 V = 50.4 V from 'Input Voltage: 2S-12S' (S1)." }
 i_max = { value = 30.0, unit = "A", src = "S2", fidelity = "datasheet" }
+pins = ["IN.1", "IN.2"]
 note = "Pre-soldered XT60 + 12 AWG lead to the battery (kit doc, quoted S2: 'rated for 30A continuous current and 60A instantaneous current (<1 minute)'); the board itself is 60 A continuous (current_continuous). Gender female so the battery's male XT60 plugs in; Holybro does not state the gender."
 
 [[ports]]
@@ -88,6 +89,7 @@ gender = "male"
 role = "passthrough"
 v_max = { value = 50.4, unit = "V", src = "S1", fidelity = "derived", derivation = "12S x 4.2 V = 50.4 V from 'Input Voltage: 2S-12S' (S1)." }
 i_max = { value = 30.0, unit = "A", src = "S2", fidelity = "datasheet" }
+pins = ["OUT.1", "OUT.2"]
 note = "Pre-soldered XT60 + 12 AWG lead to the PDB (XT60 on both ends, kit page); mates the PDB power_in (female). Same S2 connector/wire rating as power_in."
 
 [[ports]]
@@ -99,7 +101,71 @@ gender = "female"
 role = "source"
 v_max = { value = 5.2, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
+pins = ["FC.1", "FC.2", "FC.3", "FC.4", "FC.5", "FC.6"]
 note = "6-pin JST-GH cable to the Pixhawk 6C POWER1: 5.2 V BEC (S1 'Output: DC 5.2V & 3A Max') plus the analog voltage/current sense lines (voltage_divider, amps_per_volt). Cable-side crimp housing female; the connector family is the Pixhawk standard, not stated on the Holybro PM02 page."
+
+# ---- Connectors (pin level). The two XT60 leads and the 6-pin JST-GH cable are pre-fitted (S1 / S2); poses are estimates on the 45 x 30 x 16 mm
+# envelope. XT60 polarity and pitch are the family's (AMASS XT60: 7.2 mm contact spacing, not quoted by Holybro); the cable pinout is the
+# Pixhawk POWER port's, which it plugs into (a straight 1:1 cable).
+[[connectors]]
+id = "IN"
+name = "battery lead XT60"
+type = "xt60"
+gender = "female"
+pos = [-0.0225, 0.0, 0.008]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S2"
+fidelity = "estimated"
+rationale = "S2 gives the XT60 rating (30 A continuous) but not pin polarity or spacing: + / - assigned in the usual XT60 order (pin 1 +), spacing the family's 7.2 mm."
+pins = [
+  { number = 1, name = "BAT+", kind = "power", dir = "in", v_max = 50.4, i_max = 30.0 },
+  { number = 2, name = "BAT-", kind = "ground", i_max = 30.0 },
+]
+
+[[connectors]]
+id = "OUT"
+name = "PDB lead XT60"
+type = "xt60"
+gender = "male"
+pos = [0.0225, 0.0, 0.008]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S2"
+fidelity = "estimated"
+rationale = "As IN."
+pins = [
+  { number = 1, name = "OUT+", kind = "power", dir = "out", v_max = 50.4, i_max = 30.0 },
+  { number = 2, name = "OUT-", kind = "ground", i_max = 30.0 },
+]
+
+[[connectors]]
+id = "FC"
+name = "Pixhawk power cable (JST-GH 6)"
+type = "jst-gh-6"
+gender = "female"
+pos = [0.0, 0.015, 0.008]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+fidelity = "derived"
+derivation = "A straight cable to the Pixhawk 6C POWER1 header: pin n of this plug meets pin n of POWER1 (holybro-pixhawk-6c S10: 1, 2 VDD5V_BRICK1; 3 CURRENT1; 4 VOLTAGE1; 5, 6 GND). S1: 'Output: DC 5.2V & 3A Max'; the analog current / voltage sense are the 3.3 V lines."
+pins = [
+  { number = 1, name = "5V", kind = "power", dir = "out", v = 5.2, i_max = 3.0 },
+  { number = 2, name = "5V", kind = "power", dir = "out", v = 5.2, i_max = 3.0 },
+  { number = 3, name = "CURRENT", kind = "signal", dir = "out", v = 3.3 },
+  { number = 4, name = "VOLTAGE", kind = "signal", dir = "out", v = 3.3 },
+  { number = 5, name = "GND", kind = "ground" },
+  { number = 6, name = "GND", kind = "ground" },
+]
 
 [[sources]]
 id = "S1"

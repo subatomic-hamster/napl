@@ -138,6 +138,57 @@ Rules: no value without `src` unless `derived`/`estimated`; quotes are verbatim 
 re-fetch the page and find them; never invent a URL. Unit conversions from the source (g to kg,
 kg*cm to N*m) are fine under the original fidelity tag and should be noted in the quote context.
 
+## Connectors and pins (`[[connectors]]`, `[[connectors.pins]]`)
+
+A `[[ports]]` entry is one logical interface; a `[[connectors]]` entry is one physical connector with every pin it has. Wiring
+diagrams (2D canvas, DRC) and the 3D cables use the pins, so a part that is wired should list its real pinout from its datasheet or
+schematic, however complex (the Pi 5 has the full 40-pin J8 header with every alternate function, two 22-pin FPC camera ports, four USB
+ports, USB-C power). `tools/pinout_todo.py` lists the electrical parts that still have none.
+
+```toml
+[[connectors]]
+id = "J8"                              # unique within the part; wire ends read "pi.J8.8"
+name = "40-pin GPIO header"
+type = "header-2x20-2.54mm"            # physical connector family
+port_type = "csi"                      # optional: the logical family when it differs from `type` (used by synthetic ports)
+gender = "male"
+pos = [-0.01, 0.0245, 0.0136]          # m, part frame: centre of the pin field, on the mating face
+axis = [0.0, 0.0, 1.0]                 # unit outward direction: the cable leaves along it (the 3D router honours this)
+ref = [1.0, 0.0, 0.0]                  # unit direction along a row (pin 1 -> pin 2 side)
+rows = 2                               # pin grid; pitch in m
+cols = 20
+pitch = 0.00254
+layout = "dual"                        # dual (odd pins on one row, even on the other; default for rows = 2) | line | seq
+src = "S4"                             # provenance of the connector; its pins inherit it unless they carry their own
+fidelity = "literature"                # datasheet | literature | measured | derived | estimated (derivation / rationale as elsewhere)
+pins = [
+  { number = 1, name = "3V3", kind = "power", dir = "out", v = 3.3 },
+  { number = 8, name = "GPIO14", kind = "signal", dir = "io", v = 3.3, i_max = 0.016, alt = ["a0:PWM0[2]", "a4:UART0_TX"] },
+  { number = 9, name = "GND", kind = "ground" },
+  { number = "A4", name = "VBUS", kind = "power", dir = "in", v_min = 4.75, v_max = 5.25, offset = [-0.0024, 0.0005] },
+]
+```
+
+Pin keys: `number` (unique per connector, string or int; wires address `CONNECTOR.number`), `name`, `kind` (`power` | `ground` | `signal` |
+`nc`), `dir` seen from the part (`out` = a power pin supplies / a signal pin drives, `in` = consumes / listens, `io`), `v` (the nominal
+level it drives or expects), `v_min` / `v_max` (the range a sink accepts), `i_max` (A), `alt` (alternate functions of a multiplexed pin,
+`"aN:FUNCTION"`), and the position when the pin is not on the regular grid: `at = [row, col]` (grid slot) or `offset = [x, y]` (m, in
+the connector frame). A pin may carry its own provenance (`src`, `fidelity`, `derivation` / `rationale`). A value the source does not
+state is left out, never invented; the connector must carry `src` + `fidelity` (derived needs `derivation`, estimated `rationale`).
+
+**Ports and pins.** A port lists the pins it stands for: `pins = ["J8.8", "J8.10", "J8.6"]` (connector.pin). A connector pin that no port
+claims becomes part of a synthetic port named after the connector (lower case, `synthetic = true`, family `port_type` or `type`), so
+every pin is reachable without writing a port for it. `python/napl/design/pins.py` is the loader (`connectors(part)`, `port_pins`).
+
+**Wires.** In an assembly (`assemblies/README.md`, "Wires") a wire may list `from_pins` / `to_pins` (one per conductor, in order) beside
+the port-level `from` / `to`, or use the shorthand `from = "pi.J8.8"` for one conductor, which the loader folds into the port plus pin
+lists. A port-level wire with no pin lists resolves to the pins its two ports list when the counts match. Pins add no mass and do not
+change the physics: designs that were wired by ports keep their mass and hashes.
+
+**Voltage semantics.** `v` is the level a pin drives or nominally expects; `v_min` / `v_max` is the range a sink accepts. The DRC
+(`PIN_VOLTAGE_MISMATCH`) compares a driving pin's `v` with the sink's range (above `v_max` an error, below `v_min` a warning); two pins
+without ranges must agree within max(0.5 V, 10 %).
+
 ## Visual layer (`[visual]`, cosmetic only)
 
 `[geometry]` stays the physics shape (collision, mass, inertia). `[visual]` says what the part *looks like* in the viewer,

@@ -160,11 +160,15 @@ part = "awg-22-silicone-wire"
 length = "psu.cable_length"
 conductors = 2
 included_in = "psu"
+from_pins = ["OUT.1", "OUT.2"]   # DC+, DC-
+to_pins = ["DC.1", "DC.2"]
 
 [[wires]]
 name = "lead_adapter_pan"
 from = "adapter.servo_bus"
 to = "pan.port_a"
+from_pins = ["BUS.1", "BUS.2", "BUS.3"]   # GND, VCC, SIG
+to_pins = ["J1.1", "J1.2", "J1.3"]        # GND, VDD, DATA
 part = "awg-22-silicone-wire"
 length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Not published. The adapter sits beside the base plate: 0.15 m, as the SO-101 and Koch board-to-servo leads." }
 conductors = 2
@@ -177,11 +181,40 @@ to = "pi.power_in"
 part = "awg-22-silicone-wire"
 length = { value = 0.5, unit = "m", fidelity = "estimated", rationale = "Not published; a short lead from a bench supply beside the base plate." }
 conductors = 2
+from_pins = ["OUT.1", "OUT.2"]
+to_pins = ["PWR.A4", "PWR.A1"]   # VBUS, GND of the Pi's USB-C power connector
+
+# Pi 5 <-> servo adapter: 3.3 V UART0 crossed (Pi TX -> adapter RXD, Pi RX -> adapter TXD) plus ground. The lead's few grams are left out of
+# the mass budget (included_in) so the turret's mass, and the cuas scenario built on it, stay exactly as before this wire existed.
+[[wires]]
+name = "pi_uart_adapter"
+from = "pi.gpio_uart"
+to = "adapter.bus"
+from_pins = ["J8.8", "J8.10", "J8.6"]
+to_pins = ["UART.2", "UART.1", "UART.3"]
+part = "awg-26-silicone-wire"
+length = { value = 0.25, unit = "m", fidelity = "estimated", rationale = "Not published. Pi header to adapter UART pads across the base plate, about 0.25 m of hook-up wire." }
+conductors = 3
+included_in = "pi"
+
+# Pi 5 <-> camera: the Pi camera cable (15-pin camera end to the Pi 5's 22-pin CAM/DISP 0, the cable ships with the camera, so no mass here).
+[[wires]]
+name = "pi_camera_ribbon"
+from = "camera.csi"
+to = "pi.cam0"
+from_pins = ["FPC.1", "FPC.2", "FPC.3", "FPC.4", "FPC.5", "FPC.6", "FPC.7", "FPC.8", "FPC.9", "FPC.10", "FPC.11", "FPC.12", "FPC.13", "FPC.14", "FPC.15"]
+to_pins = ["CAM0.1", "CAM0.2", "CAM0.3", "CAM0.4", "CAM0.5", "CAM0.6", "CAM0.7", "CAM0.8", "CAM0.9", "CAM0.10", "CAM0.17", "CAM0.18", "CAM0.20", "CAM0.21", "CAM0.22"]
+part = "awg-28-silicone-wire"
+length = { value = 0.2, unit = "m", fidelity = "estimated", rationale = "Camera Module 3 ships a 200 mm ribbon (S1 of raspberry-pi-camera-module-3); the Pi 5 end adapts 15 to 22 pins." }
+conductors = 15
+included_in = "camera"
 
 [[wires]]
 name = "cable_pan_tilt"
 from = "pan.port_b"
 to = "tilt.port_a"
+from_pins = ["J2.1", "J2.2", "J2.3"]
+to_pins = ["J1.1", "J1.2", "J1.3"]
 part = "robotis-robot-cable-x3p-180mm"
 length = "cable.length_default"
 conductors = 2

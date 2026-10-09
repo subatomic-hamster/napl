@@ -31,9 +31,30 @@ kind = "power"
 type = "dc-barrel.5.5x2.1"
 gender = "male"
 role = "source"
+pins = ["OUT.1", "OUT.2"]
 v_max = { value = 5.0, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 4.0, unit = "A", src = "S1", fidelity = "datasheet" }
 note = "5 V nominal output on the 5.5 x 2.1 mm barrel tip (the supply also ships a 5.5 x 2.5 mm tip, S1); v_max is the nominal output voltage (param v_out_nominal), i_max the rated current (param i_out_rated)."
+
+# Pin level: output barrel plug (S1 title: 'Barrel Connector 5.5x2.5mm & 5.5x2.1mm'); polarity not stated, centre-positive assumed.
+[[connectors]]
+id = "OUT"
+name = "DC output plug"
+type = "dc-barrel-5.5x2.1"
+gender = "male"
+pos = [0.0375, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.004
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 (product title) names the 5.5 x 2.1 mm barrel connector, 5 V 4 A; the polarity is not stated, centre-positive assumed."
+pins = [
+  { number = 1, name = "DC+", kind = "power", dir = "out", v = 5.0, i_max = 4.0, note = "centre pin (assumed)" },
+  { number = 2, name = "DC-", kind = "ground", note = "sleeve" },
+]
 
 [[sources]]
 id = "S1"

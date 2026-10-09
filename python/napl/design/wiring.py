@@ -11,6 +11,7 @@ from collections import Counter
 import numpy as np
 
 from . import assembly as A
+from . import pins as PN
 from .assembly import Ctx
 from .build import compute
 from .drc import _n as _num
@@ -312,7 +313,7 @@ def wire_length(part, dist):
 
 def _world(d, doc):
     try:
-        xml, _ = compute(A.Assembly(doc), d.lib.dir, d.lib.root, d.lib)
+        xml, _ = compute(A.Assembly(doc), d.lib.dir, d.lib.root, d.lib, route=False)
         return _World(xml, d.lib.root)
     except (DesignError, KeyError, ValueError, StopIteration):
         return None
@@ -505,6 +506,54 @@ def autowire(d, doc, s) -> dict:
         many=False,
         included_in=s.get("included_in"),
     )
+
+
+def pinwire(d, doc, s) -> dict:
+    """Op `pinwire` {a, b, part?, length?, included_in?, name?}: one conductor between two pins ('inst.CONN.PIN'). Several of these may
+    share a port (autowire joins whole ports and refuses a second wire on one). The wire part is the lightest one rated for the pins'
+    i_max (else the autowire floor), the length the autowire rule (port positions x routing factor), both overridable."""
+    ends = []
+    for k in ("a", "b"):
+        iid, _, ref = str(s.get(k, "")).partition(".")
+        part = d._part(d._inst(doc, iid)["part"])
+        pin = PN.find_pin(part, ref)
+        pname = PN.port_of_pin(part, ref) if pin is not None else None
+        if pname is None:
+            raise DesignError(
+                f"pinwire '{s.get(k)}': name a pin as 'inst.CONN.PIN' (connectors of {part.id}: {sorted(part.connectors)})"
+            )
+        ends.append((iid, ref, pin, part.port(pname)))
+    (ia, ra, qa, pa), (ib, rb, qb, pb) = ends
+    if pa["kind"] != pb["kind"]:
+        raise DesignError(
+            f"pinwire {s['a']} -> {s['b']}: a {pa['kind']} port and a {pb['kind']} port cannot be joined"
+        )
+    st, world = _State(d, doc), _world(d, doc)
+    spec, dist = _probe(
+        d, doc, st, world, (ia, pa), (ib, pb), pa["kind"], s.get("length")
+    )
+    need = max((_num(q.get("i_max")) or 0.0 for q in (qa, qb)), default=0.0) or None
+    part, _ = choose_wire(d, need, pa["kind"], s.get("part"))
+    spec.update(
+        name=s.get("name") or f"{s['a']}--{s['b']}",
+        part=part.id,
+        from_pins=[ra],
+        to_pins=[rb],
+        conductors=1,
+    )
+    if s.get("length") is None:
+        n, deriv = wire_length(part, dist)
+        spec["length"] = {
+            "value": n,
+            "unit": "m",
+            "fidelity": "derived",
+            "derivation": deriv,
+        }
+    if s.get("included_in"):
+        d._inst(doc, s["included_in"])
+        spec["included_in"] = s["included_in"]
+    ch = d._op_wire(doc, spec)
+    return {"op": "pinwire", "wire": ch["wire"]}
 
 
 def autowire_all(d, doc, s) -> dict:

@@ -36,9 +36,31 @@ kind ="power"
 type = "dc-barrel.5.5x2.1"
 gender = "male"
 role = "source"
+pins = ["OUT.1", "OUT.2"]
 v_max = { value = 12.0, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 5.0, unit = "A", src = "S1", fidelity = "datasheet" }
 note = "12 V nominal output on the 5.5 x 2.1 mm barrel tip (the supply also ships a 5.5 x 2.5 mm tip, S1); v_max is the nominal output voltage (param v_out_nominal), i_max the rated current (param i_out_rated)."
+
+# Pin level: the output barrel plug on the end of the 150 cm lead (S1: '5.5mmx 2.5mm & 2.1mm Output Jack'). The listing gives no polarity;
+# centre-positive is the convention of LED-strip / Koch-arm supplies of this kind (estimated). The plug is drawn at the body.
+[[connectors]]
+id = "OUT"
+name = "DC output plug"
+type = "dc-barrel-5.5x2.1"
+gender = "male"
+pos = [0.04, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.004
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 (product title) names the 5.5 x 2.1 mm jack and 12 V 5 A but not the polarity; centre-positive assumed (the barrel convention for this supply class)."
+pins = [
+  { number = 1, name = "DC+", kind = "power", dir = "out", v = 12.0, i_max = 5.0, note = "centre pin (assumed)" },
+  { number = 2, name = "DC-", kind = "ground", note = "sleeve" },
+]
 
 [[sources]]
 id = "S1"

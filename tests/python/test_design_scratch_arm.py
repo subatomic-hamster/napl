@@ -203,6 +203,7 @@ def test_built_from_empty_with_no_toml_and_drc_has_no_errors(arm):
     assert _codes(fs, "warning") <= {
         "FASTENER_SHORT", "VOLTAGE_BELOW_MIN", "PSU_OVERLOAD", "SERVO_TORQUE", "SERVO_TORQUE_MARGIN",
         "CURRENT_PEAK_OVER_RATING", "SERVO_BUS_CURRENT", "SERVO_CHAIN_LENGTH",
+        "PIN_VOLTAGE_MISMATCH",  # the 5 V supply on the adapter's DC+ pin (range 9..12.6 V): the pin form of VOLTAGE_BELOW_MIN
     }, _codes(fs, "warning")  # fmt: skip
     assert (
         len(arm.doc["wires"]) == 1 + 1 + 5

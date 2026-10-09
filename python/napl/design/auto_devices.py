@@ -278,7 +278,11 @@ class _Topo:
         if self._world is False:
             try:
                 xml, _ = compute(
-                    A.Assembly(self.doc), self.d.lib.dir, self.d.lib.root, self.d.lib
+                    A.Assembly(self.doc),
+                    self.d.lib.dir,
+                    self.d.lib.root,
+                    self.d.lib,
+                    route=False,
                 )
                 self._world = _World(xml, self.d.lib.root)
             except (DesignError, KeyError, ValueError, StopIteration):

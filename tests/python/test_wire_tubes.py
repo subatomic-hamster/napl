@@ -32,7 +32,7 @@ def _tendons(xml):
 
 
 def _expected(asm_name, built_one):
-    """(tube count, {tendon name: diameter}) from the assembly's wires: onboard ends only, <= MAX_TUBES conductors each."""
+    """{wire index: conductor diameter} of the assembly's wires with both ends onboard (one tube per pin pair, <= MAX_TUBES)."""
     lib = design.Library(PARTS)
     doc = design.load(REPO / "assemblies" / f"{asm_name}.toml").doc
     off = {i["id"] for i in doc["instances"] if i.get("offboard")}
@@ -41,21 +41,22 @@ def _expected(asm_name, built_one):
         if w["from"].partition(".")[0] in off or w["to"].partition(".")[0] in off:
             continue
         p = lib.get(w["part"])
-        d = wiretubes.od_m(p.value("awg"), p.value("conductor_diameter"))
-        for c in range(min(w.get("conductors", 1), wiretubes.MAX_TUBES)):
-            dia[f"wire:{k}:{c}"] = d
+        dia[k] = wiretubes.od_m(p.value("awg"), p.value("conductor_diameter"))
     return dia
 
 
 @pytest.mark.parametrize("name", NAMES)
 def test_every_onboard_wire_is_a_tube_with_its_awg_diameter(built, name):
     want = _expected(name, built[name])
-    got = {
-        t.get("name"): 2 * float(t.get("width")) for t in _tendons(built[name]["xml"])
-    }
+    got = {}
+    for t in _tendons(built[name]["xml"]):
+        _, k, c = t.get("name").split(":")
+        got.setdefault(int(k), {})[int(c)] = 2 * float(t.get("width"))
     assert want and set(got) == set(want)
     for k, d in want.items():
-        assert got[k] == pytest.approx(d, rel=1e-4)
+        assert sorted(got[k]) == list(range(len(got[k])))  # conductors 0..n-1
+        assert 1 <= len(got[k]) <= wiretubes.MAX_TUBES
+        assert all(v == pytest.approx(d, rel=1e-4) for v in got[k].values())
     assert wiretubes.od_m(18) == pytest.approx(
         2.0e-3
     )  # table sanity: 18 AWG silicone ~ 2 mm
@@ -83,7 +84,7 @@ def test_solver_reports_the_tubes(built, name):
     assert len(tubes) == len(_tendons(built[name]["xml"]))
     for radius, length, rgba, pts in tubes:
         assert radius > 0 and length > 0 and len(rgba) == 4
-        assert pts.shape == (2, 3) and np.isfinite(pts).all()
+        assert pts.shape[0] >= 2 and pts.shape[1] == 3 and np.isfinite(pts).all()
 
 
 @needs_kernel

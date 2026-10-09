@@ -16,24 +16,39 @@
 
 namespace wire2d {
 
+// One drawn terminal: a port of the part (conn empty) or one real connector pin (name = "CONN.PIN", label = "num name").
 struct Pin {
-  std::string name, kind, type, gender, role, side;  // side: "left" | "right"
+  std::string name, kind, type, gender, role, side;  // side: "left" | "right"; kind: power | ground | signal | nc
   int row = 0;
   bool wired = false;
+  std::string label, conn, tip, flag;  // flag: "" | "warning" | "error" (the pin DRC rules)
+  std::vector<std::string> flag_msgs;
+};
+// The box around the pins of one connector (side "both" = a two-row header: row 0 on the left edge, row 1 on the right).
+struct ConnBox {
+  std::string id, name, type, side;
+  int row = 0, nrows = 1;
 };
 struct Card {
   std::string id, part, group;
   float x = 0, y = 0, w = 200, h = 60;  // canvas units (x, y = where it is drawn now; tx, ty = where the layout put it)
   float x0 = 0, y0 = 0, tx = 0, ty = 0;
   std::vector<Pin> pins;
+  std::vector<ConnBox> conns;
   double born = 0;  // ImGui time the card pops in
 };
+// One conductor of a wire: pin to pin.
+struct Strand {
+  std::string from, to, flag;
+  std::vector<ImVec2> route;  // canvas units: orthogonal polyline from the `from` pin to the `to` pin (the backend routes it, wire2d_route.py)
+};
 struct Wire {
-  std::string name, from, to, part, kind;
+  std::string name, from, to, part, kind, flag;
   double awg = 0, length = 0;
   int conductors = 1;
   double born = -1e9;  // ImGui time its draw animation starts (far past: no animation)
-  std::vector<ImVec2> route;  // canvas units: orthogonal polyline from the `from` pin to the `to` pin (the backend routes it, wire2d_route.py)
+  std::vector<Strand> strands;  // one per conductor; strands[0] carries the label
+  std::vector<std::string> flag_msgs;
   std::string label;          // gauge text and where it goes (canvas centre); empty = no free spot
   ImVec2 label_at{0, 0}, label_size{0, 0};
 };
@@ -74,6 +89,8 @@ class Canvas {
   // The wire's screen polyline (corners rounded). While one of its cards is being dragged the backend's route is stale: a plain
   // Z-route between the two pins is drawn until the card is dropped and the backend routes again.
   std::vector<ImVec2> wire_path(const Wire& w, ImVec2* label_c, bool* has_label) const;
+  std::vector<ImVec2> strand_path(const Strand& s) const;  // the same for one conductor (no label)
+  std::string strand_kind(const Wire& w, const Strand& s) const;
   void legend(ImDrawList* dl, ImVec2 org, ImVec2 size, float a) const;
 
   Send send_;

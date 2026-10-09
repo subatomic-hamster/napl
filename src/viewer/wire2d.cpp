@@ -19,8 +19,11 @@ constexpr int kAwg[] = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30};
 ImU32 kind_col(const std::string& k, int a = 255) {
   if (k == "power") return IM_COL32(236, 92, 62, a);
   if (k == "signal") return IM_COL32(82, 152, 242, a);
+  if (k == "ground") return IM_COL32(168, 142, 110, a);
+  if (k == "nc") return IM_COL32(96, 100, 110, a);
   return IM_COL32(150, 150, 160, a);
 }
+ImU32 flag_col(const std::string& f, int a = 255) { return f == "error" ? IM_COL32(255, 64, 64, a) : IM_COL32(255, 190, 40, a); }
 ImU32 group_col(const std::string& g) {
   static const ImU32 pal[] = {IM_COL32(58, 86, 120, 255), IM_COL32(96, 70, 120, 255), IM_COL32(60, 110, 92, 255), IM_COL32(124, 90, 56, 255),
                               IM_COL32(110, 62, 70, 255), IM_COL32(72, 100, 128, 255), IM_COL32(88, 100, 60, 255), IM_COL32(84, 84, 100, 255)};
@@ -124,20 +127,27 @@ bool Canvas::pin_pos(const Card& c, const Pin& p, float& x, float& y) const {
   return true;
 }
 
-std::vector<ImVec2> Canvas::wire_path(const Wire& w, ImVec2* label_c, bool* has_label) const {
-  *has_label = !w.label.empty();
-  const bool stale = drag_.kind == Drag::on_card && (w.from.rfind(drag_.card + ".", 0) == 0 || w.to.rfind(drag_.card + ".", 0) == 0);
+// The colour class of one conductor: its from-pin's kind (ground / power / signal / nc), else the wire's.
+std::string Canvas::strand_kind(const Wire& w, const Strand& s) const {
+  const std::size_t dot = s.from.find('.');
+  if (const Card* c = card(s.from.substr(0, dot)))
+    for (const Pin& p : c->pins)
+      if (p.name == s.from.substr(dot + 1) && !p.conn.empty()) return p.kind == "nc" ? w.kind : p.kind;
+  return w.kind;
+}
+
+std::vector<ImVec2> Canvas::strand_path(const Strand& s) const {
+  const bool stale = drag_.kind == Drag::on_card && (s.from.rfind(drag_.card + ".", 0) == 0 || s.to.rfind(drag_.card + ".", 0) == 0);
   std::vector<ImVec2> pts;
-  if (!stale && w.route.size() >= 2) {
-    for (const ImVec2& p : w.route) pts.push_back({ox_ + p.x * zoom_, oy_ + p.y * zoom_});
-    *label_c = {ox_ + w.label_at.x * zoom_, oy_ + w.label_at.y * zoom_};
+  if (!stale && s.route.size() >= 2) {
+    for (const ImVec2& p : s.route) pts.push_back({ox_ + p.x * zoom_, oy_ + p.y * zoom_});
     return pts;
   }
   ImVec2 a[2];
   bool right[2] = {false, false}, ok[2] = {false, false};
-  const std::string* refs[2] = {&w.from, &w.to};
+  const std::string* refs[2] = {&s.from, &s.to};
   for (int k = 0; k < 2; ++k) {
-    const std::size_t dot = refs[k]->find('.');
+    const std::size_t dot = refs[k]->find('.');  // "card.TERMINAL": a pin terminal is itself "CONN.PIN"
     const Card* c = card(refs[k]->substr(0, dot));
     if (!c) continue;
     for (const Pin& p : c->pins)
@@ -148,7 +158,17 @@ std::vector<ImVec2> Canvas::wire_path(const Wire& w, ImVec2* label_c, bool* has_
   const ImVec2 s0{a[0].x + (right[0] ? st : -st), a[0].y}, s1{a[1].x + (right[1] ? st : -st), a[1].y};
   const float mx = (s0.x + s1.x) / 2;
   pts = {a[0], s0, {mx, s0.y}, {mx, s1.y}, s1, a[1]};
-  *label_c = {mx, (s0.y + s1.y) / 2};
+  return pts;
+}
+
+std::vector<ImVec2> Canvas::wire_path(const Wire& w, ImVec2* label_c, bool* has_label) const {
+  *has_label = !w.label.empty();
+  if (w.strands.empty()) return {};
+  std::vector<ImVec2> pts = strand_path(w.strands[0]);
+  const Strand& s = w.strands[0];
+  const bool stale = drag_.kind == Drag::on_card && (s.from.rfind(drag_.card + ".", 0) == 0 || s.to.rfind(drag_.card + ".", 0) == 0);
+  if (!stale && s.route.size() >= 2) *label_c = {ox_ + w.label_at.x * zoom_, oy_ + w.label_at.y * zoom_};
+  else if (pts.size() >= 4) *label_c = {pts[2].x, (pts[2].y + pts[3].y) / 2};
   return pts;
 }
 
@@ -176,9 +196,15 @@ void Canvas::apply(const design::Json& f) {
     Card n;
     n.id = c.s("id"), n.part = c.s("part"), n.group = c.s("group");
     n.x = static_cast<float>(c.n("x")), n.y = static_cast<float>(c.n("y")), n.w = static_cast<float>(c.n("w", 200)), n.h = static_cast<float>(c.n("h", 60));
-    for (const design::Json& p : c.at("pins").arr)
-      n.pins.push_back({p.s("name"), p.s("kind"), p.s("type"), p.s("gender"), p.s("role"), p.s("side"), static_cast<int>(p.n("row")),
-                        p.at("wired").num != 0});
+    for (const design::Json& p : c.at("pins").arr) {
+      Pin pin{p.s("name"), p.s("kind"), p.s("type"), p.s("gender"), p.s("role"), p.s("side"), static_cast<int>(p.n("row")),
+              p.at("wired").num != 0, p.s("label"), p.s("conn"), p.s("tip"), p.s("flag"), {}};
+      if (pin.label.empty()) pin.label = pin.name;
+      for (const design::Json& f : p.at("flags").arr) pin.flag_msgs.push_back(f.s("code") + ": " + f.s("message"));
+      n.pins.push_back(std::move(pin));
+    }
+    for (const design::Json& k : c.at("connectors").arr)
+      n.conns.push_back({k.s("id"), k.s("name"), k.s("type"), k.s("side"), static_cast<int>(k.n("row")), static_cast<int>(k.n("nrows", 1))});
     const Card* old = card(n.id);
     n.born = old ? old->born : now + 0.18 + 0.06 * idx++;
     if (old && drag_.kind == Drag::on_card && drag_.card == n.id) n.x = old->x, n.y = old->y;  // being dragged: the local position wins
@@ -194,10 +220,16 @@ void Canvas::apply(const design::Json& f) {
   std::vector<Wire> wnext;
   for (const design::Json& w : f.at("wires").arr) {
     Wire n;
-    n.name = w.s("name"), n.from = w.s("from"), n.to = w.s("to"), n.part = w.s("part"), n.kind = w.s("kind");
+    n.name = w.s("name"), n.from = w.s("from"), n.to = w.s("to"), n.part = w.s("part"), n.kind = w.s("kind"), n.flag = w.s("flag");
     n.awg = w.n("awg"), n.length = w.n("length"), n.conductors = static_cast<int>(w.n("conductors", 1));
-    for (const design::Json& p : w.at("route").arr)
-      if (p.arr.size() >= 2) n.route.push_back({static_cast<float>(p.arr[0].num), static_cast<float>(p.arr[1].num)});
+    for (const design::Json& f : w.at("flags").arr) n.flag_msgs.push_back(f.s("code") + ": " + f.s("message"));
+    for (const design::Json& sj : w.at("strands").arr) {
+      Strand s;
+      s.from = sj.s("from"), s.to = sj.s("to"), s.flag = sj.s("flag");
+      for (const design::Json& p : sj.at("route").arr)
+        if (p.arr.size() >= 2) s.route.push_back({static_cast<float>(p.arr[0].num), static_cast<float>(p.arr[1].num)});
+      n.strands.push_back(std::move(s));
+    }
     if (const design::Json& l = w.at("label"); l.kind == design::Json::Obj)
       n.label = l.s("text"), n.label_at = {static_cast<float>(l.n("x")), static_cast<float>(l.n("y"))}, n.label_size = {static_cast<float>(l.n("w")), static_cast<float>(l.n("h"))};
     if (known.count(n.name)) {
@@ -383,11 +415,13 @@ void Canvas::canvas_ui() {
   // hit tests: pin under the mouse, wire under the mouse
   const Card* hc = nullptr;
   const Pin* hp = nullptr;
+  float hit_d2 = 12 * 12 * zoom_ * zoom_ + 16;  // the nearest pin within reach (a 2 x 20 header packs pins 22 units apart)
   for (const Card& c : cards_)
     for (const Pin& p : c.pins) {
       float x, y;
       pin_pos(c, p, x, y);
-      if ((io.MousePos.x - x) * (io.MousePos.x - x) + (io.MousePos.y - y) * (io.MousePos.y - y) < 12 * 12 * zoom_ * zoom_ + 16) hc = &c, hp = &p;
+      const float d2 = (io.MousePos.x - x) * (io.MousePos.x - x) + (io.MousePos.y - y) * (io.MousePos.y - y);
+      if (d2 < hit_d2) hit_d2 = d2, hc = &c, hp = &p;
     }
   auto pos_of = [&](const std::string& ref, ImVec2& out, bool& right) {
     const std::size_t dot = ref.find('.');
@@ -406,13 +440,11 @@ void Canvas::canvas_ui() {
   hover_wire_.clear();
   if (tips && !hp && drag_.kind == Drag::none) {
     float best = 7;
-    for (const Wire& w : wires_) {
-      ImVec2 lc;
-      bool hl;
-      const std::vector<ImVec2> pts = wire_path(w, &lc, &hl);
-      const float d = dist_to_poly(pts, io.MousePos);
-      if (d < best) best = d, hover_wire_ = w.name;
-    }
+    for (const Wire& w : wires_)
+      for (const Strand& s : w.strands) {
+        const float d = dist_to_poly(strand_path(s), io.MousePos);
+        if (d < best) best = d, hover_wire_ = w.name;
+      }
   }
 
   // wires (under the cards): orthogonal routes from the backend, rounded corners, an arrow into the target pin
@@ -420,31 +452,37 @@ void Canvas::canvas_ui() {
   for (const Wire& w : wires_) {
     ImVec2 lc{0, 0};
     bool has_label = false;
-    const std::vector<ImVec2> raw = wire_path(w, &lc, &has_label);
-    if (raw.size() < 2) continue;
-    const std::vector<ImVec2> path = round_path(raw, 9 * zoom_);
+    wire_path(w, &lc, &has_label);
     const double t = (now - w.born) / kWireAnim;
     const bool drawing = t >= 0 && t < 1;
     if (t < 0 || wire_fade <= 0.f) continue;  // queued behind another wire's animation / the cards are still gliding
     const float a = static_cast<float>(alpha_) * wire_fade;
     const float f = drawing ? static_cast<float>(ease_out(t)) : 1.f;
     const bool sel = w.name == sel_wire_, hov = w.name == hover_wire_;
-    const float th = (sel ? 4.5f : hov ? 4.f : 2.6f) * std::max(0.75f, zoom_);
-    const std::vector<ImVec2> pts = prefix(path, f);
-    if (sel) dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), IM_COL32(255, 255, 255, static_cast<int>(200 * a)), 0, th + 3);
-    dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), kind_col(w.kind, static_cast<int>(240 * a)), 0, th);
-    if (drawing) {  // the cursor that "drags" the wire
-      const ImVec2 tip = pts.back();
-      dl->AddCircleFilled(tip, 7 * zoom_, IM_COL32(255, 255, 255, 230));
-      dl->AddCircle(tip, 11 * zoom_, kind_col(w.kind, 220), 0, 2);
-    } else {
-      const ImVec2 e = path.back(), q = path[path.size() - 2];
-      const float l = std::max(1e-3f, std::hypot(e.x - q.x, e.y - q.y)), ux = (e.x - q.x) / l, uy = (e.y - q.y) / l, s = 5.5f * std::max(0.75f, zoom_);
-      const ImVec2 base{e.x - ux * (6 * zoom_ + 1), e.y - uy * (6 * zoom_ + 1)};  // stops short of the pin dot
-      dl->AddTriangleFilled({base.x + ux * s, base.y + uy * s}, {base.x - uy * s * 0.7f, base.y + ux * s * 0.7f}, {base.x + uy * s * 0.7f, base.y - ux * s * 0.7f},
-                            kind_col(w.kind, static_cast<int>(240 * a)));
-      if (has_label) labels.push_back({&w, {lc, sel}});
+    const float th = (sel ? 4.5f : hov ? 4.f : (w.strands.size() > 3 ? 1.8f : 2.6f)) * std::max(0.75f, zoom_);
+    for (std::size_t si = 0; si < w.strands.size(); ++si) {  // one line per conductor, pin to pin
+      const std::vector<ImVec2> raw = strand_path(w.strands[si]);
+      if (raw.size() < 2) continue;
+      const std::vector<ImVec2> path = round_path(raw, 9 * zoom_);
+      const std::vector<ImVec2> pts = prefix(path, f);
+      const std::string& fl = w.strands[si].flag.empty() ? w.flag : w.strands[si].flag;
+      const std::string sk = strand_kind(w, w.strands[si]);  // a ground conductor is drawn in the ground colour
+      if (sel) dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), IM_COL32(255, 255, 255, static_cast<int>(200 * a)), 0, th + 3);
+      if (!fl.empty()) dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), flag_col(fl, static_cast<int>(150 * a)), 0, th + 4);
+      dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), kind_col(sk, static_cast<int>(240 * a)), 0, th);
+      if (drawing) {  // the cursor that "drags" the wire
+        const ImVec2 tip = pts.back();
+        dl->AddCircleFilled(tip, 7 * zoom_, IM_COL32(255, 255, 255, 230));
+        dl->AddCircle(tip, 11 * zoom_, kind_col(sk, 220), 0, 2);
+      } else {
+        const ImVec2 e = path.back(), q = path[path.size() - 2];
+        const float l = std::max(1e-3f, std::hypot(e.x - q.x, e.y - q.y)), ux = (e.x - q.x) / l, uy = (e.y - q.y) / l, s = 5.5f * std::max(0.75f, zoom_);
+        const ImVec2 base{e.x - ux * (6 * zoom_ + 1), e.y - uy * (6 * zoom_ + 1)};  // stops short of the pin dot
+        dl->AddTriangleFilled({base.x + ux * s, base.y + uy * s}, {base.x - uy * s * 0.7f, base.y + ux * s * 0.7f}, {base.x + uy * s * 0.7f, base.y - ux * s * 0.7f},
+                              kind_col(sk, static_cast<int>(240 * a)));
+      }
     }
+    if (!drawing && has_label) labels.push_back({&w, {lc, sel}});
   }
   for (const auto& [w, at] : labels) {  // gauge labels on top of every wire (positions chosen by the backend: no overlaps)
     const ImVec2 ts = font->CalcTextSizeA(fs * 0.8f * std::max(0.8f, zoom_), 1e9f, 0, w->label.c_str());
@@ -473,6 +511,24 @@ void Canvas::canvas_ui() {
       dl->AddText(font, fs * 0.78f * zoom_ * s, {p0.x + 8 * zoom_, p0.y + 16 * zoom_}, IM_COL32(190, 198, 212, al), c.part.c_str());
     }
     if (io.MousePos.x >= p0.x && io.MousePos.x <= p1.x && io.MousePos.y >= p0.y && io.MousePos.y <= p0.y + kHeadH * zoom_ * s) head_hit = &c;
+    // connector boxes: a rounded panel behind the pins of one connector, titled with its id (a two-row header spans the card)
+    const auto sy = [&](float row) { return cy + (oy_ + (c.y + kHeadH + kPad * 0.5f + row * kRowH) * zoom_ - cy) * s; };
+    const auto sx = [&](float xx) { return cx + (ox_ + (c.x + xx) * zoom_ - cx) * s; };
+    for (const ConnBox& k : c.conns) {
+      const float xl = k.side == "right" ? c.w / 2 + 3 : 5, xr = k.side == "left" ? c.w / 2 - 3 : c.w - 5;
+      const ImVec2 b0{sx(xl), sy(static_cast<float>(k.row)) + 1}, b1{sx(xr), sy(static_cast<float>(k.row + k.nrows)) - 1};
+      dl->AddRectFilled(b0, b1, IM_COL32(36, 42, 53, al), 5 * zoom_ * s);
+      dl->AddRect(b0, b1, IM_COL32(86, 96, 116, al), 5 * zoom_ * s, 0, 1.f);
+      if (s > 0.6f) {
+        const std::string title = k.id + "  " + k.name;
+        const float tfs = fs * 0.74f * zoom_ * s;
+        const ImVec2 tsz = font->CalcTextSizeA(tfs, 1e9f, 0, title.c_str());
+        const float tx = k.side == "right" ? b1.x - tsz.x - 8 * zoom_ : k.side == "left" ? b0.x + 8 * zoom_ : (b0.x + b1.x - tsz.x) / 2;
+        dl->PushClipRect(b0, {b1.x, b0.y + kRowH * zoom_ * s}, true);
+        dl->AddText(font, tfs, {tx, b0.y + (kRowH * zoom_ * s - tsz.y) / 2}, IM_COL32(150, 162, 184, al), title.c_str());
+        dl->PopClipRect();
+      }
+    }
     for (const Pin& p : c.pins) {
       float x, y;
       pin_pos(c, p, x, y);
@@ -482,19 +538,24 @@ void Canvas::canvas_ui() {
       const bool compat = drag_.kind == Drag::on_pin && !(drag_.card == c.id && drag_.pin == p.name);
       const float r = kPinR * zoom_ * s * (target ? 1.5f : 1.f);
       if (compat) dl->AddCircle({x, y}, r + 4 * zoom_, IM_COL32(255, 255, 255, target ? 255 : 90), 0, 1.5f);
+      if (!p.flag.empty()) dl->AddCircle({x, y}, r + 3.5f * zoom_, flag_col(p.flag, al), 0, 2.5f);
       if (p.wired) dl->AddCircleFilled({x, y}, r, kind_col(p.kind, al));
       else {
         dl->AddCircleFilled({x, y}, r, IM_COL32(28, 33, 41, al));
         dl->AddCircle({x, y}, r, kind_col(p.kind, al), 0, 2);
       }
       if (s > 0.6f) {
-        const ImVec2 ts = font->CalcTextSizeA(fs * 0.92f * zoom_, 1e9f, 0, p.name.c_str());
+        const bool dim = p.kind == "nc" || (!p.conn.empty() && !p.wired);  // unwired connector pins recede: the wired ones read first
+        const ImU32 tcol = dim ? IM_COL32(150, 158, 174, al) : IM_COL32(236, 239, 244, al);
+        const ImVec2 ts = font->CalcTextSizeA(fs * 0.92f * zoom_, 1e9f, 0, p.label.c_str());
         const float tx = right ? x - r - 6 * zoom_ - ts.x : x + r + 6 * zoom_;
-        dl->AddText(font, fs * 0.92f * zoom_, {tx, y - ts.y / 2}, IM_COL32(236, 239, 244, al), p.name.c_str());
-        const ImVec2 ty = font->CalcTextSizeA(fs * 0.72f * zoom_, 1e9f, 0, p.type.c_str());
-        const float tx2 = right ? tx - ty.x - 8 * zoom_ : tx + ts.x + 8 * zoom_;
-        if (std::abs(tx2 - (right ? p0.x : p1.x)) > 12 && tx2 > p0.x && tx2 + ty.x < p1.x)
-          dl->AddText(font, fs * 0.72f * zoom_, {tx2, y - ty.y / 2}, IM_COL32(140, 150, 168, al), p.type.c_str());
+        dl->AddText(font, fs * 0.92f * zoom_, {tx, y - ts.y / 2}, tcol, p.label.c_str());
+        if (p.conn.empty()) {  // a port terminal also names its connector type
+          const ImVec2 ty = font->CalcTextSizeA(fs * 0.72f * zoom_, 1e9f, 0, p.type.c_str());
+          const float tx2 = right ? tx - ty.x - 8 * zoom_ : tx + ts.x + 8 * zoom_;
+          if (std::abs(tx2 - (right ? p0.x : p1.x)) > 12 && tx2 > p0.x && tx2 + ty.x < p1.x)
+            dl->AddText(font, fs * 0.72f * zoom_, {tx2, y - ty.y / 2}, IM_COL32(140, 150, 168, al), p.type.c_str());
+        }
       }
     }
   }
@@ -535,7 +596,19 @@ void Canvas::canvas_ui() {
   if (tips && hp && drag_.kind == Drag::none) {
     ImGui::BeginTooltip();
     ImGui::Text("%s.%s", hc->id.c_str(), hp->name.c_str());
-    ImGui::TextDisabled("%s  %s  %s%s%s", hp->kind.c_str(), hp->type.c_str(), hp->gender.c_str(), hp->role.empty() ? "" : "  ", hp->role.c_str());
+    if (!hp->tip.empty()) {  // a connector pin: its functions, alternates, ratings (the part file's pinout)
+      ImGui::TextDisabled("%s  %s", hp->type.c_str(), hp->gender.c_str());
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kind_col(hp->kind)));
+      ImGui::TextUnformatted(hp->tip.c_str());
+      ImGui::PopStyleColor();
+    } else {
+      ImGui::TextDisabled("%s  %s  %s%s%s", hp->kind.c_str(), hp->type.c_str(), hp->gender.c_str(), hp->role.empty() ? "" : "  ", hp->role.c_str());
+    }
+    for (const std::string& m : hp->flag_msgs) {
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(flag_col(hp->flag)));
+      ImGui::TextWrapped("%s", m.c_str());
+      ImGui::PopStyleColor();
+    }
     ImGui::TextDisabled("drag to another pin to wire");
     ImGui::EndTooltip();
   }
@@ -547,6 +620,12 @@ void Canvas::canvas_ui() {
         ImGui::Text("%s", w.name.c_str());
         ImGui::TextDisabled("%s -> %s", w.from.c_str(), w.to.c_str());
         ImGui::TextDisabled("%s%s", w.part.c_str(), w.awg > 0 ? (",  " + std::to_string(static_cast<int>(w.awg)) + " AWG").c_str() : "");
+        if (w.strands.size() > 1) ImGui::TextDisabled("%zu conductors", w.strands.size());
+        for (const std::string& m : w.flag_msgs) {
+          ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(flag_col(w.flag)));
+          ImGui::TextWrapped("%s", m.c_str());
+          ImGui::PopStyleColor();
+        }
         ImGui::EndTooltip();
       }
   }
@@ -576,7 +655,7 @@ void Canvas::canvas_ui() {
 // Bottom-right key of the canvas: wire kinds, pin states, the flow arrow, the gauge label.
 void Canvas::legend(ImDrawList* dl, ImVec2 org, ImVec2 size, float a) const {
   ImFont* font = ImGui::GetFont();
-  const float fs = ImGui::GetFontSize() * 0.8f, w = 168, h = 112, x = org.x + size.x - w - 14, y = org.y + size.y - h - 14;
+  const float fs = ImGui::GetFontSize() * 0.8f, w = 168, h = 150, x = org.x + size.x - w - 14, y = org.y + size.y - h - 14;
   const auto al = [&](int v) { return static_cast<int>(v * a); };
   dl->AddRectFilled({x, y}, {x + w, y + h}, IM_COL32(8, 10, 14, al(225)), 6);
   dl->AddRect({x, y}, {x + w, y + h}, IM_COL32(120, 130, 148, al(90)), 6);
@@ -594,6 +673,14 @@ void Canvas::legend(ImDrawList* dl, ImVec2 org, ImVec2 size, float a) const {
   dl->AddTriangleFilled({x + 42, yy}, {x + 34, yy - 4}, {x + 34, yy + 4}, IM_COL32(150, 150, 160, al(255)));
   dl->AddLine({x + 10, yy}, {x + 34, yy}, IM_COL32(150, 150, 160, al(255)), 2.f);
   row(yy, "flow: source to load");
+  yy += 18;
+  dl->AddCircleFilled({x + 20, yy}, 5, kind_col("ground", al(255)));
+  dl->AddCircleFilled({x + 36, yy}, 5, kind_col("nc", al(255)));
+  row(yy, "ground / no-connect pin");
+  yy += 18;
+  dl->AddCircle({x + 28, yy}, 8, flag_col("error", al(255)), 0, 2.5f);
+  dl->AddCircleFilled({x + 28, yy}, 4, kind_col("signal", al(255)));
+  row(yy, "pin DRC flag");
 }
 
 void Canvas::side_ui() {
@@ -621,6 +708,12 @@ void Canvas::side_ui() {
     ImGui::TextDisabled("%s -> %s", sel->from.c_str(), sel->to.c_str());
     ImGui::TextDisabled("%s, %d conductor(s)%s", sel->part.c_str(), sel->conductors, sel->length > 0 ? "" : "");
     if (sel->length > 0) ImGui::TextDisabled("length %.3f m", sel->length);
+    if (sel->strands.size() > 1) ImGui::TextDisabled("%zu conductors drawn pin to pin", sel->strands.size());
+    for (const std::string& m : sel->flag_msgs) {
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(flag_col(sel->flag)));
+      ImGui::TextWrapped("%s", m.c_str());
+      ImGui::PopStyleColor();
+    }
     ImGui::SetNextItemWidth(90);
     const std::string cur = std::to_string(kAwg[awg_idx_]) + " AWG";
     if (ImGui::BeginCombo("gauge", cur.c_str())) {

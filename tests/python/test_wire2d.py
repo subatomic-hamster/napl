@@ -38,10 +38,19 @@ def test_begin_shows_cards_with_the_chosen_pins_only(pair):
     _, _, b = pair
     f = begin(b)
     assert f["active"] and {c["id"] for c in f["cards"]} == {"pdb", "esc1", "esc2"}
+    # every real pin of each card is drawn, grouped by connector (pdb out1 = the O1 solder pads, esc power_in = the XT30 plug)
     pins = {c["id"]: [p["name"] for p in c["pins"]] for c in f["cards"]}
-    assert pins == {"pdb": ["out1"], "esc1": ["power_in"], "esc2": ["power_in"]}
-    p = f["cards"][0]["pins"][0]
-    assert p["kind"] == "power" and p["type"] and p["side"] in ("left", "right")
+    assert {"O1.1", "O1.2", "O2.1", "IN.1"} <= set(pins["pdb"])
+    assert {"PWR.1", "PWR.2", "MOT.1", "SIG.1"} <= set(pins["esc1"])
+    assert len(pins["pdb"]) == len(set(pins["pdb"]))
+    pdb = next(c for c in f["cards"] if c["id"] == "pdb")
+    assert {c["id"] for c in pdb["connectors"]} >= {"O1", "O2", "IN"}
+    p = pdb["pins"][0]
+    assert p["kind"] in ("power", "ground", "signal", "nc") and p["side"] in (
+        "left",
+        "right",
+    )
+    assert p["conn"] and p["tip"] and p["label"].startswith(p["name"].partition(".")[2])
     assert all(c["w"] > 0 and c["h"] > 0 for c in f["cards"])
     assert len({(c["x"], c["y"]) for c in f["cards"]}) == 3  # laid out, not stacked
 
@@ -51,7 +60,7 @@ def test_flatten_wire_equals_the_direct_wire_op(pair):
     begin(b)
     r = ask(b, "flatten.wire", {"from": PAIR[0], "to": PAIR[1]})
     assert r["ok"], r
-    assert r["flatten"]["wires"][0]["from"] == PAIR[0]
+    assert [w["from"] for w in r["flatten"]["wires"]].count(PAIR[0]) == 1
     assert ask(b, "flatten.end")["flatten"]["active"] is False
     ref.autowire(PAIR[0], PAIR[1])
     assert d.doc["wires"] == ref.doc["wires"]
@@ -70,11 +79,12 @@ def test_awg_and_length_are_applied(pair):
     assert r["ok"], r
     w = d.doc["wires"][-1]
     assert w["part"] == "awg-12-silicone-wire" and w["length"]["value"] == 0.25
-    name = r["flatten"]["wires"][0]["name"]
+    name = next(w["name"] for w in r["flatten"]["wires"] if w["from"] == PAIR[0])
     r = ask(b, "flatten.set_wire", {"name": name, "awg": 14})
     assert r["ok"] and d.doc["wires"][-1]["part"] == "awg-14-silicone-wire"
-    assert r["flatten"]["wires"][0]["awg"] == 14
-    assert ask(b, "flatten.unwire", {"name": name})["flatten"]["wires"] == []
+    assert next(w for w in r["flatten"]["wires"] if w["name"] == name)["awg"] == 14
+    left = ask(b, "flatten.unwire", {"name": name})["flatten"]["wires"]
+    assert name not in [w["name"] for w in left]
     assert not any(w.get("name") == name for w in d.doc.get("wires", []))
 
 
@@ -87,8 +97,8 @@ def test_refusals_carry_the_reason_and_change_nothing(pair):
     )  # sink -> sink
     assert not r["ok"] and r["error"]
     r2 = ask(
-        b, "flatten.wire", {"from": "pdb.out2", "to": "esc1.power_in"}
-    )  # pin not on the canvas
+        b, "flatten.wire", {"from": "pdb.out3", "to": "esc3.power_in"}
+    )  # esc3 is not on the canvas
     assert not r2["ok"] and "not a pin on the canvas" in r2["error"]
     r3 = ask(b, "flatten.wire", {"from": PAIR[0], "to": PAIR[1], "awg": 99})
     assert not r3["ok"] and "AWG" in r3["error"]
@@ -118,7 +128,19 @@ def test_explicit_lead_bridges_what_autowire_refuses(tmp_path):
     r = ask(
         b,
         "flatten.wire",
-        {k: w[k] for k in ("from", "to", "part", "length", "conductors", "name")},
+        {
+            k: w[k]
+            for k in (
+                "from",
+                "to",
+                "part",
+                "length",
+                "conductors",
+                "name",
+                "from_pins",
+                "to_pins",
+            )
+        },
     )
     assert r["ok"] and d.doc["wires"] == [w]
 
@@ -228,19 +250,95 @@ def test_pins_sit_on_the_side_facing_their_peer_and_wires_avoid_cards(tmp_path, 
     cards = {c["id"]: c for c in f["cards"]}
     assert f["wires"]
     for w in f["wires"]:
-        (ia, _, pa), (ib, _, pb) = w["from"].partition("."), w["to"].partition(".")
-        ca, cb = cards[ia], cards[ib]
-        sa = {p["name"]: p["side"] for p in ca["pins"]}[pa]
-        sb = {p["name"]: p["side"] for p in cb["pins"]}[pb]
-        if ca["band"] == cb["band"] and ca["layer"] != cb["layer"]:
-            lo, hi = (sa, sb) if ca["layer"] < cb["layer"] else (sb, sa)
-            assert (lo, hi) == ("right", "left"), (w["name"], sa, sb)
-        r = w["route"]
-        assert len(r) >= 2
-        for p, q in zip(r, r[1:]):
-            assert p[0] == q[0] or p[1] == q[1], (w["name"], "not orthogonal")
-            for c in cards.values():
-                assert not _inside(p, q, c), (w["name"], "passes through", c["id"])
+        assert w["strands"] and w["route"] == w["strands"][0]["route"]
+        for s in w["strands"]:
+            (ia, _, pa), (ib, _, pb) = s["from"].partition("."), s["to"].partition(".")
+            ca, cb = cards[ia], cards[ib]
+            pina = {p["name"]: p for p in ca["pins"]}[pa]
+            pinb = {p["name"]: p for p in cb["pins"]}[pb]
+            two_row = any(
+                k["side"] == "both" for c_ in (ca, cb) for k in c_["connectors"]
+            )
+            if ca["band"] == cb["band"] and ca["layer"] != cb["layer"] and not two_row:
+                lo, hi = (
+                    (pina["side"], pinb["side"])
+                    if ca["layer"] < cb["layer"]
+                    else (pinb["side"], pina["side"])
+                )
+                assert (lo, hi) == ("right", "left"), (w["name"], pa, pb)
+            r = s["route"]
+            assert len(r) >= 2
+            for p, q in zip(r, r[1:]):
+                assert p[0] == q[0] or p[1] == q[1], (w["name"], "not orthogonal")
+                for c in cards.values():
+                    assert not _inside(p, q, c), (w["name"], "passes through", c["id"])
+
+
+def _assemblies_with_wires():
+    import tomllib
+
+    root = X500.parent
+    return sorted(
+        p.stem
+        for p in root.glob("*.toml")
+        if tomllib.loads(p.read_text(encoding="utf-8")).get("wires")
+    )
+
+
+@pytest.mark.parametrize("asm", _assemblies_with_wires())
+def test_no_route_segment_enters_a_card_in_any_assembly(tmp_path, asm):
+    """Every conductor of every wire of every shipped assembly: an orthogonal polyline that never enters the interior of a card."""
+    f = _all_wired(tmp_path, asm)
+    n = 0
+    for w in f["wires"]:
+        for s in w["strands"]:
+            r = s["route"]
+            assert len(r) >= 2, (asm, w["name"])
+            for p, q in zip(r, r[1:]):
+                assert p[0] == q[0] or p[1] == q[1], (asm, w["name"], "not orthogonal")
+                for c in f["cards"]:
+                    assert not _inside(p, q, c), (
+                        asm,
+                        w["name"],
+                        "passes through",
+                        c["id"],
+                    )
+            n += 1
+    assert n >= len(f["wires"])
+
+
+def test_turret_pi_shows_every_header_pin_and_wires_land_on_pins(tmp_path):
+    f = _all_wired(tmp_path, "turret")
+    pi = next(c for c in f["cards"] if c["id"] == "pi")
+    j8 = [p for p in pi["pins"] if p["conn"] == "J8"]
+    assert sorted(int(p["num"]) for p in j8) == list(
+        range(1, 41)
+    )  # the whole 2 x 20 header, not the three wired pins
+    assert {p["side"] for p in j8} == {
+        "left",
+        "right",
+    }  # a two-row header: odd pins one edge, even the other
+    assert all(p["side"] == ("left" if int(p["num"]) % 2 else "right") for p in j8)
+    assert {p["kind"] for p in j8} >= {"power", "ground", "signal"}
+    gpio14 = next(p for p in j8 if p["num"] == "8")
+    assert "UART0_TX" in gpio14["tip"] and gpio14["wired"]
+    assert any(
+        k["id"] == "J8" and k["side"] == "both" and k["nrows"] == 21
+        for k in pi["connectors"]
+    )
+    uart = next(w for w in f["wires"] if w["name"] == "pi_uart_adapter")
+    assert [(s["from"], s["to"]) for s in uart["strands"]] == [
+        ("pi.J8.8", "adapter.UART.2"),
+        ("pi.J8.10", "adapter.UART.1"),
+        ("pi.J8.6", "adapter.UART.3"),
+    ]
+    ribbon = next(w for w in f["wires"] if w["name"] == "pi_camera_ribbon")
+    assert len(ribbon["strands"]) == 15 and any(
+        p["conn"] == "CAM0" for p in pi["pins"]
+    )  # the 22-pin camera port is drawn in full as well
+    assert not [
+        w for w in f["wires"] if w["flag"]
+    ]  # the shipped turret wiring is clean
 
 
 @pytest.mark.parametrize("asm", ASMS)
@@ -275,7 +373,7 @@ def test_labels_and_card_widths_leave_no_overlap(tmp_path, asm):
         for side in ("left", "right"):
             need = max(
                 (
-                    len(p["name"]) * 7.6 + len(p["type"]) * 6.0
+                    len(p["label"]) * 7.6 + (0 if p["conn"] else len(p["type"]) * 6.0)
                     for p in c["pins"]
                     if p["side"] == side
                 ),

@@ -26,10 +26,14 @@ def _gaps(intervals, min_gap):
     return out
 
 
-def _grid(cards):
+def _grid(cards, ends=None):
+    """Track coordinates. `ends` = {(card id, terminal name)} that a wire lands on: only those pin rows (and stubs) get a track, so a
+    40-pin header costs the router three rows, not forty."""
     xs, ys = set(), set()
     for c in cards:
         for p in c["pins"]:
+            if ends is not None and (c["id"], p["name"]) not in ends:
+                continue
             _, y = pin_xy(c, p)
             ys.add(y)
             xs.add(c["x"] + (c["w"] + STUB if p["side"] == "right" else -STUB))
@@ -47,7 +51,7 @@ def _grid(cards):
     ):
         xs.update(
             m
-            for m in ((lo + hi) / 2 + 9 * k for k in range(-3, 4))
+            for m in ((lo + hi) / 2 + 7 * k for k in range(-9, 10))
             if lo + 4 < m < hi - 4
         )
     for lo, hi in _gaps(
@@ -55,7 +59,7 @@ def _grid(cards):
     ):
         ys.update(
             m
-            for m in ((lo + hi) / 2 + 8 * k for k in range(-2, 3))
+            for m in ((lo + hi) / 2 + 6 * k for k in range(-6, 7))
             if lo + 4 < m < hi - 4
         )
     # between vertically stacked cards of one column (the union above hides those gaps when columns are staggered)
@@ -91,7 +95,12 @@ def route_wires(cards, wires):
         )
         for c in cards
     ]
-    xs, ys = _grid(cards)
+    ends = set()
+    for w in wires:
+        for e in ("from", "to"):
+            i_, _, t_ = w[e].partition(".")
+            ends.add((i_, t_))
+    xs, ys = _grid(cards, ends)
     xi, yi = {v: i for i, v in enumerate(xs)}, {v: i for i, v in enumerate(ys)}
     bh = {}  # (horizontal?, i, j) -> that grid edge is blocked by a card
     used = set()

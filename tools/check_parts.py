@@ -5,6 +5,7 @@ Usage: python3 tools/check_parts.py [parts_dir]
 """
 
 import collections
+import importlib.util
 import pathlib
 import sys
 import tomllib
@@ -12,6 +13,16 @@ import types
 
 FIDELITY = {"datasheet", "literature", "measured", "derived", "estimated"}
 SOURCED = {"datasheet", "literature", "measured"}
+
+
+def _pins_module():
+    """python/napl/design/pins.py loaded by path (stdlib only; importing the package would need numpy)."""
+    f = pathlib.Path(__file__).resolve().parents[1] / "python/napl/design/pins.py"
+    spec = importlib.util.spec_from_file_location("napl_pins_schema", f)
+    m = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = m
+    spec.loader.exec_module(m)
+    return m
 
 
 def check(path: pathlib.Path, problems: list[str], tally: collections.Counter) -> None:
@@ -120,6 +131,8 @@ def check(path: pathlib.Path, problems: list[str], tally: collections.Counter) -
         for key, e in p.items():
             if isinstance(e, dict) and key != "lead":
                 check_entry(f"{label}.{key}", e, need_unit=True)
+    for msg in _pins_module().validate(doc):  # parts/README.md "Connectors and pins"
+        bad(msg)
     mesh = doc.get("geometry", {}).get("mesh")
     if mesh and not (path.parents[2] / mesh).exists():
         bad(f"mesh '{mesh}' not found")

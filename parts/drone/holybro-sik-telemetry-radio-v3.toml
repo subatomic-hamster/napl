@@ -53,7 +53,34 @@ lead = {}   # the radio part folds its JST-GH cable into this port (see note); t
 kind ="signal"
 type = "jst-gh.6"
 gender = "neutral"
+pins = ["TELEM.1", "TELEM.2", "TELEM.3", "TELEM.4", "TELEM.5", "TELEM.6"]
 note = "6-pin JST-GH, 3.3 V TTL UART (S2); the 5 V supply (S1) arrives through this connector from the Pixhawk TELEM1 (assumed: the page lists a 5 V input and no separate power plug for the 100/500 mW units). Neutral because the radio has a board header and the JST-GH to JST-GH telemetry cable to the Pixhawk TELEM1 is not a filed part; the cable is folded into this port."
+
+# Pin level: the radio's 6-pin JST-GH telemetry port (S2 '6-pin JST-GH connector, 3.3V-TTL'). The page prints no pin table; the radio is
+# cabled 1:1 to the Pixhawk TELEM port, so pin n carries what pin n of TELEM1 carries (holybro-pixhawk-6c S10: VCC, UART TX, UART RX, CTS, RTS,
+# GND), with TX / RX mirrored. Pose: the +x end of the 53 x 28 mm board (estimate).
+[[connectors]]
+id = "TELEM"
+name = "telemetry port (JST-GH 6)"
+type = "jst-gh-6"
+gender = "female"
+pos = [0.0265, 0.0, 0.00535]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+src = "S2"
+fidelity = "derived"
+derivation = "S2 states the 6-pin JST-GH, 3.3 V TTL port; the pin functions are those of the Pixhawk TELEM1 header the cable joins (1:1 cable), mirrored at the UART signals."
+pins = [
+  { number = 1, name = "VCC", kind = "power", dir = "in", v = 5.0, i_max = 0.1 },
+  { number = 2, name = "RX", kind = "signal", dir = "in", v = 3.3, alt = ["UART RX"] },
+  { number = 3, name = "TX", kind = "signal", dir = "out", v = 3.3, alt = ["UART TX"] },
+  { number = 4, name = "RTS", kind = "signal", dir = "out", v = 3.3 },
+  { number = 5, name = "CTS", kind = "signal", dir = "in", v = 3.3 },
+  { number = 6, name = "GND", kind = "ground" },
+]
 
 [[sources]]
 id = "S2"

@@ -192,6 +192,37 @@ estimated mass / model mass). Item group: instances their own; fasteners the chi
   instance / port declaration order; more than 32 is an error. Each device carries `parts` (sorted unique part ids that
   contributed).
 
+### Wire syntax with pins
+
+```toml
+[[wires]]
+name = "pi_uart_adapter"
+from = "pi.gpio_uart"                  # port-level ends, as before
+to = "adapter.bus"
+from_pins = ["J8.8", "J8.10", "J8.6"]  # optional, one entry per conductor: CONNECTOR.PIN of the `from` part ...
+to_pins = ["UART.1", "UART.2", "UART.3"]  # ... and of the `to` part, same order
+part = "awg-26-silicone-wire"
+conductors = 3
+length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "..." }
+
+[[wires]]                              # shorthand: one conductor between two pins; folded into port + pin lists on load
+name = "tx"
+from = "pi.J8.8"
+to = "adapter.UART.2"
+part = "awg-26-silicone-wire"
+length = { value = 0.1, unit = "m", fidelity = "estimated", rationale = "..." }
+```
+
+* A wire without pin lists keeps working: it resolves to the pins its two ports list (`pins` in the part's `[[ports]]`) when the counts
+  match, otherwise it is drawn at port level (one bundle from the port position).
+* Pins change no mass, device or hash: the `Wire` device and the mass rule above are unchanged by `from_pins` / `to_pins`.
+* One conductor per pin pair; the 2D canvas draws every pin, and `pinwire` (`{op: "pinwire", a: "pi.J8.8", b: "adapter.UART.2"}`)
+  adds one conductor between two pins (a port may carry several of them; `autowire` joins whole ports and refuses a second wire).
+* 3D: each wire is a bundle routed around the parts (never through one): it leaves its connector along the connector `axis`, keeps at
+  least `CLEAR` (2 mm) from every part outside the lead-out, and bends no tighter than 6 x its outer diameter. The routing is pure
+  geometry (`python/napl/design/wireroute.py`), deterministic, and changes neither mass nor dynamics. A wire it cannot route (the
+  connector axis runs inside an arm tube, for example) is drawn as the straight chord.
+
 ## MJCF conventions
 
 `<compiler angle="radian"/>`, `<option timestep>`, one `<mesh>` asset per part mesh (file path relative to the output file).
@@ -264,6 +295,13 @@ Ports that declare `i_peak` (servo sockets) state the device's own draw, not a t
 | `WIRE_INVALID` | error | a wire whose end instance / port / part is unknown, or whose ends are not both power or both signal | - |
 | `WIRE_CONNECTOR_MISMATCH` | error | connector part wire: ends not compatible (type + gender) or the part has no port of the end's type; cable part: a non-`wire-lead` cable end that does not mate the port | `types_ok` / `genders_ok`; fix lists wire / connector parts that mate the port |
 | `WIRE_RATING_UNKNOWN` | info | a wire part with no `i_max` on its ports (awg 10, 14, 16, 18 today): that wire cannot be checked | add `i_max` (AWG ampacity table) to the part |
+| `PIN_ALREADY_USED` | error | one connector pin on two conductors (ground pins may be shared) | pin lists of the wires |
+| `PIN_KIND_MISMATCH` | error / warning | a conductor joins unlike pins (power to ground, signal to power); a no-connect pin is a warning | `kind` of the pins in the part files |
+| `PIN_VOLTAGE_MISMATCH` | error / warning | a driving pin's `v` above the sink's `v_max` (error) or below `v_min` (warning); with no range the two nominal levels differ by more than max(0.5 V, 10 %) (signals: warning, a level shifter is needed) | `v`, `v_min`, `v_max` of the pins; **0.5 V / 10 % = design margin** |
+| `PIN_TWO_OUTPUTS` | error | two signal outputs (`dir = "out"`) drive one net | `dir` of the pins |
+| `PIN_GND_MISSING` | warning | a multi-conductor DC power / signal wire carries no ground return | topology of the wire's pin pairs |
+| `PIN_ALT_CONFLICT` | error | one peripheral function claimed by two pins of an instance (two UART TX of one UART, two SDA of one I2C), or a wire's TX / RX on different peripherals | `alt` functions of the pins (`aN:FUNC`), family keyed (UART / I2C) |
+| `PIN_FUNCTION_MISSING` | warning | a multiplexed pin wired to a device pin whose role (TX, RX, SDA, SCL) it cannot provide through its alternate functions | `alt` / `name` of the pins |
 | `VOLTAGE_OVER_MAX` | error | net maximum voltage (source port `v_max`, battery full voltage) above `v_max` of a sink / passthrough port on it | `v_max` in the part files; fix lists same-category parts with that port rated high enough |
 | `VOLTAGE_BELOW_MIN` | warning | net nominal voltage (`v_nominal` / `v_out_nominal`) below a port's `v_min` | `v_min` in the part files |
 | `CURRENT_OVER_RATING` | error | sustained current above a wire's / port's continuous rating, or peak above its `i_burst` | the limiting element is the lowest `i_max` over the wire's two ports and its wire part's ports |
