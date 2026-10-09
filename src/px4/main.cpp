@@ -7,8 +7,9 @@
 // normal MAVLink UDP link (HIL_SENSOR has no battery field and simulator_mavlink does not dispatch BATTERY_STATUS).
 //
 // stdin: `monitor <name> <prim> <attr> <index> <lo> <hi> <duration_s>` | `quit`.   (one `always` Monitor per line)
-// --ctl <unix socket>: a text-line control socket onto the same World (set / get / mget / tick, see Bridge::on_ctl), so a second
-// robot's user-side driver (the Feetech pty of `napl program`) acts in this lockstep world; its writes are logged and replayed.
+// --ctl <unix socket>: a text-line control socket onto the same World (set / get / mget / tick / imu, see Bridge::on_ctl), so a second
+// robot's user-side driver (the Feetech pty of `napl program`) or a companion computer's sensors (examples/skydio/px4_fly.py: depth frames, the
+// IMU history) act in this lockstep world; its writes are logged and replayed. No `gnss` key in the config = GPS-denied (no HIL_GPS).
 // stdout: `listening <port>`, `connected`, `monitor_result {json}`, `stats ...`, `final tick=<n> state_hash=<hex>`.
 // Exit: 0 clean shutdown (PX4 disconnect, quit, SIGINT/SIGTERM), 1 error / connect timeout / solver divergence, 2 usage.
 //
@@ -30,6 +31,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <exception>
 #include <filesystem>
 #include <map>
@@ -87,7 +89,7 @@ Cfg load_cfg(const std::string& path, const std::string& model_override) {
   c.imu = req(t, "imu");
   c.baro = req(t, "baro");
   c.mag = req(t, "mag");
-  c.gnss = req(t, "gnss");
+  c.gnss = t["gnss"].value_or("");  // optional: GPS-denied flight (vision odometry from a companion computer) sends no HIL_GPS
   c.battery = req(t, "battery");
   c.gps_rate_hz = t["gps_rate_hz"].value_or(0.0);
   c.sats = t["satellites"].value_or(10);
@@ -198,6 +200,11 @@ struct Bridge {
   struct Mon { std::unique_ptr<Monitor> m; std::string prim, attr; int index; std::uint64_t to; };
   std::vector<Mon> mons;
   FILE* trace = nullptr;
+  // The IMU samples sent to PX4 (one per HIL step, device FLU frame), kept for 16 s of sim time so a companion computer's estimator on the
+  // ctl socket sees every sample, not whichever one is latest when it polls (`imu <since>`, below).
+  struct ImuRec { std::uint64_t counter; V3 gyro, accel; };
+  static constexpr std::size_t kImuHist = 4000;
+  std::deque<ImuRec> imu_hist;
 
   bool stopping() const { return g_signal || quit || peer_gone; }
 
@@ -316,6 +323,8 @@ struct Bridge {
   //   get <prim> <attr> [frame]          -> ok <tick> <v>...        (frame: body prim path, as Query)
   //   mget <prim> <attr>...              -> ok <tick> <v>...        (one scalar per attr: a whole device in one round trip)
   //   tick                               -> ok <tick>
+  //   imu <since>                        -> ok <tick> <n> (<counter> <gx gy gz> <ax ay az>)...   the n IMU samples with counter > since, oldest first
+  //                                         (counter = the world tick the sample was taken at; device FLU frame, rad/s and m/s^2; 16 s history)
   int ctl_listen = -1, ctl_fd = -1;
   std::string ctl_in;
   void close_ctl() {
@@ -339,6 +348,20 @@ struct Bridge {
     is >> cmd;
     const std::string tk = std::to_string(w->tick());
     if (cmd == "tick") return ctl_reply("ok " + tk);
+    if (cmd == "imu") {
+      std::uint64_t since = 0;
+      if (!(is >> since)) return ctl_reply("err usage: imu <since counter>");
+      std::string out;
+      std::size_t cnt = 0;
+      for (const ImuRec& r : imu_hist) {
+        if (r.counter <= since) continue;
+        out += " " + std::to_string(r.counter);
+        for (double d : r.gyro) out += " " + jnum(d);
+        for (double d : r.accel) out += " " + jnum(d);
+        ++cnt;
+      }
+      return ctl_reply("ok " + tk + " " + std::to_string(cnt) + out);
+    }
     if (cmd == "set") {
       std::vector<double> v;
       double x;
@@ -461,8 +484,11 @@ struct Bridge {
     const std::uint8_t sys = static_cast<std::uint8_t>(cfg.sysid);
     mavlink_message_t m;
 
-    acc_frd = flu_to_frd(q3(imu, "accel"));
-    const V3 gyr = flu_to_frd(q3(imu, "gyro"));
+    const V3 acc_flu = q3(imu, "accel"), gyr_flu = q3(imu, "gyro");
+    acc_frd = flu_to_frd(acc_flu);
+    const V3 gyr = flu_to_frd(gyr_flu);
+    imu_hist.push_back({(tick - 1) / p_imu * p_imu, gyr_flu, acc_flu});  // the sample taken at counter c, visible after tick c + 1
+    if (imu_hist.size() > kImuHist) imu_hist.pop_front();
     V3 mg = flu_to_frd(q3(mag, "field"));
     for (double& c : mg) c = tesla_to_gauss(c);
     const double p = q1(baro, "pressure");
@@ -474,7 +500,7 @@ struct Bridge {
                                 fields_updated(sampled(tick0, n, p_imu), fb, fm), 0);
     if (!send_tcp(m)) return;
 
-    if (sampled(tick0, n, p_gnss)) {
+    if (gnss_cfg && sampled(tick0, n, p_gnss)) {
       const auto& g = *gnss_cfg;
       const V3 vn = q3(gnss, "vel_ned");
       // Fault gnss_outage (device attr fix_lost = 1): a receiver without a fix reports fix_type 0, no satellites, unknown accuracy.
@@ -624,17 +650,18 @@ int main(int argc, char** argv) {
     const auto& imu = find(dv.imu, c.imu, "imu");
     const auto& baro = find(dv.baro, c.baro, "baro");
     const auto& mag = find(dv.mag, c.mag, "mag");
-    const auto& gnss = find(dv.gnss, c.gnss, "gnss");
+    if (!c.gnss.empty()) b.gnss_cfg = &find(dv.gnss, c.gnss, "gnss");
     const auto& bat = find(dv.battery, c.battery, "battery");
-    b.gnss_cfg = &gnss;
     b.p_imu = static_cast<std::uint64_t>(imu.period), b.p_baro = static_cast<std::uint64_t>(baro.period);
-    b.p_mag = static_cast<std::uint64_t>(mag.period), b.p_gnss = static_cast<std::uint64_t>(gnss.period);
+    b.p_mag = static_cast<std::uint64_t>(mag.period);
+    if (b.gnss_cfg) b.p_gnss = static_cast<std::uint64_t>(b.gnss_cfg->period);
     if (b.p_imu < 1 || b.p_imu > b.n) fail("the IMU must sample at least once per 4 ms HIL step (rate_hz >= 250)");
-    if (c.gps_rate_hz > 0 && std::fabs(c.gps_rate_hz - gnss.rate_hz) > 1e-9) fail("config gps_rate_hz differs from the gnss device rate_hz in the model");
+    if (b.gnss_cfg && c.gps_rate_hz > 0 && std::fabs(c.gps_rate_hz - b.gnss_cfg->rate_hz) > 1e-9) fail("config gps_rate_hz differs from the gnss device rate_hz in the model");
     const double bt = 1.0 / (c.battery_rate_hz * b.dt), ht = 1.0 / b.dt;
     if (std::fabs(bt - std::round(bt)) > 1e-6) fail("1 / (battery_rate_hz * dt) must be an integer");
     b.p_batt = static_cast<std::uint64_t>(std::llround(bt)), b.p_hb = static_cast<std::uint64_t>(std::llround(ht));
-    if (std::fabs(gnss.lat0 - c.home[0]) > 1e-7 || std::fabs(gnss.lon0 - c.home[1]) > 1e-7 || std::fabs(gnss.alt0 - c.home[2]) > 1e-3)
+    if (b.gnss_cfg && (std::fabs(b.gnss_cfg->lat0 - c.home[0]) > 1e-7 || std::fabs(b.gnss_cfg->lon0 - c.home[1]) > 1e-7 ||
+                       std::fabs(b.gnss_cfg->alt0 - c.home[2]) > 1e-3))
       fail("config [home] differs from the gnss device origin (lat0/lon0/alt0) in the model");
     if (!dv.env.cfg.empty() && std::fabs(dv.env.cfg[0].origin_alt - c.home[2]) > 1e-3)
       std::fprintf(stderr, "napl-px4-bridge: warning: environment origin_alt %g != [home] alt %g\n", dv.env.cfg[0].origin_alt, c.home[2]);

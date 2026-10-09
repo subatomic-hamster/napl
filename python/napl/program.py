@@ -27,6 +27,9 @@ Scenario (TOML; relative paths are relative to the scenario file):
     #   trace.csv (as px4: `column = ...`) and re-runs the replay log through napl-replay to compare the hash. examples/cuas/cuas.scenario.toml.
     [interfaces.px4]             # PX4 SITL + napl-px4-bridge (own World); env NAPL_MAVLINK=udp://:14540. Exactly one interface per scenario.
     bridge = "../../px4/bridge_x500.toml"
+    # optional: params = { EKF2_EV_CTRL = 15, ... } (PX4 parameters on top of px4/params/napl_sitl.params), ctl = true (the bridge's --ctl socket
+    # for the program: env NAPL_CTL, NAPL_MODEL, NAPL_RUN_DIR; a companion computer reads its sensors there, examples/skydio/px4_fly.py),
+    # monitor_trace = "companion.csv" (judge monitors on that CSV of the run dir, t in sim s, instead of the bridge's trace.csv)
     # px4 from a DESIGN instead of a hand-written bridge file: [design] path = "my-quad.toml" (a saved napl.design design / assembly; optional
     # parts = "dir") with a bare [interfaces.px4] (no `bridge`, no [model]). The world is built from the design and the bridge config
     # (motor index <-> ESC <-> PX4 output from the fc.pwmN -> escK.signal wires, sensors, home) is generated into <run dir>/bridge.toml.
@@ -867,10 +870,20 @@ def _px4(sc, mons, run_dir, cwd, argv, env, log, res):
     model = _build_model(sc, run_dir / "model") if sc.get("model") else None
     cfg = _bridge_cfg(sc, run_dir, model)
     dt, faults = sc.get("dt", 0.001), sc.get("faults", [])
+    ifc = sc["interfaces"]["px4"]
     st = Stack(
-        cfg, run_dir, model=model, ctl=bool(faults)
-    )  # faults reach the bridge's World over its ctl socket
+        cfg,
+        run_dir,
+        model=model,
+        ctl=bool(faults) or bool(ifc.get("ctl")),
+        params=ifc.get("params"),
+    )  # faults reach the bridge's World over its ctl socket; so does a companion program (`ctl = true`: env NAPL_CTL)
     env["NAPL_MAVLINK"] = st.mavlink
+    env["NAPL_RUN_DIR"] = str(run_dir)
+    if model:
+        env["NAPL_MODEL"] = str(model)
+    if st.ctl:
+        env["NAPL_CTL"] = str(st.ctl)
     try:
         st.start()
     except RuntimeError as e:
@@ -892,8 +905,12 @@ def _px4(sc, mons, run_dir, cwd, argv, env, log, res):
             rs.close()
         final = st.stop()
     res["sim"] = dict(final or {}, bridge_log="bridge.log", px4_log="px4.log")
-    with open(st.trace) as f:
-        rows = list(csv.DictReader(f))
+    with open(
+        run_dir / ifc["monitor_trace"] if "monitor_trace" in ifc else st.trace
+    ) as f:
+        rows = list(
+            csv.DictReader(f)
+        )  # monitor_trace: the companion program's own trace (t = sim s, x y z qw qx qy qz + its columns)
     tr = {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
     _derive(tr)
     bad = [m["name"] for m in mons if m["column"] not in tr]

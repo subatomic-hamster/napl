@@ -130,11 +130,35 @@ class EstFlyer(fl.Flyer):
 
 
 class Skydio:
+    TRACE = "trace.csv"  # px4_fly.py (the same autonomy flying PX4 SITL) writes companion.csv: trace.csv there is the bridge's
+
+    # ---- the three things px4_fly.py replaces: where the World lives, what controls the airframe, and how a run is sealed -----------------
+    def _open(self, model):
+        sim = Sim.load(model)
+        sim.start_log()  # before any command: the replay log starts at tick 0
+        return sim
+
+    def _flyer(self, paths, cal_dir):
+        cal = fl.calibrate("skydio", Path(cal_dir or self.run_dir / "cal"))
+        return EstFlyer(self.sim, cal, paths, self.dtc, max_tilt=0.45)
+
+    def _seal(self, r):
+        (r / "replay.naplog").write_bytes(self.sim.log())
+        (r / "native.json").write_text(
+            json.dumps(
+                dict(
+                    tick=self.sim.tick,
+                    dt=self.dt,
+                    state_hash=f"{self.sim.state_hash():016x}",
+                    diverged=bool(self.sim.diverged),
+                )
+            )
+        )
+
     def __init__(self, model, run_dir, mission, seed, cal_dir=None, params=None):
         self.mission, self.seed = mission, seed
         self.run_dir = Path(run_dir)
-        self.sim = Sim.load(model)
-        self.sim.start_log()  # before any command: the replay log starts at tick 0
+        self.sim = self._open(model)
         man = json.loads((Path(model).parent / "scene.json").read_text())
         self.dt = man["dt"]
         self.dtc = self.dt * CTL_TICKS
@@ -151,9 +175,8 @@ class Skydio:
             escs=[f"/devices/{escs[r['joint']]['name']}" for r in rotors],
             yaw0=0.0,
         )
-        cal = fl.calibrate("skydio", Path(cal_dir or self.run_dir / "cal"))
         self.prm = params or Params()
-        self.flyer = EstFlyer(self.sim, cal, paths, self.dtc, max_tilt=0.45)
+        self.flyer = self._flyer(paths, cal_dir)
         self.root = root
         self.free = paths["free"]
         cam_path = man["body_paths"]["skydio/cam"]
@@ -309,17 +332,21 @@ class Skydio:
                 return
             tau = t - self.plan_t
             pp, vv, aa = self.plan.at(tau)
-            kxy, kz = fl.WN_XY**2, fl.WN_Z**2
-            sp = pp + np.array([aa[0] / kxy, aa[1] / kxy, aa[2] / kz])
             self._yaw_update()
-            fl_.target(sp, vv, self.yaw_sp)
+            self._command(pp, vv, aa)
+
+    def _command(self, pp, vv, aa):
+        """The planned position / velocity / acceleration to the controller: the native PD law takes the acceleration feed-forward as a shifted position."""
+        kxy, kz = fl.WN_XY**2, fl.WN_Z**2
+        sp = pp + np.array([aa[0] / kxy, aa[1] / kxy, aa[2] / kz])
+        self.flyer.target(sp, vv, self.yaw_sp)
 
     def _enter(self, phase):
         self.phase, self.t_phase = phase, self.t
 
-    def _yaw_update(self):
+    def _yaw_update(self, dt=None):
         """Heading command: toward the plan's motion, else the subject / goal; the camera looks where the vehicle is going."""
-        plan, dt = self.plan, self.dtc
+        plan, dt = self.plan, dt or self.dtc
         if self.phase == "arrived":
             return
         v = plan.vdes[:2] if plan else np.zeros(2)
@@ -708,7 +735,7 @@ class Skydio:
     def finish(self):
         r = self.run_dir
         self.tele.close()
-        with open(r / "trace.csv", "w", newline="") as f:
+        with open(r / self.TRACE, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(self.COLS)
             w.writerows(self.rows)
@@ -724,7 +751,6 @@ class Skydio:
         np.savez_compressed(
             r / "depth.npz", t=np.array([x[0] for x in self.depth_log]), depth=d
         )
-        (r / "replay.naplog").write_bytes(self.sim.log())
         summ = dict(mission=self.mission, seed=self.seed, sim_s=self.t, wall_s=time.monotonic() - self.wall0, min_clearance_m=self.min_clear,
                     contact_steps=int(self.n_contact), time_to_goal_s=None if self.t_goal is None else self.t_goal - self.t_fly0,
                     reached_goal=self.t_goal is not None, path_length_m=self.path_len, fly_s=float(fly.sum() * 4 * self.dtc),
@@ -766,16 +792,7 @@ class Skydio:
                 fp_per_frame=ds["false_positives"] / max(ds["frames"], 1),
             )
         (r / "summary.json").write_text(json.dumps(summ, indent=1))
-        (r / "native.json").write_text(
-            json.dumps(
-                dict(
-                    tick=self.sim.tick,
-                    dt=self.dt,
-                    state_hash=f"{self.sim.state_hash():016x}",
-                    diverged=bool(self.sim.diverged),
-                )
-            )
-        )
+        self._seal(r)
         return summ
 
 
