@@ -291,11 +291,26 @@ class Px4Skydio(Skydio):
                 h = self.link.tel.health()
                 # is_armable is judged in the current nav mode (Hold), which needs a global position a GPS-denied vehicle never has; arming is done in
                 # Offboard, which only needs the local position (ulog of the first run: cs_ev_pos/yaw/hgt/vel fused, "Ready for takeoff!" at 3.4 s)
-                ready = h.is_local_position_ok
+                # MAVSDK's is_local_position_ok flaps on vision-only fusion and stayed False for 4 min in the follow run although the ulog showed
+                # cs_ev_* fused and "Ready for takeoff!" at 4.4 s (same EKF flags as goal): after 12 s of odometry accept PX4's own LOCAL_POSITION_NED
+                # agreeing with the companion's estimate instead (0.3 m, 0.3 m/s; the pad is the local origin)
+                n = self.link.tel.position_velocity_ned()
+                pn = companion.enu_to_ned(self.eskf.p - self.p_start)
+                vn = companion.enu_to_ned(self.eskf.v)
+                agree = (
+                    abs(n.position.north_m - pn[0]) < 0.3
+                    and abs(n.position.east_m - pn[1]) < 0.3
+                    and abs(n.position.down_m - pn[2]) < 0.3
+                    and abs(n.velocity.north_m_s - vn[0]) < 0.3
+                    and abs(n.velocity.east_m_s - vn[1]) < 0.3
+                )
+                ready = agree and (
+                    h.is_local_position_ok or self._tick * self.dt >= 12.0
+                )
                 ok_since = (ok_since or self._tick) if ready else None
                 if self.cyc % 160 == 0:
                     self._log(
-                        f"waiting for PX4: local_position_ok={h.is_local_position_ok}"
+                        f"waiting for PX4: local_position_ok={h.is_local_position_ok} agrees_with_companion={agree}"
                     )
                 if (
                     ok_since is not None
