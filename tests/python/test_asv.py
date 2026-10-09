@@ -552,14 +552,35 @@ def test_asv_assembly_builds_with_bidirectional_escs_and_the_sensor_suite(tmp_pa
 
 
 # ------------------------------------------------------------------------------------------------------------------------------------ scenarios
+# A whole scenario takes about 2 minutes of wall time (more on a busy host): the full run is tested for the busiest one (three vessels, every Rule), the others run
+# 45 s of their scenario (`t_stop`: through the approach, before the mission ends) and are judged on the monitors that do not need the whole mission. The full
+# runs of every scenario are `napl program` and mc.py (examples/asv/README.md).
+FULL_SCENARIO = "multi_traffic"
+PARTIAL_MONITORS = {
+    "no_collision",
+    "estimate_position",
+    "estimate_heading",
+    "clear_of_fixed_objects",
+}
+
+
 @pytest.mark.parametrize("kind", enc.KINDS)
-def test_scenario_passes_its_monitors_and_replays(kind, tmp_path):
+def test_scenario_passes_its_monitors_and_replays(kind, tmp_path, monkeypatch):
+    import json
+
     from napl import program
 
+    full = kind == FULL_SCENARIO
+    if not full:
+        monkeypatch.setenv("NAPL_PARAMS", json.dumps({"t_stop": 45.0}))
     res, run_dir = program.run(
         EX / "asv" / f"asv-{kind.replace('_', '-')}.scenario.toml", tmp_path / "run"
     )
-    bad = [m["name"] for m in res["monitors"] if not m["pass"]]
+    bad = [
+        m["name"]
+        for m in res["monitors"]
+        if not m["pass"] and (full or m["name"] in PARTIAL_MONITORS)
+    ]
     assert not bad, bad
     assert res["replay"]["available"] and res["replay"]["match"], res["replay"]
     assert any(Path(run_dir).rglob("telemetry.jsonl"))
@@ -663,6 +684,9 @@ def _passive_drift(tmp_path, heading_frame, hs=0.5, seed=1, t_end=110.0):
     dd = json.loads(txt.get("data"))
     for v in dd["vessels"]:
         v["heading_frame"] = heading_frame
+    dd[
+        "rangefinders"
+    ] = []  # the 1600-ray lidar is most of the cost of a run and not needed here
     txt.set("data", json.dumps(dd))
     tree.write(m)
     sim = napl.Sim.load(str(m))

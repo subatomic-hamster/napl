@@ -76,6 +76,17 @@ group = "run"
 label = "Build visual meshes"
 doc = "Generate the part visuals for rendering; the physics and the lidar are the same either way."
 
+[[parameters]]
+name = "t_stop"
+type = "float"
+default = 0.0
+min = 0.0
+max = 1000.0
+unit = "s"
+group = "run"
+label = "Stop time (0 = the whole scenario)"
+doc = "Ends the run early (tests); the monitors that need the whole mission then do not apply."
+
 [[telemetry]]
 name = "pose.x_m"
 unit = "m"

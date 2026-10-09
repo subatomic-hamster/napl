@@ -21,6 +21,9 @@ Results are cached on a digest of (endpoints, gauge, geometry), so rebuilding an
 import hashlib
 import heapq
 import math
+import os
+import pickle
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -491,12 +494,34 @@ def _digest(geoms, items) -> str:
     return h.hexdigest()
 
 
+_CODE = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:12]
+
+
+def _disk_path(sig: str):
+    """On-disk cache of the routed wires (a route takes seconds; a design with a few dozen wires minutes, and every `napl program` run and Monte Carlo worker
+    is a new process): <NAPL_WIRE_CACHE or the temp dir>/napl-wire-cache/<digest of the inputs and of this file>.pkl. NAPL_WIRE_CACHE=off disables it."""
+    root = os.environ.get("NAPL_WIRE_CACHE", "")
+    if root == "off":
+        return None
+    base = Path(root) if root else Path(tempfile.gettempdir()) / "napl-wire-cache"
+    return base / f"{sig}-{_CODE}.pkl"
+
+
 def route_wires(geoms: list, items: list) -> dict:
     """items: [{key, a (n,3), b (n,3) world pin positions of the n conductors, na, nb unit outward axes, ua, ub row directions, d
     conductor outer diameter}] -> {key: {"paths": [(m,3) per conductor], "centre": (k,3), "min_bend": m, "ok": bool, "bend_min": r}}."""
     sig = _digest(geoms, items)
     if sig in _cache:
         return _cache[sig]
+    disk = _disk_path(sig)
+    if disk is not None and disk.exists():
+        try:
+            with open(disk, "rb") as f:
+                res = pickle.load(f)
+            _cache[sig] = res
+            return res
+        except Exception:  # a torn or stale file: route again
+            pass
     pts = (
         np.concatenate([np.concatenate([it["a"], it["b"]]) for it in items])
         if items
@@ -504,6 +529,15 @@ def route_wires(geoms: list, items: list) -> dict:
     )
     F = Field(geoms, pts) if geoms else None
     res = {it["key"]: _route(F, it) for it in items}
+    if disk is not None:
+        try:
+            disk.parent.mkdir(parents=True, exist_ok=True)
+            tmp = disk.with_suffix(f".{os.getpid()}.tmp")
+            with open(tmp, "wb") as f:
+                pickle.dump(res, f)
+            os.replace(tmp, disk)  # atomic: parallel builds share the cache
+        except OSError:
+            pass
     if len(_cache) > 32:
         _cache.pop(next(iter(_cache)))
     _cache[sig] = res

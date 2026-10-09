@@ -53,6 +53,19 @@ R_MAX, K_PSI = (
 )  # kinematic model of the boat: largest turn rate (rad/s) and heading time constant gain (1/s)
 TAU_U = 3.0  # s, speed time constant
 D_PAST = 25.0  # m: a contact whose closest point is behind us is finished with once it is this far
+T_NEAR, T_FAR, W_FAR_MIN = (
+    35.0,
+    65.0,
+    0.25,
+)  # s, s, 1: the weight of a contact's clearance cost falls from 1 (closest point within T_NEAR) to W_FAR_MIN (T_FAR and beyond)
+ACT_HOLD, ACT_KEEP = (
+    1.0,
+    6.0,
+)  # s: the stand-on vessel acts when the trigger has held for ACT_HOLD s, and then for ACT_KEEP s
+PORT_W, PORT_FREE = (
+    60.0,
+    3.0,
+)  # cost per 30 degrees of heading to port of the leg beyond PORT_FREE degrees while a head-on / crossing give-way contact is not yet passed
 XTE_W = 0.08  # cost per metre of the widest cross-track excursion of a candidate
 COMMIT = 0.3  # cost margin by which another manoeuvre must beat the one in force
 CLASS_NAME = {
@@ -142,14 +155,22 @@ def steer(plan, rt, pos, la_min=4.0, la_k=1.7):
 class Planner:
     def __init__(self):
         self.prev = (0.0, 1.0)
+        self.act_since: dict[
+            int, float
+        ] = {}  # Rule 17(a)(ii) trigger: since when per contact
+        self.act_until: dict[int, float] = {}
         self.cls: dict[int, str] = {}
         self.born: dict[int, float] = {}  # when each contact was first classified
         self.past: dict[
             int, float | None
         ] = {}  # since when the closest point has been behind us
 
-    def assess(self, t, own_pos, own_vel, own_psi, own_speed, tr):
+    def assess(self, t, own_pos, own_vel, own_psi, own_speed, tr, route=None):
         """Geometry and (latched) class of one moving contact."""
+        if (
+            route is not None and abs(self.prev[0]) < 1e-9 and self.prev[1] >= 1.0
+        ):  # no manoeuvre in force: the situation is judged on the mission course, not on a transient heading (a boat that is still settling or being pulled back to the leg)
+            own_psi, own_vel = route
         g = cr.geometry(own_pos, own_vel, own_psi, tr.pos, tr.vel)
         risk = g.cpa < D_RISK and 0.0 < g.tcpa < T_RISK and g.range < 250.0
         prev = self.cls.get(tr.id, cr.NONE)
@@ -175,7 +196,11 @@ class Planner:
             ):  # only in the first 12 s of the encounter: later the other vessel's own manoeuvre (a give-way turn) must not change the class
                 # no manoeuvre in force, so our own course has not moved the bearing: the class is re-read from the (improving) track instead of kept from the
                 # first look, when a young track's velocity can still be wrong (a lidar track's course while the ASV is still settling on its heading)
-                cls = cr.classify(g, own_speed, tr.speed, prev)
+                new = cr.classify(g, own_speed, tr.speed, prev)
+                # a give-way duty is not shed by the re-read: a head-on vessel that has turned to starboard at 50 m is on our port bow, i.e. "crossing, we stand on", but
+                # the situation was head-on and stays so until we are past (Rule 8(d)/16: keep well clear until finally past and clear)
+                if not (cr.role(prev) == "give_way" and cr.role(new) != "give_way"):
+                    cls = new
             self.past[tr.id] = self.past.get(tr.id, t) if g.tcpa < 0 else None
             gone = (
                 g.cpa >= 1.5 * D_RISK and g.range > 40.0 and g.tcpa < 0.0
@@ -258,9 +283,22 @@ class Planner:
                 ) ** 2 + 400.0 * (dmin < D_COLLIDE)
         # traffic
         info, emergency, rules = [], False, []
+        closing = hazard  # commit to a manoeuvre while a fixed object is near or a contact is still to be passed (its closest point is not yet 3 s behind)
         for tr in moving:
-            g, cls, risk = self.assess(t, pos, vel, psi, own["speed"], tr)
+            g, cls, risk = self.assess(
+                t,
+                pos,
+                vel,
+                psi,
+                own["speed"],
+                tr,
+                route=(
+                    rt["alpha"],
+                    np.asarray(rt["leg_dir"], float) * max(own["speed"], 0.5 * u_nom),
+                ),
+            )
             role = cr.role(cls)
+            closing = closing or (risk and g.tcpa > 0.0)
             hazard = (
                 hazard or risk
             )  # a contact with risk of collision, classified yet or not
@@ -272,14 +310,26 @@ class Planner:
             cpa = d[np.arange(len(dd)), k]
             ds = D_SAFE_OVERTAKE if cls == cr.OVERTAKING else D_SAFE
             w_cpa = 1.0
+            # Rule 17(a)(ii): the other vessel is not keeping clear -- its closest point at our present course stays low with time running out, for ACT_HOLD s on
+            # end (one noisy track update of a vessel that is turning away must not make the stand-on vessel turn); once acting it goes on for ACT_KEEP s
             if (
                 role == "stand_on"
                 and cls != cr.NONE
-                and not (g.cpa < D_ACT and 0.0 < g.tcpa < T_ACT)
+                and g.cpa < D_ACT
+                and 0.0 < g.tcpa < T_ACT
             ):
+                since = self.act_since.setdefault(tr.id, t)
+                if t - since >= ACT_HOLD:
+                    self.act_until[tr.id] = t + ACT_KEEP
+            else:
+                self.act_since.pop(tr.id, None)
+            acting = t < self.act_until.get(tr.id, -1.0)
+            if role == "stand_on" and cls != cr.NONE and not acting:
                 w_cpa = 0.0  # Rule 17(a)(i): the stand-on vessel keeps course and speed; the predicted closest point is the other vessel's to remove, until 17(a)(ii)
+            # a closest point far in the future is predicted with a constant-velocity model of a vessel that will still act: its clearance counts less than a near one's
+            w_far = np.clip((T_FAR - k * STEP) / (T_FAR - T_NEAR), W_FAR_MIN, 1.0)
             cost += w_cpa * (
-                14.0 * np.clip((ds - cpa) / ds, 0, None) ** 2
+                14.0 * w_far * np.clip((ds - cpa) / ds, 0, None) ** 2
                 + 400.0 * (cpa < D_COLLIDE)
             )
             rel_k = (
@@ -298,9 +348,8 @@ class Planner:
             act_now = False
             if role == "stand_on" and engaged:
                 # Rule 17(a)(ii) / (b): the contact is not keeping clear: its CPA at our present (nominal) course stays low with time running out
-                if g.cpa < D_ACT and 0.0 < g.tcpa < T_ACT:
-                    act_now = True
-                emergency = emergency or (act_now and g.tcpa < T_ACT / 2)
+                act_now = acting
+                emergency = emergency or (act_now and 0.0 < g.tcpa < T_ACT / 2)
             if role == "give_way" and engaged:
                 w = 1.0
                 cost += (
@@ -324,8 +373,8 @@ class Planner:
                     worst = np.max(np.where(live, port, 0.0), axis=1)
                     cost += (
                         w
-                        * 6.0
-                        * np.clip(worst - math.radians(6.0), 0, None)
+                        * PORT_W
+                        * np.clip(worst - math.radians(PORT_FREE), 0, None)
                         / math.radians(30)
                     )
                 if cls == cr.OVERTAKING:
@@ -361,10 +410,12 @@ class Planner:
             if engaged:
                 rules.append((g.cpa, CLASS_NAME[cls]))
                 hazard = True
+                closing = closing or g.tcpa > -3.0
         cost += (
             0.02 * (dd > 0) - 0.05 * ((hh == 0.0) & (ff == 1.0))
         )  # a faint starboard preference (the sea convention) and one for the null manoeuvre
         i = int(np.argmin(cost))
+        self.last = (cost, dd, ff, hh, oo)  # for the tuning scripts
         # commitment: keep the manoeuvre of the last plan unless another one is clearly better (no chattering between two near-equal choices) -- only while
         # there is something to avoid: with nothing near, a held offset would be kept for a few metres of cross-track cost (the route is the goal)
         key = np.where(
@@ -373,7 +424,7 @@ class Planner:
         same = np.nonzero(
             (np.abs(key - self.prev[0]) < 1e-9) & (np.abs(ff - self.prev[1]) < 1e-9)
         )[0]
-        if len(same) and hazard:
+        if len(same) and closing:
             j = int(same[np.argmin(cost[same])])
             if cost[j] <= cost[i] + COMMIT:
                 i = j

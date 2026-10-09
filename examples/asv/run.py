@@ -82,6 +82,8 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
         bool(p["ais"]),
         bool(p["traffic_complies"]),
     )
+    if p.get("t_stop", 0.0) > 0.0:
+        spec.t_end = min(spec.t_end, float(p["t_stop"]))  # a shortened run (tests)
     if model is None:
         model = str(
             build_spec(
