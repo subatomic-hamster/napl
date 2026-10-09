@@ -66,6 +66,7 @@ note = "4 mm D-shaft extending 12.5 mm from the face plate."
 
 [[ports]]
 name = "motor_power"
+pins = ["MOT.1", "MOT.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -74,6 +75,28 @@ v_max = { value = 12.0, unit = "V", src = "S1", fidelity = "datasheet" }  # rate
 i_peak = { value = 1.8, unit = "A", src = "S1", fidelity = "datasheet" }  # extrapolated stall current
 i_max = { value = 0.45, unit = "A", fidelity = "derived", derivation = "Pololu's general recommendation for brushed DC motors is 25 % or less of the stall current: 0.25 * 1.8 A = 0.45 A." }
 note = "Two motor terminals; terminal style not stated in the retrieved text."
+
+# Pin level: two motor terminals on the rear end cap (estimated: the product page text gives no terminal geometry).
+[[connectors]]
+id = "MOT"
+name = "motor terminals (2)"
+type = "solder-pad-1x2"
+port_type = "solder-pad"
+gender = "neutral"
+joinable = true
+pos = [0.0, 0.0, -0.054]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.005
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 states two motor terminals (the port above) but no terminal geometry; position at the rear face z = -body_length, 5 mm spacing, is an estimate. Polarity unmarked (swap to reverse)."
+pins = [
+  { number = 1, name = "M1", kind = "power", dir = "in", v_max = 12.0, i_max = 0.45 },
+  { number = 2, name = "M2", kind = "power", dir = "in", v_max = 12.0, i_max = 0.45 },
+]
 
 [[sources]]
 id = "S1"

@@ -64,6 +64,7 @@ note = "3 mm D-shaft, 9 mm long; matches Pololu 3 mm wheels/hubs."
 
 [[ports]]
 name = "motor_power"
+pins = ["MOT.1", "MOT.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -72,6 +73,35 @@ v_max = { value = 6.0, unit = "V", src = "S1", fidelity = "datasheet" }  # rated
 i_peak = { value = 1.6, unit = "A", src = "S1", fidelity = "datasheet" }  # extrapolated stall current
 i_max = { value = 0.4, unit = "A", fidelity = "derived", derivation = "Pololu's general recommendation for brushed DC motors is 25 % or less of the stall current: 0.25 * 1.6 A = 0.4 A." }
 note = "Two motor terminals; terminal style not stated in the retrieved text."
+
+# Pin level: the two solder terminals on the motor end cap; spacing 7 mm for the precious-metal-brush versions (P1). Polarity is not marked (swap to reverse).
+[[connectors]]
+id = "MOT"
+name = "motor terminals (2 solder tabs)"
+type = "solder-pad-1x2"
+port_type = "solder-pad"
+gender = "neutral"
+joinable = true
+pos = [0.0, 0.0, -0.025]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.007
+src = "P1"
+fidelity = "datasheet"
+pose_rationale = "P1 gives the terminal spacing but not their orientation on the end cap: placed on the rear face at z = -body_length, spaced along x (positional estimate)."
+pins = [
+  { number = 1, name = "M1", kind = "power", dir = "in", v_max = 6.0, i_max = 0.4 },
+  { number = 2, name = "M2", kind = "power", dir = "in", v_max = 6.0, i_max = 0.4 },
+]
+
+[[sources]]
+id = "P1"
+url = "https://www.pololu.com/product/994"
+title = "Pololu item 994 product page (Micro Metal Gearmotor), terminal dimensions"
+accessed = "2026-10-09"
+quote = "Note that the HPCB terminals are 0.5 mm wider than those on the other Micro Metal Gearmotor versions (2 mm vs. 1.5 mm), and they are about 1 mm closer together (6 mm vs. 7 mm)."
 
 [[sources]]
 id = "S1"
