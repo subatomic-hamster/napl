@@ -64,11 +64,22 @@ def pass_geometry(own, tgt, own_psi, tgt_vel):
 
 
 def verdict(
-    kind, t, own, own_psi, own_speed, tgt, tgt_vel, route_psi, speed_nom, complied=True
+    kind,
+    t,
+    own,
+    own_psi,
+    own_speed,
+    tgt,
+    tgt_vel,
+    route_psi,
+    speed_nom,
+    complied=True,
+    exclude=None,
 ):
     """The judgement of an encounter. own / tgt (N, 2) true positions sampled together; own_psi (N,) true heading; own_speed (N,); tgt_vel (N, 2) the other vessel's
     true velocity; route_psi the course of the mission leg the encounter is on; speed_nom the mission speed. -> dict of metrics and the booleans
-    cpa_ok, collision, side_ok (the Rule-specific manoeuvre), colreg_ok (= cpa_ok and no collision and side_ok)."""
+    cpa_ok, collision, side_ok (the Rule-specific manoeuvre), colreg_ok (= cpa_ok and no collision and side_ok).
+    exclude (N, bool): samples that do not count towards the Rule-specific manoeuvre (the ASV is giving way to another vessel then: it cannot also keep its course for this one)."""
     g = pass_geometry(own, tgt, own_psi, tgt_vel)
     collision = g["cpa"] < COLLISION_VESSEL
     cpa_ok = g["cpa"] >= CPA_OK
@@ -80,6 +91,8 @@ def verdict(
     risk = (np.arange(len(d)) <= k) & (
         d < WINDOW
     )  # the approach to the closest point inside 60 m
+    if exclude is not None:
+        risk &= ~np.asarray(exclude, bool)
     max_port = float(dev[risk].max()) if risk.any() else 0.0
     max_stbd = float(-dev[risk].min()) if risk.any() else 0.0
     no_port_turn = max_port <= PORT_TURN_MAX
@@ -116,3 +129,63 @@ def verdict(
         max_port_deg=math.degrees(max_port), max_stbd_deg=math.degrees(max_stbd), min_speed_ms=spd_min,
         collision=bool(collision), cpa_ok=bool(cpa_ok), side_ok=bool(side_ok), colreg_ok=bool(cpa_ok and not collision and side_ok),
     )  # fmt: skip
+
+
+GIVE_WAY_KINDS = ("head_on", "crossing_give_way", "overtaking")
+GIVE_WAY_RANGE = 120.0  # m: a give-way vessel acts early (Rule 16), long before the 60 m approach window of the per-vessel judgement
+
+
+def verdict_all(
+    kinds,
+    t,
+    own,
+    own_psi,
+    own_speed,
+    tgts,
+    tgt_vels,
+    route_psi,
+    speed_nom,
+    complied=True,
+):
+    """Several traffic vessels: the verdict of each (`kinds[i]` = the situation it is judged as; tgts[i], tgt_vels[i] its true track), and the totals. A vessel the ASV
+    stands on for is judged only on the samples where the ASV is not giving way to another vessel (inside the 60 m approach window of a give-way contact): the Rules
+    do not ask a vessel that must give way to one vessel to keep its course for another (Rule 2(b): departure to avoid immediate danger; Rule 8). Everything else is the
+    single-vessel judgement. -> dict(vessels=[verdict, ...], cpa_m (the smallest), collision (any), cpa_ok / side_ok / colreg_ok (all))."""
+    gw = np.zeros(len(t), bool)
+    for kd, tg, tv in zip(kinds, tgts, tgt_vels):
+        if kd in GIVE_WAY_KINDS:
+            g = pass_geometry(own, tg, own_psi, tv)
+            gw |= (np.arange(len(t)) <= g["k"]) & (
+                np.hypot(*(tg - own).T) < GIVE_WAY_RANGE
+            )
+    vs = [
+        verdict(
+            kd,
+            t,
+            own,
+            own_psi,
+            own_speed,
+            tg,
+            tv,
+            route_psi,
+            speed_nom,
+            complied,
+            exclude=gw if kd == "crossing_stand_on" else None,
+        )
+        for kd, tg, tv in zip(kinds, tgts, tgt_vels)
+    ]
+    tot = dict(
+        vessels=vs,
+        cpa_m=min(v["cpa_m"] for v in vs),
+        t_cpa=min(vs, key=lambda v: v["cpa_m"])["t_cpa"],
+    )
+    for key in ("collision",):
+        tot[key] = any(v[key] for v in vs)
+    for key in ("cpa_ok", "side_ok", "colreg_ok"):
+        tot[key] = all(v[key] for v in vs)
+    tot["max_port_deg"] = max(v["max_port_deg"] for v in vs)
+    tot["max_stbd_deg"] = max(v["max_stbd_deg"] for v in vs)
+    tot["min_speed_ms"] = min(v["min_speed_ms"] for v in vs)
+    tot["side"] = vs[0]["side"]
+    tot["astern"] = vs[0]["astern"]
+    return tot

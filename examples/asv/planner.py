@@ -30,21 +30,30 @@ D_COLLIDE = 2.0  # m, nearer than this is a collision for the planner (hull half
 D_RISK = 20.0  # m: a contact whose CPA at the present course is below this is a risk of collision (Rule 7)
 T_RISK = 60.0  # s: ... and whose closest point is within this time
 D_ACT = 7.0  # m, the contact is not keeping clear if its CPA at our present course stays below this
-T_ACT = 8.0  # s, ... with this much time to go (Rule 17(a)(ii)); below T_ACT / 2 the stand-on vessel MUST act (17(b))
-HORIZON, STEP = 60.0, 0.5  # 60 s sees a meeting 180 m away at a closing speed of 3 m/s
+T_ACT = 13.0  # s, ... with this much time to go (Rule 17(a)(ii)); below T_ACT / 2 the stand-on vessel MUST act (17(b))
+HORIZON, STEP = (
+    75.0,
+    0.5,
+)  # 75 s sees a meeting 225 m away at a closing speed of 3 m/s, and most of an overtaking pass (relative speed 0.8 m/s)
 DELTAS = np.radians(
     [-80, -60, -45, -32, -22, -14, -7, 0, 7, 14, 22, 32, 45, 60, 80]
 ).astype(float)  # + = to port
 FRACS = np.array([1.0, 0.6, 0.3, 0.0])
 HOLDS = np.array(
-    [0.0, 10.0, 20.0, 35.0]
+    [0.0, 8.0, 16.0, 28.0]
 )  # s; 0 = follow the LOS course of the leg (no manoeuvre)
+# Second family of manoeuvres: follow a line parallel to the leg at a lateral offset (m, + to port) for `hold` s, then rejoin the leg. A pass of a slow vessel
+# takes longer than any heading hold, and a heading held long enough to clear it ends tens of metres off the route; a parallel line costs exactly its offset.
+OFFSETS = np.array([-24.0, -18.0, -13.0, -9.0, -6.0, -3.0, 4.0, 9.0, 15.0])
+HOLDS_LINE = np.array([20.0, 40.0, 75.0])
+OFFSET_REACH = 30.0  # m: a line at offset o counts as a course offset of atan(o / OFFSET_REACH) in the Rule costs
 R_MAX, K_PSI = (
     0.30,
     0.55,
 )  # kinematic model of the boat: largest turn rate (rad/s) and heading time constant gain (1/s)
 TAU_U = 3.0  # s, speed time constant
 D_PAST = 25.0  # m: a contact whose closest point is behind us is finished with once it is this far
+XTE_W = 0.08  # cost per metre of the widest cross-track excursion of a candidate
 COMMIT = 0.3  # cost margin by which another manoeuvre must beat the one in force
 CLASS_NAME = {
     cr.NONE: "none",
@@ -58,9 +67,11 @@ CLASS_NAME = {
 
 @dataclass
 class Plan:
-    delta: float = 0.0  # rad, course offset from the mission course (+ port)
+    delta: float = 0.0  # rad, course offset from the mission course (+ port); of a parallel line: atan(offset / OFFSET_REACH)
     frac: float = 1.0  # speed fraction of the mission speed
     hold: float = 0.0
+    line: bool = False  # the manoeuvre follows a line parallel to the leg at `off` m (+ port), not a course offset
+    off: float = 0.0
     traj: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     contacts: list = field(
         default_factory=list
@@ -71,17 +82,20 @@ class Plan:
 
 
 def los_course(alpha, a, e, x, la_min, la_k):
-    """LOS course (as asv.control.Route) of points x (C, 2) on the leg through a with direction e: the leg direction turned towards the leg by atan(xte / lookahead),
-    the look-ahead growing with the cross-track error so that the approach angle stays below ~30 degrees."""
+    """LOS course (as asv.control.Route) of points x (C, 2) on the leg through a (2, or C x 2) with direction e: the leg direction turned towards the leg by
+    atan(xte / lookahead), the look-ahead growing with the cross-track error so that the approach angle stays below ~30 degrees."""
     rel = x - a
     xte = e[0] * rel[:, 1] - e[1] * rel[:, 0]
     return alpha - np.arctan2(xte, np.maximum(la_min, la_k * np.abs(xte)))
 
 
-def rollout(pos, psi, u, leg, u_nom, delta, frac, hold, n, la_min=4.0, la_k=1.7):
+def rollout(
+    pos, psi, u, leg, u_nom, delta, frac, hold, n, la_min=4.0, la_k=1.7, off=None
+):
     """Positions (C, n, 2) and velocities (C, n, 2) of C candidates. Arrays delta, frac, hold of shape (C,). leg = (alpha, a, e): the mission leg's direction angle,
     start and unit vector. A candidate steers alpha + delta for `hold` seconds (hold 0: never) and the LOS course of the leg afterwards.
-    The offset is relative to the leg direction, not to the LOS course (whose cross-track term would otherwise cancel a deliberate avoidance turn)."""
+    The offset is relative to the leg direction, not to the LOS course (whose cross-track term would otherwise cancel a deliberate avoidance turn).
+    `off` (C,) given: the candidates with a non-NaN offset steer the LOS course of the line parallel to the leg at that lateral offset (+ port) for `hold` seconds."""
     alpha, a, e = leg
     C = len(delta)
     x = np.tile(np.asarray(pos, float), (C, 1))
@@ -89,10 +103,18 @@ def rollout(pos, psi, u, leg, u_nom, delta, frac, hold, n, la_min=4.0, la_k=1.7)
     uu = np.full(C, max(u, 0.0), float)
     P = np.zeros((C, n, 2))
     V = np.zeros((C, n, 2))
+    line = np.zeros(C, bool) if off is None else ~np.isnan(off)
+    a_line = a + np.where(line, off if off is not None else 0.0, 0.0)[
+        :, None
+    ] * np.array([-e[1], e[0]])
     for i in range(n):
         t = i * STEP
         cmd = np.where(
-            t < hold, alpha + delta, los_course(alpha, a, e, x, la_min, la_k)
+            t < hold,
+            np.where(
+                line, los_course(alpha, a_line, e, x, la_min, la_k), alpha + delta
+            ),
+            los_course(alpha, a, e, x, la_min, la_k),
         )
         r = np.clip(K_PSI * ((cmd - ps + np.pi) % (2 * np.pi) - np.pi), -R_MAX, R_MAX)
         ps = ps + r * STEP
@@ -101,6 +123,20 @@ def rollout(pos, psi, u, leg, u_nom, delta, frac, hold, n, la_min=4.0, la_k=1.7)
         x = x + v * STEP
         P[:, i], V[:, i] = x, v
     return P, V
+
+
+def steer(plan, rt, pos, la_min=4.0, la_k=1.7):
+    """The course the autopilot steers now: the mission's LOS course `rt["psi"]` without a manoeuvre, the leg direction plus the plan's course offset, or the LOS
+    course of the parallel line. rt: the Route.update() result plus leg_a, leg_dir (as passed to Planner.plan)."""
+    if plan is None or plan.hold <= 0:
+        return rt["psi"]
+    if not plan.line:
+        return rt["alpha"] + plan.delta
+    e = np.asarray(rt["leg_dir"], float)
+    a = np.asarray(rt["leg_a"], float) + plan.off * np.array([-e[1], e[0]])
+    return float(
+        los_course(rt["alpha"], a, e, np.asarray(pos, float)[None, :], la_min, la_k)[0]
+    )
 
 
 class Planner:
@@ -141,7 +177,9 @@ class Planner:
                 # first look, when a young track's velocity can still be wrong (a lidar track's course while the ASV is still settling on its heading)
                 cls = cr.classify(g, own_speed, tr.speed, prev)
             self.past[tr.id] = self.past.get(tr.id, t) if g.tcpa < 0 else None
-            gone = g.cpa >= 1.5 * D_RISK and g.range > 40.0
+            gone = (
+                g.cpa >= 1.5 * D_RISK and g.range > 40.0 and g.tcpa < 0.0
+            )  # diverging and far: an approaching contact stays in force even when our own turn moved its predicted closest point away (Rule 16: keep clear until past)
             past = self.past.get(tr.id) is not None and t - self.past[tr.id] > 3.0
             if (
                 gone or (past and g.range > D_PAST)
@@ -167,12 +205,20 @@ class Planner:
         dd = np.where(
             hh == 0.0, 0.0, dd
         )  # hold 0 = pure LOS: the offset is meaningless
+        oo = np.full(
+            len(dd), np.nan
+        )  # lateral offset of a parallel-line candidate (NaN: a course-offset candidate)
+        lo_, lf_, lh_ = np.meshgrid(OFFSETS, FRACS, HOLDS_LINE, indexing="ij")
+        oo = np.concatenate([oo, lo_.ravel()])
+        dd = np.concatenate([dd, np.arctan2(lo_.ravel(), OFFSET_REACH)])
+        ff = np.concatenate([ff, lf_.ravel()])
+        hh = np.concatenate([hh, lh_.ravel()])
         leg = (
             rt["alpha"],
             np.asarray(rt["leg_a"], float),
             np.asarray(rt["leg_dir"], float),
         )
-        P, V = rollout(pos, psi, own["speed"], leg, u_nom, dd, ff, hh, n)
+        P, V = rollout(pos, psi, own["speed"], leg, u_nom, dd, ff, hh, n, off=oo)
         ts = np.arange(n) * STEP
         cost = np.zeros(len(dd))
         # goal
@@ -183,6 +229,11 @@ class Planner:
         goal_along = min(rt["leg_len"], rt["along"] + u_nom * HORIZON)
         cost += (
             1.2 * (np.clip(goal_along - along_e, 0, None) + 0.5 * np.abs(xte_e)) / 10.0
+        )
+        # the detour itself: the widest excursion from the leg along the whole horizon (a wide pass that has returned by the end is not free)
+        rel_all = P - a
+        cost += XTE_W * np.abs(e[0] * rel_all[:, :, 1] - e[1] * rel_all[:, :, 0]).max(
+            axis=1
         )
         cost += 0.15 * (np.abs(dd) / math.radians(30)) ** 2 + 0.4 * (
             1.0 - ff
@@ -253,14 +304,23 @@ class Planner:
             if role == "give_way" and engaged:
                 w = 1.0
                 cost += (
-                    w * 3.0 * np.clip(dd, 0, None) / math.radians(30)
-                )  # no turn to port
+                    w * 10.0 * np.clip(dd, 0, None) / math.radians(30)
+                )  # no turn to port: a side chosen once (the committed side of Rule 16's "substantial action") is not given up for a few metres of detour
                 # nor a return towards the route that heads more than 6 degrees to port of the leg while the other vessel is still within 60 m and not yet passed
                 # (the LOS course of a boat that is south of the leg points to port of it; Rule 16: the give-way vessel keeps well clear until it is past)
-                if g.tcpa > 0.0 and cls in (cr.HEAD_ON, cr.GIVE_WAY):
+                if (
+                    g.tcpa > -6.0
+                    and cls
+                    in (
+                        cr.HEAD_ON,
+                        cr.GIVE_WAY,
+                    )
+                ):  # (the judge's closest point is the TRUE one: a few seconds after the estimated one, the turn back must still wait)
                     h = np.arctan2(V[:, :, 1], V[:, :, 0]) - rt["alpha"]
                     port = (h + np.pi) % (2 * np.pi) - np.pi
-                    live = (np.arange(n)[None, :] <= k[:, None]) & (d < 60.0)
+                    live = (np.arange(n)[None, :] <= np.maximum(k, 12)[:, None]) & (
+                        d < 60.0
+                    )
                     worst = np.max(np.where(live, port, 0.0), axis=1)
                     cost += (
                         w
@@ -307,22 +367,28 @@ class Planner:
         i = int(np.argmin(cost))
         # commitment: keep the manoeuvre of the last plan unless another one is clearly better (no chattering between two near-equal choices) -- only while
         # there is something to avoid: with nothing near, a held offset would be kept for a few metres of cross-track cost (the route is the goal)
+        key = np.where(
+            np.isnan(oo), dd, 1000.0 + oo
+        )  # a manoeuvre = its course offset or its line, and its speed fraction
         same = np.nonzero(
-            (np.abs(dd - self.prev[0]) < 1e-9) & (np.abs(ff - self.prev[1]) < 1e-9)
+            (np.abs(key - self.prev[0]) < 1e-9) & (np.abs(ff - self.prev[1]) < 1e-9)
         )[0]
         if len(same) and hazard:
             j = int(same[np.argmin(cost[same])])
             if cost[j] <= cost[i] + COMMIT:
                 i = j
-        self.prev = (float(dd[i]), float(ff[i]))
+        self.prev = (float(key[i]), float(ff[i]))
         rule = min(rules)[1] if rules else "none"
+        line = bool(not np.isnan(oo[i]) and hh[i] > 0)
         return Plan(
-            float(dd[i]),
-            float(ff[i]),
-            float(hh[i]),
-            P[i],
-            info,
-            rule,
-            float(cost[i]),
-            emergency,
+            delta=float(dd[i]),
+            frac=float(ff[i]),
+            hold=float(hh[i]),
+            line=line,
+            off=float(oo[i]) if line else 0.0,
+            traj=P[i],
+            contacts=info,
+            rule=rule,
+            cost=float(cost[i]),
+            emergency=emergency,
         )

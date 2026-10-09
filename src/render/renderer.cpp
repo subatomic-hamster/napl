@@ -187,7 +187,13 @@ std::uint64_t hash_visuals(std::span<const GeomVisual> v) {  // FNV-1a 64 over e
     mix(g.rgba, sizeof g.rgba);
     mix(&g.group, sizeof g.group);
     mix(&g.specular, 4 * sizeof(float));  // specular, shininess, metallic, roughness
-    mix(g.mesh.data(), g.mesh.size() * sizeof(float));
+    mix(&g.water, sizeof g.water);
+    if (g.water) {  // the sea mesh changes every frame and is rewritten in place (Renderer::render): only its size is part of the scene
+      const std::size_t n = g.mesh.size();
+      mix(&n, sizeof n);
+    } else {
+      mix(g.mesh.data(), g.mesh.size() * sizeof(float));
+    }
   }
   return h;
 }
@@ -357,7 +363,7 @@ struct Renderer::Impl {
     std::uint32_t first = 0, count = 0, efirst = 0, ecount = 0;
     float rgba[4] = {}, mat[4] = {};
     double radius = 0;
-    bool visible = false, plane = false;
+    bool visible = false, plane = false, water = false;  // water: the sea mesh (rewritten every frame by update_water)
   };
   struct Target {
     int w = 0, h = 0;
@@ -851,7 +857,7 @@ struct Renderer::Impl {
     V3 lo{1e300, 1e300, 1e300}, hi{-1e300, -1e300, -1e300};
     bool any = false;
     for (std::size_t i = 0; i < draws.size(); ++i) {
-      if (!draws[i].visible || draws[i].plane) continue;
+      if (!draws[i].visible || draws[i].plane || draws[i].water) continue;
       const V3 p{poses[i].pos[0], poses[i].pos[1], poses[i].pos[2]};
       const double r = draws[i].radius;
       lo = {std::min(lo.x, p.x - r), std::min(lo.y, p.y - r), std::min(lo.z, p.z - r)};
@@ -905,6 +911,7 @@ struct Renderer::Impl {
       std::memcpy(d.color, draws[i].rgba, sizeof d.color);
       std::memcpy(d.mat, draws[i].mat, sizeof d.mat);
       d.flags[0] = draws[i].plane ? 1.0f : 0.0f;
+      d.flags[1] = draws[i].water ? 1.0f : 0.0f;
     }
     Verts tv;
     tube_draws.clear();
@@ -951,7 +958,7 @@ struct Renderer::Impl {
     const VkDeviceSize off = 0;
     vkCmdBindVertexBuffers(cb, 0, 1, &vbuf.buf, &off);
     for (std::size_t i = 0; i < draws.size(); ++i) {
-      if (!draws[i].visible || (!planes && draws[i].plane)) continue;
+      if (!draws[i].visible || (!planes && (draws[i].plane || draws[i].water))) continue;  // planes and water cast no shadow
       push(static_cast<std::uint32_t>(i));
       vkCmdDraw(cb, draws[i].count, 1, draws[i].first, 0);
     }
@@ -1133,6 +1140,14 @@ struct Renderer::Impl {
     return out;
   }
 
+  // Overwrites the vertices of draw i (the water mesh) in place; a mesh of another size than the uploaded one is ignored.
+  void update_water(std::size_t i, const std::vector<float>& mesh) {
+    if (i >= draws.size() || !draws[i].water || mesh.empty() || draws[i].count * 6ull != mesh.size()) return;
+    const VkDeviceSize off = static_cast<VkDeviceSize>(draws[i].first) * 6 * sizeof(float), bytes = mesh.size() * sizeof(float);
+    std::memcpy(static_cast<char*>(vbuf.ptr) + off, mesh.data(), bytes);
+    check(vmaFlushAllocation(vma, vbuf.alloc, off, bytes), "vmaFlushAllocation");
+  }
+
   void set_scene(std::span<const GeomVisual> visuals) {
     Verts all;
     std::vector<Draw> next(visuals.size());
@@ -1146,9 +1161,10 @@ struct Renderer::Impl {
       d.mat[0] = g.specular, d.mat[1] = g.shininess, d.mat[2] = g.metallic, d.mat[3] = g.roughness;
       d.visible = d.count > 0 && g.group != 3 && g.rgba[3] > 0;  // group 3: hidden collision geoms (4 = design-builder vehicle geoms: shown)
       d.plane = g.type == GeomType::plane;
+      d.water = g.water;
       d.radius = bound_radius(v);
       all.insert(all.end(), v.begin(), v.end());
-      if (d.visible && !d.plane) {
+      if (d.visible && !d.plane && !d.water) {
         const Verts e = crease_edges(v);
         d.efirst = static_cast<std::uint32_t>(all.size() / 6);
         d.ecount = static_cast<std::uint32_t>(e.size() / 6);
@@ -1389,6 +1405,8 @@ Image Renderer::draw(std::span<const GeomPose> poses, const Camera& cam, int wid
 Image Renderer::render(const Solver& s, const Camera& cam, int width, int height) {
   const std::vector<GeomVisual> v = s.visuals();
   if (hash_visuals(v) != scene_hash_ || p_->draws.size() != v.size()) set_scene(v);
+  for (std::size_t i = 0; i < v.size(); ++i)
+    if (v[i].water) p_->update_water(i, v[i].mesh);
   p_->tubes_in = s.tubes();
   const std::vector<GeomPose> poses = s.poses();
   return p_->draw(poses, cam, width, height);

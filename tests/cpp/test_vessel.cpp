@@ -45,7 +45,7 @@ struct Boat {
   double mass = 20.0, roll_deg = 0.0, thrust_n = 0.0, thrust_y = 0.0, current_x = 0.0, wave_a = 0.0, wave_t = 4.0;
   double aft_kg = 0.0;  // a welded child 0.4 m aft and 0.05 m up: shifts the CoM and gives the inertia a product (Ixz)
   std::string added = "[5,5,4,0.1,0.5,1]", lin = "[4,4,200,1.0,2,4]", quad = "[6,6,0,0,0,0]", extra_sea, fins;  // fins: the JSON array body
-  bool no_sea = false;
+  bool no_sea = false, heading_frame = false;  // heading_frame: the vessel's translational damping and added mass in the yaw-only frame
 };
 std::string boat_xml(const Boat& b) {
   const double total = b.mass + b.aft_kg + (b.thrust_n > 0 ? 0.1 : 0.0);
@@ -70,7 +70,7 @@ std::string boat_xml(const Boat& b) {
   }
   x << "\"vessels\": [{\"name\": \"v\", \"body\": \"hull\", \"hulls\": [{\"shape\": \"box\", \"pos\": [0,0,0], \"size\": [1.0, 0.4, 0.2], "
     << "\"n\": [20, 10, 10]}], \"added_mass\": " << b.added << ", \"damp_lin\": " << b.lin << ", \"damp_quad\": " << b.quad
-    << (b.fins.empty() ? "" : ", \"fins\": [" + b.fins + "]") << "}]";
+    << (b.fins.empty() ? "" : ", \"fins\": [" + b.fins + "]") << (b.heading_frame ? ", \"heading_frame\": true" : "") << "}]";
   if (b.thrust_n > 0)
     x << ", \"solid_motors\": [{\"name\": \"fan\", \"body\": \"motor\", \"site\": \"nozzle\", \"time\": [0.001, 200, 200.001], "
       << "\"thrust\": [" << b.thrust_n << ", " << b.thrust_n << ", 0], \"propellant_mass\": 1e-6, \"total_mass\": 0.1, "
@@ -161,6 +161,29 @@ TEST(vessel, heave_response_to_a_regular_wave) {
   const auto wt = getv(*s, "/devices/sea", "waves");  // a, k, w, theta, phi
   const double x = ms(*s).data().qpos[0], y = ms(*s).data().qpos[1];
   EXPECT_NEAR(get(*s, "/devices/v", "eta"), wt[0] * std::cos(wt[1] * (x * std::cos(wt[3]) + y * std::sin(wt[3])) - wt[2] * t + wt[4]), 2e-3);
+}
+
+// A passive hull in a regular sea must not drift: nothing in the model pushes it (no orbital velocities, no current, no thrust; buoyancy is
+// vertical). With the damping and added mass in the BODY frame the heave force of a pitched hull is tilted by the pitch angle; heave
+// velocity and pitch are correlated in a following sea, so the horizontal part does not average out and the hull propels itself
+// (F_x ~ 1/2 d_heave a^2 omega k). In the heading frame (Vessel.heading_frame) the heave force is vertical and the mean drift is zero.
+TEST(vessel, passive_hull_in_waves_drifts_only_with_body_frame_heave_damping) {
+  double drift[2];
+  for (const bool hf : {false, true}) {
+    Boat b;
+    b.wave_a = 0.12;
+    b.wave_t = 2.0;  // 6 m wavelength on a 1 m hull: a pitch amplitude near the wave slope a k = 0.12 rad
+    b.heading_frame = hf;
+    auto s = make(b);
+    ASSERT_EQ(s->step(30000), 30000);  // transients (surge damping time constant ~ 6 s) are gone
+    const double x0 = ms(*s).data().qpos[0], t0 = ms(*s).data().time;
+    ASSERT_EQ(s->step(60000), 60000);  // 30 wave periods
+    drift[hf] = (ms(*s).data().qpos[0] - x0) / (ms(*s).data().time - t0);
+    EXPECT_NEAR(ms(*s).data().qpos[1], 0.0, 1e-3) << "no sideways drift";
+    EXPECT_FALSE(s->diverged());
+  }
+  EXPECT_GT(std::abs(drift[0]), 0.02) << "the artefact of the body frame: " << drift[0] << " m/s";
+  EXPECT_LT(std::abs(drift[1]), 0.002) << "heading frame: " << drift[1] << " m/s";
 }
 
 // Added mass against an inertia with a product: heave + pitch added mass on a hull whose welded aft mass puts Ixz into the body inertia

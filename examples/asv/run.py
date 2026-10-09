@@ -40,7 +40,7 @@ from asv.geo import (
     yaw_of_quat,
 )
 from asv.perception import Tracker, clusters, scan_points
-from asv.planner import Planner
+from asv.planner import Planner, steer
 from asv.scene import build_spec
 from asv.traffic import TrafficVessel
 
@@ -107,7 +107,15 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
     last_gnss, last_gnss_t, last_frames, last_scan_t = None, {}, -1, -1.0
     tgt_names = [t.name for t in spec.traffic]
     static_pts = np.zeros((0, 2))
-    rows, hist = [], dict(t=[], own=[], psi=[], speed=[], tgt=[], tvel=[])
+    rows = []
+    hist = dict(
+        t=[],
+        own=[],
+        psi=[],
+        speed=[],
+        tgt=[[] for _ in tgt_names],
+        tvel=[[] for _ in tgt_names],
+    )  # tgt / tvel: one list per traffic vessel
     cpa_min, collision, clear_min, done_t = math.inf, 0, math.inf, None
     thr = (0.0, 0.0)
     delta, frac, hold, cur_plan = 0.0, 1.0, 0.0, None
@@ -190,11 +198,15 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
             delta, frac, hold = cur_plan.delta, cur_plan.frac, cur_plan.hold
         if t >= T_CTRL and nav.have_fix:
             if active:
-                # a manoeuvre steers the leg direction plus the offset (no cross-track term), no manoeuvre follows the LOS course
-                psi_cmd, u_cmd = (
-                    (rt["alpha"] + delta if hold > 0 else rt["psi"]),
-                    rt["u"] * frac,
+                # a manoeuvre steers the leg direction plus the offset (no cross-track term) or the LOS course of a parallel line, no manoeuvre follows the LOS course
+                a_, b_ = route.wp[route.k], route.wp[route.k + 1]
+                rtl = dict(
+                    rt,
+                    leg_a=a_,
+                    leg_dir=(b_ - a_) / max(float(np.hypot(*(b_ - a_))), 1e-9),
                 )
+                psi_cmd, u_cmd = steer(cur_plan, rtl, est["pos"]), rt["u"] * frac
+                rt = dict(rt, psi_sp=psi_cmd)
             else:  # settling or finished: hold the heading, no way on
                 psi_cmd, u_cmd = (rt["psi"] if not route.done else est["psi"]), 0.0
             thr = ap.step(
@@ -222,7 +234,9 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
                 sim.set(f"/devices/{name}_esc2", "throttle", float(th[1]))
             tpos.append(tp_[:2].copy())
             tvel.append(bots[name].v.copy())
-        rng_t1 = float(np.hypot(*(tpos[0] - pos[:2]))) if tpos else 999.0
+        rng_t1 = min(
+            (float(np.hypot(*(q - pos[:2]))) for q in tpos), default=999.0
+        )  # the nearest traffic vessel
         if tpos:
             cpa_min = min(cpa_min, rng_t1)
             if rng_t1 < judge.COLLISION_VESSEL:
@@ -238,9 +252,9 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
             hist["own"].append(pos[:2].copy())
             hist["psi"].append(psi_t)
             hist["speed"].append(speed_t)
-            if tpos:
-                hist["tgt"].append(tpos[0])
-                hist["tvel"].append(tvel[0])
+            for i_ in range(len(tpos)):
+                hist["tgt"][i_].append(tpos[i_])
+                hist["tvel"][i_].append(tvel[i_])
         if route.done and done_t is None:
             done_t = t
         # ---- log ------------------------------------------------------------------------------------------------------------------------
@@ -311,8 +325,12 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
         np.sqrt(np.mean([r[6] ** 2 for r in rows if r[0] > 5.0]))
     )
     if spec.traffic:
-        v = judge.verdict(kind, np.array(hist["t"]), own, np.array(hist["psi"]), np.array(hist["speed"]), np.array(hist["tgt"]), np.array(hist["tvel"]),
-                          math.atan2(*(np.array(spec.route[1]) - np.array(spec.route[0]))[::-1]), spec.speed, complied=bool(p["traffic_complies"]))  # fmt: skip
+        v = judge.verdict_all([t_.kind or kind for t_ in spec.traffic], np.array(hist["t"]), own, np.array(hist["psi"]), np.array(hist["speed"]),
+                              [np.array(q) for q in hist["tgt"]], [np.array(q) for q in hist["tvel"]],
+                              math.atan2(*(np.array(spec.route[1]) - np.array(spec.route[0]))[::-1]), spec.speed, complied=bool(p["traffic_complies"]))  # fmt: skip
+        v["collision"] = bool(
+            v["collision"] or collision
+        )  # the judge sees the traffic only; the run also saw a fixed object touched
         res.update(v)
         res["cpa_m"] = v["cpa_m"]
         last = rows[-1]
@@ -390,7 +408,7 @@ def telemetry_record(
         est=dict(lat_lon=ll(*e["pos"]), x_m=round(float(e["pos"][0]), 3), y_m=round(float(e["pos"][1]), 3), heading_deg=round(heading_deg(e["psi"]), 2),
                  sog_ms=round(e["speed"], 3), cog_deg=cog(e["vel"]) if e["speed"] > 0.2 else None, yaw_rate_dps=round(math.degrees(-e["r"]), 2),
                  surge_ms=round(e["u"], 3), sway_ms=round(e["v"], 3)),
-        sp=dict(heading_deg=round(heading_deg(rt["alpha"] + delta if active and plan is not None and plan.hold > 0 else rt["psi"]), 2), speed_ms=round(rt["u"] * frac if active else 0.0, 3),
+        sp=dict(heading_deg=round(heading_deg(rt.get("psi_sp", rt["psi"]) if active else rt["psi"]), 2), speed_ms=round(rt["u"] * frac if active else 0.0, 3),
                 thr_port=round(float(thr[0]), 3), thr_stbd=round(float(thr[1]), 3), course_offset_deg=round(math.degrees(delta) if active else 0.0, 1), speed_frac=round(frac, 2)),
         mission=dict(leg=int(route.k), xte_m=round(float(rt["xte"]), 2), dist_to_wp_m=round(float(rt["dist"]), 1), done=bool(route.done)),
         tracks=contacts,

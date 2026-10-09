@@ -137,7 +137,7 @@ struct VesselCfg {
   Meta meta; std::string body; std::vector<Cell> cells; double volume;  // total hull volume
   std::vector<FinCfg> fins;
   double a[6], dl[6], dq[6];                                            // added mass, linear / quadratic damping
-  bool has_a = false;
+  bool has_a = false, heading_frame = false;  // heading_frame: surge / sway / heave damping and added mass in the yaw-only frame (schema Vessel)
   int bid = -1;
 };
 struct RangefinderCfg {
@@ -348,6 +348,9 @@ void step_vanes(const mjModel* m, mjData* d, Devices& dv);
 // Water (vessel.cpp). Surface elevation at (x, y) at the sea's clock, 0-level plane without a sea; the current (world, horizontal).
 double sea_eta(const Devices& dv, double x, double y);
 void sea_current(const Devices& dv, double out[3]);
+// The sea surface as unrolled triangles (position xyz, smooth normal xyz per vertex; 6 floats) over the grid xs x ys (world coordinates,
+// ascending), at the sea's clock: what the renderer draws as water. Empty without a sea.
+std::vector<float> sea_surface_mesh(const Devices& dv, const std::vector<double>& xs, const std::vector<double>& ys);
 // Last force phase: buoyancy, hydrodynamic damping and the added-mass correction of every vessel, then the sea clock advances.
 void step_vessels(const mjModel* m, mjData* d, Devices& dv);
 

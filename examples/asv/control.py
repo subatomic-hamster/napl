@@ -69,9 +69,15 @@ class Route:
             if last and (dist < g.accept or (along > L and dist < 2 * g.accept)):
                 self.done = True  # reached, or passed abeam of it within twice the radius (a position error of a few metres must not make it circle)
             break
-        psi = alpha - math.atan2(
-            xte, max(g.lookahead, g.lookahead_k * abs(xte))
+        la = max(
+            g.lookahead, g.lookahead_k * abs(xte)
         )  # the look-ahead grows with the error: approach angle below ~30 degrees
+        if last and along + la > L and dist > 1.0:
+            # the look-ahead point would lie beyond the end of the last leg: steer at the end waypoint itself (a boat that detoured 25 m off the leg and came back
+            # towards it would otherwise run past the end on the leg's course and never get within the acceptance radius)
+            psi = math.atan2(b[1] - p[1], b[0] - p[0])
+        else:
+            psi = alpha - math.atan2(xte, la)
         u = self.speeds[self.k]
         if self.k == len(self.wp) - 2 and dist < g.slow_radius:
             u = min(u, g.u_final + (u - g.u_final) * dist / g.slow_radius)

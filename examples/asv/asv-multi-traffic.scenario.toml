@@ -1,0 +1,236 @@
+# napl program examples/asv/asv-multi-traffic.scenario.toml --runs-dir <dir>
+# A crowded harbour: the ASV (assemblies/asv.toml) follows its 160 m leg East at 1.5 m/s past THREE traffic vessels (assemblies/asv-traffic.toml) with mixed roles, one after the
+# other, their action windows overlapping: t3 from the port side gives way (the ASV stands on, Rule 15 / 17), t1 from the starboard side keeps its course (the ASV gives way and
+# passes astern, Rule 15 / 16), t2 on the reciprocal course turns to starboard (the ASV turns to starboard and passes port-to-port, Rule 14). asv/run.py OWNS the Sim, runs the
+# autonomy (asv.estimator -> perception -> planner -> control) and the scripted traffic, and writes trace.csv / replay.naplog / native.json / telemetry.jsonl; the runner judges the
+# monitors on trace.csv (columns from TRUE tracks) and re-runs replay.naplog through napl-replay for the state hash. `colreg_ok` is the judgement of every vessel
+# (examples/asv/judge.py verdict_all): closest approach >= 5 m to each, the Rule-specific manoeuvre per vessel, the stand-on vessel judged where the ASV is not giving way.
+# See examples/asv/README.md.
+name = "asv-multi-traffic"
+
+[model]
+script = "model.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py", "multi_traffic"]
+
+[limits]
+wall_s = 900
+cpu_s = 900
+
+# ---- parameters & telemetry (napl.params) --------------------------------------------------------------------------------------------------------------
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the sensor noise (every device), the JONSWAP phases, the AIS losses and, with jitter > 0, the encounter geometry: the same seed and parameters replay to the same state hash."
+
+[[parameters]]
+name = "hs"
+type = "float"
+default = 0.4
+min = 0.0
+max = 1.0
+unit = "m"
+group = "environment"
+label = "Significant wave height"
+doc = "Hm0 of the JONSWAP sea (gamma 3.3, 24 components, unidirectional). The Monte Carlo draws 0.2 - 0.8 m; the peak period follows the steepness limit (examples/asv/encounters.py peak_period)."
+
+[[parameters]]
+name = "jitter"
+type = "float"
+default = 0.0
+min = 0.0
+max = 1.0
+group = "scenario"
+label = "Geometry scatter"
+doc = "0 = the textbook geometry; 1 = crossing angles, speeds, offsets, meeting points and wave direction drawn from the seed over their ranges (encounters.py)."
+
+[[parameters]]
+name = "ais"
+type = "bool"
+default = true
+group = "scenario"
+label = "Traffic carries AIS"
+doc = "A Class A transponder on every traffic vessel (10 s / 3.3 s turning interval, 1 s latency, 2 % loss, fed by its own GNSS). Off: only the lidar (30 m) sees them."
+
+[[parameters]]
+name = "traffic_complies"
+type = "bool"
+default = true
+group = "scenario"
+label = "Traffic obeys the Rules"
+doc = "Off: the vessels that should give way / turn to starboard keep their course and speed instead."
+
+[[parameters]]
+name = "visual"
+type = "bool"
+default = false
+group = "run"
+label = "Build visual meshes"
+doc = "Generate the part visuals for rendering; the physics and the lidar are the same either way."
+
+[[telemetry]]
+name = "pose.x_m"
+unit = "m"
+group = "truth"
+label = "East (truth)"
+
+[[telemetry]]
+name = "pose.y_m"
+unit = "m"
+group = "truth"
+label = "North (truth)"
+
+[[telemetry]]
+name = "pose.heading_deg"
+unit = "deg"
+group = "truth"
+label = "Heading (truth, clockwise from North)"
+
+[[telemetry]]
+name = "pose.sog_ms"
+unit = "m/s"
+group = "truth"
+label = "Speed over ground (truth)"
+min = 0
+max = 2.5
+
+[[telemetry]]
+name = "est.x_m"
+unit = "m"
+group = "navigation"
+label = "East (estimate)"
+
+[[telemetry]]
+name = "est.y_m"
+unit = "m"
+group = "navigation"
+label = "North (estimate)"
+
+[[telemetry]]
+name = "est.heading_deg"
+unit = "deg"
+group = "navigation"
+label = "Heading (estimate)"
+
+[[telemetry]]
+name = "est.sog_ms"
+unit = "m/s"
+group = "navigation"
+label = "Speed over ground (estimate)"
+min = 0
+max = 2.5
+
+[[telemetry]]
+name = "sp.heading_deg"
+unit = "deg"
+group = "control"
+label = "Heading setpoint"
+
+[[telemetry]]
+name = "sp.speed_ms"
+unit = "m/s"
+group = "control"
+label = "Speed setpoint"
+min = 0
+max = 2.5
+
+[[telemetry]]
+name = "sp.thr_port"
+unit = "1"
+group = "control"
+label = "Port thruster throttle"
+min = -1
+max = 1
+
+[[telemetry]]
+name = "sp.thr_stbd"
+unit = "1"
+group = "control"
+label = "Starboard thruster throttle"
+min = -1
+max = 1
+
+[[telemetry]]
+name = "mission.xte_m"
+unit = "m"
+group = "mission"
+label = "Cross-track error (estimate, + left of the leg)"
+
+[[telemetry]]
+name = "mission.dist_to_wp_m"
+unit = "m"
+group = "mission"
+label = "Distance to the next waypoint"
+
+[[telemetry]]
+name = "rule"
+kind = "string"
+group = "colreg"
+label = "Rule in effect"
+doc = "none, head_on, overtaking, overtaken, crossing_give_way or crossing_stand_on: the situation of the most critical contact."
+
+[[telemetry]]
+name = "emergency"
+kind = "bool"
+group = "colreg"
+label = "Stand-on vessel acting (Rule 17)"
+
+# ---- monitors (judged on trace.csv; the distances come from the TRUE tracks) -----------------------------------------------------------------------------
+[[monitors]]
+name = "no_collision"                  # centre distance to every traffic vessel >= 1.2 m, hull centre >= 0.75 m from any static object
+column = "collision"
+op = "always"
+hi = 0.5
+
+[[monitors]]
+name = "min_cpa_5m"                    # closest approach to any of the three vessels, at least four hull lengths
+column = "cpa_min_m"
+op = "final"
+lo = 5.0
+
+[[monitors]]
+name = "each_vessel_by_the_rules"      # per vessel: head-on port-to-port, crossing astern, no turn to port while giving way, keeps course and speed where it stands on
+column = "side_ok"
+op = "final"
+lo = 0.5
+
+[[monitors]]
+name = "colreg_compliant"
+column = "colreg_ok"
+op = "final"
+lo = 0.5
+
+[[monitors]]
+name = "mission_complete"              # the end waypoint reached (estimate) and the true position within 8 m of it
+column = "mission_done"
+op = "final"
+lo = 0.5
+
+[[monitors]]
+name = "clear_of_fixed_objects"
+column = "static_clear_m"
+op = "final"
+lo = 2.0
+
+[[monitors]]
+name = "estimate_position"             # the GNSS error (2.5 m CEP, slowly varying) bounds this; nothing else is expected to
+column = "est_pos_err_m"
+op = "always"
+from = 6.0
+hi = 8.0
+
+[[monitors]]
+name = "estimate_heading"
+column = "est_hdg_err_deg"
+op = "always"
+from = 6.0
+lo = -15
+hi = 15

@@ -38,30 +38,37 @@ class Transponder:
     def __init__(self, mmsi, lat0, lon0, t_first=1.0):
         self.mmsi = mmsi
         self.lat0, self.lon0 = lat0, lon0
-        self.next_tx = t_first
-        self.last = None  # (t, cog)
+        self.last_tx = t_first - INTERVAL_STEADY  # the first report goes out at t_first
+        self.hist = []  # (t, cog) of the last ~2.5 s of fixes: the rate of turn is a change over about 2 s (single 5 Hz fixes are too noisy: 0.05 m/s at 1.5 m/s is 2 degrees)
         self.rot = 0.0
         self.fixes = None
 
     def fix(self, t, lat, lon, vel_ned):
         vn, ve = float(vel_ned[0]), float(vel_ned[1])
         cog = math.atan2(vn, ve)
-        if self.last is not None and t > self.last[0]:
-            self.rot = abs(wrap(cog - self.last[1])) / (t - self.last[0])
-        if self.last is None or t > self.last[0]:
-            self.last = (t, cog)
+        if not self.hist or t > self.hist[-1][0]:
+            self.hist.append((t, cog))
+        while len(self.hist) > 1 and t - self.hist[1][0] >= 1.9:
+            self.hist.pop(0)
+        t0, c0 = self.hist[0]
+        self.rot = abs(wrap(cog - c0)) / (t - t0) if t - t0 >= 1.5 else 0.0
         self.fixes = (lat, lon, vn, ve)
 
     def poll(self, t):
-        """-> Report or None: called every tick or every control step."""
-        if self.fixes is None or t < self.next_tx:
+        """-> Report or None: called every tick or every control step. The interval in force is re-read at every call, so a vessel that starts to turn reports
+        3 1/3 s after its last report, not 10 s."""
+        if (
+            self.fixes is None
+            or t
+            < self.last_tx
+            + (INTERVAL_TURNING if self.rot > TURN_RATE else INTERVAL_STEADY)
+            - 1e-9
+        ):
             return None
         lat, lon, vn, ve = self.fixes
         sog = round(math.hypot(vn, ve) / KN, 1) * KN
         cog = math.radians(round(math.degrees(math.atan2(vn, ve)) % 360.0 * 10) / 10)
-        self.next_tx = t + (
-            INTERVAL_TURNING if self.rot > TURN_RATE else INTERVAL_STEADY
-        )
+        self.last_tx = t
         return Report(self.mmsi, t, lat, lon, sog, wrap(cog))
 
 

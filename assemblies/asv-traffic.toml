@@ -198,6 +198,7 @@ name = "vessel"
 instance = "hull"
 body = "hull"
 map = "hull_hydro"
+heading_frame = true  # as assemblies/asv.toml
 
 [[devices]]
 type = "battery"

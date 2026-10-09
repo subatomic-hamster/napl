@@ -382,6 +382,10 @@ table Vessel {
   hulls: [Hull];
   added_mass: [double]; damp_lin: [double]; damp_quad: [double];
   fins: [Fin];
+  // true: the translational damping and added mass (surge, sway, heave) act in the HEADING frame (body yaw only, z = world up) instead of
+  // the body frame. A pitched hull heaving in waves then gets a vertical heave force, not one tilted by the pitch angle, which rectifies
+  // into a net surge force (a self-propulsion artefact). Rotational terms and the Munk terms stay in the body frame. Default false = as before.
+  heading_frame: bool = false;
 }
 
 // Range sensor on a site (depth camera, ToF, lidar): deterministic CPU ray casts (mj_multiRay) against the geoms of `ray_groups`,

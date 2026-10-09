@@ -373,6 +373,7 @@ name = "vessel"
 instance = "hull"
 body = "hull"
 map = "hull_hydro"
+heading_frame = true  # surge / sway / heave damping and added mass in the yaw-only frame: a hull in waves does not propel itself (docs/models.md)
 
 [[devices]]
 type = "battery"

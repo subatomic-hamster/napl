@@ -11,7 +11,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-KINDS = ("patrol", "head_on", "crossing_give_way", "crossing_stand_on", "overtaking")
+KINDS = (
+    "patrol",
+    "head_on",
+    "crossing_give_way",
+    "crossing_stand_on",
+    "overtaking",
+    "multi_traffic",
+)
 TUNING_KINDS = (
     "transit",
 )  # a plain 160 m leg without traffic, for tuning and tests; not a scenario
@@ -87,6 +94,7 @@ class Traffic:
     route: list  # waypoints (E, N) the vessel follows (its own autopilot, which sees the true state)
     bot: Bot = field(default_factory=Bot)
     ais: bool = True  # carries an AIS transponder (False: only the lidar can see it)
+    kind: str = ""  # the situation this vessel is judged as (head_on, crossing_give_way, ...); empty: the Spec's kind
 
 
 @dataclass
@@ -224,4 +232,64 @@ def make(kind, seed=1, hs=0.4, jitter=0.0, ais=True, traffic_complies=True) -> S
         ]
         spec.cpa0 = abs(y_off)
         spec.t_end = T_START + 1.4 * LEG / ASV_SPEED + 50
+    elif kind == "multi_traffic":
+        # a crowded harbour: three vessels with mixed roles, one after the other along the leg (the ASV passes x = 35-45 m at 30 s, 60-80 m at 50 s, 110-135 m at 80 s):
+        #   t3 from the port side, heading South-ish, gives way (45 degrees to starboard at 50 m): the ASV stands on (Rule 15 / 17),
+        #   t1 from the starboard side, heading North-ish, keeps its course: the ASV gives way and passes astern (Rule 15 / 16),
+        #   t2 on the reciprocal course, turns to starboard at 45 m: the ASV turns to starboard and passes port-to-port (Rule 14).
+        # Their action windows overlap: t3 is still near when t1 is, and t1 when t2 is.
+        spec.traffic = [
+            _crossing(
+                "t1",
+                "crossing_give_way",
+                j(70.0, 90.0) - 10.0,
+                j(math.radians(75), math.radians(105)),
+                j(0.9, 1.3),
+                ais,
+                traffic_complies,
+            ),
+            _head_on(
+                "t2", j(115.0, 135.0), j(-3.0, 3.0), j(1.2, 1.6), ais, traffic_complies
+            ),
+            _crossing(
+                "t3",
+                "crossing_stand_on",
+                j(32.0, 46.0),
+                -j(math.radians(75), math.radians(105)),
+                j(0.9, 1.3),
+                ais,
+                traffic_complies,
+            ),
+        ]
+        spec.cpa0 = 0.0
+        spec.t_end = T_START + 1.4 * LEG / ASV_SPEED + 40
+    for t_ in spec.traffic:
+        t_.kind = t_.kind or kind
     return spec
+
+
+def _crossing(name, kind, xc, ang, v, ais, complies):
+    """A vessel that crosses the ASV's leg at x = xc (if nobody acts, the ASV is there at the same time): from the starboard side (ang > 0, `keep`) or the port side (ang < 0,
+    gives way)."""
+    d = v * xc / ASV_SPEED
+    p0 = (xc - d * math.cos(ang), -d * math.sin(ang))
+    bot = (
+        Bot("keep")
+        if kind == "crossing_give_way"
+        else Bot("give_way", 50.0, 45.0, complies)
+    )
+    return Traffic(name, p0, ang, v, _line(p0, ang, 260.0), bot, ais, kind)
+
+
+def _head_on(name, xc, y_off, v, ais, complies):
+    x0 = xc + v * xc / ASV_SPEED
+    return Traffic(
+        name,
+        (x0, y_off),
+        math.pi,
+        v,
+        _line((x0, y_off), math.pi, 220.0),
+        Bot("head_on", 45.0, 30.0, complies),
+        ais,
+        "head_on",
+    )
