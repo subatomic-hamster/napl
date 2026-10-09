@@ -244,6 +244,24 @@ class Backend(UiOps):
                 "free": [
                     i["id"] for i in d.doc["instances"] if "pos" in i or "rpy" in i
                 ],
+                # what the window's assembly browser lists besides the instances
+                "mates": [
+                    {"name": m.get("name", ""), "a": m["a"], "b": m["b"]}
+                    for m in d.doc.get("mates", [])
+                ],
+                "wires": [
+                    {
+                        "name": w.get("name", ""),
+                        "from": w["from"],
+                        "to": w["to"],
+                        "awg": w.get("awg", 0),
+                    }
+                    for w in d.doc.get("wires", [])
+                ],
+                "devices": [
+                    {"type": v["type"], "name": v["name"]}
+                    for v in d.doc.get("devices", [])
+                ],
             }
             self._cache = (d, rev, st)
         return {

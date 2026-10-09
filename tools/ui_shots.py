@@ -3,13 +3,17 @@ the host / in remote-out/. Every viewer run is under design_shot.watchdog (the v
 is killed 15 s later), the grab thread closes the viewer in `finally`.
 
 model ASSEMBLY [--out DIR] [--az 40 --el 25 --dist 0.6 --target x,y,z]     offscreen orbit render (GPU)
-ui    SCENE [--out DIR]    SCENE = wiring | wiring-flat | build-tooltip | library | all     viewer under xvfb (GPU + xvfb)
+ui    SCENE [--out DIR] [--size WxH]    SCENE = wiring | wiring-flat | build-tooltip | library | all | wiring-turret
+      | pages (the turret design: BUILD with a selection, LIBRARY, WIRING canvas, PROGRAM, SIMULATE, a camera.orbit pair)
+      viewer under xvfb (GPU + xvfb); files are named ui-<tag>-<W>x<H>.png
 
 tools/remote.sh run --gpu 'timeout 600 .venv/bin/python tools/ui_shots.py ui all --out build/ui'
+tools/remote.sh run --gpu 'timeout 600 .venv/bin/python tools/ui_shots.py ui pages --size 1920x1080 --out build/ui'
 """
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -20,7 +24,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-W, H = 1280, 720
+W, H = (int(v) for v in os.environ.get("NAPL_SHOT_SIZE", "1280x720").split("x"))
 
 # the x500v2 power chain, wired by the "agent" in the canvas (look_shots.py flatten shows the same session)
 PICK = {
@@ -102,6 +106,9 @@ def cmd_model(a):
 
 
 def cmd_ui(a):
+    global W, H
+    os.environ["NAPL_SHOT_SIZE"] = a.size  # the xvfb child reads it
+    W, H = (int(v) for v in a.size.split("x"))
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="napl-xvfb-") as fb:
@@ -132,9 +139,15 @@ def _ui(scene, out, fb):
     d = Design.open(
         REPO
         / "assemblies"
-        / ("turret.toml" if scene == "wiring-turret" else "x500v2.toml")
+        / ("turret.toml" if scene in ("wiring-turret", "pages") else "x500v2.toml")
     )
-    scenes = ["wiring", "build-tooltip", "library"] if scene == "all" else [scene]
+    scenes = (
+        ["wiring", "build-tooltip", "library"]
+        if scene == "all"
+        else ["build", "library", "wiring-turret", "program", "simulate", "camera"]
+        if scene == "pages"
+        else [scene]
+    )
     if "wiring" in scenes:
         for w in UNWIRE:
             d.unwire(w)
@@ -150,7 +163,7 @@ def _ui(scene, out, fb):
 
     def grab(tag):
         img = design_shot.xwd_rgba(Path(fb) / "Xvfb_screen0")
-        (out / f"ui-{tag}.png").write_bytes(_napl.encode_png(img))
+        (out / f"ui-{tag}-{W}x{H}.png").write_bytes(_napl.encode_png(img))
         print("wrote", tag, flush=True)
 
     def session():
@@ -162,7 +175,42 @@ def _ui(scene, out, fb):
                 time.sleep(0.2)
             time.sleep(3)
             for s in scenes:
-                if s == "build-tooltip":
+                if s == "build":
+                    call("ui.mode", {"name": "build"})
+                    call("select", {"instances": []})
+                    call("ui.camera", {"preset": "iso"})
+                    call("ui.frame", {})  # nothing selected: frames everything
+                    time.sleep(1.5)
+                    call("select", {"instances": ["pan"]})
+                    time.sleep(2.5)
+                    grab("build")
+                    call("ui.measure", {"a": "pi", "b": "pan"})
+                    time.sleep(1.5)
+                    grab("build-measure")
+                    call("ui.measure", {"off": True})
+                    call(
+                        "ui.visibility",
+                        {"instances": ["psu", "psu5", "adapter"], "visible": False},
+                    )
+                    time.sleep(1.2)
+                    grab("build-hidden")
+                    call("ui.visibility", {"visible": True})
+                elif s == "program":
+                    call("ui.mode", {"name": "program"})
+                    time.sleep(2)
+                    grab("program")
+                elif s == "simulate":
+                    call("ui.mode", {"name": "simulate"})
+                    time.sleep(2)
+                    grab("simulate")
+                elif s == "camera":  # camera.orbit: two frames of one sweep
+                    call("ui.mode", {"name": "build"})
+                    call("camera.orbit", {"yaw_deg": 90, "seconds": 2.0})
+                    time.sleep(0.3)
+                    grab("camera-a")
+                    time.sleep(2.2)
+                    grab("camera-b")
+                elif s == "build-tooltip":
                     call("ui.mode", {"name": "build"})
                     call("ui.hover", {"instance": "pdb", "seconds": 8})
                     time.sleep(2.5)
@@ -183,6 +231,14 @@ def _ui(scene, out, fb):
                     call("flatten.begin", TURRET_PICK)
                     time.sleep(3.5)
                     grab("wiring-turret")
+                    call(
+                        "ui.wire_view", {"zoom": 0.55}
+                    )  # mid zoom: the wired pins keep their labels
+                    time.sleep(0.8)
+                    grab("wiring-turret-mid")
+                    call("ui.wire_view", {"zoom": 1.0})  # zoomed in: every pin label
+                    time.sleep(0.8)
+                    grab("wiring-turret-zoom")
                     call("flatten.end")
                 elif s == "wiring":
                     call("ui.mode", {"name": "wiring"})
@@ -225,6 +281,7 @@ def main(argv=None):
     p = sub.add_parser("ui")
     p.add_argument("scene")
     p.add_argument("--out", default="build/ui")
+    p.add_argument("--size", default="1280x720")
     p = sub.add_parser("_ui")
     p.add_argument("scene")
     p.add_argument("out")

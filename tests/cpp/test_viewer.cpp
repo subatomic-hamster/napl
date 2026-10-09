@@ -7,6 +7,9 @@
 
 #include <sys/wait.h>
 
+#include <algorithm>
+#include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -386,4 +389,71 @@ TEST(viewer_design, every_mode_draws_and_ui_script_verbs_reach_the_backend_witho
   EXPECT_GE(count("ui_poll"), 1);
   EXPECT_EQ(out.tick, 2u);  // UI state is not a bus command: only the Step ran
   EXPECT_EQ(records(out.log).size(), 1u);
+}
+
+// ---- camera.orbit / camera.fly: the backend's "camera_move" events glide the camera (no bus command; wall-clock time) -----------
+TEST(viewer_design, camera_move_events_sweep_the_orbit_and_fly_the_eye) {
+  NEED_DISPLAY();
+  struct Cam {
+    double pos[3], look[3];
+  };
+  std::vector<Cam> cams;
+  std::atomic<bool> stop{false};
+  std::atomic<std::size_t> nframes{0}, orbit_at{0}, fly_at{0};
+  std::atomic<int> polls{0};
+  Host h(pendulum(), session());
+  ViewerOptions o;
+  o.frames = 6000;  // (a safety net: the overlay stops the run as soon as the fly has arrived)
+  o.width = 640;
+  o.height = 360;
+  o.clean = true;  // the 3D view fills the window: no panel shifts the camera
+  o.stop = &stop;
+  o.overlay = [&](const OverlayCtx& c) {
+    cams.push_back({{c.cam_pos[0], c.cam_pos[1], c.cam_pos[2]}, {c.cam_look[0], c.cam_look[1], c.cam_look[2]}});
+    nframes = cams.size();
+    // the fly's end point is reached: eye (1, 2, 3), look (0, 0, 0.5)
+    if (std::abs(c.cam_pos[0] - 1) < 1e-6 && std::abs(c.cam_pos[1] - 2) < 1e-6 && std::abs(c.cam_pos[2] - 3) < 1e-6) stop = true;
+  };
+  o.design_api = [&](const std::string& req) -> std::string {
+    const design::Json j = design::Parser(req).parse();
+    const std::string tool = j.s("tool");
+    if (tool == "ui_poll") {
+      const int n = ++polls;
+      if (n == 6) {  // a full turn counter-clockwise over 0.8 s (a relative sweep: no shortest-way wrap)
+        orbit_at = nframes.load();
+        return R"({"ok":true,"result":{"events":[{"cmd":"camera_move","kind":"orbit","seconds":0.8,"ease":"linear","relative":true,"yaw_deg":360,"pitch_deg":0}]}})";
+      }
+      if (n == 30) {
+        fly_at = nframes.load();
+        return R"({"ok":true,"result":{"events":[{"cmd":"camera_move","kind":"fly","seconds":0.3,"ease":"smooth","eye":[1,2,3],"look":[0,0,0.5]}]}})";
+      }
+      return R"({"ok":true,"result":{"events":[]}})";
+    }
+    if (tool == "library.categories") return R"({"ok":true,"result":{"categories":[]}})";
+    if (tool == "library.search") return R"({"ok":true,"result":{"total":0,"parts":[]}})";
+    if (tool == "library.ranges") return R"({"ok":true,"result":{"ranges":{}}})";
+    return R"({"ok":true,"result":{},"state":{"rev":"r0","xml":")" + std::string(kModel) + R"(","build_error":"","path":"","undo":0,"redo":0,
+      "report":{"assembly":"pendulum_demo","mass":{"total":1,"by_group":{}},"instances":[{"id":"arm","part":"demo-rod","group":"frame","body":"pole","mass":1}],
+        "targets":[],"findings":[]},"ports":{"arm":[]}}})";
+  };
+  run_viewer(h, o);
+  h.stop();
+  ASSERT_GT(orbit_at.load(), 0u);
+  ASSERT_GT(fly_at.load(), orbit_at.load() + 5);
+  const Cam ref = cams[orbit_at.load() - 1];
+  const double dx0 = ref.pos[0] - ref.look[0], dy0 = ref.pos[1] - ref.look[1], dz0 = ref.pos[2] - ref.look[2], r0 = std::hypot(dx0, dy0);
+  // the orbit: the eye keeps its radius and height; the azimuth sweeps through the far side (a shortest-way wrap would not move
+  // at all for 360 degrees)
+  double max_sep = 0;
+  for (std::size_t i = orbit_at.load(); i < fly_at.load(); ++i) {
+    const double dx = cams[i].pos[0] - cams[i].look[0], dy = cams[i].pos[1] - cams[i].look[1];
+    EXPECT_NEAR(std::hypot(dx, dy), r0, 1e-6 * std::max(1.0, r0)) << "frame " << i << ": the orbit radius must stay";
+    EXPECT_NEAR(cams[i].pos[2] - cams[i].look[2], dz0, 1e-6 * std::max(1.0, std::abs(dz0))) << "frame " << i << ": pitch must stay";
+    max_sep = std::max(max_sep, std::hypot(dx - dx0, dy - dy0));
+  }
+  EXPECT_GT(max_sep, 1.3 * r0) << "the eye never swung to the far side";
+  // the fly: ends exactly at the requested eye / look
+  ASSERT_TRUE(stop.load()) << "the fly never arrived";
+  EXPECT_NEAR(cams.back().look[0], 0, 1e-6);
+  EXPECT_NEAR(cams.back().look[2], 0.5, 1e-6);
 }
