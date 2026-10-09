@@ -68,6 +68,9 @@ def test_visuals_do_not_change_physics(path, tmp_path, lib):
     def physics_only(x):
         x = re.sub(r"<asset>.*?</asset>\s*", "", x, flags=re.DOTALL)
         x = re.sub(r"\s*<geom name=\"[^\"]*:v\d+\"[^>]*/>", "", x)
+        # the cables are visual-only too (inert tendons + massless sites); their route avoids the visual meshes, so it differs
+        x = re.sub(r"\s*<tendon>.*?</tendon>", "", x, flags=re.DOTALL)
+        x = re.sub(r"\s*<site name=\"wire:[^>]*/>", "", x)
         return re.sub(r' rgba="[^"]*"', "", x)
 
     assert physics_only(xml_v) == physics_only(xml_p)
