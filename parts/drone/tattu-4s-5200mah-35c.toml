@@ -43,6 +43,7 @@ kind = "power"
 type = "xt60"
 gender = "male"
 role = "source"
+pins = ["OUT.1", "OUT.2"]
 v_max = { value = 16.8, unit = "V", src = "S2", fidelity = "literature" }
 i_max = { value = 30.0, unit = "A", fidelity = "derived", derivation = "min(pack 35 C x 5.2 Ah = 182 A, XT60 rated continuous 30 A from amass-xt60 current_rated, Amass datasheet RC): the connector at the lead ends limits the port. Burst 60 A (amass-xt60 current_burst)." }
 note = "Main XT60 on the 120 mm 10 AWG discharge leads (S1: 'Main Connector Type XT60', 'Discharge Wire Length 120mm', 'Wire Gauge 10#'); the leads are inside the pack mass. Male plug mates the PM02 power_in (female): the Amass XT60-M/XT60-F gender assignment of the Tattu plug is not stated by Tattu, the male battery plug is the RC convention."
@@ -75,6 +76,27 @@ symmetry = 360
 thickness = 0.0
 fidelity = "derived"
 derivation = "Mirror of rail_l (see there)."
+
+# Pin level: the XT60 plug on the discharge leads (S1: 'Main Connector Type XT60'). The 120 mm leads are inside the pack mass, so the plug is
+# drawn at the pack's front face (+x). Polarity / spacing: the XT60 family's (pin 1 +, 7.2 mm), not stated by Tattu: estimated.
+[[connectors]]
+id = "OUT"
+name = "discharge XT60"
+type = "xt60"
+gender = "male"
+pos = [0.0665, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 names the XT60 plug and the 4S 14.8 V pack but not the pin polarity or contact spacing: + then - in the usual order, 7.2 mm spacing of the XT60 family."
+pins = [
+  { number = 1, name = "BAT+", kind = "power", dir = "out", v = 16.8, i_max = 30.0 },
+  { number = 2, name = "BAT-", kind = "ground", i_max = 30.0 },
+]
 
 [[sources]]
 id = "S1"

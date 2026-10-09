@@ -4,8 +4,10 @@ scripted agent drives the same ops through `Backend`, so a recording shows the U
     flatten.begin   {instances: [id], ports?: {id: [port]} | ["id.port"]}   select components + the terminals to show; opens the canvas
     flatten.layout  {}                                                      auto-layout: signal flow left to right (see `layout`)
     flatten.move_card {id, x, y}                                            move a card (canvas units)
-    flatten.wire    {from, to, awg?, length?}                      drag pin -> pin: the `autowire` op (kind, connector type, gender,
-                                                                            voltage rules); a refusal comes back as {"ok": false, "error": reason}.
+    flatten.wire    {from, to, awg?, length?}                      drag pin -> pin. `from` / `to` are "inst.port" (the `autowire` op: kind,
+                                                                            connector type, gender, voltage rules) or "inst.CONN.PIN" (the
+                                                                            `pinwire` op: one conductor between two real connector pins);
+                                                                            a refusal comes back as {"ok": false, "error": reason}.
                                                                             With `part` (+ length, conductors?, included_in?, name?) it is an
                                                                             explicit `wire` op instead: a lead the user chose, bridging unlike connectors
     flatten.set_wire {name, awg?, length?}                                  change a wire's gauge / length (unwire + wire in one edit)
@@ -14,22 +16,40 @@ scripted agent drives the same ops through `Backend`, so a recording shows the U
     flatten.end     {}                                                      back to 3D: the wires are already in the design (tubes)
 
 Every reply is {"ok": true, "result": {...}, "flatten": <state>, "state": <design state when the design changed>}.
-Canvas state: {"active", "rev", "cards": [{id, part, group, x, y, w, h, band, layer, pins: [{name, kind, type, gender, role, side, row,
-wired}]}], "wires": [{name, from, to, part, awg, length, kind, conductors, route: [[x, y], ...], label: {text, x, y, w, h} | null}],
-"hidden_wires": n}. `route` = orthogonal polyline from the `from` pin to the `to` pin that stays out of every card
+
+Canvas state: {"active", "rev",
+  "cards": [{id, part, group, x, y, w, h, band, layer,
+             pins: [{name, label, kind, type, gender, role, side, row, wired, conn, num, dir, v, tip, flag, flags}],
+             connectors: [{id, name, type, rows, cols, side: "left" | "right" | "both", row, nrows}]}],
+  "wires": [{name, from, to, part, awg, length, kind, conductors, flag, flags,
+             route: [[x, y], ...], strands: [{from, to, route, flag}], label: {text, x, y, w, h} | null}],
+  "hidden_wires": n}.
+
+A card terminal (`pins`) is either a port of the part (`conn` = "", name = the port name, as before) or one real connector pin
+(`conn` = the connector id, name = "CONN.PIN", `num` = the pin id as printed on the part, `label` = "num name", `dir` / `v` from the
+part file, `tip` = the hover text: functions, alternates, ratings). `connectors` are the boxes drawn around pin groups: a one-row
+connector is a column of pins on one side, a two-row header (the Pi's 2 x 20) puts row 0 on the left and row 1 on the right of the
+box, as a schematic symbol, so every pin has a free edge. A connector is shown when a requested port has pins on it or a wire
+lands on it; a port without pins is a single terminal as before.
+A wire is drawn one `strand` per conductor, from the real pins of each end (`from_pins` / `to_pins`, else the two ports' pin lists
+when they match, else one strand port to port); `route` is the first strand's. `flag` = "" | "warning" | "error" from the pin DRC
+rules (drc_pins.py); `flags` = [{code, severity, message}]. Every route is an orthogonal polyline that stays out of every card
 (wire2d_route.py); `label` = where the gauge text goes (centre), null when no free spot is left.
 
 Layout (`layout`): a layered signal-flow drawing. Power band on top: sources (batteries, supplies) in the left layer, then power
 modules / PDBs / BECs, then ESCs / controllers / compute, then loads (motors, servos) on the right; every wire pushes its target at
 least one layer right of its source. Cards that carry no power terminal (receivers, GPS, sensors) form a second band below with
 their own layers, so signal buses stay out of the power flow. Inside a layer the order minimises crossings (barycentre sweeps).
-A pin sits on the card side facing its peers (wire targets to the right -> right side), else by its role (source right, sink left).
-Card width is sized to the text of its pins so labels never overlap.
+A one-row connector (or port) sits on the card side facing its peers (wire targets to the right -> right side), else by its role
+(source right, sink left). Card width is sized to the text of its pins so labels never overlap.
 """
 
+from . import assembly as A
+from . import pins as PN
+from .drc import _add
+from .drc_pins import pin_rules
 from .library import DesignError
 from .wire2d_route import place_labels, route_wires
-from .wiring import wired_ports
 
 HEAD_H, ROW_H, PAD, COL_GAP, ROW_GAP, BAND_GAP = 30, 22, 10, 170, 30, 90
 MIN_W = 190
@@ -60,6 +80,7 @@ RANKS = {
     "radio": 0,
     "pcb.gps": 0,
 }
+_SEV = {"error": 2, "warning": 1, "info": 0}
 
 
 def _rank(cat, roles):
@@ -78,6 +99,35 @@ def _rank(cat, roles):
     return 1
 
 
+def _pin_role(port, pin):
+    r = port.get("role") if port else None
+    if r:
+        return r
+    d = pin.get("dir")
+    return "source" if d == "out" else "sink" if d == "in" else ""
+
+
+def _tip(conn, pin):
+    """Hover text of a pin: id + name, kind / direction / voltage / current, alternate functions, source."""
+    bits = [pin["kind"]]
+    if pin.get("dir"):
+        bits.append(pin["dir"])
+    if pin.get("v") is not None:
+        bits.append(f"{pin['v']:g} V")
+    if pin.get("i_max") is not None:
+        i = pin["i_max"]
+        bits.append(f"max {i:g} A" if i >= 1 else f"max {i * 1000:g} mA")
+    lines = [f"{conn['id']} pin {pin['id']}: {pin['name']}", ", ".join(bits)]
+    alts = list(pin.get("alt", []))
+    for k in range(0, len(alts), 3):
+        lines.append(("alt: " if k == 0 else "     ") + "  ".join(alts[k : k + 3]))
+    if pin.get("note"):
+        lines.append(str(pin["note"]))
+    if pin.get("fidelity"):
+        lines.append(f"{pin.get('src') or ''} {pin['fidelity']}".strip())
+    return "\n".join(lines)
+
+
 class Flatten:
     def __init__(self):
         self.active = False
@@ -85,7 +135,7 @@ class Flatten:
             False  # a card was moved by hand: wiring then leaves the placement alone
         )
         self.rev = 0
-        self.cards = {}  # id -> {"id", "x", "y", "pins": [port names], "sides", "w", "h", "band", "layer"}
+        self.cards = {}  # id -> {"id", "x", "y", "ports": [selected port names], "terms", "blocks", "w", "h", "band", "layer"}
         self.msg = ""
 
     # ---- entry ---------------------------------------------------------------------------------------------------------------
@@ -97,10 +147,8 @@ class Flatten:
                 f"unknown flatten op {tool!r} (begin layout move_card wire set_wire unwire state end)"
             )
         res, changed = fn(b, d, a or {})
-        if changed and self.active and not self.touched:
-            self._layout_cards(
-                b, d
-            )  # no card was placed by hand: the drawing follows the wiring
+        if changed and self.active:
+            self._layout_cards(b, d, place=not self.touched)
         self.rev += 0 if op == "state" else 1
         out = {"ok": True, "result": res, "flatten": self.state(b, d)}
         if changed:
@@ -130,16 +178,25 @@ class Flatten:
             part = d._part(by_id[i]["part"])
             names = [p["name"] for p in part.ports if p.get("kind") in WIRE_KINDS]
             if want and i in want:
-                bad = [p for p in want[i] if p not in names]
+                allowed = names + [p["name"] for p in PN.synthetic_ports(part)]
+                asked = [self._port_name(part, p) for p in want[i]]
+                bad = [p for p, n in zip(want[i], asked) if n not in allowed]
                 if bad:
                     raise DesignError(
                         f"flatten.begin: {i} has no wire port(s) {bad}; wire ports: {names}"
                     )
-                names = [p for p in names if p in want[i]]
-            cards[i] = {"id": i, "x": 0.0, "y": 0.0, "pins": names}
+                names = [n for n in allowed if n in asked]
+            cards[i] = {"id": i, "x": 0.0, "y": 0.0, "ports": names}
         self.cards, self.active, self.touched = cards, True, False
         self._layout_cards(b, d)
         return {"cards": len(cards)}, False
+
+    @staticmethod
+    def _port_name(part, name):
+        """A port name, or a connector id ('J8') for the connector's synthetic port."""
+        if any(p["name"] == name for p in part.ports):
+            return name
+        return name.lower() if name in part.connectors else name
 
     def _layout(self, b, d, a):
         self._need()
@@ -160,12 +217,25 @@ class Flatten:
         self._need()
         for e in ("from", "to"):
             i, _, p = str(a.get(e, "")).partition(".")
-            if i not in self.cards or p not in self.cards[i]["pins"]:
+            if i not in self.cards or (
+                p not in self.cards[i].get("terms", {})
+                and p
+                not in self.cards[i]["ports"]  # a port whose connector pins are drawn
+            ):
                 raise DesignError(
                     f"flatten.wire: {e} '{a.get(e)}' is not a pin on the canvas (flatten.begin chose the terminals)"
                 )
         before = {w.get("name") for w in d.doc.get("wires", [])}
-        op = {"op": "autowire", "a": a["from"], "b": a["to"]}
+        is_pin = [str(a[e]).count(".") >= 2 for e in ("from", "to")]
+        if any(is_pin) and not all(is_pin):
+            raise DesignError(
+                "flatten.wire: both ends must be connector pins (inst.CONN.PIN) or both ports (inst.port)"
+            )
+        op = (
+            {"op": "pinwire", "a": a["from"], "b": a["to"]}
+            if all(is_pin)
+            else {"op": "autowire", "a": a["from"], "b": a["to"]}
+        )
         if a.get(
             "part"
         ):  # an explicit lead (the user picked the wire part): bridges unlike connector families, which autowire refuses
@@ -176,10 +246,20 @@ class Flatten:
                 "part": a["part"],
                 "length": a["length"],
             }
+            if all(is_pin):
+                op["from_pins"] = [a["from"].partition(".")[2]]
+                op["to_pins"] = [a["to"].partition(".")[2]]
+                op["conductors"] = 1
             op.update(
                 {
                     k: a[k]
-                    for k in ("name", "conductors", "included_in")
+                    for k in (
+                        "name",
+                        "conductors",
+                        "included_in",
+                        "from_pins",
+                        "to_pins",
+                    )
                     if a.get(k) is not None
                 }
             )
@@ -245,21 +325,131 @@ class Flatten:
             "rationale": "length set in the 2D wiring view",
         }
 
-    def _port_defs(self, d, iid):
-        inst = next(i for i in d.doc["instances"] if i["id"] == iid)
-        return {p["name"]: p for p in d._part(inst["part"]).ports}
-
-    # ---- layout --------------------------------------------------------------------------------------------------------------
-    def _edges(self, d, defs):
-        """[(from card, to card, from pin, to pin)] of the wires between shown pins, oriented source -> sink by the pins' roles."""
+    # ---- terminals -----------------------------------------------------------------------------------------------------------
+    def _strands(self, d):
+        """One entry per conductor of every wire with an end on the canvas: {wire, k, ia, ta, ib, tb} (terminal names: 'CONN.PIN' of a
+        real pin, else the port name). Wires whose pin lists do not resolve get one port-to-port strand."""
+        try:
+            ctx = A.Ctx(A.Assembly(d.doc), d.lib)
+        except Exception:
+            ctx = None
         out = []
         for w in d.doc.get("wires", []):
-            (fi, _, fp), (ti, _, tp) = w["from"].partition("."), w["to"].partition(".")
+            ia, _, pa = str(w.get("from", "")).partition(".")
+            ib, _, pb = str(w.get("to", "")).partition(".")
+            if ia not in self.cards and ib not in self.cards:
+                continue
+            try:
+                pairs = PN.wire_pairs(ctx, w) if ctx else []
+            except Exception:
+                pairs = []
+            if not pairs:
+                pairs = [(None, None)]
+            for k, (ra, rb) in enumerate(pairs):
+                out.append(
+                    {
+                        "wire": w,
+                        "wn": w.get("name") or f"{w.get('from')}--{w.get('to')}",
+                        "k": k,
+                        "ia": ia,
+                        "ta": ra or pa,
+                        "ib": ib,
+                        "tb": rb or pb,
+                    }
+                )
+        return out
+
+    def _build_terms(self, d, strands):
+        """Terminals + blocks of every card: c["terms"] = {name: terminal dict}, c["blocks"] = [{conn, terms: [names], two}]."""
+        inst = {i["id"]: i for i in d.doc["instances"]}
+        used = {}  # (instance, terminal) -> True
+        for s in strands:
+            used[(s["ia"], s["ta"])] = used[(s["ib"], s["tb"])] = True
+        for iid, c in self.cards.items():
+            part = d._part(inst[iid]["part"])
+            conns = part.connectors
+            ports = {p["name"]: p for p in part.ports}
+            ports.update({p["name"]: p for p in PN.synthetic_ports(part)})
+            show = set()
+            for n in c["ports"]:
+                for r in ports.get(n, {}).get("pins", []):
+                    show.add(PN.split_ref(r)[0])
+            for (i2, t), _ in used.items():
+                if i2 == iid and "." in t:
+                    show.add(PN.split_ref(t)[0])
+            terms, blocks = {}, []
+            for cid, cn in conns.items():
+                if cid not in show:
+                    continue
+                names = []
+                for pid in cn["order"]:
+                    pin = cn["pins"][pid]
+                    port = ports.get(PN.port_of_pin(part, pin["ref"]) or "", {})
+                    t = {
+                        "name": pin["ref"],
+                        "label": f"{pin['id']} {pin['name']}",
+                        "kind": pin["kind"],
+                        "pkind": port.get("kind", "signal"),
+                        "type": cn["type"],
+                        "gender": cn["gender"],
+                        "role": _pin_role(port, pin),
+                        "conn": cid,
+                        "num": pin["id"],
+                        "dir": pin.get("dir", ""),
+                        "v": pin.get("v"),
+                        "tip": _tip(cn, pin),
+                        "cell": pin["cell"],
+                    }
+                    terms[pin["ref"]] = t
+                    names.append(pin["ref"])
+                blocks.append(
+                    {
+                        "conn": cid,
+                        "name": cn["name"],
+                        "type": cn["type"],
+                        "rows": cn["rows"],
+                        "cols": cn["cols"],
+                        "terms": names,
+                        "two": cn["rows"] == 2,
+                    }
+                )
+            covered = {cn["port_type"] or cn["type"] for cn in conns.values()}
+            for n in c["ports"]:
+                p = ports.get(n)
+                if p is None or p.get("pins") or p.get("synthetic"):
+                    continue
+                if p.get("type") in covered and (iid, n) not in used:
+                    continue  # the detailed connector says it better
+                terms[n] = {
+                    "name": n,
+                    "label": n,
+                    "kind": p.get("kind", ""),
+                    "pkind": p.get("kind", ""),
+                    "type": p.get("type", ""),
+                    "gender": p.get("gender", ""),
+                    "role": p.get("role", ""),
+                    "conn": "",
+                    "num": "",
+                    "dir": "",
+                    "v": None,
+                    "tip": "",
+                    "cell": (0, 0),
+                }
+                blocks.append({"conn": "", "terms": [n], "two": False})
+            c["terms"], c["blocks"] = terms, blocks
+
+    # ---- layout --------------------------------------------------------------------------------------------------------------
+    def _edges(self, strands):
+        """[(from card, to card, from term, to term)] of the strands between shown terminals, oriented source -> sink by the roles."""
+        out = []
+        for s in strands:
+            fi, ti, fp, tp = s["ia"], s["ib"], s["ta"], s["tb"]
             if fi == ti or fi not in self.cards or ti not in self.cards:
                 continue
-            if fp not in self.cards[fi]["pins"] or tp not in self.cards[ti]["pins"]:
+            if fp not in self.cards[fi]["terms"] or tp not in self.cards[ti]["terms"]:
                 continue
-            rf, rt = defs[fi][fp].get("role"), defs[ti][tp].get("role")
+            rf = self.cards[fi]["terms"][fp]["role"]
+            rt = self.cards[ti]["terms"][tp]["role"]
             if (
                 rf == "sink"
                 and rt in ("source", "passthrough")
@@ -270,21 +460,19 @@ class Flatten:
             out.append((fi, ti, fp, tp))
         return out
 
-    def _layout_cards(self, b, d):
+    def _layout_cards(self, b, d, place=True):
+        strands = self._strands(d)
+        self._build_terms(d, strands)
         ids = sorted(self.cards)
-        defs = {i: self._port_defs(d, i) for i in ids}
         inst = {i["id"]: i for i in d.doc["instances"]}
         cat = {i: d._part(inst[i]["part"]).category for i in ids}
-        roles = {
-            i: [defs[i][p].get("role") for p in self.cards[i]["pins"]] for i in ids
-        }
+        terms = {i: self.cards[i]["terms"] for i in ids}
+        roles = {i: [t["role"] for t in terms[i].values()] for i in ids}
         band = {
-            i: 0
-            if any(defs[i][p].get("kind") == "power" for p in self.cards[i]["pins"])
-            else 1
+            i: 0 if any(t["pkind"] == "power" for t in terms[i].values()) else 1
             for i in ids
         }
-        edges = [e for e in self._edges(d, defs) if band[e[0]] == band[e[1]]]
+        edges = [e for e in self._edges(strands) if band[e[0]] == band[e[1]]]
         layer = {i: _rank(cat[i], roles[i]) for i in ids}
         for _ in range(
             len(ids)
@@ -320,60 +508,96 @@ class Flatten:
                 col.sort(key=lambda i: (bary(i), i))
                 for k, i in enumerate(col):
                     order[i] = k
-        # sides: facing the peers (by layer), else the role
-        peers = {i: {} for i in ids}  # card -> pin -> [peer cards]
-        for f, t, fp, tp in edges:
-            peers[f].setdefault(fp, []).append(t)
-            peers[t].setdefault(tp, []).append(f)
-        for w in d.doc.get(
-            "wires", []
-        ):  # wires across bands / to unoriented ends still pull a pin towards their peer
-            for e, o in (("from", "to"), ("to", "from")):
-                (ci, _, cp), (oi, _, _) = w[e].partition("."), w[o].partition(".")
-                if (
-                    ci in self.cards
-                    and oi in self.cards
-                    and ci != oi
-                    and cp in self.cards[ci]["pins"]
-                    and oi not in peers[ci].get(cp, [])
-                ):
-                    peers[ci].setdefault(cp, []).append(oi)
+        # horizontal key for "which side do the peers sit on": the layer when the placement is automatic, else the card centres
+        if place:
+            hx = {i: float(layer[i]) for i in ids}
+            same = lambda a_, b_: band[a_] == band[b_]
+        else:
+            hx = {i: self.cards[i]["x"] + self.cards[i].get("w", 0.0) / 2 for i in ids}
+            same = lambda a_, b_: True
+        peers = {i: {} for i in ids}  # card -> terminal -> [peer cards]
+        for s in strands:
+            for ci, ct, oi in (
+                (s["ia"], s["ta"], s["ib"]),
+                (s["ib"], s["tb"], s["ia"]),
+            ):
+                if ci in self.cards and oi in self.cards and ci != oi:
+                    peers[ci].setdefault(ct, []).append(oi)
         for i in ids:
             c = self.cards[i]
-            left, right = [], []
-            for p in c["pins"]:
-                role = defs[i][p].get("role")
-                ps = peers[i].get(p, [])
-                dx = sum((layer[o] - layer[i]) if band[o] == band[i] else 0 for o in ps)
+            cnt = {"left": 0, "right": 0}
+            for blk in c["blocks"]:
+                names = blk["terms"]
+                dx = sum(
+                    (hx[o] - hx[i]) if same(o, i) else 0
+                    for n in names
+                    for o in peers[i].get(n, [])
+                )
+                rs = [terms[i][n]["role"] for n in names]
                 if dx > 0:
                     side = "right"
                 elif dx < 0:
                     side = "left"
-                elif role == "source":
+                elif "source" in rs and "sink" not in rs:
                     side = "right"
-                elif role == "sink":
+                elif "sink" in rs and "source" not in rs:
                     side = "left"
                 else:
-                    side = "left" if len(left) <= len(right) else "right"
-                (left if side == "left" else right).append(p)
-            c["_left"], c["_right"] = left, right
-            nr = max(1, len(left), len(right))
-            nm = lambda p: (
-                len(p) * CW_NAME + len(defs[i][p].get("type", "")) * CW_TYPE + PIN_PAD
+                    side = "left" if cnt["left"] <= cnt["right"] else "right"
+                if blk["conn"] and blk["two"]:
+                    start = max(cnt["left"], cnt["right"])
+                    blk["row"], blk["side"] = start, "both"
+                    ncol = max(terms[i][n]["cell"][0] for n in names) + 1
+                    for n in names:
+                        t = terms[i][n]
+                        t["side"] = "left" if t["cell"][1] % 2 == 0 else "right"
+                        t["row"] = start + 1 + t["cell"][0]
+                    blk["nrows"] = ncol + 1
+                    cnt["left"] = cnt["right"] = start + 1 + ncol
+                elif blk["conn"]:
+                    blk["row"], blk["side"] = cnt[side], side
+                    for k, n in enumerate(names):
+                        terms[i][n]["side"], terms[i][n]["row"] = (
+                            side,
+                            cnt[side] + 1 + k,
+                        )
+                    blk["nrows"] = len(names) + 1
+                    cnt[side] += 1 + len(names)
+                else:
+                    t = terms[i][names[0]]
+                    t["side"], t["row"] = side, cnt[side]
+                    cnt[side] += 1
+            nr = max(1, cnt["left"], cnt["right"])
+            lw = [t for t in terms[i].values() if t["side"] == "left"]
+            rw = [t for t in terms[i].values() if t["side"] == "right"]
+            nm = lambda t: (
+                len(t["label"]) * CW_NAME
+                + (len(t["type"]) * CW_TYPE if not t["conn"] else 0)
+                + PIN_PAD
             )
             pin_w = (
-                max((nm(p) for p in left), default=0)
-                + max((nm(p) for p in right), default=0)
+                max((nm(t) for t in lw), default=0)
+                + max((nm(t) for t in rw), default=0)
                 + MID_GAP
+            )
+            title_w = max(
+                (
+                    len(f"{k['conn']}  {k['name']}") * CW_NAME * 0.8 + 20
+                    for k in c["blocks"]
+                    if k["conn"]
+                ),
+                default=0,
             )
             head_w = max(len(i) * CW_HEAD, len(inst[i]["part"]) * CW_PART) + 24
             c["w"], c["h"] = (
-                float(max(MIN_W, pin_w, head_w)),
+                float(max(MIN_W, pin_w, head_w, title_w)),
                 float(HEAD_H + PAD + nr * ROW_H),
             )
             c["band"], c["layer"] = band[i], layer[i]
+        if not place:
+            return
         # positions: columns left to right, cards stacked and centred on a common mid line per band
-        x, top = 40.0, 30.0
+        top = 30.0
         for bd in (0, 1):
             keys = sorted(k for k in cols if k[0] == bd)
             if not keys:
@@ -394,48 +618,67 @@ class Flatten:
                     y += c["h"] + ROW_GAP
                 x += cw + COL_GAP
             top += tall + BAND_GAP
-        # pin rows: ordered by the height of their peers (fewer crossings), then their name order
-        cy = {i: self.cards[i]["y"] + self.cards[i]["h"] / 2 for i in ids}
-        for i in ids:
-            c = self.cards[i]
-            c["sides"] = {}
-            for side, names in (("left", c.pop("_left")), ("right", c.pop("_right"))):
-
-                def key(p):
-                    ps = peers[i].get(p, [])
-                    return (
-                        sum(cy[o] for o in ps) / len(ps) if ps else cy[i],
-                        c["pins"].index(p),
-                    )
-
-                for r, p in enumerate(sorted(names, key=key)):
-                    c["sides"][p] = (side, r)
 
     # ---- state ---------------------------------------------------------------------------------------------------------------
+    def _pin_findings(self, d):
+        """{terminal 'inst.name' or wire name: [{code, severity, message}]} from the pin DRC rules (cheap: no build)."""
+        out = {}
+        try:
+            ctx = A.Ctx(A.Assembly(d.doc), d.lib)
+            F = []
+            pin_rules(ctx, F, _add)
+        except Exception:
+            return out
+        for f in F:
+            for w in f.where:
+                out.setdefault(w, []).append(
+                    {"code": f.code, "severity": f.severity, "message": f.message}
+                )
+        return out
+
+    @staticmethod
+    def _worst(flags):
+        return max((f["severity"] for f in flags), key=lambda s: _SEV[s], default="")
+
     def state(self, b, d) -> dict:
-        cards, shown = [], set()
-        wired = wired_ports(d.doc)
+        strands = self._strands(d)
+        flags = self._pin_findings(d)
+        wired = set()
+        for s in strands:
+            wired.add((s["ia"], s["ta"]))
+            wired.add((s["ib"], s["tb"]))
+        cards = []
         for c in self.cards.values():
-            defs = self._port_defs(d, c["id"])
-            sides = c["sides"]
             part = next(i["part"] for i in d.doc["instances"] if i["id"] == c["id"])
             grp = next(
                 i.get("group", "") for i in d.doc["instances"] if i["id"] == c["id"]
             )
             pins = []
-            for n in c["pins"]:
-                p = defs[n]
-                shown.add(f"{c['id']}.{n}")
+            for t in sorted(c["terms"].values(), key=lambda t: (t["side"], t["row"])):
+                fl = flags.get(f"{c['id']}.{t['name']}", [])
                 pins.append(
                     {
-                        "name": n,
-                        "kind": p.get("kind", ""),
-                        "type": p.get("type", ""),
-                        "gender": p.get("gender", ""),
-                        "role": p.get("role", ""),
-                        "side": sides[n][0],
-                        "row": sides[n][1],
-                        "wired": (c["id"], n) in wired,
+                        **{
+                            k: t[k]
+                            for k in (
+                                "name",
+                                "label",
+                                "kind",
+                                "type",
+                                "gender",
+                                "role",
+                                "conn",
+                                "num",
+                                "dir",
+                                "v",
+                                "tip",
+                                "side",
+                                "row",
+                            )
+                        },
+                        "wired": (c["id"], t["name"]) in wired,
+                        "flag": self._worst(fl),
+                        "flags": fl,
                     }
                 )
             cards.append(
@@ -450,6 +693,23 @@ class Flatten:
                     "band": c["band"],
                     "layer": c["layer"],
                     "pins": pins,
+                    "connectors": [
+                        {
+                            k: blk[k]
+                            for k in (
+                                "name",
+                                "type",
+                                "rows",
+                                "cols",
+                                "side",
+                                "row",
+                                "nrows",
+                            )
+                        }
+                        | {"id": blk["conn"]}
+                        for blk in c["blocks"]
+                        if blk["conn"]
+                    ],
                 }
             )
         rep = []
@@ -458,43 +718,71 @@ class Flatten:
         except Exception:  # a design that does not build has no lengths
             pass
         length = {r["name"]: r.get("length") for r in rep}
-        wires, hidden = [], 0
-        for w in d.doc.get("wires", []):
-            if w["from"] in shown and w["to"] in shown:
-                part = d._part(w["part"])
-                kind = (
-                    d._part(
-                        next(
-                            i["part"]
-                            for i in d.doc["instances"]
-                            if i["id"] == w["from"].partition(".")[0]
-                        )
-                    )
-                    .port(w["from"].partition(".")[2])
-                    .get("kind", "")
-                )
-                wires.append(
+        shown = {
+            (c["id"], t["name"])
+            for c in self.cards.values()
+            for t in c["terms"].values()
+        }
+        by_wire, hidden = {}, set()
+        for s in strands:
+            if (s["ia"], s["ta"]) in shown and (s["ib"], s["tb"]) in shown:
+                by_wire.setdefault(s["wn"], []).append(s)
+            else:
+                hidden.add(s["wn"])
+        flat = []  # the strands to route: {"name", "from", "to"}
+        for name, ss in by_wire.items():
+            for s in ss:
+                flat.append(
                     {
-                        "name": w.get("name", f"{w['from']}--{w['to']}"),
-                        "from": w["from"],
-                        "to": w["to"],
-                        "part": w["part"],
-                        "awg": part.value("awg"),
-                        "length": length.get(w.get("name")),
-                        "kind": kind,
-                        "conductors": w.get("conductors", 1),
+                        "name": f"{name}#{s['k']}",
+                        "from": f"{s['ia']}.{s['ta']}",
+                        "to": f"{s['ib']}.{s['tb']}",
                     }
                 )
-            elif w["from"] in shown or w["to"] in shown:
-                hidden += 1
-        routes = route_wires(cards, wires)
-        labels = place_labels(cards, wires, routes)
+        routes = route_wires(cards, flat)
+        wires = []
+        for w in d.doc.get("wires", []):
+            wn = w.get("name") or f"{w.get('from')}--{w.get('to')}"
+            ss = by_wire.get(wn)
+            if not ss:
+                continue
+            part = d._part(w["part"])
+            kind = self.cards[ss[0]["ia"]]["terms"][ss[0]["ta"]]["pkind"]
+            fl = flags.get(wn, [])
+            wires.append(
+                {
+                    "name": wn,
+                    "from": w["from"],
+                    "to": w["to"],
+                    "part": w["part"],
+                    "awg": part.value("awg"),
+                    "length": length.get(wn),
+                    "kind": kind,
+                    "conductors": w.get("conductors", 1),
+                    "flag": self._worst(fl),
+                    "flags": fl,
+                    "strands": [
+                        {
+                            "from": f"{s['ia']}.{s['ta']}",
+                            "to": f"{s['ib']}.{s['tb']}",
+                            "route": routes[f"{wn}#{s['k']}"],
+                            "flag": self._worst(
+                                flags.get(f"{s['ia']}.{s['ta']}", [])
+                                + flags.get(f"{s['ib']}.{s['tb']}", [])
+                            ),
+                        }
+                        for s in ss
+                    ],
+                }
+            )
+        first = {w["name"]: w["strands"][0]["route"] for w in wires}
+        labels = place_labels(cards, wires, first)
         for w in wires:
-            w["route"], w["label"] = routes[w["name"]], labels.get(w["name"])
+            w["route"], w["label"] = first[w["name"]], labels.get(w["name"])
         return {
             "active": self.active,
             "rev": self.rev,
             "cards": cards,
             "wires": wires,
-            "hidden_wires": hidden,
+            "hidden_wires": len(hidden - set(by_wire)),
         }

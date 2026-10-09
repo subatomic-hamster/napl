@@ -68,6 +68,7 @@ lead = { length = "cable_length" }   # pre-attached 26 cm cable (see note)
 kind ="signal"
 type = "jst-gh.10"
 gender = "female"
+pins = ["GPS.1", "GPS.2", "GPS.3", "GPS.4", "GPS.5", "GPS.6", "GPS.7", "GPS.8", "GPS.9", "GPS.10"]
 note = "Pre-attached 26 cm cable (S1 'Cable Length 26cm') ending in a 10-pin connector for the Pixhawk GPS1 header (10 pins listed on the Holybro Pixhawk 6C ports page, 2026-10-07); JST-GH family and the 10-pin count of the M8N cable are assumed (estimated): the M8N column is missing from the family table. Female cable-side housing mates the Pixhawk gps1 (male). Supply 4.7-5.2 V, < 200 mA (params)."
 
 [visual]                            # cosmetic only (parts/README.md "Visual layer")
@@ -76,6 +77,34 @@ note = "Black domed puck with a white forward arrow (product photo)."
 
 [[visual.elements]]
 gen = "gnss_puck"
+
+# Pin level: the pre-attached cable plug. Holybro's M8N page points to a separate pinout page that was not retrievable; the cable plugs into
+# the Pixhawk GPS1 header, so pin n of this plug is pin n of GPS1 (holybro-pixhawk-6c S10), signal names mirrored (module TX meets FC RX).
+[[connectors]]
+id = "GPS"
+name = "GPS cable plug (JST-GH 10)"
+type = "jst-gh-10"
+gender = "female"
+pos = [-0.025, 0.0, 0.0072]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 10
+pitch = 0.00125
+fidelity = "derived"
+derivation = "A straight cable to the Pixhawk 6C GPS1 header (10 pins: 1 VCC +5V, 2 TX1, 3 RX1, 4 SCL1, 5 SDA1, 6 SAFETY_SWITCH, 7 SAFETY_SWITCH_LED, 8 IO_VDD_3V3, 9 BUZZER-, 10 GND); the module's own pin names are the FC's with TX / RX mirrored. The 10-pin count of the M8N cable is itself an assumption of this library (see port gps_out)."
+pins = [
+  { number = 1, name = "VCC", kind = "power", dir = "in", v = 5.0, v_min = 4.7, v_max = 5.2 },
+  { number = 2, name = "RX", kind = "signal", dir = "in", v = 3.3, alt = ["UART RX"] },
+  { number = 3, name = "TX", kind = "signal", dir = "out", v = 3.3, alt = ["UART TX"] },
+  { number = 4, name = "SCL", kind = "signal", dir = "io", v = 3.3, alt = ["I2C SCL"] },
+  { number = 5, name = "SDA", kind = "signal", dir = "io", v = 3.3, alt = ["I2C SDA"] },
+  { number = 6, name = "SAFETY_SWITCH", kind = "signal", dir = "out", v = 3.3 },
+  { number = 7, name = "SAFETY_SWITCH_LED", kind = "signal", dir = "in", v = 3.3 },
+  { number = 8, name = "IO_VDD_3V3", kind = "power", dir = "in", v = 3.3 },
+  { number = 9, name = "BUZZER-", kind = "signal", dir = "in", v = 5.0 },
+  { number = 10, name = "GND", kind = "ground" },
+]
 
 [[sources]]
 id = "V1"

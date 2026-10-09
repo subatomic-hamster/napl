@@ -51,6 +51,7 @@ type = "jst-gh.6"
 gender = "male"
 role = "sink"
 v_max = { value = 6.0, unit = "V", src = "S1", fidelity = "datasheet" }
+pins = ["POWER1.1", "POWER1.2", "POWER1.3", "POWER1.4", "POWER1.5", "POWER1.6"]
 note = "POWER1 header (6 pins listed on the Holybro Pixhawk 6C ports page, fetched 2026-10-07); mates the PM02 fc_power cable (female housing). 'max_input_voltage' 6 V per params. The JST-GH family name is the Pixhawk-standard assumption (the page lists pins, not the connector name): estimated."
 
 [[ports]]
@@ -58,6 +59,7 @@ name = "gps1"
 kind = "signal"
 type = "jst-gh.10"
 gender = "male"
+pins = ["GPS1.1", "GPS1.2", "GPS1.3", "GPS1.4", "GPS1.5", "GPS1.6", "GPS1.7", "GPS1.8", "GPS1.9", "GPS1.10"]
 note = "GPS1 header (10 pins listed on the Holybro ports page, 2026-10-07; JST-GH family: literature by DS-009 compliance, S8/S9, see the round-3 note below); mates the M8N GPS cable (female housing, 26 cm, holybro-m8n-gps)."
 
 [[ports]]
@@ -65,6 +67,7 @@ name = "telem1"
 kind = "signal"
 type = "jst-gh.6"
 gender = "male"
+pins = ["TELEM1.1", "TELEM1.2", "TELEM1.3", "TELEM1.4", "TELEM1.5", "TELEM1.6"]
 note = "TELEM1 header (6 pins listed on the Holybro ports page, 2026-10-07; JST-GH family: literature by DS-009 compliance, S8/S9, see the round-3 note below); the SiK radio connects here. The radio cable is not a filed part, so holybro-sik-telemetry-radio-v3 declares its port neutral."
 
 [[ports]]
@@ -72,6 +75,7 @@ name = "pwm1"
 kind = "signal"
 type = "pwm"
 gender = "neutral"
+pins = ["FMU_PWM.2", "FMU_PWM.10"]   # FMU_CH1 + GND of the breakout lead (the servo lead's black wire)
 note = "FMU PWM Out channel 1 (motor 1): the PX4 X500 V2 + Pixhawk 6C airframe is 'preconfigured with the motors on the FMU PWM Out' (S3). Channel-to-motor numbering follows PX4's quad-X motor order and is not quoted here; the breakout cable (10-pin FMU PWM Out header, listed on the ports page) is folded into the port."
 
 [[ports]]
@@ -79,6 +83,7 @@ name = "pwm2"
 kind = "signal"
 type = "pwm"
 gender = "neutral"
+pins = ["FMU_PWM.3", "FMU_PWM.10"]
 note = "FMU PWM Out channel 2 (motor 2); see pwm1."
 
 [[ports]]
@@ -86,6 +91,7 @@ name = "pwm3"
 kind = "signal"
 type = "pwm"
 gender = "neutral"
+pins = ["FMU_PWM.4", "FMU_PWM.10"]
 note = "FMU PWM Out channel 3 (motor 3); see pwm1."
 
 [[ports]]
@@ -93,6 +99,7 @@ name = "pwm4"
 kind = "signal"
 type = "pwm"
 gender = "neutral"
+pins = ["FMU_PWM.5", "FMU_PWM.10"]
 note = "FMU PWM Out channel 4 (motor 4); see pwm1."
 
 # ---- Round 3 interface completeness (Holybro ports page S7, Pixhawk Connector Standard S8, PX4 6C page S9). Pin 1 is the
@@ -407,6 +414,223 @@ note = "Black matte case with a lower connector step carrying three rows of crea
 gen = "board_fc"
 params = { case = true }
 colors = { pcb = "plastic-black", label = "plastic-dark" }
+
+# ---- Connectors (pin level). Pin tables: S10 (Holybro ports page: pin number, colour, signal, level), JST-GH 1.25 mm family by DS-009 (S8, S9).
+# Pin 1 is on the controller's right side (S10). Poses are estimates on the 84.8 x 44 x 12.4 mm case (the ports page has a photo, no drawing):
+# the JST-GH ports along the -y long side, the two servo-output headers on the ends.
+[[connectors]]
+id = "POWER1"
+name = "POWER1"
+type = "jst-gh-6"
+gender = "male"
+pos = [-0.034, -0.022, 0.0062]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+src = "S10"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "VDD5V_BRICK1", kind = "power", dir = "in", v = 5.0, v_max = 6.0, note = "red" },
+  { number = 2, name = "VDD5V_BRICK1", kind = "power", dir = "in", v = 5.0, v_max = 6.0 },
+  { number = 3, name = "CURRENT1", kind = "signal", dir = "in", v = 3.3 },
+  { number = 4, name = "VOLTAGE1", kind = "signal", dir = "in", v = 3.3 },
+  { number = 5, name = "GND", kind = "ground" },
+  { number = 6, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "TELEM1"
+name = "TELEM1"
+type = "jst-gh-6"
+gender = "male"
+pos = [-0.022, -0.022, 0.0062]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+src = "S10"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "VCC", kind = "power", dir = "out", v = 5.0, i_max = 1.5, note = "red; TELEM1 limiter 1.5 A (S9)" },
+  { number = 2, name = "UART7_TX", kind = "signal", dir = "out", v = 3.3 },
+  { number = 3, name = "UART7_RX", kind = "signal", dir = "in", v = 3.3 },
+  { number = 4, name = "UART7_CTS", kind = "signal", dir = "in", v = 3.3 },
+  { number = 5, name = "UART7_RTS", kind = "signal", dir = "out", v = 3.3 },
+  { number = 6, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "TELEM2"
+name = "TELEM2"
+type = "jst-gh-6"
+gender = "male"
+pos = [-0.010, -0.022, 0.0062]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+src = "S7"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "VCC", kind = "power", dir = "out", v = 5.0, i_max = 1.5 },
+  { number = 2, name = "UART5_TX", kind = "signal", dir = "out", v = 3.3 },
+  { number = 3, name = "UART5_RX", kind = "signal", dir = "in", v = 3.3 },
+  { number = 4, name = "UART5_CTS", kind = "signal", dir = "in", v = 3.3 },
+  { number = 5, name = "UART5_RTS", kind = "signal", dir = "out", v = 3.3 },
+  { number = 6, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "GPS1"
+name = "GPS1"
+type = "jst-gh-10"
+gender = "male"
+pos = [0.008, -0.022, 0.0062]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 10
+pitch = 0.00125
+src = "S10"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "VCC", kind = "power", dir = "out", v = 5.0, i_max = 1.5, note = "red" },
+  { number = 2, name = "TX1", kind = "signal", dir = "out", v = 3.3, alt = ["UART TX"] },
+  { number = 3, name = "RX1", kind = "signal", dir = "in", v = 3.3, alt = ["UART RX"] },
+  { number = 4, name = "SCL1", kind = "signal", dir = "io", v = 3.3, alt = ["I2C SCL"] },
+  { number = 5, name = "SDA1", kind = "signal", dir = "io", v = 3.3, alt = ["I2C SDA"] },
+  { number = 6, name = "SAFETY_SWITCH", kind = "signal", dir = "in", v = 3.3 },
+  { number = 7, name = "SAFETY_SWITCH_LED", kind = "signal", dir = "out", v = 3.3 },
+  { number = 8, name = "IO_VDD_3V3", kind = "power", dir = "out", v = 3.3 },
+  { number = 9, name = "BUZZER-", kind = "signal", dir = "out", v = 5.0, note = "0 to 5 V" },
+  { number = 10, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "CAN1"
+name = "CAN1 and CAN2"
+type = "jst-gh-4"
+gender = "male"
+pos = [0.026, -0.022, 0.0062]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 4
+pitch = 0.00125
+src = "S7"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "VCC", kind = "power", dir = "out", v = 5.0, i_max = 1.5 },
+  { number = 2, name = "CAN1_H", kind = "signal", dir = "io", v = 3.3 },
+  { number = 3, name = "CAN1_L", kind = "signal", dir = "io", v = 3.3 },
+  { number = 4, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "POWER2"
+name = "POWER2"
+type = "jst-gh-6"
+gender = "male"
+pos = [-0.034, 0.022, 0.0062]
+axis = [0.0, 1.0, 0.0]
+ref = [-1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00125
+fidelity = "derived"
+derivation = "S10 prints one table for 'Power 1 & 2'; the second port repeats it, with the signal names of port 2 following the table's own numbering (VDD5V_BRICK2, CURRENT2, VOLTAGE2)."
+pins = [
+  { number = 1, name = "VDD5V_BRICK2", kind = "power", dir = "in", v = 5.0, v_max = 6.0 },
+  { number = 2, name = "VDD5V_BRICK2", kind = "power", dir = "in", v = 5.0, v_max = 6.0 },
+  { number = 3, name = "CURRENT2", kind = "signal", dir = "in", v = 3.3 },
+  { number = 4, name = "VOLTAGE2", kind = "signal", dir = "in", v = 3.3 },
+  { number = 5, name = "GND", kind = "ground" },
+  { number = 6, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "PPM_SBUS"
+name = "PPM / SBUS RC input"
+type = "jst-gh-5"
+gender = "male"
+pos = [-0.022, 0.022, 0.0062]
+axis = [0.0, 1.0, 0.0]
+ref = [-1.0, 0.0, 0.0]
+rows = 1
+cols = 5
+pitch = 0.00125
+src = "S7"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "VDD_5V_PPM_SBUS", kind = "power", dir = "out", v = 5.0 },
+  { number = 2, name = "PPM&SBUS_IN", kind = "signal", dir = "in", v = 3.3, note = "yellow" },
+  { number = 3, name = "RSSI_IN", kind = "signal", dir = "in", v = 3.3 },
+  { number = 4, name = "NC", kind = "nc", note = "red; not connected" },
+  { number = 5, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "FMU_PWM"
+name = "FMU PWM OUT (AUX OUT)"
+type = "jst-gh-10"
+gender = "male"
+pos = [-0.0424, 0.0, 0.0062]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 10
+pitch = 0.00125
+src = "S10"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "VDD_Servo", kind = "power", dir = "in", note = "red; servo rail input 0 to 36 V (S9)" },
+  { number = 2, name = "FMU_CH1", kind = "signal", dir = "out", v = 3.3 },
+  { number = 3, name = "FMU_CH2", kind = "signal", dir = "out", v = 3.3 },
+  { number = 4, name = "FMU_CH3", kind = "signal", dir = "out", v = 3.3 },
+  { number = 5, name = "FMU_CH4", kind = "signal", dir = "out", v = 3.3 },
+  { number = 6, name = "FMU_CH5", kind = "signal", dir = "out", v = 3.3 },
+  { number = 7, name = "FMU_CH6", kind = "signal", dir = "out", v = 3.3 },
+  { number = 8, name = "FMU_CH7", kind = "signal", dir = "out", v = 3.3 },
+  { number = 9, name = "FMU_CH8", kind = "signal", dir = "out", v = 3.3 },
+  { number = 10, name = "GND", kind = "ground" },
+]
+
+[[connectors]]
+id = "IO_PWM"
+name = "I/O PWM OUT (MAIN OUT)"
+type = "jst-gh-10"
+gender = "male"
+pos = [0.0424, 0.0, 0.0062]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 10
+pitch = 0.00125
+src = "S10"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "VDD_Servo", kind = "power", dir = "in", note = "red" },
+  { number = 2, name = "IO_CH1", kind = "signal", dir = "out", v = 3.3 },
+  { number = 3, name = "IO_CH2", kind = "signal", dir = "out", v = 3.3 },
+  { number = 4, name = "IO_CH3", kind = "signal", dir = "out", v = 3.3 },
+  { number = 5, name = "IO_CH4", kind = "signal", dir = "out", v = 3.3 },
+  { number = 6, name = "IO_CH5", kind = "signal", dir = "out", v = 3.3 },
+  { number = 7, name = "IO_CH6", kind = "signal", dir = "out", v = 3.3 },
+  { number = 8, name = "IO_CH7", kind = "signal", dir = "out", v = 3.3 },
+  { number = 9, name = "IO_CH8", kind = "signal", dir = "out", v = 3.3 },
+  { number = 10, name = "GND", kind = "ground" },
+]
+
+[[sources]]
+id = "S10"
+url = "https://docs.holybro.com/autopilot/pixhawk-6c/pixhawk-6c-ports.md"
+title = "Pixhawk 6C Ports (Holybro docs), pinout tables (read through a page summariser, 2026-10-08)"
+accessed = "2026-10-08"
+quote = "Pin 1 starts from the flight controllers \"right side\" like diagram below. || Power 1 & 2 | 1(red) VDD5V_BRICK1 (in) +5V | 2(black) VDD5V_BRICK1 (in) +5V | 3(black) CURRENT1 +3.3V | 4(black) VOLTAGE1 +3.3V | 5(black) GND | 6(black) GND || GPS 1 | 1(red) VCC +5V | 2(black) TX1 (out) +3.3V | 3(black) RX1 (in) +3.3V | 4(black) SCL1 +3.3V | 5(black) SDA1 +3.3V | 6(black) SAFETY_SWITCH +3.3V | 7(black) SAFETY_SWITCH_LED +3.3V | 8(black) IO_VDD_3V3 +3.3V | 9(black) BUZZER- 0~5V | 10(black) GND || Telem 1 | 1(red) VCC +5V | 2(black) UART7_TX (out) +3.3V | 3(black) UART7_RX (in) +3.3V | 4(black) UART7_CTS (in) +3.3V | 5(black) UART7_RTS (out) +3.3V | 6(black) GND || FMU PWM OUT (AUX OUT) | 1(red) VDD_Servo | 2(black) FMU_CH1 +3.3V | ... | 9(black) FMU_CH8 +3.3V | 10(black) GND || I/O PWM OUT (MAIN OUT) | 1 (Red) VDD_Servo | 2 (Black) IO_CH1 +3.3V ... 9 (Black) IO_CH8 +3.3V | 10(Black) GND"
 
 [[sources]]
 id = "V1"

@@ -350,23 +350,33 @@ outlines), `noshadows` (the sun shadow map), `nowires`, `boldwires` (cables at l
 true diameter; the Design window turns it on for BUILD / LIBRARY / WIRING, toolbar WIRES). Specular follows the MuJoCo material (`specular`, `shininess`, `metallic`,
 `roughness`); output is 4x MSAA and sRGB.
 
-**Wires are tubes.** Every wire of the design is drawn from terminal to terminal, one tube per conductor, following its bodies
-(`Sim.tubes()` lists them): insulated outer diameter from the wire's AWG (`napl.design.wiretubes.AWG_OD_MM`), colour by function
-(power red / black, three-conductor motor leads yellow / green / blue, signal yellow / white / blue / ...), sagging by the slack
-between the wire's length and the straight distance. They are spatial tendons with no stiffness, damping or limit: the dynamics
-(state hashes) are unchanged.
+**Wires are tubes.** Every wire of the design is drawn from terminal to terminal, one tube per conductor (one per pin pair, at most 16;
+`Sim.tubes()` lists them): insulated outer diameter from the wire's AWG (`napl.design.wiretubes.AWG_OD_MM`), colour by function
+(power red / black, three-conductor motor leads yellow / green / blue, signal yellow / white / blue / ...). Each conductor starts at
+its own pin and leaves the connector along the connector axis. The bundle is routed around the parts (`napl.design.wireroute`:
+a distance field of the assembly's collision and visual geometry, A* through the free voxels, string-pulled and rounded to a bend radius
+of at least 6 x the conductor diameter): outside the lead-out at the connector no tube point comes within 2 mm of a part
+(`tests/python/test_wire_routing.py` samples every assembly). A wire it cannot place falls back to the straight chord. The tubes are
+spatial tendons with no stiffness, damping or limit: the dynamics (state hashes) are unchanged. Tube sites are in the model but the
+routing itself is a pure function of the geometry (deterministic, cached); the `route` argument of `build.compute` turns it off for
+the DRC and edit paths that only need masses.
 
 **2D wiring.** In the "wiring (2D)" window pick components and the terminals to wire, press `flatten >`: the view fades to a canvas
-of cards (component name, chosen terminals as pins coloured by kind), laid out as a signal flow: sources (batteries) left, then power
-modules / PDBs, ESCs / controllers, loads (motors) right; parts without power terminals (receivers, GPS, sensors) form a second band
-below. Pins sit on the card side facing their peers, wires are routed orthogonally around the cards (the backend routes them:
-`flatten.state` carries each wire's `route` polyline and `label` position), and a legend explains the marks. Drag pin to pin to wire them (the `autowire` rules: kind,
-connector type, gender, voltage; a refusal shows its reason), click a wire to set gauge / length or delete it, `back to 3D` and the
-new wires are tubes. Every action is a design_api op an agent can send (`flatten.begin / layout / move_card / wire / set_wire /
-unwire / state / end`, see `python/napl/design/wire2d.py`); a window watching the same `Backend` shows the cards appear and each
-wire being drawn. `flatten.wire` with a `part` (and `length`, `conductors`, `included_in`, `name`) is an explicit lead: it bridges
-connector families that autowire refuses. When a new wire changes the auto layout the cards glide to their new places and the wires
-fade in once they arrive.
+of cards, one per component, laid out as a signal flow: sources (batteries) left, then power modules / PDBs, ESCs / controllers,
+loads (motors) right; parts without power terminals (receivers, GPS, sensors) form a second band below. A card draws every real pin
+of the component, grouped under its connector (the Pi 5 shows the full 40-pin J8 header with names, plus its camera, USB and power
+connectors), coloured by kind (power, ground, signal, no-connect); hover a pin to read its connector, number, direction, level and
+alternate functions. Wires are drawn per conductor, from pin to pin, routed orthogonally around the cards and never across one (the
+backend routes them: `flatten.state` carries each wire's `route` polyline, each conductor's `strands` and the `label` position). The
+rule checks run live on the drawn wires: a pin ring marks a finding (voltage mismatch, two outputs on a net, a power wire with no
+ground, a pin already used, an alternate-function conflict) and the side panel gives the message. Drag pin to pin to wire them
+(`pinwire`: one conductor between two pins; whole ports still use the `autowire` rules: kind, connector type, gender, voltage; a refusal
+shows its reason), click a wire to set gauge / length or delete it, `back to 3D` and the new wires are tubes. Every action is a
+design_api op an agent can send (`flatten.begin / layout / move_card / wire / set_wire / unwire / state / end`, see
+`python/napl/design/wire2d.py`; `flatten.wire` takes `inst.port` or `inst.CONNECTOR.PIN`); a window watching the same `Backend` shows the
+cards appear and each wire being drawn. `flatten.wire` with a `part` (and `length`, `conductors`, `included_in`, `name`, `from_pins`,
+`to_pins`) is an explicit lead: it bridges connector families that autowire refuses. When a new wire changes the auto layout the cards
+glide to their new places and the wires fade in once they arrive.
 
 **PROGRAM page.** Shows the design as TOML next to the log; `ui.program {file, scroll}` (a Backend op) shows any source file of the
 repository instead (the turret / swarm programs, a scenario) and scrolls to a fraction of it; `ui.program {}` returns to the design.

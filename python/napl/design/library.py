@@ -4,6 +4,8 @@
 import tomllib
 from pathlib import Path
 
+from . import pins as _pins
+
 GENDERS = ("male", "female", "neutral")
 
 
@@ -37,9 +39,17 @@ class Part:
         self.ports = doc.get("ports", [])
         self.geometry = doc.get("geometry", {})
 
+    @property
+    def connectors(self) -> dict:
+        """Pin-level connectors by id (pins.py); {} for a part without a pinout."""
+        return _pins.connectors(self)
+
     def port(self, name: str) -> dict:
         for p in self.ports:
             if p.get("name") == name:
+                return p
+        for p in _pins.synthetic_ports(self):  # a connector's unclaimed pins (pins.py)
+            if p["name"] == name:
                 return p
         names = [p.get("name") for p in self.ports]
         raise DesignError(f"part {self.id} has no port '{name}' (ports: {names})")
@@ -79,6 +89,9 @@ class Library:
                     raise ValueError("'ports' must be an array of tables")
                 if not isinstance(doc.get("params", {}), dict):
                     raise ValueError("'params' must be a table")
+                self.errors += [
+                    f"{rel}: {m}" for m in _pins.validate(doc)
+                ]  # the part still loads
                 if pid in self.parts:
                     raise ValueError(
                         f"duplicate id '{pid}' (also {self.parts[pid].path})"

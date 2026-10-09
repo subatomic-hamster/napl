@@ -247,6 +247,8 @@ EDIT_OPS = [
             "conductors": {"type": "integer", "minimum": 1},
             "included_in": _S,
             "connectors": _obj({"from": _S, "to": _S}),
+            "from_pins": {"type": "array", "items": _S},
+            "to_pins": {"type": "array", "items": _S},
             "name": _S,
         },
         ["from", "to", "part", "length"],
@@ -263,6 +265,18 @@ EDIT_OPS = [
             "included_in": _S,
         },
         ["a"],
+    ),
+    _op(
+        "pinwire",
+        {
+            "a": _S,
+            "b": _S,
+            "part": _S,
+            "length": {"anyOf": [_S, PROVENANCE]},
+            "included_in": _S,
+            "name": _S,
+        },
+        ["a", "b"],
     ),
     _op(
         "autowire_all",

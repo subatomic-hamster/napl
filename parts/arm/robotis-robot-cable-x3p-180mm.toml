@@ -33,6 +33,7 @@ type = "jst-eh.3"
 gender = "male"
 role = "passthrough"
 i_max = { value = 3.0, unit = "A", src = "S4", fidelity = "datasheet" }
+pins = ["A.1", "A.2", "A.3"]
 note = "Cable end A; passes GND / VDD / DATA straight through to end_b (3 conductors). Current rating is the JST EH connector figure (3 A with AWG #22 wire); the cable's own conductor is 21 AWG (S2)."
 
 [[ports]]
@@ -42,7 +43,48 @@ type = "jst-eh.3"
 gender = "male"
 role = "passthrough"
 i_max = { value = 3.0, unit = "A", src = "S4", fidelity = "datasheet" }
+pins = ["B.1", "B.2", "B.3"]
 note = "Cable end B, same pinout as end_a."
+
+# Pin level: a straight 1:1 cable, so each housing has the XL430 socket's pin order (S2 'Pinout | 1 GND | 2 VDD | 3 DATA | Housing | JST EHR-03').
+# The cable has no frame of its own (shape = none); the ends are placed at +-0.09 m on x for drawing.
+[[connectors]]
+id = "A"
+name = "end A (EHR-03)"
+type = "jst-eh-3"
+gender = "male"
+pos = [-0.09, 0.0, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0025
+src = "S2"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "io", v = 12.0 },
+  { number = 3, name = "DATA", kind = "signal", dir = "io", v = 5.0 },
+]
+
+[[connectors]]
+id = "B"
+name = "end B (EHR-03)"
+type = "jst-eh-3"
+gender = "male"
+pos = [0.09, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0025
+src = "S2"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "io", v = 12.0 },
+  { number = 3, name = "DATA", kind = "signal", dir = "io", v = 5.0 },
+]
 
 [[sources]]
 id = "S1"

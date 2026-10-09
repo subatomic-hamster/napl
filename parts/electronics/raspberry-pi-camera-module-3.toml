@@ -27,6 +27,42 @@ kind = "signal"
 type = "csi"
 gender = "male"
 connector = "15 x 1 mm FPC, 200 mm ribbon"
+pins = ["FPC.1", "FPC.2", "FPC.3", "FPC.4", "FPC.5", "FPC.6", "FPC.7", "FPC.8", "FPC.9", "FPC.10", "FPC.11", "FPC.12", "FPC.13", "FPC.14", "FPC.15"]
+
+# Pin level: the 15-way 1.0 mm FPC socket on the back edge (opposite the lens, S1 / V1). S1 states '15 x 1mm FPC'; the signal order is the
+# standard Raspberry Pi 15-pin CSI-2 camera pinout (2 data lanes, clock, I2C, two camera GPIOs, 3V3), not text of S1: estimated. Pose: top edge of
+# the 25 mm board, centred (the module is mounted on its lower edge, the ribbon leaves upwards).
+[[connectors]]
+id = "FPC"
+name = "Camera FPC (15-pin 1 mm)"
+type = "fpc-15-1.0mm"
+gender = "male"
+pos = [-0.0045, 0.0, 0.0125]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 15
+pitch = 0.001
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives only 'Cable connector: 15 x 1mm FPC'. Pin order = the standard Raspberry Pi 15-pin camera connector (pin 1 GND, D0 pair, D1 pair, clock pair with GND between, CAM_IO0 / CAM_IO1, SCL, SDA, 3V3); the module schematic could not be fetched, so verify before building a cable."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "CAM_D0_N", kind = "signal", dir = "out" },
+  { number = 3, name = "CAM_D0_P", kind = "signal", dir = "out" },
+  { number = 4, name = "GND", kind = "ground" },
+  { number = 5, name = "CAM_D1_N", kind = "signal", dir = "out" },
+  { number = 6, name = "CAM_D1_P", kind = "signal", dir = "out" },
+  { number = 7, name = "GND", kind = "ground" },
+  { number = 8, name = "CAM_CK_N", kind = "signal", dir = "out" },
+  { number = 9, name = "CAM_CK_P", kind = "signal", dir = "out" },
+  { number = 10, name = "GND", kind = "ground" },
+  { number = 11, name = "CAM_IO0", kind = "signal", dir = "in", v = 3.3 },
+  { number = 12, name = "CAM_IO1", kind = "signal", dir = "in", v = 3.3 },
+  { number = 13, name = "CAM_SCL", kind = "signal", dir = "io", v = 3.3 },
+  { number = 14, name = "CAM_SDA", kind = "signal", dir = "io", v = 3.3 },
+  { number = 15, name = "CAM_3V3", kind = "power", dir = "in", v = 3.3 },
+]
 
 # Mechanical frame (added for the counter-UAS turret): origin at the board centre, +x = the viewing direction (lens axis), +z = image up,
 # board plane = y-z (24 mm wide, 25 mm high), x extent = the 11.5 mm height with the lens. `seat` is the bottom edge, `lens` the front.

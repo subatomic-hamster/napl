@@ -54,6 +54,7 @@ kind ="power"
 type = "xt30"
 gender = "male"
 role = "sink"
+pins = ["PWR.1", "PWR.2"]
 v_max = { value = 16.8, unit = "V", src = "S1", fidelity = "derived", derivation = "4 cells x 4.2 V from 'Rated Voltage(Lipo) 3-4s' (S1)." }
 i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
 note = "XT30 plug on the ESC input cable (S2: 'with XT30 Plugs'); the cable is part of the 21 g (S1 'Weight (Incl. Cable)'). Gender male by the PDB-out (female) to ESC (male) convention of this kit model; Holybro does not state the plug gender. i_max is the continuous rating (peak 30 A for 10 s)."
@@ -64,6 +65,7 @@ kind = "power"
 type = "motor-3phase"
 gender = "neutral"
 role = "source"
+pins = ["MOT.1", "MOT.2", "MOT.3"]
 i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
 note = "Three motor leads (bullet/solder, 'Banana Plug 2.0mm' in the spec) to the motor 'phase' port; continuous current rating, peak 30 A for 10 s."
 
@@ -73,7 +75,69 @@ lead = {}   # the signal lead ships on the ESC and is inside its mass (same data
 kind ="signal"
 type = "pwm"
 gender = "neutral"
+pins = ["SIG.1", "SIG.2"]
 note = "Throttle signal 50-600 Hz (S1) from the flight controller FMU PWM Out (S3)."
+
+# Pin level: the three leads that ship on the ESC (S1 'Weight (Incl. Cable)', 'Banana Plug 2.0mm', S2 'with XT30 Plugs'). Holybro prints no pin
+# table: polarity (XT30 pin 1 +), phase order (A B C) and the 2-wire signal lead (signal, ground; BEC '/' = none, S1) are assumptions, the
+# poses are estimates on the 26 x 14 x 5 mm body.
+[[connectors]]
+id = "PWR"
+name = "power input XT30"
+type = "xt30"
+gender = "male"
+pos = [-0.013, 0.0, 0.0025]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.005
+src = "S2"
+fidelity = "estimated"
+rationale = "S2: ESCs 'with XT30 Plugs'; polarity and the family's 5 mm spacing assumed."
+pins = [
+  { number = 1, name = "V+", kind = "power", dir = "in", v_max = 16.8, i_max = 20.0 },
+  { number = 2, name = "V-", kind = "ground", i_max = 20.0 },
+]
+
+[[connectors]]
+id = "MOT"
+name = "motor leads (2.0 mm bullets)"
+type = "bullet-2.0mm-x3"
+gender = "male"
+pos = [0.013, 0.0, 0.0025]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 lists 'Banana Plug 2.0mm' for the motor side; phase order A B C is a convention (any two swapped reverse the motor), the 3 mm spacing is the leads' spread, estimated."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 20.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 20.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 20.0 },
+]
+
+[[connectors]]
+id = "SIG"
+name = "throttle signal lead"
+type = "servo-lead-2"
+gender = "female"
+pos = [0.0, 0.007, 0.0025]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.00254
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives the throttle signal frequency (50 Hz to 600 Hz) and no BEC ('BEC /'); a signal wire plus the ground return (the lead's black wire) is the minimum a servo-PWM lead has; connector family assumed."
+pins = [
+  { number = 1, name = "SIGNAL", kind = "signal", dir = "in", v = 3.3 },
+  { number = 2, name = "GND", kind = "ground" },
+]
 
 [[sources]]
 id = "S1"

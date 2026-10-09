@@ -24,6 +24,7 @@ from .snap import (
     select_fasteners,
     solve_tree,
 )
+from .wireroute import world_geoms
 from .wiretubes import wire_tubes
 
 POINT_MASS_RADIUS = 1e-3  # m: size of the placeholder sphere that carries the mass of a part without geometry (numerical, not physical)
@@ -397,9 +398,10 @@ def _range(ctx: Ctx, r, jtype: str, where: str):
 
 
 # ---- the whole computation ----------------------------------------------------------------------------------------
-def compute(asm, parts_dir, out_dir, lib=None, visual=True):
+def compute(asm, parts_dir, out_dir, lib=None, visual=True, route=True):
     """-> (mjcf text, report dict). `asm` is an Assembly or a path; `lib` = an already loaded Library of `parts_dir`.
-    `visual` = emit the parts' cosmetic visual layer (STL meshes are written to <out_dir>/visuals); physics is identical."""
+    `visual` = emit the parts' cosmetic visual layer (STL meshes are written to <out_dir>/visuals); physics is identical.
+    `route` = plan the wire tubes around the part geometry (wireroute.py; cosmetic, the DRC passes False: it never reads tubes)."""
     if not isinstance(asm, Assembly):
         asm = load(asm)
     lib = lib or Library(parts_dir)
@@ -669,8 +671,31 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True):
 
     # devices
     devices, dev_report, sites = build_devices(ctx, wires, joint_of)
+    obstacles = None
+    if (
+        route and wires
+    ):  # the tubes avoid what is drawn too: the parts' cosmetic meshes count as obstacles
+        shown = {i: list(body_geoms[i]) for i in onboard}
+        if visual:
+            for i in onboard:
+                if visuals.applies(ctx.insts[i].part):
+                    for k, p in enumerate(
+                        visuals.pieces(
+                            ctx.insts[i].part, Path(out_dir) / "visuals", lib.root
+                        )
+                    ):
+                        shown[i].append(
+                            {
+                                "name": f"{i}:v{k}",
+                                "kind": "mesh",
+                                "path": str(p.path),
+                                "R": p.R,
+                                "pos": p.pos,
+                            }
+                        )
+        obstacles = world_geoms(shown, tree.T)
     tendon_lines = wire_tubes(
-        wires, tree.T, sites
+        wires, tree.T, sites, obstacles
     )  # cables as visual-only tendons (the mass capsules above are hidden)
 
     # placement: free base sits on the floor (lowest collision point at z = 0)

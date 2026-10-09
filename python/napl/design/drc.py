@@ -20,6 +20,7 @@ import numpy as np
 
 from .assembly import UNITS, Assembly, Ctx, load
 from .build import _mate_spec, compute
+from .drc_pins import pin_rules
 from .library import DesignError, Library, genders_ok, types_ok
 from .mass import _STL, mesh_props
 from .snap import (
@@ -192,6 +193,28 @@ RULES = {  # code -> (default severity, what it checks); the long form is the RE
     "PAYLOAD_LIMIT": (
         "info",
         "extra end-effector mass that keeps every servo within stall torque",
+    ),
+    "PIN_ALREADY_USED": ("error", "one connector pin is on two conductors"),
+    "PIN_KIND_MISMATCH": (
+        "error",
+        "a conductor joins unlike pins (power to ground, signal to power); a no-connect pin is a warning",
+    ),
+    "PIN_VOLTAGE_MISMATCH": (
+        "error",
+        "a driving pin's level is outside the other pin's accepted range (a level difference between signals is a warning)",
+    ),
+    "PIN_TWO_OUTPUTS": ("error", "two signal outputs drive one net"),
+    "PIN_GND_MISSING": (
+        "warning",
+        "a multi-conductor DC wire carries power or signal but no ground return",
+    ),
+    "PIN_ALT_CONFLICT": (
+        "error",
+        "one peripheral function claimed by two pins, or a wire's TX / RX on different peripherals",
+    ),
+    "PIN_FUNCTION_MISSING": (
+        "warning",
+        "a multiplexed pin is wired to a device pin whose role (TX, SDA, ...) it cannot provide",
     ),
 }
 _RANK = {"error": 0, "warning": 1, "info": 2}
@@ -2262,7 +2285,7 @@ def joint_holding(asm, lib, joint):
     if not isinstance(asm, Assembly):
         asm = load(asm)
     ctx = Ctx(asm, lib)
-    xml, _ = compute(asm, lib.dir, lib.root, lib)
+    xml, _ = compute(asm, lib.dir, lib.root, lib, route=False)
     world = _World(xml, lib.root)
     jb = _driven(world)
     if joint not in jb:
@@ -2569,6 +2592,7 @@ def check(asm, lib=None, *, model=None, mesh_base=None, diag=None) -> list:
     specs = _guard(F, "mechanical", _mechanical, ctx, F) or {}
     wires = _guard(F, "wires", _wires, ctx, F) or []
     net = _guard(F, "nets", _Net, ctx, wires)
+    _guard(F, "pins", pin_rules, ctx, F, _add)
     if net:
         _guard(F, "voltage", _voltage_rules, ctx, net, F)
         _guard(F, "topology", _topology_rules, ctx, net, F)
@@ -2576,7 +2600,9 @@ def check(asm, lib=None, *, model=None, mesh_base=None, diag=None) -> list:
     report = None
     if model is None:
         try:
-            model = compute(asm, lib.dir, base, lib)
+            model = compute(
+                asm, lib.dir, base, lib, route=False
+            )  # the rules never read the wire tubes: skip planning them
         except DesignError as e:
             if not any(f.severity == "error" for f in F):
                 _add(
