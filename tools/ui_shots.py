@@ -40,6 +40,21 @@ PICK = {
         "mot2.phase",
     ],
 }
+TURRET_PICK = {
+    "instances": ["pi", "adapter", "camera", "psu5", "psu", "pan"],
+    "ports": [
+        "pi.gpio_uart",
+        "pi.cam0",
+        "pi.power_in",
+        "adapter.bus",
+        "adapter.power_in",
+        "adapter.servo_bus",
+        "camera.csi",
+        "psu5.power_out",
+        "psu.power_out",
+        "pan.port_a",
+    ],
+}
 WIRES = [  # (from, to, awg, length m)
     ("bat.power_out", "pm02.power_in", 10, 0.12),
     ("pm02.power_out", "pdb.power_in", 12, 0.10),
@@ -114,7 +129,11 @@ def _ui(scene, out, fb):
     from napl.design import Design
     from napl.design.viewer import Backend
 
-    d = Design.open(REPO / "assemblies" / "x500v2.toml")
+    d = Design.open(
+        REPO
+        / "assemblies"
+        / ("turret.toml" if scene == "wiring-turret" else "x500v2.toml")
+    )
     scenes = ["wiring", "build-tooltip", "library"] if scene == "all" else [scene]
     if "wiring" in scenes:
         for w in UNWIRE:
@@ -157,6 +176,14 @@ def _ui(scene, out, fb):
                     call("library.search", {"text": ""})
                     time.sleep(2.5)
                     grab("library")
+                elif (
+                    s == "wiring-turret"
+                ):  # the Pi 5 with its full J8 header, wires on pins
+                    call("ui.mode", {"name": "wiring"})
+                    call("flatten.begin", TURRET_PICK)
+                    time.sleep(3.5)
+                    grab("wiring-turret")
+                    call("flatten.end")
                 elif s == "wiring":
                     call("ui.mode", {"name": "wiring"})
                     call("flatten.begin", PICK)
