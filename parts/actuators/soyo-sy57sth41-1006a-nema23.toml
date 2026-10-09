@@ -55,12 +55,46 @@ note = "1/4 inch (6.35 mm) D-shaft."
 
 [[ports]]
 name = "phases"
+pins = ["PH.1", "PH.2", "PH.3", "PH.4", "PH.5", "PH.6"]
 kind = "power"
 type = "stepper-6wire"
 gender = "neutral"
 role = "sink"
 i_max = { value = 1.0, unit = "A", src = "S2", fidelity = "datasheet" }  # rated current per coil
 note = "Six bare 30 cm leads (AWG22), centre-tapped coils."
+
+# Pin level: six colour-coded bare leads (P1: red-blue pair = one coil, black-green pair = the other, yellow and white = the centre taps). P1 does not say which centre tap belongs to which coil.
+[[connectors]]
+id = "PH"
+name = "phase leads (6, bare)"
+type = "wire-lead"
+port_type = "stepper-6wire"
+gender = "neutral"
+joinable = true
+pos = [0.0, 0.0, -0.041]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.003
+src = "P1"
+fidelity = "datasheet"
+pose_rationale = "P1 does not say where the leads leave the body: drawn at the centre of the rear face, 3 mm apart (positional estimate)."
+pins = [
+  { number = 1, name = "A1", kind = "power", dir = "in", i_max = 1.0, note = "black wire, coil A end (P1)" },
+  { number = 2, name = "A2", kind = "power", dir = "in", i_max = 1.0, note = "green wire, coil A end (P1)" },
+  { number = 3, name = "B1", kind = "power", dir = "in", i_max = 1.0, note = "red wire, coil B end (P1)" },
+  { number = 4, name = "B2", kind = "power", dir = "in", i_max = 1.0, note = "blue wire, coil B end (P1)" },
+  { number = 5, name = "CT1", kind = "power", dir = "in", note = "yellow wire, centre tap (P1); coil not stated" },
+  { number = 6, name = "CT2", kind = "power", dir = "in", note = "white wire, centre tap (P1); coil not stated" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://www.pololu.com/product/1476"
+title = "Pololu item 1476 product page, Overview"
+accessed = "2026-10-09"
+quote = "The motor has six color-coded wires terminated with bare leads that allow it to be controlled by both unipolar and bipolar stepper motor drivers. When used with a unipolar stepper motor driver, all six leads are used. When used with a bipolar stepper motor driver, the center-tap yellow and white wires can be left disconnected (the red-blue pair gives access to one coil and the black-green pair gives access to the other coil)."
 
 [[sources]]
 id = "S1"
