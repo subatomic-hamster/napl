@@ -174,6 +174,67 @@ def test_blind_spot_is_never_entered():
     assert np.linalg.norm(plan.vdes) <= 1.0 + 1e-9
 
 
+# ---- search belief (subject lost) ------------------------------------------------------------------------------------
+def test_visibility_needs_range_band_field_of_view_and_a_clear_line_of_sight():
+    import search
+
+    cam = np.array([[0.0, 0.0, 1.9]])
+    face = np.array([[1.0, 0.0]])
+    tgt = np.array(
+        [[5.0, 0.0], [1.5, 0.0], [9.0, 0.0], [0.0, 5.0], [5.0, 5.0]]
+    )  # ahead / too close / too far / abeam / 45 deg off
+    open_win = mapped(np.full((CAM.n_v, CAM.n_h), np.nan, np.float32), frames=1).window(
+        cam[0], half=10.0
+    )
+    assert search.visible(open_win, cam, tgt, face)[0].tolist() == [
+        True,
+        False,
+        False,
+        False,
+        False,
+    ]
+    wall_win = mapped(wall_depth(3.0, cam[0])).window(
+        cam[0], half=10.0
+    )  # a wall at x = 3 hides the person at x = 5
+    assert not search.visible(wall_win, cam, tgt, face)[0, 0]
+
+
+def test_belief_keeps_the_walkers_pace_and_loses_the_mass_the_camera_could_see():
+    import search
+
+    rng = np.random.default_rng(0)
+    win = mapped(np.full((CAM.n_v, CAM.n_h), np.nan, np.float32), frames=1).window(
+        np.zeros(3), half=10.0
+    )
+    b = search.Belief(rng)
+    b.start(
+        np.array([4.0, 0.0, 0.0, 2.4]), np.diag([0.05, 0.05, 0.1, 0.1])
+    )  # walking along +y at 2.4 m/s
+    for _ in range(50):  # 2 s at 25 Hz
+        b.predict(0.04, win)
+    m, v, sg = b.estimate()
+    assert (
+        0.6 * 2.4 <= np.hypot(*v) <= 1.4 * 2.4 and abs(m[1] - 4.8) < 1.5 and sg < 3.5
+    )  # 2.9 m measured: the turn noise (0.8 rad/s) spreads the belief
+    # a camera at the origin looking along +x sees the part of the belief in its sector, finds nothing, and the surviving mass is outside it
+    cam_R = R_LOOK_X
+    face = cam_R[:2, 2] / np.linalg.norm(cam_R[:2, 2])
+    half = (
+        b.n // 2
+    )  # half the belief in the camera's sector (x = 4, y = 0), half beside it (x = 4, y = 4: 45 deg off the axis)
+    b.xy = np.vstack(
+        [np.tile([4.0, 0.0], (half, 1)), np.tile([4.0, 4.0], (b.n - half, 1))]
+    )
+    b.w = np.full(b.n, 1.0 / b.n)
+    cam = np.array([[0.0, 0.0, 1.9]])
+    before = search.visible(win, cam, b.xy, face[None])[0].mean()
+    assert 0.4 < before < 0.6
+    for _ in range(5):
+        b.observe_unseen(win, cam[0], cam_R)
+    after = (search.visible(win, cam, b.xy, face[None])[0] * b.w).sum()
+    assert after < 0.3 * before
+
+
 # ---- flights (kernel) ------------------------------------------------------------------------------------------------
 @needs_kernel
 def test_short_flight_is_collision_free_and_replays_bit_identically(tmp_path):
@@ -201,5 +262,21 @@ def test_short_flight_is_collision_free_and_replays_bit_identically(tmp_path):
 def test_scenario_passes_with_replay_match(tmp_path, monkeypatch, mission):
     monkeypatch.setenv("SKYDIO_CAL", str(tmp_path / "cal"))
     res, _ = program.run(EX / f"{mission}.scenario.toml", tmp_path / "runs")
-    assert res["pass"], res["fail_reasons"]
     assert res["replay"]["available"] and res["replay"]["match"]
+    assert res["pass"], res[
+        "fail_reasons"
+    ]  # every monitor, including the strict 3-8 m follow_distance_band
+
+
+def test_one_seed_for_scene_and_controller(monkeypatch):
+    """The scenario's `seed` parameter (NAPL_PARAMS) is what both the model script and fly.py read; SKYDIO_SEED is the standalone fallback."""
+    import skydio_scene
+
+    for mission in ("goal", "follow"):
+        monkeypatch.delenv("NAPL_PARAMS", raising=False)
+        monkeypatch.delenv("SKYDIO_SEED", raising=False)
+        assert skydio_scene.seed(mission) == 1  # the declared default
+        monkeypatch.setenv("SKYDIO_SEED", "5")
+        assert skydio_scene.seed(mission) == 5
+        monkeypatch.setenv("NAPL_PARAMS", '{"seed": 111}')
+        assert skydio_scene.seed(mission) == 111  # a caller's parameter wins

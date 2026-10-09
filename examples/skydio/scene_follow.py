@@ -1,4 +1,4 @@
-"""Model script of follow.scenario.toml: the forest with the walking subject for SKYDIO_SEED (default 1)."""
+"""Model script of follow.scenario.toml: the forest with the walking subject for the scenario's `seed` parameter (skydio_scene.seed, the same value fly.py uses)."""
 
 import sys
 from pathlib import Path

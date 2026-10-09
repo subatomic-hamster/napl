@@ -1,4 +1,4 @@
-"""Model script of goal.scenario.toml: the forest / wall / arch scene for SKYDIO_SEED (default 1)."""
+"""Model script of goal.scenario.toml: the forest / wall / arch scene for the scenario's `seed` parameter (skydio_scene.seed, the same value fly.py uses)."""
 
 import sys
 from pathlib import Path

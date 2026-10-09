@@ -72,10 +72,21 @@ class Camera:
 
 class VoxelMap:
     def __init__(
-        self, res=0.2, n_xy=160, n_z=60, z0=-0.4, max_hit_range=9.5, carve_stride=2
+        self,
+        res=0.2,
+        n_xy=160,
+        n_z=60,
+        z0=-0.4,
+        max_hit_range=9.5,
+        carve_stride=2,
+        hit_hold=12,
     ):
         self.res, self.n, self.z0 = res, (n_xy, n_xy, n_z), z0
         self.L = np.zeros(self.n, np.int8)
+        self.hit_hold = hit_hold  # frames
+        self.hit_frame = np.full(
+            self.n, -(10**9), np.int32
+        )  # frame index of the last depth hit per voxel
         self.o = np.array(
             [-n_xy // 2, -n_xy // 2]
         )  # absolute cell index of the window's lowest x / y cell
@@ -96,14 +107,17 @@ class VoxelMap:
             old, n = self.o[ax], self.n[ax]
             if abs(new - old) >= n:
                 self.L[:] = 0
+                self.hit_frame[:] = -(10**9)
             else:
                 enter = (
                     np.arange(old + n, new + n) if new > old else np.arange(new, old)
                 )
                 if ax == 0:
                     self.L[enter % n, :, :] = 0
+                    self.hit_frame[enter % n, :, :] = -(10**9)
                 else:
                     self.L[:, enter % n, :] = 0
+                    self.hit_frame[:, enter % n, :] = -(10**9)
             self.o[ax] = new
 
     def _cells(self, pts):
@@ -134,12 +148,18 @@ class VoxelMap:
         miss = ~np.isfinite(
             depth
         )  # no return within max_range (or inside min_range, which the airframe's own margin keeps us from)
-        if ignore is not None:
-            valid &= ~ignore
+        hit = valid
+        if (
+            ignore is not None
+        ):  # the tracked subject: no hits, and its rays prove free only the space 1.3 m short of it (a person is not a wall, and
+            hit = (
+                valid & ~ignore
+            )  # the corridor towards it must not stay "unknown", or the follower could never close in on the subject)
             miss &= ~ignore
         # free space: every `stride`-th pixel, sampled every 0.6 cell along the ray from 0.5 m to the hit (minus a margin) / to 7 m for a miss
         s = self.stride
-        d = np.where(miss, self.max_hit_range - 0.5, depth - 0.4)[::s, ::s]
+        margin = 0.4 if ignore is None else np.where(ignore, 1.3, 0.4)
+        d = np.where(miss, self.max_hit_range - 0.5, depth - margin)[::s, ::s]
         use = (valid | miss)[::s, ::s] & (d > 0.6)
         if use.any():
             dirs = (
@@ -153,16 +173,23 @@ class VoxelMap:
             keep = ts[None, :] <= dd[:, None]
             ix, iy, iz, ok = self._cells(pts[keep])
             ok &= pts[keep][:, 2] > FLOOR * 0.5
+            # a voxel hit within the last `hit_hold` frames is not carved: a thin pole (narrower than a 0.2 m voxel) is hit by one or two pixels while
+            # the neighbouring rays, which hit the background, cross the same voxel and would otherwise erase it again
+            inside = np.nonzero(ok)[0]
+            ok[inside] &= (
+                self.frames - self.hit_frame[ix[inside], iy[inside], iz[inside]]
+            ) > self.hit_hold
             self.L[ix[ok], iy[ok], iz[ok]] = np.maximum(
                 self.L[ix[ok], iy[ok], iz[ok]] - FREE, LO_MIN
             )
         # hits
-        pw = pos + (tang[valid] * depth[valid][:, None]) @ R.T
+        pw = pos + (tang[hit] * depth[hit][:, None]) @ R.T
         pw = pw[pw[:, 2] > FLOOR]
         ix, iy, iz, ok = self._cells(pw)
         self.L[ix[ok], iy[ok], iz[ok]] = np.minimum(
             self.L[ix[ok], iy[ok], iz[ok]] + HIT, LO_MAX
         )
+        self.hit_frame[ix[ok], iy[ok], iz[ok]] = self.frames
 
     @property
     def n_occupied(self):

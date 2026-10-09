@@ -32,11 +32,16 @@ def quat_rot(q):
                      [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]])  # fmt: skip
 
 
-def camera(kind, p, R, vel):
+def camera(kind, p, R, vel, mount_deg=0.0):
     fwd = R @ np.array([1.0, 0.0, 0.0])
-    if kind == "fpv":
+    if (
+        kind == "fpv"
+    ):  # the optical axis: the airframe's x axis pitched up by the mount angle (goal +10, follow -8, see skydio_scene.tilt_camera)
+        axis = R @ np.array(
+            [np.cos(np.radians(mount_deg)), 0.0, np.sin(np.radians(mount_deg))]
+        )
         return dict(
-            pos=p + 0.1 * fwd + np.array([0, 0, 0.05]), lookat=p + 5 * fwd, fovy=58.0
+            pos=p + 0.1 * fwd + np.array([0, 0, 0.05]), lookat=p + 5 * axis, fovy=58.0
         )
     h = (
         vel[:2] / np.linalg.norm(vel[:2])
@@ -62,6 +67,61 @@ def camera(kind, p, R, vel):
     )
 
 
+def draw_detections(img, cam, dets):
+    """Outline each detection (world box: feet to z_top, `width` wide) on an fpv frame; green = the subject, red = anything else."""
+    h, w = img.shape[:2]
+    d = cam["lookat"] - cam["pos"]
+    d = d / np.linalg.norm(d)
+    right = np.cross(d, [0, 0, 1.0])
+    right /= np.linalg.norm(right)
+    up = np.cross(right, d)
+    f = (h / 2) / np.tan(np.radians(cam["fovy"]) / 2)
+    out = img.copy()
+    for det in dets:
+        us, vs = [], []
+        for dx in (-0.5, 0.5):
+            for z in (0.0, det["z_top"]):
+                c = np.array([*det["xy"], z]) + dx * det["width"] * right - cam["pos"]
+                if c @ d < 0.3:
+                    break
+                us.append(w / 2 + f * (c @ right) / (c @ d))
+                vs.append(h / 2 - f * (c @ up) / (c @ d))
+        if len(us) < 4:
+            continue
+        u0, u1 = int(max(min(us), 0)), int(min(max(us), w - 1))
+        v0, v1 = int(max(min(vs), 0)), int(min(max(vs), h - 1))
+        col = ([0, 255, 0, 255] if det.get("on_subject") else [255, 0, 0, 255])[
+            : img.shape[2]
+        ]
+        for t in range(2):
+            out[v0 : v1 + 1, [u0 + t, u1 - t]] = col
+            out[[v0 + t, v1 - t], u0 : u1 + 1] = col
+    return out
+
+
+def draw_belief(img, cam, pts, z=1.0):
+    """Yellow dots at the subject-search particles (telemetry subject.search.particles, ground xy, drawn at chest height `z`) in any camera of `camera()`."""
+    h, w = img.shape[:2]
+    d = cam["lookat"] - cam["pos"]
+    d = d / np.linalg.norm(d)
+    right = np.cross(d, [0, 0, 1.0])
+    right /= np.linalg.norm(right)
+    up = np.cross(right, d)
+    f = (h / 2) / np.tan(np.radians(cam["fovy"]) / 2)
+    out = img.copy()
+    for x, y in pts:
+        c = np.array([x, y, z]) - cam["pos"]
+        if c @ d < 0.3:
+            continue
+        u, v = (
+            int(w / 2 + f * (c @ right) / (c @ d)),
+            int(h / 2 - f * (c @ up) / (c @ d)),
+        )
+        if 2 <= u < w - 2 and 2 <= v < h - 2:
+            out[v - 2 : v + 3, u - 2 : u + 3] = [255, 220, 0, 255][: img.shape[2]]
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
@@ -72,8 +132,20 @@ def main():
     ap.add_argument("--to", dest="t1", type=float, default=0.0)
     ap.add_argument("--cam", default="chase", choices=["chase", "side", "top", "fpv"])
     ap.add_argument("--size", default="960x540")
+    ap.add_argument(
+        "--detections",
+        action="store_true",
+        help="fpv only: outline telemetry.jsonl detections (follow runs)",
+    )
+    ap.add_argument(
+        "--belief",
+        action="store_true",
+        help="follow runs: draw the subject-search particles (yellow) while the subject is unseen",
+    )
     a = ap.parse_args()
     w, h = (int(v) for v in a.size.split("x"))
+    mission = json.loads((Path(a.run) / "model" / "forest.json").read_text())["mission"]
+    mount_deg = -8.0 if mission == "follow" else 10.0
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     napl.render_style("outdoor,shadows")
@@ -91,6 +163,10 @@ def main():
         times = list(np.linspace(0.2 * t_end, 0.95 * t_end, 5))
     col = {k: r.col(k) for k in ("t", "x", "y", "z", "qw", "qx", "qy", "qz")}
     meta = []
+    if a.detections or a.belief:
+        tele = [json.loads(ln) for ln in open(Path(a.run) / "telemetry.jsonl")]
+        tele = [x for x in tele if x.get("subject")]
+        tel_t = np.array([x["t"] for x in tele])
     for k, t in enumerate(times):
         tick = r.to(t)
         j = min(int(np.searchsorted(col["t"], t)), len(col["t"]) - 1)
@@ -100,7 +176,18 @@ def main():
         vel = (p - np.array([col["x"][jp], col["y"][jp], col["z"][jp]])) / max(
             col["t"][j] - col["t"][jp], 1e-6
         )
-        img, _ = r.sim.render(width=w, height=h, **camera(a.cam, p, quat_rot(q), vel))
+        cam = camera(a.cam, p, quat_rot(q), vel, mount_deg)
+        img, _ = r.sim.render(width=w, height=h, **cam)
+        if a.detections or a.belief:
+            i = min(int(np.searchsorted(tel_t, t)), len(tel_t) - 1)
+        if a.detections:
+            img = draw_detections(
+                np.asarray(img), cam, tele[i]["subject"]["detections"]
+            )
+        if a.belief and tele[i]["subject"].get("search"):
+            img = draw_belief(
+                np.asarray(img), cam, tele[i]["subject"]["search"]["particles"]
+            )
         (out / f"f{k:05d}.png").write_bytes(_napl.encode_png(np.ascontiguousarray(img)))
         meta.append(
             dict(frame=k, t=round(float(t), 3), tick=int(tick), pos=p.round(3).tolist())

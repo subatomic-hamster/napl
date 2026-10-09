@@ -1,7 +1,7 @@
 # napl program examples/skydio/follow.scenario.toml --runs-dir <dir>
-# Mission (b): the quadrotor follows a walking person (a simulated detector gives a pixel box, a depth-based tracker the position) through the
-# forest, keeping ~4.5 m behind and avoiding trees from its own depth map. The subject walks a collision-free route (forest.py); the drone never
-# sees that route. See README.md.
+# Mission (b): the quadrotor follows a walking person (a person-sized-blob detector on its own depth image gives the box, a Kalman tracker the
+# position; the pose is the ESKF's estimate) through the forest, keeping ~4.5 m behind and avoiding trees from its own depth map. The subject
+# walks a collision-free route (forest.py); the drone never sees that route. See README.md.
 name = "skydio-follow"
 
 [model]
@@ -11,7 +11,17 @@ script = "scene_follow.py"
 
 [program]
 cmd = ["python", "{dir}/fly.py"]
-env = { SKYDIO_MISSION = "follow", SKYDIO_SEED = "1" }
+env = { SKYDIO_MISSION = "follow" }            # the seed comes from the `seed` parameter below (NAPL_PARAMS='{"seed": 111}'), for the model script and fly.py alike
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the forest and the subject's route, the wind turbulence, the IMU / VIO / baro noise and the detector miss pattern: one seed, one flight (same seed, same state hash)."
 
 [limits]
 wall_s = 600
@@ -36,7 +46,7 @@ column = "follow_dist"
 op = "always"
 from = 10
 lo = 3.0
-hi = 10.0
+hi = 8.0
 
 [[monitors]]
 name = "subject_tracked"                     # the detector/tracker has the subject in view at the end

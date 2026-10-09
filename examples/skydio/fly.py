@@ -4,8 +4,9 @@ to the napl-native controller. Two missions (SKYDIO_MISSION): `goal` flies from 
 with NAPL_MODEL / NAPL_RUN_DIR set also works (see run_mission for a one-call version that builds the scene itself).
 
 WHAT THE PLANNER SEES. Inputs of every replan: the depth frame of the D435i rangefinder device (160 x 90, 25 Hz, delivered LATENCY_S after it was
-sampled, with the camera pose of the sampling instant), the vehicle's pose / velocity estimate (the simulator's rigid-body state: a stand-in for
-visual-inertial odometry, no estimator error is added), the goal position (goal mission), the detector's pixel box of the subject (follow mission).
+sampled, with the camera pose of the estimate at that instant), the vehicle's pose / velocity ESTIMATE (estimator.py: an error-state Kalman filter on the
+simulated IMU, a statistical VIO model and the simulated barometer; the kernel's rigid-body state is `Flyer.truth`, used by evaluation only), the goal
+position (goal mission), the person detector's output on the depth image (detector.py, follow mission; no ground-truth subject position).
 It never reads an obstacle position: `forest.py` (ground truth) is used by evaluation only (clearance, trace.csv) and by the scene builder.
 
 CONTROL. The planner outputs one primitive (velocity ramp + hold + braking tail, planner.py). Every control period (4 ms) the primitive is sampled at the
@@ -30,6 +31,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 import follow as F
+from detector import PersonDetector, Tracker
+from estimator import Eskf, ImuBias, VioSim, baro_height, log_so3
 from forest import generate
 from mapping import Camera, VoxelMap
 from napl import Sim, marine
@@ -43,6 +46,7 @@ from planner import (
     follow_objective,
     goal_objective,
 )
+from search import Belief, visible
 
 CTL_TICKS = 4  # control period: 4 ms
 LATENCY_S = 0.06  # depth frame sampled -> map + plan available (USB transfer, stereo matching, voxelising, planning on the companion computer: estimate)
@@ -53,8 +57,34 @@ TAKEOFF_V, MAP_S = (
 )  # climb rate (m/s) and the hover during which the first frames build the map
 YAW_RATE = 1.6  # rad/s limit of the heading command
 FOLLOW_DIST, FOLLOW_Z = 4.5, 1.9  # m behind the subject, flying height
+SUBJECT_KEEP_OUT_LAST = 1.8  # m: static clearance from the last detected position while the subject is lost (it may have stopped there)
+AIM_KI = 0.15  # 1/s: gain of that integral action
+SUBJECT_KEEP_OUT_UNSEEN = 2.6  # m: the same while the detector has lost the subject (a person closer than ~3 m is below the camera's view: do not close in blind)
+SUBJECT_KEEP_OUT = 1.1  # m: horizontal clearance from the subject's predicted track (0.35 person + 0.40 airframe sphere + 0.35 for track error)
+FOLLOW_PULL = (
+    0.6,
+    1.2,
+    2.5,
+)  # 1/s: gains of the extra "subject velocity + pull toward the spot behind it" candidates
+LOST_STANDOFF = 0.0  # extra standoff (m) per metre of belief spread while the subject is unseen (capped at 2 m of spread). 0: the standoff is held, not widened; 0.5 made the drone fall back while the subject walked on (seed 1: 8 m+ band excursion, subject lost 7.7 s)
+LOOK_OFF = math.radians(
+    45
+)  # yaw may point this far from the flight direction toward the belief
+T_VIS, W_VIS = (
+    1.5,
+    5.0,
+)  # s ahead where a primitive's viewpoint is scored for seeing the belief; cost (m-equivalent) of seeing none of it
 ARRIVE_M = 1.0  # m: the goal counts as reached inside this horizontal distance
 MODES = ("track", "brake", "escape", "scan")
+IMU_TICKS = 2  # the imu device samples every 2nd 1 ms tick (500 Hz): the loop advances in 2-tick blocks and reads each sample
+BARO_EVERY = 5  # control periods between barometer fixes (20 ms = 50 Hz)
+VIO_LATENCY_S = 0.05  # VIO frame sampled -> pose available to the filter (stereo processing + IMU pre-integration on the companion computer: estimate)
+
+
+def imu_sigmas(c):
+    """Per-sample white-noise sigma (gyro rad/s, accel m/s^2) of the imu device from its config: noise density x sqrt(rate / 2) (sensors.cpp)."""
+    k = (float(c["rate_hz"]) / 2.0) ** 0.5
+    return float(c["gyro"]["noise_density"]) * k, float(c["accel"]["noise_density"]) * k
 
 
 def optical_offset():
@@ -84,6 +114,21 @@ def wrap(a):
     return math.atan2(math.sin(a), math.cos(a))
 
 
+class EstFlyer(fl.Flyer):
+    """The napl-native controller fed with the ESTIMATOR's position / velocity / attitude / body rate instead of the kernel's state (as a flight
+    controller runs on its EKF output). `truth` keeps the kernel's state of the last update, for evaluation only."""
+
+    est = None
+    truth = None
+
+    def state(self):
+        self.truth = super().state()
+        if self.est is None:
+            return self.truth
+        e = self.est
+        return e.p.copy(), e.R.copy(), np.concatenate([e.v, e.w])
+
+
 class Skydio:
     def __init__(self, model, run_dir, mission, seed, cal_dir=None, params=None):
         self.mission, self.seed = mission, seed
@@ -108,8 +153,9 @@ class Skydio:
         )
         cal = fl.calibrate("skydio", Path(cal_dir or self.run_dir / "cal"))
         self.prm = params or Params()
-        self.flyer = fl.Flyer(self.sim, cal, paths, self.dtc, max_tilt=0.45)
+        self.flyer = EstFlyer(self.sim, cal, paths, self.dtc, max_tilt=0.45)
         self.root = root
+        self.free = paths["free"]
         cam_path = man["body_paths"]["skydio/cam"]
         q = self.sim.query
         self.cam_p_root = q(cam_path, "pos", root)[
@@ -117,7 +163,7 @@ class Skydio:
         ]  # calibration: camera extrinsics in the root plate's frame (a fixed mount)
         self.cam_R_root = quat_R(q(cam_path, "quat", root)[0])
         self.cam_o_root = self.cam_p_root + self.cam_R_root @ optical_offset()
-        self.map = VoxelMap()
+        self.map = VoxelMap(hit_hold=int(os.environ.get("SKYDIO_HIT_HOLD", 12)))
         self.planner = Planner(self.prm)
         self.hist = deque(maxlen=8)
         self.pending = deque()  # (deliver_at, depth, pos, R, t_sample)
@@ -131,12 +177,23 @@ class Skydio:
         self.scan_dir = 1.0 if seed % 2 == 0 else -1.0
         # follow mission
         self.subject = self.det = self.trk = None
-        self.est = None
+        self.est = (
+            None  # follow: (subject xy, vxy, seen, sigma_xy) in the ESTIMATE frame
+        )
         if mission == "follow":
             self.subject = F.Subject(self.sim, self.forest.path)
-            self.det = F.SubjectDetector(self.cam, lambda: self.subject.pos(), self.rng)
-            self.trk = F.SubjectTracker()
-        self.last_det = None
+            self.det = PersonDetector(self.cam)
+            self.trk = Tracker(keep_s=float(os.environ.get("SKYDIO_KEEP_S", 5.0)))
+            self.belief = Belief(np.random.default_rng(seed + 3000))
+        self.last_visible = False  # evaluation only: was the true subject in the depth image (set by _score)
+        self.cam_frame = None  # (t, camera position, camera rotation) of the depth frame being planned on
+        self.belief_t = None
+        self.last_det, self.last_dets, self.last_flags, self.det_stats = (
+            None,
+            [],
+            [],
+            Counter(),
+        )
         # records
         self.rows, self.tele, self.depth_log = (
             [],
@@ -148,8 +205,26 @@ class Skydio:
         self.path_len, self.prev_p, self.t_fly0, self.t_goal = 0.0, None, None, None
         self.plan_ms, self.modes = [], Counter()
         self.wall0 = time.monotonic()
-        p0 = self.flyer.state()[0]
+        p0, R0, _ = (
+            self.flyer.state()
+        )  # the take-off pad is surveyed: the estimator starts at the true pose, at rest
         self.p_start = p0.copy()
+        # estimator + its sensors (estimator.py): IMU device + python-side bias, VIO model, barometer device
+        self.imu_dev, self.baro_dev = "/devices/skydio_imu", "/devices/skydio_baro"
+        erng = np.random.default_rng(seed + 2000)
+        self.imu_bias, self.vio = ImuBias(erng), VioSim(erng)
+        rate = float(cfg["skydio_imu"]["rate_hz"])
+        sg, sa = imu_sigmas(cfg["skydio_imu"])
+        self.imu_dt = 1.0 / rate
+        self.eskf = Eskf(p0, np.zeros(3), R0, sg, sa)
+        self.flyer.est = self.eskf
+        self.vio_pending = deque()  # (deliver_at, t_sample, v_body, R_meas)
+        self.vio_t, self.baro_ref = 0.0, None
+        self.err = []  # (t, |dp|, |dv|, attitude error deg) while flying
+        self.t_stuck = None  # since when the follower has been crawling without the subject in view
+        self.aim_off = (
+            0.0  # m: integral correction of the follow distance (see _follow_target)
+        )
         self.flyer.target(p0, np.zeros(3), 0.0)
 
     @property
@@ -160,15 +235,50 @@ class Skydio:
     def step(self):
         self._setpoint()
         self.flyer.update()
-        p, v, R, tilt, _ = self.flyer.last
+        p, v, R, tilt, _ = self.flyer.last  # the estimate
         self.hist.append((self.t, p.copy(), R.copy()))
         if self.subject:
             self.subject.update()
-        self.sim.step(CTL_TICKS)
+        for _ in range(CTL_TICKS // IMU_TICKS):
+            self.sim.step(IMU_TICKS)
+            self._imu()
         self.k += 1
+        self._vio_baro()
         self._sense()
         if self.k % 4 == 0:
-            self._trace(p, v, R, tilt)
+            self._trace(*self.flyer.truth[:2], self.flyer.truth[2][:3], tilt)
+
+    # ---- estimator inputs -----------------------------------------------------------------------------------------------------------
+    def _imu(self):
+        """One IMU sample (500 Hz): the device's reading (noise, quantisation, range) plus the python-side bias -> strapdown + covariance prediction."""
+        q = self.sim.query
+        gyro, accel = q(self.imu_dev, "gyro")[0], q(self.imu_dev, "accel")[0]
+        if not np.any(accel):  # the device reads 0 before its first sample
+            return
+        gyro, accel = self.imu_bias.apply(gyro, accel, self.imu_dt)
+        self.eskf.predict(gyro, accel, self.imu_dt)
+
+    def _truth(self):
+        q = self.sim.query
+        return (
+            q(self.root, "pos")[0],
+            quat_R(q(self.root, "quat")[0]),
+            q(self.free, "qvel")[0][:3],
+        )
+
+    def _vio_baro(self):
+        t = self.eskf.t
+        while self.vio_pending and self.vio_pending[0][0] <= t + 1e-9:
+            _, t_s, vb, Rm = self.vio_pending.popleft()
+            self.eskf.update_vio(t_s, vb, Rm)
+        pa = float(self.sim.query(self.baro_dev, "pressure")[0][0])
+        if (
+            self.k % BARO_EVERY == 0 and pa > 1e4
+        ):  # (0 before the device's first sample)
+            z = baro_height(pa)
+            if self.baro_ref is None:
+                self.baro_ref = z - self.p_start[2]
+            self.eskf.update_height(z - self.baro_ref)
 
     def _setpoint(self):
         fl_, t = self.flyer, self.t
@@ -213,11 +323,27 @@ class Skydio:
         if self.phase == "arrived":
             return
         v = plan.vdes[:2] if plan else np.zeros(2)
-        if plan and plan.mode == "scan":
+        lost = self.mission == "follow" and self.est is not None and not self.est[2]
+        if lost and np.linalg.norm(self.flyer.last[1][:2]) < 0.6:
+            self.t_stuck = self.t_stuck if self.t_stuck is not None else self.t
+        else:
+            self.t_stuck = None
+        if (
+            self.t_stuck is not None and self.t - self.t_stuck > 1.5
+        ):  # lost the subject and crawling: turn to look for a way (the camera only sees ahead)
+            want = self.yaw_sp + self.scan_dir * 2.0
+        elif plan and plan.mode == "scan":
             want = self.yaw_sp + self.scan_dir * 2.0  # turn on the spot to look around
         elif self.mission == "follow" and self.est is not None:
             d = self.est[0] - self.flyer.last[0][:2]
             want = math.atan2(d[1], d[0])
+            if (
+                not self.est[2] and np.linalg.norm(v) >= 0.5
+            ):  # unseen and moving: look at the belief, but at most LOOK_OFF off the flight direction (a camera swept further sideways sees no free path ahead: the follower stalled)
+                fly_dir = math.atan2(v[1], v[0])
+                want = fly_dir + float(
+                    np.clip(wrap(want - fly_dir), -LOOK_OFF, LOOK_OFF)
+                )
         elif np.linalg.norm(v) > 0.7:
             want = math.atan2(v[1], v[0])
         else:
@@ -235,44 +361,97 @@ class Skydio:
             n != self.frames_seen
         ):  # a new depth frame: the pose of the sampling instant is the last control step's
             self.frames_seen = n
-            t_s, p, R = self.hist[-1]
+            t_s, p, R = self.hist[
+                -1
+            ]  # ESTIMATED pose at the sampling instant: the map and the detector use only this
             img = marine.depth_image(
                 self.sim, self.depth_dev, self.cam.n_h, self.cam.n_v
             )
             cam_pos = p + R @ self.cam_o_root
             cam_R = R @ self.cam_R_root
-            self.pending.append((self.t + LATENCY_S, img, cam_pos, cam_R, t_s))
+            pt, Rt, vt = (
+                self.flyer.truth[0],
+                self.flyer.truth[1],
+                self.flyer.truth[2][:3],
+            )  # truth of the same instant: VIO input + detector scoring
+            tcam = (pt + Rt @ self.cam_o_root, Rt @ self.cam_R_root)
+            vb, Rm = self.vio.sample(max(t_s - self.vio_t, 1e-3), Rt, vt)
+            self.vio_t = t_s
+            t_f = self.eskf.t - self.dtc  # filter clock of the sampling instant
+            self.vio_pending.append((self.eskf.t + VIO_LATENCY_S, t_f, vb, Rm))
+            self.pending.append((self.t + LATENCY_S, img, cam_pos, cam_R, t_s, tcam))
         while self.pending and self.pending[0][0] <= self.t + 1e-9:
-            _, img, cam_pos, cam_R, t_s = self.pending.popleft()
-            self._process(img, cam_pos, cam_R, t_s)
+            _, img, cam_pos, cam_R, t_s, tcam = self.pending.popleft()
+            self._process(img, cam_pos, cam_R, t_s, tcam)
 
-    def _process(self, img, cam_pos, cam_R, t_s):
+    def _score(self, dets, tcam, img):
+        """Evaluation only: which detections sit on the true subject (its centre projected with the TRUE camera pose), and whether it was visible."""
+        c = self.cam
+        pc = (np.append(self.subject.pos()[:2], F.CENTRE_Z) - tcam[0]) @ tcam[1]
+        i, j, z = (float(a[0]) for a in c.project(pc[None]))
+        flags = [
+            bool(
+                np.isfinite(i)
+                and abs(d["row"] - i) <= d["half_h"] + 2
+                and abs(d["col"] - j) <= d["half_w"] + 2
+            )
+            for d in dets
+        ]
+        visible = bool(
+            np.isfinite(i)
+            and c.min_range + 0.2 < z < 8.0
+            and 2.0 <= 0.5 * F.HEIGHT * 0.5 * c.n_v / np.tan(c.fov_v / 2) / z
+        )
+        if visible:  # not hidden behind something nearer
+            r, q = int(round(i)), int(round(j))
+            patch = img[max(r - 1, 0) : r + 2, max(q - 1, 0) : q + 2]
+            d = np.nanmedian(patch) if np.isfinite(patch).any() else np.nan
+            visible = bool(np.isfinite(d) and abs(d - z) < 0.8)
+        self.last_visible = visible
+        if self.phase not in ("fly", "arrived"):
+            return flags
+        self.det_stats["frames"] += 1
+        self.det_stats["visible"] += visible
+        self.det_stats["detected_visible"] += visible and any(flags)
+        self.det_stats["detections"] += len(dets)
+        self.det_stats["false_positives"] += len(dets) - sum(flags)
+        self.det_stats["fp_frames"] += len(dets) > sum(flags)
+        return flags
+
+    def _process(self, img, cam_pos, cam_R, t_s, tcam):
         w0 = time.perf_counter()
-        ignore, extra = None, []
+        ignore = None
         if self.mission == "follow":
-            det = self.det.detect(img, cam_pos, cam_R)
-            self.last_det = det
-            if det is not None:
-                ignore = F.subject_mask(self.cam, det)
-            self.est = self.trk.update(t_s, self.cam, det, img, cam_pos, cam_R)
-            if self.est is not None:
-                extra = [(self.est[0][0], self.est[0][1], z, 0.45) for z in (0.9, 1.7)]
-            self.est = (self.est[0], self.est[1], self.est[2]) if self.est else None
+            dets = self.det.detect(img, cam_pos, cam_R)
+            r = self.trk.update(t_s, dets)
+            self.last_dets, self.last_flags = dets, self._score(dets, tcam, img)
+            self.last_det = r[4] if r else None
+            box = self.last_det
+            if box is None and r is not None and t_s - self.trk.t_seen < 1.0:
+                box = F.track_box(
+                    self.cam, r[0], cam_pos, cam_R
+                )  # missed this frame: keep the tracked subject out of the map anyway
+            if box is not None:
+                ignore = F.subject_mask(self.cam, box)
+            self.est = None if r is None else (r[0], r[1], r[2], r[3])
+            self.cam_frame = (t_s, cam_pos, cam_R)
         self.map.integrate(img, self.cam, cam_pos, cam_R, ignore)
         self.depth_log.append((t_s, img.astype(np.float16)))
         if self.phase in ("fly", "arrived"):
-            self._plan(extra)
+            self._plan()
         self.plan_ms.append(1000 * (time.perf_counter() - w0))
 
-    def _plan(self, extra):
+    def _plan(self):
         p, v, R = self.flyer.last[0], self.flyer.last[1], self.flyer.last[2]
         yaw = yaw_of(R)
-        win = self.map.window(p, half=10.0, extra=extra)
+        win = self.map.window(p, half=10.0)
+        moving = None
         if self.mission == "goal":
             field = GoalField(win, self.goal)
             bearing, obj = field.bearing(p), goal_objective(self.goal, self.z_c, field)
+            extra_v = ()
         else:
-            bearing, obj = self._follow_target(p, win)
+            bearing, obj, extra_v, moving = self._follow_target(p, win)
         if (
             bearing is None
         ):  # follow: no subject track at all -> brake to a stop and turn on the spot to look for it
@@ -288,7 +467,7 @@ class Skydio:
             )
             plan.telemetry = dict(n=0, n_safe=0, chosen=0, candidates=[])
         else:
-            plan = self.planner.plan(p, v, yaw, win, bearing, obj)
+            plan = self.planner.plan(p, v, yaw, win, bearing, obj, extra_v, moving)
         self.modes[plan.mode] += 1
         self.plan, self.plan_t = plan, self.t
         if (
@@ -301,44 +480,143 @@ class Skydio:
         self._telemetry(p, v, R, plan, win)
 
     def _follow_target(self, p, win):
+        """-> (bearing, objective, extra candidate velocities): aim FOLLOW_DIST behind the subject's PREDICTED position (the track is as old as the
+        depth frame, LATENCY_S), and add velocity candidates that match the subject's velocity plus a proportional pull toward that spot."""
+        self._belief_update(win)
         if self.est is None:
-            return None, None
-        ps, vs = self.est[0], self.est[1]
+            return None, None, (), None
+        vs = self.est[1]
+        ps = self.est[0] + vs * LATENCY_S
         sp = np.linalg.norm(vs)
         back = (
             -vs / sp
             if sp > 0.6
             else (p[:2] - ps) / max(np.linalg.norm(p[:2] - ps), 1e-6)
         )
-        des = ps + FOLLOW_DIST * back
+        gap = float(np.linalg.norm(p[:2] - ps)) - FOLLOW_DIST
+        if (
+            self.est[2] and sp > 0.8 and abs(gap) < 1.5
+        ):  # integral action on the measured distance: removes the steady trailing of the open-loop aim
+            self.aim_off = float(
+                np.clip(self.aim_off - AIM_KI * gap * self.dtc * 10, -1.0, 0.5)
+            )  # 10 control periods per depth frame
+        lost = not self.est[2]
+        des = (
+            ps
+            + (
+                FOLLOW_DIST
+                + self.aim_off
+                + (LOST_STANDOFF * min(self.est[3], 2.0) if lost else 0.0)
+            )
+            * back
+        )  # lost: hold a wider standoff
         field = GoalField(win, des)
-        return field.bearing(p), follow_objective(des, vs, field=field)
+        vz = float(np.clip(self.z_c - p[2], -1.2, 1.2))
+        extra_v = []
+        for gain in FOLLOW_PULL:
+            vxy = vs + gain * (des - p[:2])
+            n = np.linalg.norm(vxy)
+            vxy = vxy * min(1.0, self.prm.v_cruise / max(n, 1e-6))
+            extra_v.append(np.array([vxy[0], vxy[1], vz]))
+        moving = [
+            (ps, vs, SUBJECT_KEEP_OUT if self.est[2] else SUBJECT_KEEP_OUT_UNSEEN)
+        ]  # the person is not in the map (masked): keep clear of its predicted track
+        vis = self._vis_cost(win) if self.belief.active else None
+        return (
+            field.bearing(p),
+            follow_objective(des, vs, field=field, extra=vis),
+            extra_v,
+            moving,
+        )
+
+    def _belief_update(self, win):
+        """While the subject is unseen: advance the search belief (search.py) to this frame, remove the mass the camera could have seen, and let its
+        mean / velocity / spread stand in for the tracker's coasting estimate. A detection (or no track at all) switches it off."""
+        b, r = self.belief, self.est
+        if r is None or r[2] or self.cam_frame is None:
+            b.stop()
+            return
+        t_s, cam_pos, cam_R = self.cam_frame
+        if not b.active:
+            b.start(self.trk.x, self.trk.P)
+            self.belief_t = t_s
+        b.predict(max(t_s - self.belief_t, 0.0), win)
+        self.belief_t = t_s
+        b.observe_unseen(win, cam_pos, cam_R)
+        m, v, sg = b.estimate()
+        self.est = (m, v, False, sg)
+
+    def _vis_cost(self, win):
+        """Objective term: the fraction of the belief a primitive's point `T_VIS` s ahead would NOT see (camera turned to the belief's mean, range band
+        and field of view of search.visible, line of sight through the map). Positions are quantised to 0.4 m x 0.5 m so a few dozen rays cover all candidates."""
+        xy, vel = self.belief.sample(60)
+
+        def cost(P, times, vdes):
+            k = int(np.argmin(np.abs(times - T_VIS)))
+            E = P[:, k, :]
+            key = np.round(E / np.array([0.4, 0.4, 0.5])).astype(int)
+            _, first, inv = np.unique(
+                key, axis=0, return_index=True, return_inverse=True
+            )
+            views = E[first]
+            tgt = xy + vel * times[k]
+            face = tgt.mean(0)[None, :] - views[:, :2]
+            face /= np.maximum(np.linalg.norm(face, axis=1, keepdims=True), 1e-6)
+            f = visible(win, views, tgt, face).mean(1)
+            return W_VIS * (1.0 - f[inv.ravel()])
+
+        return cost
 
     # ---- records ----------------------------------------------------------------------------------------------------------------------
     def _telemetry(self, p, v, R, plan, win):
         pp, vv, aa = plan.at(0.0)
         taus = np.arange(0.0, plan.duration + 1e-9, 0.1)
+        pt, Rt, vt = self.flyer.truth[0], self.flyer.truth[1], self.flyer.truth[2][:3]
+        sg = self.eskf.sigmas()
         rec = dict(
             t=round(self.t, 3), tick=self.sim.tick, phase=self.phase, mode=plan.mode,
-            pos=np.round(p, 3).tolist(), vel=np.round(v, 3).tolist(), yaw=round(yaw_of(R), 4), tilt_deg=round(float(np.degrees(self.flyer.last[3])), 2),
+            pos=np.round(pt, 3).tolist(), vel=np.round(vt, 3).tolist(), yaw=round(yaw_of(Rt), 4), tilt_deg=round(float(np.degrees(self.flyer.last[3])), 2),
+            est_pos=np.round(p, 3).tolist(), est_vel=np.round(v, 3).tolist(), est_yaw=round(yaw_of(R), 4),
+            est_cov=dict(pos_sigma=np.round(sg[0:3], 4).tolist(), vel_sigma=np.round(sg[3:6], 4).tolist(), att_sigma_deg=np.round(np.degrees(sg[6:9]), 3).tolist()),
+            est_bias=dict(gyro=np.round(self.eskf.bg, 5).tolist(), accel=np.round(self.eskf.ba, 4).tolist()),
+            est_err=dict(pos=np.round(pt - p, 3).tolist(), pos_norm=round(float(np.linalg.norm(pt - p)), 3), vel_norm=round(float(np.linalg.norm(vt - v)), 3),
+                         yaw_deg=round(math.degrees(wrap(yaw_of(Rt) - yaw_of(R))), 3)),
             setpoint=dict(pos=np.round(pp, 3).tolist(), vel=np.round(vv, 3).tolist(), yaw=round(self.yaw_sp, 4), vdes=np.round(plan.vdes, 3).tolist()),
             chosen=np.round([plan.at(x)[0] for x in taus], 3).tolist(), chosen_dt=0.1, chosen_cost=None if not np.isfinite(plan.cost) else round(plan.cost, 3),
             candidates=plan.telemetry["candidates"], n_candidates=plan.telemetry["n"], n_safe=plan.telemetry["n_safe"],
-            map=dict(voxels=self.map.n_occupied, frames=self.map.frames, clearance_est=round(float(win.clearance(p[None])[0]), 3)),
-            min_clearance=round(self.forest.clearance(p) - R_BOUND, 3), goal=self.goal.tolist(), depth_index=len(self.depth_log) - 1,
+            map=dict(voxels=self.map.n_occupied, frames=self.map.frames, clearance_est=round(float(win.clearance(p[None])[0]), 3), fast_frac=round(self.planner.fast_frac, 3)),
+            min_clearance=round(self.forest.clearance(pt) - R_BOUND, 3), goal=self.goal.tolist(), depth_index=len(self.depth_log) - 1,
         )  # fmt: skip
         if self.mission == "follow":
             rec["subject"] = dict(est=None if self.est is None else np.round(self.est[0], 3).tolist(), est_vel=None if self.est is None else np.round(self.est[1], 3).tolist(),
-                                  seen=bool(self.est and self.est[2]), box=None if self.last_det is None else {k: round(float(x), 2) for k, x in self.last_det.items()},
-                                  truth=np.round(self.subject.pos(), 3).tolist())  # fmt: skip
+                                  seen=bool(self.est and self.est[2]), box=None if self.last_det is None else {k: round(float(self.last_det[k]), 2) for k in ("row", "col", "half_h", "half_w")},
+                                  truth=np.round(self.subject.pos(), 3).tolist(), visible=self.last_visible,
+                                  search=None if not self.belief.active else dict(particles=np.round(self.belief.xy[:: max(1, self.belief.n // 40)], 2).tolist(), spread=round(float(self.est[3]), 2)),
+                                  sigma=None if self.est is None else round(float(self.est[3]), 3),
+                                  detections=[dict(row=round(d["row"], 1), col=round(d["col"], 1), half_h=round(d["half_h"], 1), half_w=round(d["half_w"], 1),
+                                                   range=round(d["range"], 2), score=round(d["score"], 2), xy=np.round(d["xy"], 2).tolist(), z_top=round(d["z_top"], 2), width=round(d["width"], 2), on_subject=ok) for d, ok in zip(self.last_dets, self.last_flags)])  # fmt: skip
         self.tele.write(json.dumps(rec, separators=(",", ":")) + "\n")
 
-    def _trace(self, p, v, R, tilt):
+    def _trace(self, p, R_true, v, tilt_cmd):
+        """One 16 ms row from the KERNEL's state (truth: evaluation and the scenario monitors) plus the estimate and its error."""
+        tilt = math.acos(max(-1.0, min(1.0, R_true[2, 2])))
+        pe, ve = self.eskf.p, self.eskf.v
+        if self.phase in ("fly", "arrived"):
+            self.err.append(
+                (
+                    self.t,
+                    float(np.linalg.norm(p - pe)),
+                    float(np.linalg.norm(v - ve)),
+                    math.degrees(
+                        float(np.linalg.norm(log_so3(R_true.T @ self.eskf.R)))
+                    ),
+                )
+            )
         clear = self.forest.clearance(p) - R_BOUND
         if self.subject:
-            clear = min(
-                clear, float(np.linalg.norm(p - self.subject.pos()) - 0.35 - R_BOUND)
-            )
+            s = self.subject.pos()  # the person is a vertical segment (feet to head) of radius 0.2, not a point at its feet
+            nearest = np.array([s[0], s[1], min(max(p[2], 0.0), F.HEIGHT)])
+            clear = min(clear, float(np.linalg.norm(p - nearest) - 0.2 - R_BOUND))
         self.min_clear = min(self.min_clear, clear)
         contact = int(
             self.sim.query("/sensors/hit_obstacles", "value")[0][0]
@@ -372,7 +650,8 @@ class Skydio:
             else 0.0
         )
         self.rows.append([self.t, *p, *q, speed, clear, self.n_contact, dg, math.degrees(tilt), self.map.n_occupied, MODES.index(self.plan.mode) if self.plan else 0,
-                          fd, float(bool(self.est and self.est[2])), 1.0 if self.phase in ("fly", "arrived") else 0.0])  # fmt: skip
+                          fd, float(bool(self.est and self.est[2])), 1.0 if self.phase in ("fly", "arrived") else 0.0, *pe, float(np.linalg.norm(p - pe)),
+                          float(bool(self.subject and self.subject.go and self.subject.s < self.subject.length - 1.0))])  # fmt: skip
 
     COLS = [
         "t",
@@ -393,11 +672,19 @@ class Skydio:
         "follow_dist",
         "subject_seen",
         "flying",
+        "est_x",
+        "est_y",
+        "est_z",
+        "est_err_m",
+        "subject_walking",
     ]
 
     # ---- run + finish -----------------------------------------------------------------------------------------------------------------
     def crashed(self):
-        p, tilt = self.flyer.last[0], self.flyer.last[3]
+        p, tilt = (
+            self.flyer.truth[0],
+            math.acos(max(-1.0, min(1.0, self.flyer.truth[1][2, 2]))),
+        )  # the kernel's state: a crash is physics, not belief
         return (
             tilt > 1.4 or (self.phase == "fly" and p[2] < 0.15) or self.n_contact > 40
         )
@@ -413,8 +700,7 @@ class Skydio:
                     break
             if self.subject and self.subject.s >= self.subject.length - 0.5:
                 subject_done = subject_done or self.t
-                if self.t - subject_done > 4.0:
-                    break
+                break  # the mission ends when the walk does (a person standing inside the camera's blind zone is not tracked)
             if self.flyer.last is not None and self.crashed():
                 break
         return self.finish()
@@ -446,9 +732,39 @@ class Skydio:
                     cruise_speed_p90_mps=float(np.percentile(v, 90)) if len(v) else 0.0, planner=dict(n=len(self.plan_ms), mean_ms=float(np.mean(self.plan_ms)) if self.plan_ms else 0.0,
                     max_ms=float(np.max(self.plan_ms)) if self.plan_ms else 0.0, modes=dict(self.modes)), max_tilt_deg=float(col["tilt_deg"].max()))  # fmt: skip
         if self.subject:
-            fd = col["follow_dist"][fly & (col["t"] > (self.t_fly0 or 0) + 8.0)]
+            walking = col["subject_walking"] > 0
+            stopped = (
+                fly & ~walking & (col["t"] > (self.t_fly0 or 0) + 8.0)
+            )  # after the walk ends the subject stands still
+            fd = col["follow_dist"][
+                fly & walking & (col["t"] > (self.t_fly0 or 0) + 8.0)
+            ]
+            band = col[
+                "follow_dist"
+            ][
+                fly & walking & (col["t"] >= 10.0)
+            ]  # what follow.scenario.toml's follow_distance_band monitor judges (t >= 10 s)
+            if len(band):
+                summ["follow_band_min_max"] = [float(band.min()), float(band.max())]
+            if stopped.any():
+                summ["follow_dist_min_after_stop"] = float(
+                    col["follow_dist"][stopped].min()
+                )
             summ.update(follow_dist_median=float(np.median(fd)) if len(fd) else None, follow_dist_p5_p95=[float(np.percentile(fd, 5)), float(np.percentile(fd, 95))] if len(fd) else None,
                         subject_seen_frac=float(col["subject_seen"][fly].mean()) if fly.any() else 0.0)  # fmt: skip
+        if self.err:
+            e = np.array(self.err)
+            summ["estimation"] = dict(pos_rms_m=float(np.sqrt((e[:, 1] ** 2).mean())), pos_max_m=float(e[:, 1].max()), pos_final_m=float(e[-1, 1]),
+                                      drift_pct_of_path=100.0 * float(e[-1, 1]) / max(self.path_len, 1e-6), vel_rms_mps=float(np.sqrt((e[:, 2] ** 2).mean())),
+                                      att_rms_deg=float(np.sqrt((e[:, 3] ** 2).mean())), att_max_deg=float(e[:, 3].max()),
+                                      sigma_pos_final_m=float(np.linalg.norm(self.eskf.sigmas()[:3])), vio_scale_err=float(self.vio.scale))  # fmt: skip
+        if self.subject:
+            ds = self.det_stats
+            summ["detection"] = dict(
+                dict(ds),
+                recall=ds["detected_visible"] / max(ds["visible"], 1),
+                fp_per_frame=ds["false_positives"] / max(ds["frames"], 1),
+            )
         (r / "summary.json").write_text(json.dumps(summ, indent=1))
         (r / "native.json").write_text(
             json.dumps(
@@ -480,8 +796,10 @@ def run_mission(mission, seed, out, cal_dir=None, t_max=None, params=None):
 
 
 def main():
+    import skydio_scene as scene
+
     mission = os.environ.get("SKYDIO_MISSION", "goal")
-    seed = int(os.environ.get("SKYDIO_SEED", 1))
+    seed = scene.seed(mission)  # the same function the scenario's model script calls
     cal_dir = os.environ.get("SKYDIO_CAL")
     if "NAPL_MODEL" in os.environ:  # under `napl program`
         run = Skydio(
