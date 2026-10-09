@@ -21,6 +21,7 @@ recommended_wire    = { value = "AWG9-10", unit = "text", src = "S1", fidelity =
 
 [[ports]]
 name = "female"
+pins = ["MATE.1", "MATE.2"]
 kind = "power"
 type = "ec5"
 gender = "female"
@@ -32,12 +33,54 @@ note = "40 A continuous, 90 A momentary; 5 mm pins; AWG9-10 cable"
 
 [[ports]]
 name = "wire"
+pins = ["WIRE.1", "WIRE.2"]
 kind = "power"
 type = "wire-lead"
 gender = "neutral"
 i_max = { value = 40, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "passthrough"
 note = "Solder cup, AWG9-10"
+
+# Pin level (estimated): 2-pole connector; contacts numbered 1..2 in a line, solder cup n belongs to mating contact n.
+[[connectors]]
+id = "MATE"
+name = "mating contacts (2-pole)"
+type = "ec5"
+gender = "female"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.011
+src = "S1"
+fidelity = "estimated"
+rationale = "Pole count is the part designation (2-pole); S1 gives no contact numbering, polarity marking or pole spacing, so the contacts are numbered 1..2 and the spacing is a typical value for the family."
+pose_rationale = "Connector body geometry is not in S1: contacts on the mating face at the origin, cable side opposite."
+pins = [
+  { number = 1, name = "1", kind = "power" },
+  { number = 2, name = "2", kind = "power" },
+]
+
+[[connectors]]
+id = "WIRE"
+name = "solder cups (2)"
+type = "wire-lead"
+gender = "neutral"
+pos = [0.0, 0.0, -0.02]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.011
+src = "S1"
+fidelity = "estimated"
+rationale = "One solder cup per contact; cup n joins contact n. Spacing follows the mating contacts (not published)."
+pose_rationale = "Cable side of the body at z = -20 mm (positional estimate)."
+pins = [
+  { number = 1, name = "1", kind = "power" },
+  { number = 2, name = "2", kind = "power" },
+]
 
 [[sources]]
 id = "S1"
