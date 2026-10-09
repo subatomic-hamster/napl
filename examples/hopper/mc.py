@@ -157,6 +157,12 @@ def main(argv=None):
         "--no-sweep", action="store_true", help="skip the sensitivity table"
     )
     ap.add_argument(
+        "--sweep-n",
+        type=int,
+        default=100,
+        help="report seeds (the first n) per sensitivity row",
+    )
+    ap.add_argument(
         "--over",
         default="{}",
         help="JSON of scenario parameter overrides for every flight",
@@ -208,7 +214,13 @@ def main(argv=None):
             for key, vals, tag in SWEEP:
                 for v in vals:
                     s = summarize(
-                        run(pool, te_seeds, {**base, **pick, key: v}, a.scenario), hover
+                        run(
+                            pool,
+                            te_seeds[: a.sweep_n],
+                            {**base, **pick, key: v},
+                            a.scenario,
+                        ),
+                        hover,
                     )
                     out["sweep"][f"{key}={v}"] = s
                     sys.stdout.write(

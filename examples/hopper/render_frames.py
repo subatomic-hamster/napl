@@ -39,8 +39,8 @@ def camera(kind, p, p_start, p_goal):
         far = max(24.0, 1.6 * float(np.linalg.norm(d)))
         return dict(
             pos=mid + far * n + np.array([0, 0, 5.0]),
-            lookat=mid + np.array([0, 0, 0.45 * max(p[2], 6.0)]),
-            fovy=50.0,
+            lookat=mid + np.array([0, 0, 0.5 * max(p[2], 6.0)]),
+            fovy=66.0,
         )
     if kind == "top":
         return dict(pos=p + np.array([0.0, 0.01, 14.0]), lookat=p, fovy=45.0)

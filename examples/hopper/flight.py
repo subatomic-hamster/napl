@@ -24,7 +24,7 @@ DEFAULTS = dict(
     vmax_up=3.5, vmax_xy=2.5, vmax_down=3.0, amax_z=2.0, amax_xy=1.2,
     z_final=2.0, v_sink_max=1.2, v_sink_min=0.25, k_sink=0.55,
     wn_att=9.0, zeta_att=0.8, kp_xy=2.5, kd_xy=3.3, kp_z=2.5, kd_z=3.0, ki_xy=1.0, ki_z=0.4, tilt_max_deg=20.0, dT_max=15.0,
-    dT_spool=10.0, t_lead=0.035,
+    dT_spool=10.0, t_lead=0.065,
     abort_tilt_deg=40.0, abort_v=18.0, abort_gnss_s=2.0, abort_off_m=12.0, t_max_s=120.0,
 )  # fmt: skip
 

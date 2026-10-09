@@ -143,6 +143,16 @@ group = "flight"
 label = "Roll / pitch loop bandwidth"
 
 [[parameters]]
+name = "t_lead"
+type = "float"
+default = 0.065
+min = 0.0
+max = 0.15
+unit = "s"
+group = "flight"
+label = "Servo-lag lead of the gyroscopic feed-forward"
+
+[[parameters]]
 name = "kp_xy"
 type = "float"
 default = 2.5
