@@ -61,13 +61,61 @@ Aborts: tilt > 40 deg, battery < 18 V for 0.5 s, GNSS silent for 2 s, off-plan >
 |---|---|---|
 | `hop10` | hop to 10 m, hover 5 s, land | touchdown < 0.5 m/s, tilt < 5 deg, < 0.3 m from the pad, no abort, battery 18 V and 15 % left, holds the height within 0.5 m, vane saturation < 10 % |
 | `divert25` | climb to 25 m, divert 10 m (8 east, 6 north), precision landing on a second pad, 2 m/s wind | as above, plus "diverts ten metres" |
-| `gusts` | 15 m, 6 m divert, 5 m/s wind with Dryden gusts, one servo degraded at 14 s, battery open-circuit step of 1.5 V | as above (vane saturation < 20 %) |
+| `gusts` | 15 m, 6 m divert, 5 m/s wind with Dryden gusts, one servo degraded at 14 s, battery open-circuit step of 1.5 V | as above |
 
-Nominal results, one run each (seed default): all three `napl program` runs end with replay match (hop10 `dc4e2eb844064776` at tick 26141, divert25 `b2d76e70ff414be3` at tick
-48045, gusts `107f05d082c44afe` at tick 35253). hop10 lands 0.036 m from the pad at 0.26 m/s, divert25 0.054 m at 0.18 m/s. gusts lands 0.25 m from the pad at 0.30 m/s (inside the
-0.3 m limit by 5 cm) and spends 12.8 % of the powered time with a vane at its 17 deg limit: with 5 m/s wind and a degraded servo the control authority is thin.
+Nominal results, one run each (default seed): all three `napl program` runs pass every monitor and end with replay match (hop10 `93cc314eb1d458f0` at tick 26145, divert25
+`8fefff2e164b775e` at tick 48045, gusts `777a7d76b2a70483` at tick 35521). hop10 lands 0.033 m from the pad at 0.26 m/s, divert25 0.054 m at 0.18 m/s, gusts 0.042 m at 0.20 m/s
+(vane at its limit for 5.6 % of the powered time).
 
-@@RESULTS@@
+## Monte Carlo (held-out seeds, flown once)
+
+Protocol (`mc.py`): the flight software's one tunable that was tuned (the servo-lag lead `t_lead`) was picked on TRAINING seeds 1000-1079 (80 divert flights per candidate, with and
+without the servo fault); the report seeds are different seeds, flown once with the pick. Per-flight scatter drawn from the seed: fan thrust +-5 %, mass +-3 %, CG +-4 mm, servo
+stiffness (up to -30 %) and backlash (up to 0.5 deg), IMU / baro / lidar noise (up to +50 %), gyro / accelerometer offsets, SoC (up to -30 %), wind speed (uniform 0.4 to 1 of the
+scenario's) with Dryden gusts and a random direction. Success = every monitor of the mission: touchdown < 0.5 m/s, tilt < 5 deg, < 0.3 m from the pad, no abort, vane saturation
+< 10 % of the powered time (battery > 18 V and > 15 % SoC left).
+
+History, because the report seeds were used three times (each time a different set; nothing was re-flown on a set already looked at):
+
+| Run | Change | Seeds | divert25 (wind up to 3 m/s) |
+|---|---|---|---|
+| v1 | `t_lead` 0.035 s (first value) | 5000-5299 | 96.7 % [94.0, 98.2], 7 tilt aborts |
+| v2 | `t_lead` 0.065 s, picked on training seeds (servo fault: 41 % -> 99 %) | 9000-9299 | 98.7 % [96.6, 99.5], 2 "no lift-off" faults |
+| **v3 (final)** | spool-up keeps ramping while on the ground (fixes the two faults) | 13000-13299 | **99.3 % [97.6, 99.8]** |
+
+The 5000-5031 seeds were also used, before v2, to look at how `t_lead` behaves (a 4 x 4 sweep): disclosed here, and the v2 / v3 numbers are on other seeds. The Wilson 95 % interval
+is in brackets.
+
+Final (v3, report seeds 13000+, flown once):
+
+| Mission | Seeds | Success | Touchdown speed p50 / p90 / p99 | Distance to pad p50 / p90 / p99 | Failures |
+|---|---|---|---|---|---|
+| hop10 | 150 | 99.3 % [96.3, 99.9] | 0.27 / 0.30 / 0.34 m/s | 0.03 / 0.06 / 0.08 m | 1 battery limit |
+| divert25 (b), wind up to 3 m/s | 300 | 99.3 % [97.6, 99.8] | 0.24 / 0.34 / 0.48 m/s | 0.05 / 0.09 / 0.15 m | 2 touchdowns above 0.5 m/s |
+| gusts (c), 5 m/s + servo fault + 1.5 V step | 200 | 87.5 % [82.2, 91.4] | 0.24 / 0.29 / 0.34 m/s | 0.11 / 0.33 / 10.4 m | 21 landings > 0.3 m from the pad, 2 off-plan aborts, 2 vane saturation |
+
+Mission (c) is the stress case: a steady 5 m/s wind needs about 15 deg of tilt, the yaw trim uses about 5 deg of the vanes' 17 deg, a servo goes soft in flight, and the pack
+steps down: precision (< 0.3 m) suffers, speed and tilt do not (touchdown speed < 0.5 m/s in 100 % of the flights).
+
+Sensitivity, divert25, first 60 report seeds of the v3 set (one scatter pushed past its nominal range, the rest as the Monte Carlo; the v2 table on 100 seeds shows the same
+picture):
+
+| Pushed | Success | Failures |
+|---|---|---|
+| nothing (baseline rows, 60 seeds) | 98 to 100 % | at most 1 |
+| fan thrust +-10 % | 100 % | none (v2: 90 %, 9 "no lift-off" faults, fixed after) |
+| mass +-6 % | 100 % | none |
+| centre of mass +-8 mm | 96.7 % | 2 landings 0.3 to 2.7 m off the pad |
+| servo stiffness down up to 60 % (all four) | 75 % [63, 84] | 12 tilt aborts: the servo-lag margin is the weak spot |
+| servo backlash up to 1.5 deg | 100 % | none |
+| sensor noise +150 % | 100 % | none |
+| wind up to 5 m/s | 88 % [78, 94] | 6 off the pad (0.3 to 9 m), 1 off-plan abort |
+| NEO-M8N GNSS instead of the ZED-F9P RTK | 0 % | 29 of 60 land > 0.3 m off the pad, 25 above 0.5 m/s: a 2.5 m class GNSS cannot do a 0.3 m precision landing, nor hold the velocity loop |
+| one servo degraded in flight at 20 s (half the position gain, torque limit 0.35 N m of its 0.52 stall) | 98 % | 1 off the pad |
+| battery open-circuit step -2 V in flight | 100 % | none |
+
+Honest reading: with the RTK receiver and the stated scatter the hopper meets the 95 % target for mission (b) with margin; the margin disappears with a 60 % softer servo, with a
+non-RTK GNSS or with 5 m/s wind. The numbers describe this simulation, not a vehicle.
 
 ## Run it
 
@@ -123,5 +171,5 @@ wind_ms  [x, y, z]
 | Thrust | fixed impulse, no throttle, no re-start | throttleable 0 to 33 N, restartable |
 | Mission | fly up and land in one burn | hop, hover, divert, precision landing |
 | Budget limit | F15: net Delta-v about 0.4 m/s at 1.45 kg | battery (about 60 % of a 2.2 Ah pack left after the 48 s divert) |
-| Held-out success | 35 % (limit documented) | see the table above |
+| Held-out success | 35 % (limit documented) | 99.3 % divert-and-land (300 seeds), 99.3 % hop-hover-land, 87.5 % in the 5 m/s + faults stress case |
 | Cost | motors are consumables | rechargeable, about US$ 800 to 900 |
