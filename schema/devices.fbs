@@ -143,6 +143,33 @@ table Rotor {
   // C_T / C_Q are the usual K_T / K_Q of the open-water curve (same definitions, rho = water). The outputs `rho` = the water density
   // and `ge_ratio` = the immersion factor (the ground-effect field is unused in water).
   water: bool;
+  // Ducted fan with a stator (EDF): the stator vanes behind the fan take back `swirl_recovery` (0..1) of the fan's reaction torque from
+  // the air, so that only (1 - swirl_recovery) of the aero torque -sgn(w) Q a acts on the vehicle: +swirl_recovery sgn(w) Q a is applied
+  // to `stator_body` (the housing). 0 / empty = a bare propeller (nothing changes, bitwise).
+  stator_body: string;
+  swirl_recovery: double;
+}
+
+// Jet vane: a flat plate on a hinge in the exhaust of a Rotor (a ducted fan, a slipstream), the thrust-vectoring surface of a
+// hobby EDF hopper. On `body` (the plate, whose hinge a servo drives), `site` on that body: origin = the aerodynamic centre (the
+// force acts there, so the hinge moment is the servo's load), z = the chord pointing downstream at zero deflection, x = the plate
+// normal. Exhaust: direction e = -sgn(T) a (a = the rotor's world axis, T = its thrust of this tick), momentum-theory exit speed
+// v_e = jet_factor sqrt(|T| / (rho exit_area)), q = 1/2 rho v_e^2 (rho of the rotor). Angle of attack alpha = atan2(e.n, e.c) with the
+// plate's c, n turned so that e.c > 0 (a symmetric plate). Force at the site:
+//   F = q area [ C_N n + cd0 c ],   C_N = cn_max tanh(cn_alpha sin(alpha) / cn_max)
+// (normal-force slope cn_alpha at small alpha, saturating at the stalled-plate value cn_max; chord-wise drag cd0; the normal force's
+// component along e is the induced drag). The rotor's swirl, the plate's wake interference and the velocity profile of the jet
+// are not modelled (jet_factor is the one lump). Force and torque about the body CoM go to xfrc_applied.
+table JetVane {
+  name: string (required); parts: [string];
+  body: string (required); site: string (required);
+  rotor: string (required);   // name of the Rotor device whose exhaust this is
+  area: double;               // m^2, plate area (chord x immersed span)
+  exit_area: double;          // m^2, exhaust (nozzle exit) area of the duct
+  cn_alpha: double;           // 1/rad, normal-force slope on `area`
+  cn_max: double = 1.2;       // normal-force coefficient of the stalled plate
+  cd0: double;                // chord-wise drag coefficient on `area`
+  jet_factor: double = 1.0;   // mean exhaust speed over the vane / momentum-theory exit speed
 }
 
 // At most one. World frame, z up; world z = 0 is ground level (AGL for turbulence) and origin_alt metres MSL (ISA).
@@ -366,6 +393,7 @@ table Devices {
   imus: [Imu]; baros: [Baro]; mags: [Mag]; gnss_receivers: [Gnss];
   launchers: [Launcher]; cameras: [Camera];
   solid_motors: [SolidMotor]; airframes: [Airframe]; seas: [Sea]; vessels: [Vessel]; rangefinders: [Rangefinder];
+  jet_vanes: [JetVane];
 }
 
 root_type Devices;

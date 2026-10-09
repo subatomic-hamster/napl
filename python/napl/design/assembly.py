@@ -84,6 +84,7 @@ DEVICE_TYPES = {
     "sea",
     "vessel",
     "rangefinder",
+    "jet_vane",
 }
 UNITS = {
     "m": {"m": 1.0},

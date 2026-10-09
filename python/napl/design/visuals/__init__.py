@@ -427,6 +427,7 @@ from . import (  # noqa: F401  (register generators)
     gens_board,
     gens_conn,
     gens_drone,
+    gens_edf,
     gens_marine,
     gens_mech,
     gens_rocket,
