@@ -218,7 +218,10 @@ class Flight:
         # ---- controllers
         ground = self.state == "SPOOL"
         if ground:
-            F = np.array([0.0, 0.0, 1.12 * W])
+            # 1.12 W, and after 2 s still on the ground (weak fan, heavy vehicle) 6 % of W more per second up to 1.6 W
+            F = np.array(
+                [0.0, 0.0, W * min(1.6, 1.12 + 0.06 * max(0.0, t - self.t_state - 2.0))]
+            )
         else:
             F = self.pos.force(
                 p_ref, v_ref, a_ref, pos, vel, DT, hold_int=hold_int, kp_scale=kp_scale
