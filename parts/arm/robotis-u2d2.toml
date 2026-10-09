@@ -22,6 +22,7 @@ supplies_servo_power = { value = 0, unit = "1", src = "S1", fidelity = "datashee
 # Electrical / signal only; the board is not part of any mechanical assembly in the Koch build.
 [[ports]]
 name = "ttl"
+pins = ["TTL.2", "TTL.3"]
 kind = "signal"
 type = "dynamixel-ttl"
 gender = "female"
@@ -33,6 +34,58 @@ kind = "signal"
 type = "usb"
 gender = "female"
 note = "USB Type-C (S1); host side not modelled."
+
+# Pin level: connector table of the ROBOTIS e-Manual (P1). The board carries JST B3B-EH-A / B4B-EH-A PCB headers (mating housing EHR-03 / EHR-04). EH pitch 2.5 mm is the JST family pitch, not on the page.
+# Placement: the board frame is not published; the headers are put on the +x short edge of the 48 x 18 mm board, centred at y = +-0.004 (positional estimate).
+[[connectors]]
+id = "TTL"
+name = "TTL (JST B3B-EH-A header)"
+type = "jst-eh-3"
+port_type = "dynamixel-ttl"
+gender = "female"
+pos = [0.024, -0.004, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 0.0, 1.0]
+rows = 1
+cols = 3
+pitch = 0.0025
+src = "P1"
+fidelity = "datasheet"
+pose_rationale = "Header edge and position on the board are not documented: positional estimate."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "in", note = "pass-through for the external servo supply; the U2D2 does not supply it" },
+  { number = 3, name = "DATA", kind = "signal", dir = "io" },
+]
+
+[[connectors]]
+id = "RS485"
+name = "RS-485 (JST B4B-EH-A header)"
+type = "jst-eh-4"
+port_type = "dynamixel-rs485"
+gender = "female"
+pos = [0.024, 0.004, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 0.0, 1.0]
+rows = 1
+cols = 4
+pitch = 0.0025
+src = "P1"
+fidelity = "datasheet"
+pose_rationale = "Header edge and position on the board are not documented: positional estimate."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "in", note = "pass-through for the external servo supply; the U2D2 does not supply it" },
+  { number = 3, name = "DATA+", kind = "signal", dir = "io" },
+  { number = 4, name = "DATA-", kind = "signal", dir = "io" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://emanual.robotis.com/docs/en/parts/interface/u2d2/"
+title = "ROBOTIS e-Manual U2D2, 11.1 Connector Information"
+accessed = "2026-10-09"
+quote = "Item | TTL | RS-485 || Pinout | 1 GND 2 VDD 3 DATA | 1 GND 2 VDD 3 DATA+ 4 DATA- || Housing | JST EHR-03 | JST EHR-04 || PCB Header | JST B3B-EH-A | JST B4B-EH-A"
 
 [[sources]]
 id = "S1"
