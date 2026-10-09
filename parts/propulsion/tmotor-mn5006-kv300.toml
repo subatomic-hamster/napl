@@ -76,12 +76,37 @@ axis = [0.0, 0.0, 1.0]
 
 [[ports]]
 name = "phase"
+pins = ["PH.1", "PH.2", "PH.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
 role = "sink"
 v_max = { value = 25.2, unit = "V", fidelity = "derived", derivation = "6S x 4.2 V/cell = 25.2 V (upper end of the 4-6S rated range, S1)." }
 i_max = { value = 20.0, unit = "A", src = "S1", fidelity = "datasheet" }
+
+# Pin level: three 80 mm phase leads (S1 'Lead Cable|80mm'; no gauge or connector stated, so bare / solder ends).
+# Lead exit and phase naming are conventions (no drawing carries them).
+[[connectors]]
+id = "PH"
+name = "phase leads (3 x 80 mm)"
+type = "wire-lead"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [0.0, -0.0278, 0.004]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.004
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives only the lead length (80mm), not gauge, connector, lead positions or phase labels: leads drawn side by side at the base, 4 mm apart, phases A B C by convention."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "in", i_max = 20.0 },
+  { number = 2, name = "B", kind = "power", dir = "in", i_max = 20.0 },
+  { number = 3, name = "C", kind = "power", dir = "in", i_max = 20.0 },
+]
 
 [[sources]]
 id = "S1"
