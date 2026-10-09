@@ -12,6 +12,17 @@ Ops (args -> result):
   clean; on = always; off = never. emphasise_wires = cables at least 4 px wide on screen in BUILD / LIBRARY / WIRING, data unchanged)
   ui.hover {instance, seconds?}   show that instance's compact tooltip (about 6 s) even when tooltips are auto / off
   ui.program {file?, scroll?}   PROGRAM page shows that source file (path inside the repo; none = the design TOML), scrolled to a 0..1 fraction
+  camera.orbit {target?: [x,y,z] m, yaw_deg?, pitch_deg?, dist?: m, seconds?: 3, relative?: true, ease?: smooth|linear}
+      the camera glides (wall-clock `seconds`) to orbit `target` (default: the current target). relative=true: yaw_deg / pitch_deg are
+      SWEEPS added to the current angles (360 = one full turn, + = counter-clockwise seen from above; pitch is clamped to +-86 deg);
+      relative=false: absolute end angles (yaw 0 looks from +x). dist = end distance in m (a dolly). Works in every 3D page
+      (BUILD, LIBRARY, SIMULATE; the WIRING page shows the 2D canvas, its 3D tubes are seen from BUILD).
+  camera.fly {eye: [x,y,z], look: [x,y,z], seconds?: 3, ease?}   fly the eye and the look-at point along straight lines to these
+  ui.visibility {instances?: [..] (default: all), visible?: true}   the browser's eye: show / hide those parts in the 3D view (view only;
+      the document is unchanged)
+  ui.measure {a: instance, b: instance} | {off: true}   BUILD: the MEASURE readout between two parts (centre distance, dx dy dz, gap)
+  ui.wire_view {zoom?: 0.1..4, fit?: bool}   the WIRING canvas: fit the sheet, or zoom to that factor (1 = 100 %, every pin label shown)
+      about the middle of the sheet
   ui.state {}  (the Backend.ui dict)      select {instances: [..], add?: bool}
   library.search {text, filters, category, limit, offset, type_ms?}   library.categories {}   library.ranges {category?}
   library.info {part}   library.targets {part}  (ghost poses on every open compatible port)
@@ -35,6 +46,11 @@ from .snap import port_frame, rpy_matrix
 UI_TOOLS = {
     "ui.mode",
     "ui.camera",
+    "camera.orbit",
+    "camera.fly",
+    "ui.wire_view",
+    "ui.measure",
+    "ui.visibility",
     "ui.frame",
     "ui.gizmo",
     "ui.guides",
@@ -274,6 +290,39 @@ class UiOps:
                     **{k: a[k] for k in ("yaw", "pitch", "dist") if k in a},
                 )
             return self._ok()
+        if tool in ("camera.orbit", "camera.fly"):
+            return self._camera_move(tool, a)
+        if tool == "ui.visibility":
+            ids = {i["id"] for i in self._design().doc["instances"]}
+            want = a.get("instances")
+            if want is None:
+                want = sorted(ids)
+            bad = [i for i in want if i not in ids]
+            if bad or not isinstance(want, list):
+                raise DesignError(f"ui.visibility: unknown instance(s) {bad}")
+            vis = bool(a.get("visible", True))
+            self._event(cmd="visibility", instances=list(want), visible=vis)
+            return self._ok({"instances": list(want), "visible": vis})
+        if tool == "ui.measure":
+            if a.get("off"):
+                self._event(cmd="measure", a="", b="")
+                return self._ok({"off": True})
+            ids = {i["id"] for i in self._design().doc["instances"]}
+            for k in ("a", "b"):
+                if a.get(k) not in ids:
+                    raise DesignError(
+                        f"ui.measure: {k} must be an instance id, got {a.get(k)!r}"
+                    )
+            self._event(cmd="measure", a=a["a"], b=a["b"])
+            return self._ok({"a": a["a"], "b": a["b"]})
+        if tool == "ui.wire_view":
+            z = a.get("zoom")
+            if z is not None and not (isinstance(z, (int, float)) and 0.1 <= z <= 4):
+                raise DesignError(
+                    "ui.wire_view: zoom is a number within 0.1..4 (1 = 100 %)"
+                )
+            self._event(cmd="wire_view", zoom=z, fit=bool(a.get("fit")))
+            return self._ok({"zoom": z, "fit": bool(a.get("fit"))})
         if tool == "ui.gizmo":
             if a.get("mode") not in ("move", "rotate", "none"):
                 raise DesignError("ui.gizmo: mode is move, rotate or none")
@@ -433,6 +482,51 @@ class UiOps:
         if tool in ("align", "distribute"):
             return self._align(d, tool, a)
         raise DesignError(f"unknown tool {tool!r}")
+
+    def _camera_move(self, tool: str, a: dict) -> dict:
+        """camera.orbit / camera.fly: validate, then one `camera_move` event (the window animates it over `seconds`)."""
+
+        def vec(key, required=False):
+            v = a.get(key)
+            if v is None:
+                if required:
+                    raise DesignError(f"{tool}: {key} is required ([x, y, z] in m)")
+                return None
+            if (
+                not isinstance(v, (list, tuple))
+                or len(v) != 3
+                or not all(isinstance(x, (int, float)) and math.isfinite(x) for x in v)
+            ):
+                raise DesignError(f"{tool}: {key} must be [x, y, z] in metres")
+            return [float(x) for x in v]
+
+        secs = float(a.get("seconds", 3.0))
+        if not 0.0 <= secs <= 600.0:
+            raise DesignError(f"{tool}: seconds must be within 0..600")
+        ease = a.get("ease", "smooth")
+        if ease not in ("smooth", "linear"):
+            raise DesignError(f"{tool}: ease is smooth or linear")
+        ev = {"cmd": "camera_move", "seconds": secs, "ease": ease}
+        if tool == "camera.fly":
+            eye, look = vec("eye", True), vec("look", True)
+            if math.dist(eye, look) < 1e-4:
+                raise DesignError("camera.fly: eye and look must differ")
+            ev.update(kind="fly", eye=eye, look=look)
+        else:
+            ev.update(
+                kind="orbit",
+                target=vec("target"),
+                relative=bool(a.get("relative", True)),
+            )
+            for k in ("yaw_deg", "pitch_deg", "dist"):
+                if a.get(k) is not None:
+                    if not isinstance(a[k], (int, float)) or not math.isfinite(a[k]):
+                        raise DesignError(f"{tool}: {k} must be a number")
+                    ev[k] = float(a[k])
+            if ev.get("dist", 1.0) <= 0:
+                raise DesignError("camera.orbit: dist must be > 0")
+        self._event(**ev)
+        return self._ok({k: v for k, v in ev.items() if k != "cmd"})
 
     def _lib(self):
         d = self.get_design()

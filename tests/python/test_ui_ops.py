@@ -439,3 +439,76 @@ def test_pose_and_color_schema_checks():
     root["pos"] = [0, 0, 0]
     with pytest.raises(Exception, match="root"):
         A.validate(bad)
+
+
+def test_camera_orbit_and_fly_ops_validate_and_emit_one_event(be):
+    b, _ = be
+    ask(b, "ui_poll")  # a window attaches
+    r = ask(
+        b,
+        "camera.orbit",
+        {"target": [0, 0, 0.1], "yaw_deg": 360, "pitch_deg": -10, "seconds": 6},
+    )
+    assert (
+        r["ok"] and r["result"]["relative"] is True and r["result"]["kind"] == "orbit"
+    )
+    r = ask(b, "camera.orbit", {"yaw_deg": 45, "relative": False, "dist": 0.8})
+    assert r["ok"] and r["result"]["relative"] is False
+    assert ask(b, "camera.fly", {"eye": [0.4, -0.4, 0.3], "look": [0, 0, 0.1]})["ok"]
+    ev = ask(b, "ui_poll")["result"]["events"]
+    assert [(e["cmd"], e["kind"]) for e in ev] == [
+        ("camera_move", "orbit"),
+        ("camera_move", "orbit"),
+        ("camera_move", "fly"),
+    ]
+    assert ev[0]["yaw_deg"] == 360 and ev[0]["target"] == [0, 0, 0.1]
+    assert ev[0]["seconds"] == 6 and ev[2]["seconds"] == 3 and ev[2]["ease"] == "smooth"
+    assert ev[2]["eye"] == [0.4, -0.4, 0.3]
+    # bad arguments are refused with a reason, nothing is emitted
+    for tool, args in [
+        ("camera.fly", {"eye": [0, 0, 0]}),
+        ("camera.fly", {"eye": [0, 0, 0], "look": [0, 0, 0]}),
+        ("camera.fly", {"eye": [0, 0], "look": [1, 1, 1]}),
+        ("camera.orbit", {"target": "x"}),
+        ("camera.orbit", {"yaw_deg": "a"}),
+        ("camera.orbit", {"dist": 0}),
+        ("camera.orbit", {"seconds": -1}),
+        ("camera.orbit", {"ease": "bounce"}),
+    ]:
+        assert not ask(b, tool, args)["ok"], (tool, args)
+    assert ask(b, "ui_poll")["result"]["events"] == []
+
+
+def test_measure_visibility_and_wire_view_ops_emit_events(be):
+    b, _ = be
+    ask(b, "ui_poll")
+    assert ask(b, "ui.measure", {"a": "pdb", "b": "bat"})["ok"]
+    assert ask(b, "ui.measure", {"off": True})["ok"]
+    assert not ask(b, "ui.measure", {"a": "pdb", "b": "nope"})["ok"]
+    assert ask(b, "ui.visibility", {"instances": ["pdb"], "visible": False})["ok"]
+    assert ask(b, "ui.visibility", {})["ok"]  # default: every part, shown
+    assert not ask(b, "ui.visibility", {"instances": ["nope"]})["ok"]
+    assert ask(b, "ui.wire_view", {"zoom": 1.0})["ok"]
+    assert ask(b, "ui.wire_view", {"fit": True})["ok"]
+    assert not ask(b, "ui.wire_view", {"zoom": 99})["ok"]
+    ev = ask(b, "ui_poll")["result"]["events"]
+    assert [e["cmd"] for e in ev] == [
+        "measure",
+        "measure",
+        "visibility",
+        "visibility",
+        "wire_view",
+        "wire_view",
+    ]
+    assert ev[0]["a"] == "pdb" and ev[1]["a"] == "" and ev[2]["visible"] is False
+    assert len(ev[3]["instances"]) > 10 and ev[3]["visible"] is True
+    assert ev[4]["zoom"] == 1.0 and ev[5]["fit"] is True
+
+
+def test_state_lists_mates_wires_devices_for_the_browser(be):
+    b, d = be
+    st = ask(b, "state")["state"]
+    assert len(st["mates"]) == len(d.doc.get("mates", []))
+    assert [w["name"] for w in st["wires"]] == [w["name"] for w in d.doc["wires"]]
+    assert all({"a", "b"} <= set(m) for m in st["mates"])
+    assert {"type", "name"} <= set(st["devices"][0]) if d.doc.get("devices") else True

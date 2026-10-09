@@ -331,6 +331,24 @@ the matching `Design` method, rebuilds and reloads the model keeping camera and 
 after each edit (red = error, `*` = new from the last edit; clicking one selects the instance involved). Edits are not saved
 until you press save; comments of a hand-written TOML are not kept by a save.
 
+**Layout (after Fusion 360 / Onshape / KiCad).** An application bar (mark, design name, the page tabs BUILD / LIBRARY / WIRING / SIMULATE /
+PROGRAM as a workspace switcher, quick undo / redo / save), a ribbon of grouped icon + label tools for the active page (BUILD: Select, Move,
+Rotate | Align, Mirror, Duplicate, Remove | Mate (port snapping), Colour | Measure, Check | Undo, Redo | Save; WIRING: Wire, Pin wire |
+Autowire | DRC, Fit; each button is an existing function, nothing is decoration), docked panels (BUILD: left BROWSER = the assembly tree
+with a visibility eye per part, mates, wires and devices, or PARTS = the library list; right PROPERTIES / DRC / PLACE / HISTORY), and a
+status bar (selection, units, snap state, part count, mass, DRC counts, sim time). The 3D view has a view cube (click a face for Front /
+Back / Left / Right / Top / Bottom), home (iso), zoom-to-fit, orbit / pan, a cable-emphasis toggle and a scale bar; BUILD uses the light
+studio backdrop with a 1 m / 10 cm (and, close up, 1 cm) floor grid, SIMULATE the outdoor sky. Hover pre-highlights and selects in the one
+accent blue. MEASURE: click two parts for the centre distance, dx / dy / dz and the clear gap. WIRING draws the sheet like a schematic
+(dark sheet, thin grid, nets coloured by kind, junction dots where conductors share a pin, a title block); labels follow a level of
+detail: all pin labels when zoomed in, only the wired pins in between, connector titles when zoomed out. Icons are drawn with ImDrawList
+primitives (no icon font to license); fonts are the Apache-2.0 Roboto and Cousine of Dear ImGui.
+
+**Camera moves for recordings.** Backend ops (`ui.camera` stays the preset / instant one): `camera.orbit {target?, yaw_deg?, pitch_deg?,
+dist?, seconds?=3, relative?=true, ease?=smooth|linear}` glides the camera around `target` (relative: the angles are sweeps added to the
+current ones, so `yaw_deg=360` is one full turn; `dist` dollies), `camera.fly {eye, look, seconds?, ease?}` flies the eye and the look-at
+point along straight lines. Wall-clock time, any 3D page (BUILD, LIBRARY, SIMULATE).
+
 #### A HUD over the 3D view **[not run here: needs a display and a Vulkan device]**
 
 `Sim.load(model, host=True)` + `sim.show(hud=napl.hud.Hud(), clean=True)` opens the SIMULATE view with no panes; any thread then calls

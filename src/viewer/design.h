@@ -242,6 +242,16 @@ struct Geo {
   bool has_color = false;
   float color[4] = {0, 0, 0, 1};
 };
+struct Mate {
+  std::string name, a, b;  // a / b = "instance.port"
+};
+struct WireRow {
+  std::string name, from, to;
+  double awg = 0;
+};
+struct Device {
+  std::string type, name;
+};
 // What the backend reports about the design as built: the report (mass, instances, DRC findings) plus the model file and ports.
 struct State {
   std::string rev, xml, build_error, path;  // xml empty: the design does not build (build_error says why)
@@ -252,6 +262,10 @@ struct State {
   std::map<std::string, Geo> geo;
   std::string root;               // id of the root instance
   std::vector<std::string> free;  // instances placed freely (pos / rpy in the document) rather than held by a mate
+  // what the assembly browser lists besides the instances (the document's [[mates]] / [[wires]] / [[devices]])
+  std::vector<Mate> mates;
+  std::vector<WireRow> wires;
+  std::vector<Device> devices;
 };
 inline void vec_from(const Json& a, double* out, int n) {
   for (int i = 0; i < n && i < static_cast<int>(a.arr.size()); ++i) out[i] = a.arr[i].num;
@@ -299,6 +313,9 @@ inline State state_from(const Json& j) {
   }
   s.root = j.s("root");
   for (const Json& f : j.at("free").arr) s.free.push_back(f.str);
+  for (const Json& m : j.at("mates").arr) s.mates.push_back({m.s("name"), m.s("a"), m.s("b")});
+  for (const Json& w : j.at("wires").arr) s.wires.push_back({w.s("name"), w.s("from"), w.s("to"), w.n("awg")});
+  for (const Json& d : j.at("devices").arr) s.devices.push_back({d.s("type"), d.s("name")});
   return s;
 }
 

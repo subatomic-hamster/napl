@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -88,7 +89,8 @@ struct Hit {
 };
 bool ray_box(const Ray& r, const Box& b, double& t, V3* normal = nullptr);
 // Nearest instance box under the pixel (nullopt-style: id empty when nothing). skip: an instance to ignore (the one being moved).
-Hit pick(const Cam& cam, ImVec2 px, const Scene& scene, const std::string& skip = "");
+// hidden: instances switched off in the browser (not pickable).
+Hit pick(const Cam& cam, ImVec2 px, const Scene& scene, const std::string& skip = "", const std::set<std::string>* hidden = nullptr);
 bool ray_plane(const Ray& r, V3 p0, V3 n, V3& hit);
 
 struct Guide {

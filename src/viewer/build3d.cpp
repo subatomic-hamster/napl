@@ -102,11 +102,11 @@ bool ray_box(const Ray& ray, const Box& b, double& tout, V3* normal) {
   if (normal) *normal = face >= 0 ? b.R.col(face) * sign : V3{0, 0, 1};
   return true;
 }
-Hit pick(const Cam& cam, ImVec2 px, const Scene& scene, const std::string& skip) {
+Hit pick(const Cam& cam, ImVec2 px, const Scene& scene, const std::string& skip, const std::set<std::string>* hidden) {
   const Ray r = cam.ray(px);
   Hit best;
   for (const auto& [id, g] : scene) {
-    if (id == skip) continue;
+    if (id == skip || (hidden && hidden->count(id))) continue;
     for (const Box& b : g.boxes) {
       double t;
       V3 n;
