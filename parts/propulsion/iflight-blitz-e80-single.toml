@@ -29,6 +29,7 @@ size = [0.02175, 0.01, 0.00425]
 
 [[ports]]
 name = "power_in"
+pins = ["BAT.1", "BAT.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -38,6 +39,7 @@ i_max = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out"
+pins = ["MOT.1", "MOT.2", "MOT.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -47,9 +49,74 @@ i_max = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "signal"
+pins = ["SIG.1", "SIG.2"]
 kind = "signal"
 type = "dshot"
 gender = "neutral"
+
+# ---- Connectors (pin level). S1 is a spec table (2-8S, 80 A, 43.5 x 20 x 8.5 mm, current sensor, telemetry supported, DShot150/300/600) with no wiring
+# description; the part itself notes a solder-pad board. Battery and motor pads at the ends (battery on -x, motor and signal on +x); the signal
+# pair and the missing telemetry/current pins are not documented, so only the DShot input and its ground are listed. All of it is estimated.
+[[connectors]]
+id = "BAT"
+name = "battery solder pads"
+type = "solder-pad-1x2"
+gender = "neutral"
+joinable = true
+pos = [-0.02175, 0.0, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.006
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 states the 2-8S range and 80 A rating, nothing on the pads: two pads (+, -), their end and spacing assumed."
+pins = [
+  { number = 1, name = "BAT+", kind = "power", dir = "in", v_max = 33.6, i_max = 80.0, fidelity = "derived", derivation = "v_max 8S x 4.2 V (S1 'Input Voltage 2-8S'); i_max the 80 A continuous rating (S1)." },
+  { number = 2, name = "BAT-", kind = "ground", i_max = 80.0, fidelity = "derived", derivation = "The 80 A continuous rating (S1)." },
+]
+
+[[connectors]]
+id = "MOT"
+name = "motor solder pads"
+type = "solder-pad-1x3"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [0.02175, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.005
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives the 80 A / 100 A rating only; three phase pads A B C by convention (swapping two reverses the motor), end and spacing assumed."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 80.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 80.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 80.0 },
+]
+
+[[connectors]]
+id = "SIG"
+name = "signal lead"
+type = "servo-lead-2"
+gender = "neutral"
+pos = [0.02175, 0.007, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0025
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 lists DShot input, telemetry and a current sensor but no connector or pinout; only the DShot signal + ground pair the port stands for is listed (BEC: N/A, S1)."
+pins = [
+  { number = 1, name = "SIGNAL", kind = "signal", dir = "in" },
+  { number = 2, name = "GND", kind = "ground" },
+]
 
 [[sources]]
 id = "S1"
