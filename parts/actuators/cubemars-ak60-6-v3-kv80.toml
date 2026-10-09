@@ -70,6 +70,7 @@ note = "Output flange pattern is in CubeMars' drawings (not retrieved); opaque f
 
 [[ports]]
 name = "power"
+pins = ["PWR.1", "PWR.2"]
 kind = "power"
 type = "power-can-cable"
 gender = "male"
@@ -82,10 +83,42 @@ note = "Connector type is not named on the page text; the wiring pack lists 'Pow
 
 [[ports]]
 name = "can"
+pins = ["PWR.3", "PWR.4"]
 kind = "signal"
 type = "can"
 gender = "male"
 note = "CAN via the supplied Power CAN cable (S1 packing list). Bit rate and logic levels are in the product manual, not retrieved."
+
+# Pin level (estimated): the AK60-6 page names no connector, only a supplied "Power CAN cable"; pin order is assumed equal to the other AK V3 actuators (P1 driver-board manual).
+[[connectors]]
+id = "PWR"
+name = "Power CAN cable (power + CAN)"
+type = "power-can-cable"
+port_type = "power-can-cable"
+gender = "male"
+pos = [0.025, 0.0, -0.043]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+src = "P1"
+fidelity = "estimated"
+rows = 1
+cols = 4
+pitch = 0.0025
+rationale = "Pitch 2.5 mm is a guess. The AK60-6 page does not name its connector; V+, GND, CAN_H, CAN_L in that order is carried over from the AK V3 driver-board manual (P1) that documents the XT30PW(2+2) used on sibling AK V3 actuators."
+pose_rationale = "Rear-face placement at z = -body_length, offset 25 mm, is a positional estimate."
+pins = [
+  { number = 1, name = "V+", kind = "power", dir = "in", v_min = 24.0, v_max = 48.0, i_max = 3.8, note = "red" },
+  { number = 2, name = "GND", kind = "ground", note = "black" },
+  { number = 3, name = "CAN_H", kind = "signal", dir = "io", note = "white" },
+  { number = 4, name = "CAN_L", kind = "signal", dir = "io", note = "blue" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://www.cubemars.com/images/file/202511/AK54-4810-1C-A2%20Driver%20Installation%20Instructions.pdf"
+title = "CubeMars AK54-4810-1C-A2 Driver Installation Instructions V1.0.0, 4.2 Driver Interface Pin Definitions"
+accessed = "2026-10-09"
+quote = "Power input and CAN communication: 1 Positive Pole (+) Red; 2 Negative Pole (-) Black; 3 CAN communication high side (CAN_H) White; 4 CAN communication low side (CAN_L) Blue. Onboard interface model: XT30PW(2+2)-M (AMASS)."
 
 [[sources]]
 id = "S1"
