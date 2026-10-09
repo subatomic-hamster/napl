@@ -174,6 +174,7 @@ thickness_rationale = "No published wall / ear thickness; 3 mm placeholder. Esti
 # Electrical ports: two daisy-chain connectors on the same net (wiring diagram S3 shows Plug 1 / Plug 2 on every servo; pins 1 GND, 2 VDD, 3 DATA per S1).
 [[ports]]
 name = "port_a"
+pins = ["J1.1", "J1.2", "J1.3"]
 kind = "power"
 type = "jst-eh.3"
 gender = "female"
@@ -185,6 +186,7 @@ note = "Plug 1 of the daisy chain (S3). JST EHR-03 housing, pin order 1 GND / 2 
 
 [[ports]]
 name = "port_b"
+pins = ["J2.1", "J2.2", "J2.3"]
 kind = "power"
 type = "jst-eh.3"
 gender = "female"
@@ -196,11 +198,53 @@ note = "Plug 2 of the daisy chain (S3), same net as port_a."
 
 [[ports]]
 name = "bus"
+pins = ["J1.3"]
 kind = "signal"
 type = "dynamixel-ttl"
 gender = "female"
 level = { value = 3.3, unit = "V", src = "S1", fidelity = "datasheet" }
 note = "Single-wire half-duplex TTL on the DATA pin (3) of port_a / port_b; Protocol 2.0 (docs/research/dynamixel.md section 6); 3.3 V logic, 5 V compatible (S1); factory baud index 1 = 57,600 bps, LeRobot sets 1 Mbps (S7)."
+
+# Connectors: the two daisy-chain sockets (Plug 1 / Plug 2, same net). Pin table: S1 Connector Information '1 GND | 2 VDD | 3 DATA', housing
+# JST EHR-03, PCB header JST B3B-EH-A (2.5 mm pitch of the EH family). Pose (side wall, servo frame of the ports above) estimated: the
+# e-Manual publishes no socket position.
+[[connectors]]
+id = "J1"
+name = "TTL plug 1"
+type = "jst-eh-3"
+gender = "female"
+pos = [0.002, 0.01, -0.0144]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0025
+src = "S1"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "io", v_min = 3.7, v_max = 6.0, note = "input voltage 3.7 ~ 6.0 V, recommended 5.0 V (S1)" },
+  { number = 3, name = "DATA", kind = "signal", dir = "io", v = 3.3, v_max = 5.0, note = "TTL multidrop bus, 3.3 V logic, 5 V compatible (S1)" },
+]
+
+[[connectors]]
+id = "J2"
+name = "TTL plug 2"
+type = "jst-eh-3"
+gender = "female"
+pos = [0.0135, 0.01, -0.0144]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0025
+src = "S1"
+fidelity = "datasheet"
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "io", v_min = 3.7, v_max = 6.0 },
+  { number = 3, name = "DATA", kind = "signal", dir = "io", v = 3.3, v_max = 5.0 },
+]
 
 [[sources]]
 id = "S1"

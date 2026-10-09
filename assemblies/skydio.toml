@@ -732,6 +732,7 @@ included_in = "sik"
 [[wires]]
 name = "pdb-to-reg"
 from = "pdb.out1"
+from_pins = ["TAP.1", "TAP.2"]   # soldered to the PDB rail pads beside XT30 output 1 (an XT30 contact takes one conductor)
 to = "reg.vin"
 part = "awg-18-silicone-wire"
 length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "The regulator sits on the top plate 6 cm from the PDB; its input is soldered to a tap on the PDB XT30 output 1 pigtail ('XT30 plug for ESCs & peripherals', holybro-pdb-60a). 0.15 m = distance plus slack." }
@@ -756,6 +757,8 @@ length = { value = 0.2, unit = "m", fidelity = "estimated", rationale = "Pi 5 US
 name = "pi-to-fc"
 from = "pi.gpio_uart"
 to = "fc.telem2"
+from_pins = ["J8.8", "J8.10", "J8.6"]            # GPIO14 (UART0 TX), GPIO15 (UART0 RX), GND
+to_pins = ["TELEM2.3", "TELEM2.2", "TELEM2.6"]   # crossed: Pi TX -> UART5_RX, Pi RX <- UART5_TX, GND (RTS / CTS not wired)
 part = "awg-18-silicone-wire"
 length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Pi 5 GPIO UART (TX / RX / GND) to the Pixhawk 6C TELEM2 (MAVLink companion link, PX4 docs): the two boards are stacked, 0.15 m with slack." }
 

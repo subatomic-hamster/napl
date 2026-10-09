@@ -160,6 +160,7 @@ thickness_rationale = "No published ear/lid thickness. The servo mesh shows a 1.
 
 [[ports]]
 name = "port_a"
+pins = ["J1.1", "J1.2", "J1.3"]
 kind = "power"
 type = "5264-3p"
 gender = "female"
@@ -172,6 +173,7 @@ note = "Two interfaces per servo, usable in series (daisy chain), per S9; the tw
 
 [[ports]]
 name = "port_b"
+pins = ["J2.1", "J2.2", "J2.3"]
 kind = "power"
 type = "5264-3p"
 gender = "female"
@@ -184,10 +186,54 @@ note = "Second daisy-chain interface, same net as port_a (S9)."
 
 [[ports]]
 name = "bus"
+pins = ["J1.3"]
 kind = "signal"
 type = "feetech-ttl"
 gender = "female"
 note = "Single-wire half-duplex TTL on the signal pin (pin 3) of port_a / port_b; 1 Mbps default (baud_default param), ID 0-253."
+
+# ---- Connectors (pin level): the two daisy-chain sockets, both 5264-3P, 1 GND / 2 Vcc / 3 Signal-TTL (S1 '6-7 Connector and Cable': 'Type
+# 5264-3P ... pin definition 1 GND, 2 Vcc, 3 Signal/TTL'; the two interfaces 'can be used in series', S9). The pose is estimated: the
+# datasheet gives no socket location, so they are drawn on the two short side faces of the case.
+[[connectors]]
+id = "J1"
+name = "bus socket 1 (5264-3P)"
+type = "5264-3p"
+gender = "female"
+pos = [-0.0227, 0.0, -0.012]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "Estimated (case end face); S1 lists the connector type and pin order, not where it sits. The 2.54 mm pitch is the 5264 family's (S9: '5264/2.54 3P')."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "Vcc", kind = "power", dir = "io", v_min = 4.0, v_max = 7.4, note = "operating voltage 6 V / 7.4 V (S1); the port limits above" },
+  { number = 3, name = "Signal/TTL", kind = "signal", dir = "io", v_min = 2.0, v_max = 5.0, note = "S1 section 11: signal high level 2 V - 5 V, low level 0 - 0.45 V; single-wire half-duplex" },
+]
+
+[[connectors]]
+id = "J2"
+name = "bus socket 2 (5264-3P)"
+type = "5264-3p"
+gender = "female"
+pos = [0.0227, 0.0, -0.012]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "As J1."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "Vcc", kind = "power", dir = "io", v_min = 4.0, v_max = 7.4 },
+  { number = 3, name = "Signal/TTL", kind = "signal", dir = "io", v_min = 2.0, v_max = 5.0 },
+]
 
 [[sources]]
 id = "S1"

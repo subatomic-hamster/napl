@@ -198,6 +198,27 @@ pins = [
   { number = 2, name = "OUT-", kind = "ground" },
 ]
 
+# Tap pads: the board is a bus bar, so a peripheral (a companion-computer regulator) is soldered across the battery rail next to an XT30 output.
+# S2 says the XT30 plugs are for 'ESCs & peripherals' without giving their number; no separate pad set is published.
+[[connectors]]
+id = "TAP"
+name = "battery-rail solder pads (peripheral tap)"
+type = "solder-pad-1x2"
+gender = "neutral"
+pos = [0.025, -0.015, 0.003]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.005
+src = "S2"
+fidelity = "estimated"
+rationale = "No datasheet lists spare pads. The PDB is a copper bus (r_path 0.5 mOhm), so a solder tap on the rail beside an XT30 output is physically available; two pads, + then -, at the XT30 spacing, on the same net as out1 (pdb.out1)."
+pins = [
+  { number = 1, name = "TAP+", kind = "power", dir = "out" },
+  { number = 2, name = "TAP-", kind = "ground" },
+]
+
 [visual]                            # cosmetic only (parts/README.md "Visual layer")
 src = "V1"
 note = "Yellow PDB board with gold solder pads and yellow XT connectors (kit photo)."

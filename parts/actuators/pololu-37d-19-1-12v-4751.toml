@@ -84,6 +84,7 @@ note = "6 mm D-shaft, 16 mm long (S1). The port sits at the hub seat (6.8 mm fro
 
 [[ports]]
 name = "motor_power"
+pins = ["J.1", "J.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -95,11 +96,38 @@ note = "Red and black 20 cm leads (S2), one to each motor terminal; terminated w
 
 [[ports]]
 name = "encoder"
+pins = ["J.3", "J.4", "J.5", "J.6"]   # GND, Vcc, A, B
 kind = "signal"
 type = "quadrature-encoder"
 gender = "neutral"
 level = { value = 5.0, unit = "V", src = "S2", fidelity = "datasheet" }  # Hall sensor Vcc 3.5-20 V; the outputs swing 0 V to Vcc (S2 oscilloscope capture used Vcc = 5 V)
 note = "Green = encoder GND, blue = encoder Vcc (3.5 - 20 V, max 10 mA), yellow = A, white = B (S2)."
+
+# ---- Connector (pin level): the six colour-coded leads end in one 1x6 female header (S2). Pin order = the order S2 lists the leads
+# (red, black, green, blue, yellow, white); the page does not say which end of the header is pin 1. Drawn at the encoder cap, where the
+# leads leave the motor (the lead length is the wire's, `lead_length`).
+[[connectors]]
+id = "J"
+name = "motor + encoder lead header (1x6, 0.1 in)"
+type = "header-1x6-2.54mm"
+gender = "female"
+pos = [0.0, 0.0, -0.068]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 6
+pitch = 0.00254
+src = "S2"
+fidelity = "datasheet"
+pose_rationale = "Pin order is the order of the leads in S2; the end of the cable is placed at the encoder cap (estimated)."
+pins = [
+  { number = 1, name = "M1 (red)", kind = "power", dir = "in", v_max = 12.0, i_max = 1.375, note = "motor power, to one motor terminal (S2)" },
+  { number = 2, name = "M2 (black)", kind = "power", dir = "in", v_max = 12.0, i_max = 1.375, note = "motor power, to the other motor terminal (S2)" },
+  { number = 3, name = "ENC GND (green)", kind = "ground", note = "encoder ground (S2)" },
+  { number = 4, name = "ENC Vcc (blue)", kind = "power", dir = "in", v_min = 3.5, v_max = 20.0, i_max = 0.010, note = "Hall sensor supply 3.5 to 20 V, max 10 mA (S2)" },
+  { number = 5, name = "ENC A (yellow)", kind = "signal", dir = "out", note = "square wave 0 V to Vcc (S2)" },
+  { number = 6, name = "ENC B (white)", kind = "signal", dir = "out", note = "square wave 0 V to Vcc, about 90 degrees out of phase with A (S2)" },
+]
 
 [[sources]]
 id = "S1"

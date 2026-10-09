@@ -112,7 +112,27 @@ fidelity = "estimated"
 rationale = "S2 lists the compatible ST / SC bus servos but not the servo-port pinout; GND / VCC / SIGNAL is the order of the ST / SC servo cables, which the XL430 lead (GND / VDD / DATA) shares, so a straight 3-wire cable joins them pin for pin."
 pins = [
   { number = 1, name = "GND", kind = "ground" },
-  { number = 2, name = "VCC", kind = "power", dir = "out", v = 12.0 },
+  { number = 2, name = "VCC", kind = "power", dir = "out", note = "passes the DC jack voltage (9 to 12.6 V, S2) to the servo bus; no fixed level of its own, so none is stated" },
+  { number = 3, name = "SIG", kind = "signal", dir = "io", v = 5.0 },
+]
+
+[[connectors]]
+id = "BUS2"
+name = "Servo bus port 2 (3-pin)"
+type = "5264-3p"
+gender = "female"
+pos = [0.021, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S4"
+fidelity = "literature"
+pose_rationale = "Position estimated. The Koch v1.1 wiring diagram (S4) draws the SERVO_DRIVER_BOARD with two identical 'D DATA / V 12V / G GND' servo ports, each on the same bus; the second one feeds the voltage reducer (V / G) and the XL330 chain's DATA wire in the follower arm. The silkscreen letter order D V G is mapped onto the cable's pin order 3 / 2 / 1 here (reading direction not shown in the text layer)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VCC", kind = "power", dir = "out", note = "same net as BUS.2; passes the DC jack voltage" },
   { number = 3, name = "SIG", kind = "signal", dir = "io", v = 5.0 },
 ]
 
@@ -135,6 +155,13 @@ pins = [
   { number = 2, name = "RXD", kind = "signal", dir = "in" },
   { number = 3, name = "GND", kind = "ground" },
 ]
+
+[[sources]]
+id = "S4"
+url = "https://github.com/jess-moss/koch-v1-1/blob/1a553e1fa7d5404b51bbd83b99b0f7eba54888e0/electrical/Wiring_Diagram_Alexander_Koch_V1.1.pdf"
+title = "Koch v1.1 wiring diagram (jess-moss/koch-v1-1, commit 1a553e1, EasyEDA, 2024-07-08); text layer of the PDF"
+accessed = "2026-10-09"
+quote = "SERVO_DRIVER_BOARD || 12V PWR || D DATA | V 12V | G GND || D DATA | V 12V | G GND || MOTOR_CABLE DATA 3 / 12V 2 / GND 1 || Robot Cable-X3P 180mm"
 
 [[sources]]
 id = "S1"

@@ -30,6 +30,7 @@ kind = "power"
 type = "5264-3p"
 gender = "male"
 role = "passthrough"
+pins = ["A.1", "A.2", "A.3"]
 note = "Cable end A; passes GND / Vcc / signal straight through to end_b (3 conductors). No connector current rating published."
 
 [[ports]]
@@ -38,7 +39,49 @@ kind = "power"
 type = "5264-3p"
 gender = "male"
 role = "passthrough"
+pins = ["B.1", "B.2", "B.3"]
 note = "Cable end B, same pinout as end_a."
+
+# Pin level: a straight 3-wire cable with a 5264-3P plug at each end, pin n to pin n (S1: 1 GND, 2 Vcc, 3 Signal/TTL).
+[[connectors]]
+id = "A"
+name = "plug A (5264-3P)"
+type = "5264-3p"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "A cable has no geometry; the wire router places the ends on the mated sockets."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "Vcc", kind = "power", dir = "io" },
+  { number = 3, name = "Signal/TTL", kind = "signal", dir = "io" },
+]
+
+[[connectors]]
+id = "B"
+name = "plug B (5264-3P)"
+type = "5264-3p"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "As A."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "Vcc", kind = "power", dir = "io" },
+  { number = 3, name = "Signal/TTL", kind = "signal", dir = "io" },
+]
 
 [[sources]]
 id = "S1"

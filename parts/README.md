@@ -176,6 +176,12 @@ level it drives or expects), `v_min` / `v_max` (the range a sink accepts), `i_ma
 the connector frame). A pin may carry its own provenance (`src`, `fidelity`, `derivation` / `rationale`). A value the source does not
 state is left out, never invented; the connector must carry `src` + `fidelity` (derived needs `derivation`, estimated `rationale`).
 
+`joinable = true` (connector key, default false) marks a bare lead, solder pad or screw terminal, where several conductors may be joined
+on one pin (a Y-splice onto a battery lead, two wires soldered to one pad): `PIN_ALREADY_USED` then ignores that connector's pins, as it
+already does for ground pins. Plugs and headers (XT30, JST, pin headers) are never joinable: one contact takes one conductor. Where a part's
+pinout is not published, the connector says so (`fidelity = "estimated"` / `"derived"` with the rationale: which standard or sibling
+product the pin order follows); a pin the source does not show is not listed.
+
 **Ports and pins.** A port lists the pins it stands for: `pins = ["J8.8", "J8.10", "J8.6"]` (connector.pin). A connector pin that no port
 claims becomes part of a synthetic port named after the connector (lower case, `synthetic = true`, family `port_type` or `type`), so
 every pin is reachable without writing a port for it. `python/napl/design/pins.py` is the loader (`connectors(part)`, `port_pins`).

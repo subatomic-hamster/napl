@@ -242,6 +242,16 @@ def test_shipped_designs_with_pins_are_clean_except_the_known_so101_supply():
     )  # 5 V supply into the 9-12.6 V adapter
 
 
+def test_a_joinable_connector_takes_a_splice_and_the_flag_is_validated():
+    # car4: the right controller's Y-tail joins the pack's bare discharge lead (connector DIS, joinable), the left controller's wire is on it too
+    assert findings(ROOT / "assemblies" / "car4.toml") == []
+    d = good()
+    d["connectors"][0]["joinable"] = True
+    assert pins.validate(d) == []
+    d["connectors"][0]["joinable"] = "yes"
+    assert any("joinable" in m for m in pins.validate(d))
+
+
 def test_pin_already_used():
     F = findings(
         TURRET, wire("dup", "pi.gpio_uart", "adapter.bus", ["J8.8"], ["UART.2"])
