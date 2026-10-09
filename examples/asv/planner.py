@@ -107,6 +107,7 @@ class Planner:
     def __init__(self):
         self.prev = (0.0, 1.0)
         self.cls: dict[int, str] = {}
+        self.born: dict[int, float] = {}  # when each contact was first classified
         self.past: dict[
             int, float | None
         ] = {}  # since when the closest point has been behind us
@@ -128,6 +129,17 @@ class Planner:
             # The situation was classified when the risk first appeared and keeps that class (our own manoeuvre moves the bearing out of the head-on cone, and
             # a vessel that was ahead is not "crossing" half a minute later) until the closest point is behind us for 3 s, or the contact is far and diverging.
             cls = prev
+            if (
+                abs(self.prev[0]) < 1e-9
+                and self.prev[1] >= 1.0
+                and risk
+                and t - tr.t0 >= 4.0
+                and tr.speed > 0.25
+                and t - self.born.get(tr.id, -1e9) < 12.0
+            ):  # only in the first 12 s of the encounter: later the other vessel's own manoeuvre (a give-way turn) must not change the class
+                # no manoeuvre in force, so our own course has not moved the bearing: the class is re-read from the (improving) track instead of kept from the
+                # first look, when a young track's velocity can still be wrong (a lidar track's course while the ASV is still settling on its heading)
+                cls = cr.classify(g, own_speed, tr.speed, prev)
             self.past[tr.id] = self.past.get(tr.id, t) if g.tcpa < 0 else None
             gone = g.cpa >= 1.5 * D_RISK and g.range > 40.0
             past = self.past.get(tr.id) is not None and t - self.past[tr.id] > 3.0
@@ -136,6 +148,8 @@ class Planner:
             ):  # Rule 13(d): the overtaking vessel stays the give-way vessel until FINALLY past and clear
                 cls = cr.NONE
                 self.past.pop(tr.id, None)
+        if prev == cr.NONE and cls != cr.NONE:
+            self.born[tr.id] = t
         self.cls[tr.id] = cls
         return g, cls, risk
 
@@ -196,6 +210,9 @@ class Planner:
         for tr in moving:
             g, cls, risk = self.assess(t, pos, vel, psi, own["speed"], tr)
             role = cr.role(cls)
+            hazard = (
+                hazard or risk
+            )  # a contact with risk of collision, classified yet or not
             tgt = tr.pos[None, None, :] + tr.vel[None, None, :] * (
                 ts[None, :, None] + 0.0
             )
@@ -238,6 +255,23 @@ class Planner:
                 cost += (
                     w * 3.0 * np.clip(dd, 0, None) / math.radians(30)
                 )  # no turn to port
+                # nor a return towards the route that heads more than 6 degrees to port of the leg while the other vessel is still within 60 m and not yet passed
+                # (the LOS course of a boat that is south of the leg points to port of it; Rule 16: the give-way vessel keeps well clear until it is past)
+                if g.tcpa > 0.0 and cls in (cr.HEAD_ON, cr.GIVE_WAY):
+                    h = np.arctan2(V[:, :, 1], V[:, :, 0]) - rt["alpha"]
+                    port = (h + np.pi) % (2 * np.pi) - np.pi
+                    live = (np.arange(n)[None, :] <= k[:, None]) & (d < 60.0)
+                    worst = np.max(np.where(live, port, 0.0), axis=1)
+                    cost += (
+                        w
+                        * 6.0
+                        * np.clip(worst - math.radians(6.0), 0, None)
+                        / math.radians(30)
+                    )
+                if cls == cr.OVERTAKING:
+                    # an overtaking vessel passes: waiting behind the slower one (a first Monte Carlo: 21 of 30 runs idled at 0.1 m/s behind it until the time was up)
+                    # keeps clear but is no passing
+                    cost += w * 8.0 * (1.0 - ff)
                 if cls == cr.HEAD_ON:
                     cost += w * 6.0 * (~side_port)  # starboard-to-starboard
                 if cls == cr.GIVE_WAY:

@@ -8,7 +8,7 @@ Thresholds (the Rules give none; these are the ones the scenarios and the README
   astern           crossing give-way: at the closest point we are in the stern half of the other vessel (Rule 15: avoid crossing ahead of it);
   no port turn     the ASV never steers more than 10 degrees to port of its route course while a give-way obligation is open (Rule 16: early, substantial,
                    to starboard; a port turn for a vessel on the starboard bow is what the Rules discourage);
-  stand-on         Rule 17(a): while the other vessel is within 60 m ahead of the closest point we keep within 15 degrees of the route course and 70 % of its speed.
+  stand-on         Rule 17(a): while the other vessel is within 60 m ahead of the closest point we keep within 15 degrees of the route course and 70 % of the speed it made before (5 s smoothed).
 """
 
 import math
@@ -22,7 +22,8 @@ COLLISION_STATIC = 0.75
 CPA_OK = 5.0
 PORT_TURN_MAX = math.radians(10.0)
 STAND_ON_HDG = math.radians(15.0)
-STAND_ON_SPEED = 0.7
+STAND_ON_SPEED = 0.7  # of the speed made before the encounter (smoothed), see verdict()
+WINDOW_SPEED_S = 5.0  # s, smoothing of the speed trace
 WINDOW = 60.0
 
 
@@ -82,7 +83,13 @@ def verdict(
     max_port = float(dev[risk].max()) if risk.any() else 0.0
     max_stbd = float(-dev[risk].min()) if risk.any() else 0.0
     no_port_turn = max_port <= PORT_TURN_MAX
-    spd_min = float(own_speed[risk].min()) if risk.any() else speed_nom
+    # speed: smoothed over 5 s (a pitching 1.2 m hull in 0.8 m waves surges instantaneously to near zero and back), against what the boat made on its approach
+    # before the encounter window (waves take up to 30 % off the nominal speed): "no deliberate slow-down" = the smoothed minimum stays above 70 % of that
+    n_s = max(1, int(round(WINDOW_SPEED_S / max(float(np.median(np.diff(t))), 1e-6))))
+    spd = np.convolve(np.asarray(own_speed, float), np.ones(n_s) / n_s, mode="same")
+    pre = (np.arange(len(d)) < k) & (d >= WINDOW) & (spd > 0.3 * speed_nom)
+    spd_ref = float(np.median(spd[pre])) if pre.any() else speed_nom
+    spd_min = float(spd[risk].min()) if risk.any() else spd_ref
     if kind == "head_on":
         side_ok = g["side"] > 0 and no_port_turn
     elif kind == "crossing_give_way":
@@ -91,7 +98,7 @@ def verdict(
         side_ok = (
             (
                 max(max_port, max_stbd) <= STAND_ON_HDG
-                and spd_min >= STAND_ON_SPEED * speed_nom
+                and spd_min >= STAND_ON_SPEED * spd_ref
             )
             if complied
             else True

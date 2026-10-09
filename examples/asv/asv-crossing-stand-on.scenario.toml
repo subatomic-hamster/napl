@@ -2,7 +2,7 @@
 # COLREG Rule 15 / 17, crossing, ASV stand-on: the ASV follows a 160 m leg East at 1.5 m/s; a traffic vessel crosses from the ASV's PORT side (heading roughly South) on a
 # collision course and is the give-way vessel: it turns 45 degrees to starboard when 50 m away (with traffic_complies = false it keeps its course, and the ASV must take
 # action by itself, Rule 17(a)(ii) / (b), never turning to port, 17(c)). The ASV sees it only through its lidar and the AIS the traffic broadcasts and must KEEP its course and
-# speed (heading within 15 degrees of the route, at least 70 % of the mission speed) while the other vessel gives way. asv/run.py OWNS the Sim, runs the autonomy (asv.estimator
+# speed (heading within 15 degrees of the route, at least 70 % of the speed it made before, 5 s smoothed) while the other vessel gives way. asv/run.py OWNS the Sim, runs the autonomy (asv.estimator
 # -> perception -> planner -> control) and the scripted traffic, and writes trace.csv / replay.naplog / native.json / telemetry.jsonl; the runner judges the monitors on trace.csv
 # (columns from TRUE tracks) and re-runs replay.naplog through napl-replay for the state hash. See examples/asv/README.md.
 name = "asv-crossing-stand-on"
@@ -196,7 +196,7 @@ op = "final"
 lo = 5.0
 
 [[monitors]]
-name = "keeps_course_and_speed"        # Rule 17(a): heading within 15 degrees of the route and at least 70 % of the mission speed while the other vessel gives way
+name = "keeps_course_and_speed"        # Rule 17(a): heading within 15 degrees of the route and at least 70 % of the speed it made before (5 s smoothed) while the other vessel gives way
 column = "side_ok"
 op = "final"
 lo = 0.5
