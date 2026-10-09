@@ -66,7 +66,7 @@ FOLLOW_PULL = (
     1.2,
     2.5,
 )  # 1/s: gains of the extra "subject velocity + pull toward the spot behind it" candidates
-LOST_STANDOFF = 0.5  # extra standoff (m) per metre of belief spread while the subject is unseen (capped at 2 m of spread)
+LOST_STANDOFF = 0.0  # extra standoff (m) per metre of belief spread while the subject is unseen (capped at 2 m of spread). 0: the standoff is held, not widened; 0.5 made the drone fall back while the subject walked on (seed 1: 8 m+ band excursion, subject lost 7.7 s)
 LOOK_OFF = math.radians(
     45
 )  # yaw may point this far from the flight direction toward the belief
@@ -584,7 +584,7 @@ class Skydio:
             setpoint=dict(pos=np.round(pp, 3).tolist(), vel=np.round(vv, 3).tolist(), yaw=round(self.yaw_sp, 4), vdes=np.round(plan.vdes, 3).tolist()),
             chosen=np.round([plan.at(x)[0] for x in taus], 3).tolist(), chosen_dt=0.1, chosen_cost=None if not np.isfinite(plan.cost) else round(plan.cost, 3),
             candidates=plan.telemetry["candidates"], n_candidates=plan.telemetry["n"], n_safe=plan.telemetry["n_safe"],
-            map=dict(voxels=self.map.n_occupied, frames=self.map.frames, clearance_est=round(float(win.clearance(p[None])[0]), 3), openness=round(self.planner.free, 3)),
+            map=dict(voxels=self.map.n_occupied, frames=self.map.frames, clearance_est=round(float(win.clearance(p[None])[0]), 3), fast_frac=round(self.planner.fast_frac, 3)),
             min_clearance=round(self.forest.clearance(pt) - R_BOUND, 3), goal=self.goal.tolist(), depth_index=len(self.depth_log) - 1,
         )  # fmt: skip
         if self.mission == "follow":
@@ -739,6 +739,13 @@ class Skydio:
             fd = col["follow_dist"][
                 fly & walking & (col["t"] > (self.t_fly0 or 0) + 8.0)
             ]
+            band = col[
+                "follow_dist"
+            ][
+                fly & walking & (col["t"] >= 10.0)
+            ]  # what follow.scenario.toml's follow_distance_band monitor judges (t >= 10 s)
+            if len(band):
+                summ["follow_band_min_max"] = [float(band.min()), float(band.max())]
             if stopped.any():
                 summ["follow_dist_min_after_stop"] = float(
                     col["follow_dist"][stopped].min()

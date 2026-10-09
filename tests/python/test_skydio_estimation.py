@@ -7,11 +7,17 @@ import numpy as np
 
 EX = Path(__file__).resolve().parents[2] / "examples" / "skydio"
 sys.path.insert(0, str(EX))
+_other = sys.modules.pop(
+    "estimator", None
+)  # examples/lander/estimator.py (test_lander, collected first) has the same module name: import the skydio one, then put the other back for the lander tests
 
 import detector
 import estimator as E
 import mapping
 from forest import generate
+
+if _other is not None and _other is not E:
+    sys.modules["estimator"] = _other
 
 CAM = mapping.Camera(160, 90, np.radians(87), np.radians(58), 0.28, 10.0)
 # camera looking along world +x: sensor z (depth) -> +x, sensor x (image up) -> +z, sensor y (image right) -> -y

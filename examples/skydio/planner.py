@@ -46,9 +46,12 @@ class Params:
     commit_steps: int = (
         25  # replans (1 s at 25 Hz) a commitment lasts without being re-confirmed
     )
-    v_lo: float = 5.0  # m/s: fastest primitive in the most cluttered surroundings (openness <= free_lo)
-    free_lo: float = 0.7  # m: openness (mean saturated clearance ahead, Planner.openness) at / below which the speed limit is v_lo
-    free_hi: float = 1.3  # m: openness at / above which the full v_cruise is allowed
+    fast_v: float = 3.5  # m/s: primitives at least this fast count as "fast" for the clutter measure
+    fast_frac: float = (
+        0.05  # share of safe fast primitives below which the speed is capped (see plan)
+    )
+    v_slow: float = 2.5  # m/s: the cap
+    cap_steps: int = 15  # replans the cap lasts after the last trigger
     az_goal: tuple = tuple(
         np.radians([0, 6, 12, 19, 27, 36, 46, 58, 72, 90, 115, 150, 180])
     )
@@ -147,7 +150,7 @@ class Planner:
             0,
             0,
         )  # committed dodge side (+1 left / -1 right of the bearing), step it was last confirmed, step counter
-        self.free = 1.6
+        self.fast_frac, self.cap_step = 1.0, -(10**9)
 
     def candidates(self, p, v, yaw, bearing, extra=()):
         """Target velocities (C, 3): directions fanned around the bearing to the goal and around the camera heading, four speeds, three climb rates."""
@@ -165,18 +168,6 @@ class Planner:
         out += [np.asarray(e, float) for e in extra]
         return np.array(out)
 
-    def openness(self, p, v, bearing, win: Window):
-        """Mean clearance (m, saturated at 1.6) of the map at 28 points in a +-60 deg sector, 1.5-6 m ahead, about the direction of travel (the bearing
-        when slow): a clutter measure that falls as trunks crowd the way. Also kept for the telemetry."""
-        sp = float(np.linalg.norm(v[:2]))
-        h = float(np.arctan2(v[1], v[0])) if sp > 1.0 else bearing
-        az = h + np.radians([-60, -40, -20, 0, 20, 40, 60])
-        r = np.array([1.5, 3.0, 4.5, 6.0])
-        xy = p[:2] + r[:, None, None] * np.stack([np.cos(az), np.sin(az)], -1)[None]
-        pts = np.concatenate([xy.reshape(-1, 2), np.full((28, 1), p[2])], 1)
-        self.free = float(np.minimum(win.clearance(pts), 1.6).mean())
-        return self.free
-
     def plan(self, p, v, yaw, win: Window, bearing, objective, extra=(), moving=None):
         """-> Plan. `objective(P, times, vdes)` -> cost (C,) over the safe candidates' paths (lower is better). `extra`: more candidate velocities.
         `moving`: [(position xy, velocity xy, radius m)] of moving obstacles (the followed person): every sample of a primitive, braking tail
@@ -185,15 +176,6 @@ class Planner:
         prm = self.prm
         self.step += 1
         vdes = self.candidates(p, v, yaw, bearing, extra)
-        free = self.openness(p, v, bearing, win)
-        v_cap = (
-            prm.v_lo
-            + (prm.v_cruise - prm.v_lo)
-            * float(
-                np.clip((free - prm.free_lo) / (prm.free_hi - prm.free_lo), 0.0, 1.0)
-            )
-        )  # clutter-scaled speed limit: the less open space ahead, the lower the fastest primitive
-        vdes = vdes[np.linalg.norm(vdes[:, :2], axis=1) <= max(v_cap, 1.0) + 1e-6]
         P, times = rollout(p, v, vdes, prm)
         C, K, _ = P.shape
         flat = P.reshape(-1, 3)
@@ -213,6 +195,19 @@ class Planner:
         seen = (known | near).all(axis=1)
         min_clear = clear.min(axis=1)
         safe = collide_free & seen
+        # clutter-scaled speed: the share of the FAST primitives (a 6-8 m free corridor each, braking tail included) that are safe is the planner's own
+        # measure of how crowded the way is. Below `fast_frac` the vehicle is in a pocket where a late-resolved trunk or pole leaves no safe fast option
+        # (seeds 109, 118 thin: 4 m/s, 0.6 s from 200 safe primitives to none), so only slow primitives are considered for the next second.
+        sp_c = np.linalg.norm(vdes[:, :2], axis=1)
+        fast = sp_c >= prm.fast_v
+        self.fast_frac = float(safe[fast].mean()) if fast.any() else 1.0
+        if self.fast_frac < prm.fast_frac:
+            self.cap_step = self.step
+        if (
+            self.step - self.cap_step <= prm.cap_steps
+            and (safe & (sp_c <= prm.v_slow)).any()
+        ):
+            safe = safe & (sp_c <= prm.v_slow)
         mode = "track"
         if not safe.any():  # nothing safe through known space: allow unknown beyond 1.5 s at crawl speed, then brake, then look around
             slow = np.linalg.norm(vdes, axis=1) <= 1.0
@@ -273,7 +268,12 @@ class Planner:
             if mode == "scan" and np.linalg.norm(v[:2]) > 1.5:
                 # nothing is safe and the vehicle is FAST: holding still means braking in a straight line, wherever that leads. Take the primitive
                 # (dodges included) whose path keeps the most clearance instead.
-                best = int(np.argmax(min_clear - 5.0 * (~alt_ok)))
+                keep = (
+                    0.0
+                    if self.prev_vdes is None
+                    else 0.1 * np.linalg.norm(vdes - self.prev_vdes, axis=1)
+                )  # stay with the dodge begun last replan
+                best = int(np.argmax(min_clear - 5.0 * (~alt_ok) - keep))
         self.prev_vdes = vdes[best].copy()
         plan = Plan(
             p.copy(),

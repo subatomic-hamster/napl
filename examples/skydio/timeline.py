@@ -55,17 +55,17 @@ if "subject" not in recs[0]:  # goal run: the 3 s around the worst clearance
             last = r["t"]
             vd = r["setpoint"]["vdes"]
             print(
-                f"{r['t']:6.2f} {math.hypot(*r['vel'][:2]):5.2f} {vd[0]:6.2f} {vd[1]:6.2f} {vd[2]:6.2f} {r['min_clearance']:6.2f} {r['map']['clearance_est']:6.2f} {r['tilt_deg']:5.1f} {r['mode']:6s} {r['n_safe']:4d} {r['chosen_cost']} open {r['map'].get('openness')}"
+                f"{r['t']:6.2f} {math.hypot(*r['vel'][:2]):5.2f} {vd[0]:6.2f} {vd[1]:6.2f} {vd[2]:6.2f} {r['min_clearance']:6.2f} {r['map']['clearance_est']:6.2f} {r['tilt_deg']:5.1f} {r['mode']:6s} {r['n_safe']:4d} {r['chosen_cost']} fast_frac {r['map'].get('fast_frac')}"
             )
-    op = [
-        r["map"]["openness"]
+    ff = [
+        r["map"]["fast_frac"]
         for r in recs
-        if r["phase"] == "fly" and "openness" in r["map"]
+        if r["phase"] == "fly" and "fast_frac" in r["map"]
     ]
-    if op:
+    if ff:
         print(
-            "openness over the flight: p5/p25/p50/p75",
-            [round(sorted(op)[int(q * len(op))], 2) for q in (0.05, 0.25, 0.5, 0.75)],
+            "fast_frac over the flight: p5/p25/p50/p75",
+            [round(sorted(ff)[int(q * len(ff))], 2) for q in (0.05, 0.25, 0.5, 0.75)],
         )
     sys.exit()
 last, lost0 = -9.0, None

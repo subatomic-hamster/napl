@@ -80,7 +80,15 @@ def table(rows, mission):
         else:
             med = [r["follow_dist_median"] for r in ok if r.get("follow_dist_median")]
             q1, q2, q3 = np.percentile(med, [25, 50, 75]) if med else (0, 0, 0)
+            strict = [
+                r
+                for r in ok
+                if r.get("follow_band_min_max")
+                and 3.0 <= r["follow_band_min_max"][0]
+                and r["follow_band_min_max"][1] <= 8.0
+            ]
             lines += [
+                f"| runs inside the strict 3-8 m band for the whole walk (the scenario monitor) | {len(strict)} of {len(rows)} |",
                 f"| follow distance, median of per-run medians / IQR (m) | {q2:.2f} / {q1:.2f}-{q3:.2f} |",
                 f"| subject seen (fraction) | {mean('subject_seen_frac'):.2f} |",
             ]
