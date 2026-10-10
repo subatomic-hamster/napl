@@ -245,7 +245,7 @@ class Sim:
         first param slowest) or [{"path","attr","lo","hi"}] (mode "random": `n` runs, run i seeded by seed+i). Returns one
         dict per run, ordered by index: index, params (dict "path.attr" -> value), pass, diverged, error, monitors.
         This Sim is not modified. The GIL is released while running, so it can be called from a background thread
-        (do not use this same Sim from another thread meanwhile; fork() it first). `threads` is capped at 6.
+        (do not use this same Sim from another thread meanwhile; fork() it first). `threads` is capped at the host's core count.
         Raises ValueError (message starts with the error kind, e.g. "limit_exceeded") if the sweep is refused."""
         r = self.call(
             {
