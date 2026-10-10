@@ -321,13 +321,21 @@ void Canvas::begin_selected(const design::State& st, const std::string& selected
 void Canvas::zoom_to_pins() { view(1.0, false); }
 
 // ui.wire_view: fit the sheet, or zoom to `zoom` (1 = 100 %) about the middle of the canvas.
-void Canvas::view(double zoom, bool fit_it) {
-  if (fit_it) return fit();
-  if (zoom <= 0) return;
-  const float cx = org_.x + (sz_.x - kSideW) / 2, cy = org_.y + sz_.y / 2, z0 = zoom_;
-  zoom_ = std::clamp(static_cast<float>(zoom), 0.15f, 3.5f);
-  ox_ = cx - (cx - ox_) * zoom_ / z0;
-  oy_ = cy - (cy - oy_) * zoom_ / z0;
+void Canvas::view(double zoom, bool fit_it, double cx, double cy, double seconds) {
+  const float z0 = zoom_, ox0 = ox_, oy0 = oy_;
+  const float sx = org_.x + (sz_.x - kSideW) / 2, sy = org_.y + sz_.y / 2;  // the middle of the sheet (screen)
+  if (fit_it) {
+    fit();
+  } else {
+    const float z = zoom > 0 ? std::clamp(static_cast<float>(zoom), 0.15f, 3.5f) : z0;
+    const float mx = cx >= kKeep ? (sx - ox0) / z0 : static_cast<float>(cx);  // canvas point that ends in the middle
+    const float my = cy >= kKeep ? (sy - oy0) / z0 : static_cast<float>(cy);
+    zoom_ = z, ox_ = sx - mx * z, oy_ = sy - my * z;
+  }
+  if (seconds > 0) {
+    va_ = {ImGui::GetTime(), seconds, z0, ox0, oy0, zoom_, ox_, oy_};
+    zoom_ = z0, ox_ = ox0, oy_ = oy0;
+  }
 }
 
 // ---- 3D mode: choose components and terminals ----------------------------------------------------------------------------
@@ -835,6 +843,12 @@ void Canvas::page(ImVec2 size, const design::State& st, const std::string& selec
   if (fit_pending_ && !cards_.empty()) {
     fit();
     fit_pending_ = false;
+  }
+  if (va_.t0 >= 0) {  // ui.wire_view with seconds: smoothstep glide; the zoom runs in log space so it feels even
+    const float u = std::clamp(static_cast<float>((ImGui::GetTime() - va_.t0) / va_.dur), 0.f, 1.f), e = u * u * (3 - 2 * u);
+    zoom_ = std::exp(std::log(va_.z0) + (std::log(va_.z1) - std::log(va_.z0)) * e);
+    ox_ = va_.ox0 + (va_.ox1 - va_.ox0) * e, oy_ = va_.oy0 + (va_.oy1 - va_.oy0) * e;
+    if (u >= 1) va_.t0 = -1;
   }
   if (!active_ && alpha_ <= 0) {
     select_ui(st, selected);

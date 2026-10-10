@@ -21,8 +21,9 @@ Ops (args -> result):
   ui.visibility {instances?: [..] (default: all), visible?: true}   the browser's eye: show / hide those parts in the 3D view (view only;
       the document is unchanged)
   ui.measure {a: instance, b: instance} | {off: true}   BUILD: the MEASURE readout between two parts (centre distance, dx dy dz, gap)
-  ui.wire_view {zoom?: 0.1..4, fit?: bool}   the WIRING canvas: fit the sheet, or zoom to that factor (1 = 100 %, every pin label shown)
-      about the middle of the sheet
+  ui.wire_view {zoom?: 0.1..4, fit?: bool, center?: [x, y], seconds?: s}   the WIRING canvas: fit the sheet, or zoom to that factor (1 = 100 %,
+      every pin label shown) with the canvas point `center` (default: the current middle) in the middle of the sheet; `seconds` glides
+      there instead of jumping (a recorded pan / zoom)
   ui.state {}  (the Backend.ui dict)      select {instances: [..], add?: bool}
   library.search {text, filters, category, limit, offset, type_ms?}   library.categories {}   library.ranges {category?}
   library.info {part}   library.targets {part}  (ghost poses on every open compatible port)
@@ -321,8 +322,17 @@ class UiOps:
                 raise DesignError(
                     "ui.wire_view: zoom is a number within 0.1..4 (1 = 100 %)"
                 )
-            self._event(cmd="wire_view", zoom=z, fit=bool(a.get("fit")))
-            return self._ok({"zoom": z, "fit": bool(a.get("fit"))})
+            pan = {}
+            if (
+                a.get("center") is not None
+            ):  # canvas point that ends in the middle of the sheet
+                pan = {"cx": float(a["center"][0]), "cy": float(a["center"][1])}
+            if (
+                a.get("seconds") is not None
+            ):  # glide there (wall clock) instead of jumping
+                pan["seconds"] = float(a["seconds"])
+            self._event(cmd="wire_view", zoom=z, fit=bool(a.get("fit")), **pan)
+            return self._ok({"zoom": z, "fit": bool(a.get("fit")), **pan})
         if tool == "ui.gizmo":
             if a.get("mode") not in ("move", "rotate", "none"):
                 raise DesignError("ui.gizmo: mode is move, rotate or none")
