@@ -39,6 +39,13 @@ LOOP_TICKS = (
     16  # one companion cycle per 16 ms of sim time (62.5 Hz: set-points, trace rows)
 )
 ODOM_EVERY = 2  # ODOMETRY every 2nd cycle: 31 Hz
+LEAD_S = float(
+    os.environ.get("SKYDIO_LEAD_S", 0.0)
+)  # s: experiment knob (see _command), 0 = off
+PREROLL_S, PREROLL_V = (
+    0.5,
+    float(os.environ.get("SKYDIO_PREROLL_V", 1.5)),
+)  # rolling start (see _setpoint): last 0.5 s of the map hover, to 1.5 m/s; 0 = off
 READY_S = (
     6.0  # estimator settle before arming, after PX4 reports a valid local position (s)
 )
@@ -147,8 +154,58 @@ class Px4Skydio(Skydio):
     def t(self):
         return (self._tick - self.tick_ref) * self.dt
 
+    COLS = Skydio.COLS + [
+        "sp_x",
+        "sp_y",
+        "sp_z",
+        "spv_x",
+        "spv_y",
+        "spv_z",
+        "spa_x",
+        "spa_y",
+        "spa_z",
+        "v_x",
+        "v_y",
+        "v_z",
+        "est_vx",
+        "est_vy",
+    ]
+
+    def _trace(self, p, R_true, v, tilt_cmd):
+        super()._trace(p, R_true, v, tilt_cmd)
+        sp = self.flyer.sp
+        self.rows[-1] += [
+            *sp[0],
+            *sp[1],
+            *sp[2],
+            *v,
+            *self.eskf.v[:2],
+        ]  # what PX4 was asked for and the true velocity: the set-point -> response lag
+
     def _command(self, pp, vv, aa):
-        self.flyer.target(pp, vv, self.yaw_sp, acc=aa)
+        # position + velocity + acceleration straight to PX4 (its position / velocity loops take the acceleration as feed-forward). A lead of the plan by
+        # LEAD_S (0.08-0.25 s, against PX4's measured ~0.25 s acceleration lag) was tried: it lowers typical follow-distance peaks by 0.3-0.5 m but made the
+        # replanning chatter in clutter unstable in 4 of 96 flights (a contact, a 45 deg tilt; 0 of 72 without), and did not change the pass rate (README), so it is off.
+        self.flyer.target(pp + vv * LEAD_S + 0.5 * aa * LEAD_S**2, vv + aa * LEAD_S, self.yaw_sp, acc=aa)  # fmt: skip
+
+    def _setpoint(self):
+        """fly.py's set-points, plus a rolling start: the subject starts walking the moment the fly phase begins, and PX4 answers an acceleration step ~0.25 s
+        late, so for the last PREROLL_S of the map hover the drone already accelerates toward the tracked subject (to PREROLL_V)."""
+        super()._setpoint()
+        t0 = self.t - self.t_phase - (MAP_S - PREROLL_S)
+        if PREROLL_V > 0 and self.phase == "map" and t0 > 0 and self.est is not None:
+            d = self.est[0] - self.flyer.last[0][:2]
+            if (n := float(np.linalg.norm(d))) > 2.0:
+                a = self.prm.a_max
+                tr = PREROLL_V / a
+                s = 0.5 * a * min(t0, tr) ** 2 + PREROLL_V * max(t0 - tr, 0.0)
+                u = np.append(d / n, 0.0)
+                self.flyer.target(
+                    self.flyer.sp[0] + u * s,
+                    u * min(PREROLL_V, a * t0),
+                    self.yaw_sp,
+                    acc=u * (a if t0 < tr else 0.0),
+                )
 
     # ---- one cycle ------------------------------------------------------------------------------------------------------------------
     def _fetch_imu(self):

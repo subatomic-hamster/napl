@@ -121,3 +121,12 @@ def test_obstacle_distance_bins():
     )  # a bin with a point only outside the band: seen, nothing in range = max_distance + 1
     assert f["distances"][0] == 1001 and f["distances"][1] == C.UNKNOWN
     json.dumps(f)
+
+
+def test_stack_offboard_port_follows_rcs_routing():
+    # px4-rc.mavlink: offboard remote port 14540 + n, but 14549 for every instance above 9 (a MAVSDK program must listen where PX4 sends)
+    from napl import px4
+
+    for n, port in ((0, 14540), (5, 14545), (9, 14549), (10, 14549), (12, 14549)):
+        st = px4.Stack("cfg.toml", "/nonexistent", instance=n)
+        assert st.mavlink == f"udp://:{port}" and port in st.udp

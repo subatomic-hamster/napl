@@ -151,8 +151,10 @@ NAPL_PX4_INSTANCE=5 .venv/bin/napl program examples/skydio/follow.px4.scenario.t
 
 PX4 parameters that differ from the x500v2 airframe 4902 (`[interfaces.px4.params]`, applied as `PX4_PARAM_*` before the airframe file): `EKF2_GPS_CTRL=0`,
 `EKF2_EV_CTRL=15` (position, height, velocity, yaw), `EKF2_HGT_REF=3` (vision), `EKF2_MAG_TYPE=5` (no mag fusion), `SYS_HAS_MAG=0`, `SYS_HAS_GPS=0`, `EKF2_EV_DELAY=20` ms,
-`EKF2_EV_NOISE_MD=1` with `EKF2_EVP_NOISE` 0.1 m, `EKF2_EVV_NOISE` 0.1 m/s, `EKF2_EVA_NOISE` 0.05 rad, `MPC_TILTMAX_AIR=26` (the native max tilt), `CP_DIST=1.0`.
-Names and ranges were read in the v1.17.0 tree, not recalled.
+`EKF2_EV_NOISE_MD=1` with `EKF2_EVP_NOISE` 0.1 m, `EKF2_EVV_NOISE` 0.1 m/s, `EKF2_EVA_NOISE` 0.05 rad, `MPC_TILTMAX_AIR=26` (the native max tilt), `CP_DIST=1.0`,
+and, added by the PX4VIO2 stage, `MPC_TKO_RAMP_T=0.5` (default 3 s; rationale in "Why follow.px4 failed" below).
+Names and ranges were read in the v1.17.0 tree, not recalled. `NAPL_PX4_PARAMS='{"NAME": value}'` overrides or adds a parameter for one run and
+`px4_montecarlo.py --param NAME=VAL` sets it for a sweep (used for the tuning experiments below; nothing but `MPC_TKO_RAMP_T` was kept).
 
 **Does PX4 do GPS-denied vision fusion here? Yes, shown by its own log.** In the ulog of the first run `estimator_status_flags` has `cs_ev_pos`, `cs_ev_vel`,
 `cs_ev_hgt` and `cs_ev_yaw` set and `cs_gnss_*` never, `solution_status_flags` shows horizontal relative position / velocity valid, and the commander printed
@@ -172,13 +174,50 @@ hash (`replay.match` 24 of 24), but the numbers below cannot be reproduced to th
 | time to goal mean / worst (s), or follow distance median of medians (m) | 18.4 / 20.0 | 4.54 (IQR 4.49-4.69) |
 | subject seen (fraction) / detector recall on visible frames | - | 0.95 / 0.96 |
 
-The native path passes that monitor on seed 1 and, in the tables above, on 24 of 24 forests (23 of 24 held-out); on PX4 the follow band is the weak point:
-the strict monitor is met on 6 of 12 (50 %, Wilson [25, 75] %). In the one failed run examined (the scenario's default seed) the detector lost the subject for about 2 s at t = 22 s,
-the quad slowed to 0.4 m/s and the distance reached 9.0 m before it recovered. Inferred, not isolated: the PX4 position loop answers the planner's set-points more
-slowly than `cuas.flyer.Flyer`, and a short loss then costs more distance (not compared by measurement). PX4's gains are those of the x500v2 airframe,
-not tuned to this 1.681 kg drone; the monitor was not widened and no parameters were tuned against these seeds.
+The table above is the PX4VIO stage (before the fixes below). The native path passes that monitor on seed 1 and, in the tables above, on 24 of 24 forests (23 of 24 held-out); on PX4 the follow band is the weak point.
+
+**PX4VIO2 stage (this code; the strict check is the scenario monitor `follow_distance_band`, 3-8 m from t = 10 s, not widened):**
+
+| follow.px4 strict band | passes | Wilson 95 % |
+|---|---|---|
+| PX4VIO baseline, seeds 100-111 | 6/12 | [25, 75] % |
+| same config re-flown in this stage (c0), seeds 100-111 | 9/12 | [47, 91] % |
+| `MPC_TKO_RAMP_T=0.5` only, seeds 100-123 | 18/24 | [55, 88] % |
+| + rolling start (final code), seeds 100-123 (intermediate run e2) | 21/24 | [69, 96] % |
+| **final code, training seeds 100-111** | **7/12** | [32, 81] % |
+| **final code, held-out seeds 700-723, flown once** | **22/24** | [74, 98] % |
+| goal.px4, final code, seeds 100-111 | 12/12, 0 contacts | [76, 100] % |
+
+The target (>= 11/12 on the training seeds) was **not met**: the final training run gave 7/12. The held-out block met its target (22/24) by point estimate, but the interval
+is [74, 98] %, and the same config gave 6/12 and 9/12 on the same seeds before the changes, so the run-to-run noise of PX4 SITL (not lockstep-deterministic) is as large as the effect.
+Final training run: follow distance median 4.60 m (IQR 4.52-4.76), 0 contacts, min clearance 0.12 m; held-out: median 4.55 m, 0 contacts, min clearance 0.25 m.
+Goal, final code: mean speed 2.95 m/s, worst-run clearance 0.34 m, time to goal 18.4 / 21.2 s (mean / worst).
+
+### Why follow.px4 failed, measured (PX4VIO2)
+Measured on the companion trace (`companion.csv` now also records the set-point, the true velocity and the estimated velocity):
+- **PX4 tracks the velocity set-point fine.** Identified from set-point to true velocity: first-order lag tau 220-300 ms (mean 268 ms in the final run), gain 0.85-1.08. The earlier guess
+  "the PX4 position loop answers more slowly than `cuas.flyer.Flyer`" is **withdrawn**. The planner replans every 40 ms from the *estimated* state, which hides this lag.
+- **The start transient was the dominant failure.** PX4's smooth-takeoff ramp (`MPC_TKO_RAMP_T` = 3 s) held the drone on the pad until t = 2.9 s and the last 0.3 m of the climb took until 7 s,
+  so the walk (t = 4.0 s) began before the quad could follow and the monitor window (from 10 s) opened mid-transient, with the distance at 8.1 m at its peak. With `MPC_TKO_RAMP_T = 0.5`
+  the walk starts at 4.1 s as natively; the distance at t = 10 s is 5.05 m on average (max 5.9 m, final training run).
+- **Rolling start** (`Px4Skydio._setpoint`): in the last 0.5 s of the map phase the companion accelerates toward the subject (at the planner's `a_max`, up to 1.5 m/s, `SKYDIO_PREROLL_V`), so
+  the quad leaves the pad with the subject. Start-peak distance 8.12 m without it, 7.67 m with it, native 7.2-7.6 m.
+- **What is left is subject loss in clutter, which the native path shares.** In the final training run every miss (seeds 100, 101, 103, 104, 106) first exceeded 8 m at t = 19-25 s with the quad slow
+  (0.5-1.8 m/s at that moment, minimum 0.07-1.0 m/s in the 4 s before) and, in 4 of 5, a detector dropout of 0.4-2.9 s at about 24-25 s. Seeds 100, 104 and 118 also stall the *native* planner
+  (vdes = 0 with few safe directions). Held-out misses: seed 720 (9.9 m; dropouts of 1.0 s and 1.7 s) and 722 (8.8 m, no dropout, 0.3 m/s minimum speed in the prior 4 s). Not fixed: planner behaviour, not PX4.
+
+### Tried and rejected (this stage)
+- **Lead extrapolation** of the set-point by `LEAD_S` seconds of planned velocity / acceleration to cancel the lag: 4 of 96 flights went unstable (chatter in clutter) against 0 of 72 without. `SKYDIO_LEAD_S` stays as an experiment knob, default 0 (identity).
+- **`MC_ROLL_P` = `MC_PITCH_P` = 12 and 8.5** (faster attitude loop): instability and crashes. Not kept.
+
+### Stack.mavlink port fix
+`python/napl/px4.py` assumed the offboard port was 14540 + instance. PX4's `px4-rc.mavlink` sends every instance above 9 to udp 14549, so `Stack(instance=10, 12)` listened on the wrong port.
+It is now `14540 + n` for n <= 9, else 14549 (test: `test_stack_offboard_port_follows_rcs_routing`). Instances 5 and 6, used here, were never affected.
 
 ### What is not the same as the real drone / as the native path
+- **The strict follow band is not reliably met on PX4.** 7/12 (training) and 22/24 (held-out, flown once) with the final code, true rate probably 60-90 %. The monitors were not widened.
+  The remaining misses are subject-loss / clutter stalls of the planner, shared with the native path and not fixed here. The 11/12 training target was not reached.
+- **`MPC_TKO_RAMP_T = 0.5` and the rolling start were found by diagnosing seeds 100-111**, so those seeds are not independent evidence; the 700-723 block is.
 - **Airframe mismatch.** The airframe is the x500v2 (PX4 4902: gains, hover thrust, mixer) plus camera, Pi 5 and regulator: 1.681 kg against 1.52 kg. `EKF2_EV_POS_X/Y/Z`
   stay 0 (the camera is not at the IMU; the real vehicle needs the lever arm), and PX4's rate / attitude gains were not re-tuned for the extra mass.
 - **The ESKF sees PX4's IMU at 250 Hz** (the bridge's HIL rate), not the native 500 Hz; the VIO stand-in (statistical 25 Hz, 50 ms latency) and the baro are the same as native.
