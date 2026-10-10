@@ -162,7 +162,7 @@ def _ui(scene, out, fb):
         return r
 
     def grab(tag):
-        img = design_shot.xwd_rgba(Path(fb) / "Xvfb_screen0")
+        img = design_shot.grab(fb)
         (out / f"ui-{tag}-{W}x{H}.png").write_bytes(_napl.encode_png(img))
         print("wrote", tag, flush=True)
 

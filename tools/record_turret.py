@@ -360,7 +360,7 @@ def _build(a):
         while not stop.is_set():
             t = time.time() - t0
             try:
-                img = design_shot.xwd_rgba(Path(fb) / "Xvfb_screen0")
+                img = design_shot.grab(fb)
             except Exception:
                 time.sleep(0.05)
                 continue

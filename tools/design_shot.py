@@ -2,7 +2,8 @@
 
     xvfb-run -a -s "-screen 0 1280x720x24 -fbdir DIR" python tools/design_shot.py OUT.png DIR
 
-Xvfb's -fbdir keeps the screen as an XWD file; this reads it while the window is up (the viewer has no readback of its own).
+Off-screen by default (no Xvfb needed, renders on the GPU; grab() below). With NAPL_OFFSCREEN=0, Xvfb's -fbdir keeps the
+screen as an XWD file and this reads it while the window is up.
 """
 
 import os
@@ -21,6 +22,12 @@ from napl.design import Design
 from napl.design.viewer import Backend
 
 REPO = Path(__file__).resolve().parents[1]
+# The viewer renders off-screen on the best Vulkan device (the GPU) and every capture tool reads its frames with grab();
+# NAPL_OFFSCREEN=0 goes back to the Xvfb window + XWD read (llvmpipe), which is also what a build without viewer_frame gets.
+if hasattr(_napl, "viewer_frame"):
+    os.environ.setdefault("NAPL_OFFSCREEN", "1")
+else:
+    os.environ["NAPL_OFFSCREEN"] = "0"
 # remove the PDB (new DRC findings), browse parts for its seat, snap one back (4 placements), preview the third
 SCRIPT = "2 dremove pdb; 4 dsuggest bottom.pdb pcb; 6 dsnap holybro-pdb-60a bottom.pdb pdb; 8 dcycle 2; 12 dfinding 4"
 EXPECT = (
@@ -47,6 +54,18 @@ def xwd_rgba(path):
             ]
         )
     )
+
+
+def grab(fbdir):
+    """The viewer's picture right now, (h, w, 4) uint8 RGBA. Off-screen (default): the newest frame the viewer rendered, no
+    Xvfb involved; raises while there is none yet, like an unreadable XWD does. NAPL_OFFSCREEN=0: the Xvfb screen kept in
+    FBDIR (Xvfb's -fbdir)."""
+    if os.environ.get("NAPL_OFFSCREEN") != "0":
+        f = _napl.viewer_frame()
+        if f is None:
+            raise RuntimeError("the off-screen viewer has not drawn a frame yet")
+        return f[1]
+    return xwd_rgba(Path(fbdir) / "Xvfb_screen0")
 
 
 def watchdog(sim, seconds=240):
@@ -93,7 +112,7 @@ def main(out, fbdir):
             ):
                 time.sleep(0.2)
             time.sleep(2.5)  # reload + a few frames
-            shot.append(xwd_rgba(Path(fbdir) / "Xvfb_screen0"))
+            shot.append(grab(fbdir))
         finally:
             sim.close_viewer()  # also when the grab raised: otherwise show() never returns
 

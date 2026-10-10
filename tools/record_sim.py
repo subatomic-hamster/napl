@@ -296,7 +296,7 @@ def _frames(a):
                         f"frame {k}: the window never drew seq {seq} at tick {p.sim.tick}: {hud.progress()}"
                     )
                 time.sleep(0.08)  # present + the X server's copy
-                img = design_shot.xwd_rgba(Path(a.fb) / "Xvfb_screen0")
+                img = design_shot.grab(a.fb)
                 (out / f"f{seq:05d}.png").write_bytes(_napl.encode_png(img))
                 log["frames"] += 1
                 if hud.progress()["error"] and not log["errors"]:

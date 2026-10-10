@@ -96,6 +96,28 @@ def test_show_without_display_is_a_runtime_error_and_the_sim_survives(monkeypatc
     assert s.step(1) == 5
 
 
+@pytest.mark.gpu
+def test_show_offscreen_needs_no_display_and_returns_frames(monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setenv("NAPL_OFFSCREEN", "1")
+    s = napl.Sim.load(PENDULUM)
+    s.show(
+        frames=30,
+        script=f"3 step 5; 10 setattr {HINGE} qpos 0.4",
+        width=320,
+        height=200,
+    )
+    seq, img = napl._napl.viewer_frame()
+    assert seq >= 30 and img.shape == (200, 320, 4) and img.dtype.name == "uint8"
+    assert (img[..., 3] == 255).all() and len(
+        set(map(bytes, img.reshape(-1, 4)[::97]))
+    ) > 8
+    ref = napl.Sim.load(PENDULUM)
+    ref.step(5)
+    ref.set(HINGE, "qpos", [0.4])
+    assert s.state_hash() == ref.state_hash()
+
+
 @needs_display
 @pytest.mark.gpu
 def test_sim_show_frames_scripted_and_world_returned():

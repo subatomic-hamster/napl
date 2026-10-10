@@ -249,7 +249,7 @@ def _build(oplog, out, fb, expect, ui=True):
         while not stop.is_set():
             t = time.time() - t0
             try:
-                img = design_shot.xwd_rgba(Path(fb) / "Xvfb_screen0")
+                img = design_shot.grab(fb)
             except Exception:  # the file is rewritten under us: skip this grab
                 time.sleep(0.05)
                 continue
