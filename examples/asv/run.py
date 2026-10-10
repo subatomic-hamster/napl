@@ -47,7 +47,8 @@ from asv.traffic import TrafficVessel
 DT = 0.002  # s, simulation step
 IMU_TICKS = 4  # the estimator consumes IMU / magnetometer samples at 125 Hz (the devices run at 250 / 50 Hz)
 CTRL_TICKS = 20  # 40 ms control period (25 Hz)
-STATIC_MEM_S = 3.0  # s, how long a lidar return of a fixed object is remembered (in the world frame, from the estimated pose)
+STATIC_MEM_S = 1.0  # s, how long a lidar return of a fixed object is remembered (world frame, estimated pose): 3 s smeared walls with the GNSS scatter and held the planner on a stale hazard
+STATIC_MEM_CELLS = 14  # a remembered object has at most this many 0.5 m cells within 3 m of each of its cells (a 1 m drum: about 5)
 PLAN_EVERY = 12  # control periods between plans (0.48 s)
 ROW_EVERY = 3  # trace row every 120 ms
 TLM_EVERY = 5  # telemetry record every 200 ms
@@ -168,14 +169,18 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
                 for tr in mv:
                     keep &= np.hypot(*(w - tr.pos).T) > 3.0 + 0.5 * tr.ext
                 w = w[keep]
+            old = [m for s, m in scan_mem if t - s <= STATIC_MEM_S and len(m)]
             scan_mem = [(s, m) for s, m in scan_mem if t - s <= STATIC_MEM_S] + [(t, w)]
-            allp = np.concatenate([m for _, m in scan_mem])
-            if len(allp):
-                allp = (
-                    np.unique(np.round(allp / 0.5), axis=0) * 0.5
-                )  # one point per 0.5 m cell
-                for tr in mv or []:  # no ghost of a vessel in the remembered cells
-                    allp = allp[np.hypot(*(allp - tr.pos).T) > 3.0 + 0.5 * tr.ext]
+            allp = w
+            if old:
+                # only SMALL objects are remembered (a drum or a buoy seen on some revolutions): a wall or a vessel's trail would smear with the position scatter
+                cells = np.unique(np.round(np.concatenate(old) / 0.5), axis=0) * 0.5
+                for tr in mv or []:
+                    cells = cells[np.hypot(*(cells - tr.pos).T) > 3.0 + 0.5 * tr.ext]
+                if 1 < len(cells) <= 1500:
+                    dxy = cells[:, None, :] - cells[None, :, :]
+                    n_near = (np.hypot(dxy[..., 0], dxy[..., 1]) < 3.0).sum(1)
+                    allp = np.concatenate([w, cells[n_near <= STATIC_MEM_CELLS]])
             static_pts, last_scan_t = allp, t
         moving = tracker.moving(t)
         # ---- guidance, planning, control --------------------------------------------------------------------------------------------

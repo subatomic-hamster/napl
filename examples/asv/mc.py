@@ -171,7 +171,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--seeds", type=int, default=30, help="runs per kind")
     ap.add_argument("--kinds", nargs="*", default=list(enc.KINDS))
-    ap.add_argument("--workers", type=int, default=5, help="processes (<= 6)")
+    ap.add_argument(
+        "--workers", type=int, default=5, help="processes (<= 16, one core each)"
+    )
     ap.add_argument(
         "--no-ais", action="store_true", help="traffic carries no AIS: lidar only"
     )
@@ -193,8 +195,8 @@ def main(argv=None):
         help="the traffic does not give way / turn (Rule 17(a)(ii) / (b) test of the stand-on vessel)",
     )
     a = ap.parse_args(argv)
-    if a.workers > 6:
-        raise SystemExit("hfbox house rule: at most 6 threads")
+    if a.workers > 16:
+        raise SystemExit("hfbox has 16 cores")
     jobs = [
         (k, a.seed_base + i, not a.no_ais, a.fast, not a.noncomplying)
         for k in a.kinds
