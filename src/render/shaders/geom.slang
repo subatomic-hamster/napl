@@ -166,19 +166,22 @@ float4 water_shade(VsOut i, Draw d) {
   if (dot(N, V) < 0.0) N = reflect(N, V);  // a microfacet facing away at grazing view
   const float3 L = sc.sun_dir.xyz;
   const float ndl = saturate(dot(N, L));
-  const float3 deep = to_lin(d.color.rgb);
+  const float3 deep = to_lin(max(d.color.rgb, float3(0.05, 0.30, 0.38))) * 2.0;  // never darker than a blue-green sea, whatever the scene's plane colour  // the colour is the water's depth tint seen through a metre or two of it, brighter than a painted surface of that colour
   const float zw = i.rel.z + sc.camf.z;
   const float3 body_col = lerp(deep, to_lin(float3(0.10, 0.45, 0.42)), 0.55 * smoothstep(-0.1, 0.55, zw));
-  const float3 hemi = lerp(sc.ground.rgb, sc.sky_mid.rgb, 0.8) * sc.fog.w;
-  float3 col = body_col * (hemi * 0.9 + sc.sun_col.rgb * ndl * 0.25);
+  // the water keeps its own blue-green under any sky colour: the ambient is the sky's brightness, not its tint (a dusk sky would turn it brown)
+  const float3 hemi_c = lerp(sc.ground.rgb, sc.sky_mid.rgb, 0.8) * sc.fog.w;
+  const float3 hemi = float3(1, 1, 1) * (0.25 + 0.75 * dot(hemi_c, float3(0.3333, 0.3333, 0.3333)));
+  float3 col = body_col * (hemi * 1.6 + sc.sun_col.rgb * ndl * 0.35);
   const float nv = saturate(dot(N, V));
   const float F = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
-  col = lerp(col, sky_base(reflect(-V, N)) * sc.fog.w, F);
+  const float3 sky_r = lerp(sky_base(reflect(-V, N)), float3(0.30, 0.50, 0.72), 0.8) * sc.fog.w;  // a blue sky, not the warm horizon band of a dusk preset
+  col = lerp(col, sky_r, 0.6 * F);
   const float3 H = normalize(L + V);
   const float nh = saturate(dot(N, H));
   col += sc.sun_col.rgb * (F + 0.04) * (pow(nh, 900.0) * 1.8 + pow(nh, 120.0) * 0.12) * ndl;
-  const float haze = 1.0 - exp(-dist * sc.fog.x * 3.0);  // melts into the horizon like the ground
-  col = lerp(col, sc.sky_hor.rgb, saturate(haze));
+  const float haze = 1.0 - exp(-dist * sc.fog.x * 1.2);  // melts into the horizon like the ground, keeping some of its own colour
+  col = lerp(col, lerp(sc.sky_hor.rgb, float3(0.03, 0.14, 0.20) * sc.fog.w * 3.0 + body_col * 1.5, 0.75), saturate(haze) * 0.7);
   return float4(to_srgb(col), 1);
 }
 
