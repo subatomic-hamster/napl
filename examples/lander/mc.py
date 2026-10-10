@@ -138,7 +138,12 @@ def main(argv=None):
         "--train", type=int, default=60, help="training seeds per candidate"
     )
     ap.add_argument("--test", type=int, default=300, help="report seeds")
-    ap.add_argument("--workers", type=int, default=6, help="processes (<= 6)")
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=nparams.default_workers(),
+        help="processes (default: every core, bounded by free memory)",
+    )
     ap.add_argument("--out", default="")
     ap.add_argument(
         "--pick",
@@ -165,8 +170,8 @@ def main(argv=None):
     )
     a = ap.parse_args(argv)
     base = json.loads(a.over)
-    if not 1 <= a.workers <= 6:
-        raise SystemExit("--workers must be 1..6 (shared box)")
+    if a.workers < 1:
+        raise SystemExit("--workers must be >= 1")
     t0 = time.time()
     out = {
         "protocol": __doc__.split("\n\n")[1],
