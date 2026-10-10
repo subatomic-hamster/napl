@@ -26,6 +26,8 @@ EKF2_EVA_NOISE = 0.05           # rad
 SYS_HAS_MAG = 0
 SYS_HAS_GPS = 0
 MPC_TILTMAX_AIR = 26            # deg: the native controller's max tilt is 0.45 rad = 25.8 deg
+MPC_TKO_RAMP_T = 0.5            # s (default 3): PX4's smooth-takeoff ramp left the drone on the pad until t = 2.9 s and the last 0.3 m of the climb took until 7 s, so the walk began at
+                                # 7-9 s instead of the native 4.0 s and the monitor window (from t = 10 s) opened in the middle of the start-up transient (README, "Why follow.px4 failed")
 CP_DIST = 1.0                   # m: PX4 collision prevention (consumes OBSTACLE_DISTANCE); v1.17 applies it in Position mode only, not offboard (README)
 
 [program]

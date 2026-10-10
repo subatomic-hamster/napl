@@ -39,8 +39,13 @@ LOOP_TICKS = (
     16  # one companion cycle per 16 ms of sim time (62.5 Hz: set-points, trace rows)
 )
 ODOM_EVERY = 2  # ODOMETRY every 2nd cycle: 31 Hz
-LEAD_S = float(os.environ.get("SKYDIO_LEAD_S", 0.0))
-PREROLL_S, PREROLL_V = 0.5, float(os.environ.get("SKYDIO_PREROLL_V", 0.0))
+LEAD_S = float(
+    os.environ.get("SKYDIO_LEAD_S", 0.0)
+)  # s: experiment knob (see _command), 0 = off
+PREROLL_S, PREROLL_V = (
+    0.5,
+    float(os.environ.get("SKYDIO_PREROLL_V", 1.5)),
+)  # rolling start (see _setpoint): last 0.5 s of the map hover, to 1.5 m/s; 0 = off
 READY_S = (
     6.0  # estimator settle before arming, after PX4 reports a valid local position (s)
 )
@@ -178,15 +183,10 @@ class Px4Skydio(Skydio):
         ]  # what PX4 was asked for and the true velocity: the set-point -> response lag
 
     def _command(self, pp, vv, aa):
-        # lead: PX4 realises an acceleration set-point through a ~0.25 s first-order lag (measured, README), so the plan is sent LEAD_S ahead
-        # (constant acceleration); on an axis where the plan brakes it stops at rest, so the lead ends there (no reversal of the velocity set-point)
-        braking = vv * aa < 0
-        L = np.where(
-            braking,
-            np.minimum(LEAD_S, np.abs(vv) / np.maximum(np.abs(aa), 1e-6)),
-            LEAD_S,
-        )
-        self.flyer.target(pp + vv * L + 0.5 * aa * L * L, vv + aa * L, self.yaw_sp, acc=aa)  # fmt: skip
+        # position + velocity + acceleration straight to PX4 (its position / velocity loops take the acceleration as feed-forward). A lead of the plan by
+        # LEAD_S (0.08-0.25 s, against PX4's measured ~0.25 s acceleration lag) was tried: it lowers typical follow-distance peaks by 0.3-0.5 m but made the
+        # replanning chatter in clutter unstable in 4 of 96 flights (a contact, a 45 deg tilt; 0 of 72 without), and did not change the pass rate (README), so it is off.
+        self.flyer.target(pp + vv * LEAD_S + 0.5 * aa * LEAD_S**2, vv + aa * LEAD_S, self.yaw_sp, acc=aa)  # fmt: skip
 
     def _setpoint(self):
         """fly.py's set-points, plus a rolling start: the subject starts walking the moment the fly phase begins, and PX4 answers an acceleration step ~0.25 s
