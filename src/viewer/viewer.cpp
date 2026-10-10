@@ -2788,7 +2788,7 @@ class Viewer {
       measure_ = measure_a_.empty() ? 0 : measure_b_.empty() ? 2 : 3;
       if (measure_ > 0 && mode_ != Mode::Build) set_mode("build");
     } else if (cmd == "wire_view") {
-      flat_.view(e.n("zoom", 0), e.at("fit").num != 0);
+      flat_.view(e.n("zoom", 0), e.at("fit").num != 0, e.n("cx", wire2d::Canvas::kKeep), e.n("cy", wire2d::Canvas::kKeep), e.n("seconds", 0));
     } else if (cmd == "camera") {
       if (!e.s("preset").empty()) camera_preset(e.s("preset"));
       else cam_anim_ = {true, now, orbit_.yaw, orbit_.pitch, orbit_.dist, e.n("yaw", orbit_.yaw), e.n("pitch", orbit_.pitch), e.n("dist", orbit_.dist)};

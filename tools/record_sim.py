@@ -13,7 +13,7 @@ the run's native.json. The turret's pixels come from the run's own camera frames
                                                     and --start-index; the last chunk (--t1 >= the run) checks the replay hash.
     encode  FRAMES_DIR... OUT.webm [--fps 20] [--gpl]   needs `av` + Pillow (a throwaway venv, as record_build.py): OpenH264 / VP9 by default,
                                                     libx264 (GPL) only with --gpl
-SPEC = a preset (overview | chase | target | top | swarm | close | free) or a schedule "0:overview,20:chase,40:target".
+SPEC = a preset (overview | chase | target | top | swarm | close | orbit | swarmorbit | free) or a schedule "0:overview,20:chase,40:target".
 
 hfbox (every command under an outer timeout, the GPU lock held for minutes only; see docs/guide.md):
     tools/remote.sh run --gpu 'timeout 600 .venv/bin/python tools/record_sim.py frames <run> /workspace/wt/napl-hud/out/f --t0 0 --t1 20'
