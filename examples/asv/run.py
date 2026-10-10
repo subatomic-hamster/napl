@@ -47,6 +47,7 @@ from asv.traffic import TrafficVessel
 DT = 0.002  # s, simulation step
 IMU_TICKS = 4  # the estimator consumes IMU / magnetometer samples at 125 Hz (the devices run at 250 / 50 Hz)
 CTRL_TICKS = 20  # 40 ms control period (25 Hz)
+STATIC_MEM_S = 3.0  # s, how long a lidar return of a fixed object is remembered (in the world frame, from the estimated pose)
 PLAN_EVERY = 12  # control periods between plans (0.48 s)
 ROW_EVERY = 3  # trace row every 120 ms
 TLM_EVERY = 5  # telemetry record every 200 ms
@@ -109,6 +110,7 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
     last_gnss, last_gnss_t, last_frames, last_scan_t = None, {}, -1, -1.0
     tgt_names = [t.name for t in spec.traffic]
     static_pts = np.zeros((0, 2))
+    scan_mem = []  # (t, world points) of the last STATIC_MEM_S: a 1 m drum is seen by a pitching one-row lidar on only some revolutions
     rows = []
     hist = dict(
         t=[],
@@ -166,7 +168,15 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
                 for tr in mv:
                     keep &= np.hypot(*(w - tr.pos).T) > 3.0 + 0.5 * tr.ext
                 w = w[keep]
-            static_pts, last_scan_t = w, t
+            scan_mem = [(s, m) for s, m in scan_mem if t - s <= STATIC_MEM_S] + [(t, w)]
+            allp = np.concatenate([m for _, m in scan_mem])
+            if len(allp):
+                allp = (
+                    np.unique(np.round(allp / 0.5), axis=0) * 0.5
+                )  # one point per 0.5 m cell
+                for tr in mv or []:  # no ghost of a vessel in the remembered cells
+                    allp = allp[np.hypot(*(allp - tr.pos).T) > 3.0 + 0.5 * tr.ext]
+            static_pts, last_scan_t = allp, t
         moving = tracker.moving(t)
         # ---- guidance, planning, control --------------------------------------------------------------------------------------------
         active = t >= enc.T_START and not route.done
