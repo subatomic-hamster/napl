@@ -390,6 +390,26 @@ def camera_for(
         )
     elif preset == "top":
         goal = dict(target=mid, yaw=math.pi, pitch=1.45, dist=fit * 1.15)
+    elif (
+        preset == "orbit"
+    ):  # slowly circles the turret (0.4 rad/s) at 1.7 m: the pan-tilt stack, the Pi, the cable tubes
+        goal = dict(
+            target=[turret[0], turret[1], turret[2] - 0.08],
+            yaw=0.5 + 0.4 * t,
+            pitch=0.3,
+            dist=1.7,
+        )
+    elif (
+        preset == "swarmorbit" and drones
+    ):  # circles the drones' centroid (0.15 rad/s), the whole swarm in frame
+        c = [sum(p[i] for p in drones) / len(drones) for i in range(3)]
+        r = max(math.dist(c, p) for p in drones) + 5.0
+        goal = dict(
+            target=c,
+            yaw=math.atan2(turret[1] - c[1], turret[0] - c[0]) + 0.35 + 0.15 * t,
+            pitch=0.2,
+            dist=r / math.tan(math.radians(fovy / 2)) * 0.95,
+        )
     else:  # overview (also the fallback of "target" before there is one): behind and beside the turret, slowly drifting
         c = [
             cx[0],
