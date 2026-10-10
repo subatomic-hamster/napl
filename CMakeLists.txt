@@ -6,6 +6,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Compiler cache (sccache, Apache-2.0) when it is on PATH; laptop/CI without it are unaffected. -DNAPL_SCCACHE=OFF disables.
+# Set before deps so MuJoCo/FlatBuffers/GLFW objects are cached too. tools/remote.sh points it at the shared cache.
+option(NAPL_SCCACHE "Use sccache as compiler launcher when found" ON)
+find_program(NAPL_SCCACHE_EXE sccache)
+if(NAPL_SCCACHE AND NAPL_SCCACHE_EXE)
+  set(CMAKE_C_COMPILER_LAUNCHER ${NAPL_SCCACHE_EXE})
+  set(CMAKE_CXX_COMPILER_LAUNCHER ${NAPL_SCCACHE_EXE})
+endif()
+
 # Determinism (plan Risk 1): no FMA contraction, no fast-math. Set before deps so they inherit it.
 if(NOT MSVC)
   add_compile_options(-ffp-contract=off)

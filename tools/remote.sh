@@ -25,6 +25,11 @@ DIR=${NAPL_REMOTE_DIR:-/workspace/wt/napl}
 JOBS=${NAPL_JOBS:-16}  # hfbox is dedicated to napl (user, 2026-10-10): use all 16 cores
 GPU_LOCK=${NAPL_GPU_LOCK-/workspace/airtools/.gpu.lock}
 CPU_LOCK=${NAPL_CPU_LOCK:-$DIR/.cpu.lock}  # per remote dir: one heavy job at a time per worktree
+# Shared sccache (CMakeLists uses it when on PATH; a no-op on hosts without $CACHE/bin/sccache). The sccache
+# server is one per host and reads BASEDIRS at start, so list every worktree dir: object keys then ignore the
+# /workspace/wt/napl-X prefix and clean builds of the same commit in different worktrees hit each other.
+CACHE=${NAPL_CACHE_DIR:-/workspace/wt/napl-cache}
+BASEDIRS=${NAPL_SCCACHE_BASEDIRS:-\$(ls -d /workspace/wt/napl /workspace/wt/napl-* | grep -v -- -cache | paste -sd:)}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
 # ssh exit 255 = connection failure (hfbox funnel outages last ~15 min); retry with backoff.
@@ -54,7 +59,7 @@ sync_tree() {
 # Remote shell prefix: toolchain on PATH, thread count, CPU lock so one worktree's jobs never stack.
 # lock: 1 = take the CPU lock (default), 0 = --nolock (light commands, long-lived servers).
 prefix() {
-  local gpu=$1 lock=${2:-1} p="cd $DIR/src && export PATH=$DIR/env/bin:\$PATH CMAKE_BUILD_PARALLEL_LEVEL=$JOBS CTEST_PARALLEL_LEVEL=$JOBS &&"
+  local gpu=$1 lock=${2:-1} p="cd $DIR/src && export PATH=$DIR/env/bin:$CACHE/bin:\$PATH CMAKE_BUILD_PARALLEL_LEVEL=$JOBS CTEST_PARALLEL_LEVEL=$JOBS SCCACHE_DIR=$CACHE/sccache SCCACHE_CACHE_SIZE=4G SCCACHE_BASEDIRS=$BASEDIRS &&"
   [[ $lock == 1 ]] && p+=" flock $CPU_LOCK"
   [[ $gpu == 1 && -n $GPU_LOCK ]] && p+=" flock $GPU_LOCK"
   printf '%s' "$p"
