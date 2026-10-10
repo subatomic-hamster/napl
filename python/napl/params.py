@@ -35,15 +35,17 @@ CHANNEL_KINDS = ("number", "string", "bool")
 
 
 def default_workers(gb_per_worker: float = 1.0) -> int:
-    """Default worker count for a Monte Carlo driver: every core, bounded by MemAvailable / gb_per_worker."""
+    """Default worker count for a Monte Carlo driver: NAPL_THREADS (the job's CPU slots, tools/remote.sh) or every core,
+    bounded by MemAvailable / gb_per_worker."""
+    cpus = int(os.environ.get("NAPL_THREADS") or os.cpu_count() or 1)
     try:
         with open("/proc/meminfo") as f:
             kb = next(
                 int(line.split()[1]) for line in f if line.startswith("MemAvailable:")
             )
-        return max(1, min(os.cpu_count() or 1, int(kb / 2**20 / gb_per_worker)))
+        return max(1, min(cpus, int(kb / 2**20 / gb_per_worker)))
     except (OSError, StopIteration):
-        return os.cpu_count() or 1
+        return cpus
 
 
 class ParamError(ValueError):

@@ -3,10 +3,13 @@
 #
 #   tools/remote.sh bootstrap         one-time: user-local toolchain venv (cmake, ninja, uv) on the host
 #   tools/remote.sh sync              rsync the working tree to the host
-#   tools/remote.sh run [--gpu] [--nolock] CMD
+#   tools/remote.sh run [--gpu] [--nolock] [--slots N] CMD
 #                                     sync, then run CMD in the remote source dir (blocks, streams output);
-#                                     holds the CPU lock unless --nolock; killed after NAPL_TIMEOUT s (3600)
-#   tools/remote.sh bg NAME CMD       sync, then run CMD in tmux session napl-NAME; output to logs/NAME.log
+#                                     waits for N CPU slots (default 1 of NAPL_SLOTS=2, 8 threads each; N=2 is the whole
+#                                     box) unless --nolock; killed after NAPL_TIMEOUT s (3600). The job gets
+#                                     NAPL_THREADS / OMP_NUM_THREADS / CMAKE_BUILD_PARALLEL_LEVEL = its thread count.
+#   tools/remote.sh bg [--slots N] NAME CMD
+#                                     sync, then run CMD in tmux session napl-NAME; output to logs/NAME.log
 #   tools/remote.sh log NAME [N]      last N lines of that log (no follow) + whether it is still running
 #   tools/remote.sh pull PATH...      copy remote paths (relative to the remote dir) back into ./remote-out/
 #
@@ -15,8 +18,9 @@
 #
 # Host-agnostic: today hfbox, later an AWS EC2 Ubuntu 24.04 instance. Point at another host with
 #   NAPL_REMOTE=<ssh alias>  NAPL_REMOTE_DIR=<abs dir>  NAPL_GPU_LOCK=  (empty = dedicated host, no shared GPU lock)
-# Parallel git worktrees: one NAPL_REMOTE_DIR each; the default CPU lock is per remote dir, so worktrees run
-# concurrently (set NAPL_CPU_LOCK to one shared file to serialise them on a shared host).
+# Parallel git worktrees: one NAPL_REMOTE_DIR each. The CPU lane ($NAPL_LANES/cpu.0..NAPL_SLOTS-1, default
+# /workspace/wt/napl-cache/lanes) is shared by all worktrees: NAPL_SLOTS jobs run at once, NAPL_JOBS/NAPL_SLOTS threads
+# each; a --slots N job waits until it holds N slots. Never flock a lane file inside a job (deadlock). No GPU lane.
 # Baseline the code must build on: Ubuntu 24.04, GCC 13, Python 3.12.
 set -euo pipefail
 
@@ -24,7 +28,8 @@ REMOTE=${NAPL_REMOTE:-hfbox}
 DIR=${NAPL_REMOTE_DIR:-/workspace/wt/napl}
 JOBS=${NAPL_JOBS:-16}  # hfbox is dedicated to napl (user, 2026-10-10): use all 16 cores
 GPU_LOCK=${NAPL_GPU_LOCK-/workspace/airtools/.gpu.lock}
-CPU_LOCK=${NAPL_CPU_LOCK:-$DIR/.cpu.lock}  # per remote dir: one heavy job at a time per worktree
+SLOTS=${NAPL_SLOTS:-2}  # CPU lane: SLOTS lock files, JOBS/SLOTS threads each (NAPL_CPU_LOCK is gone)
+LANES=${NAPL_LANES:-/workspace/wt/napl-cache/lanes}  # shared by every worktree on the host
 # Shared sccache (CMakeLists uses it when on PATH; a no-op on hosts without $CACHE/bin/sccache). The sccache
 # server is one per host and reads BASEDIRS at start, so list every worktree dir: object keys then ignore the
 # /workspace/wt/napl-X prefix and clean builds of the same commit in different worktrees hit each other.
@@ -56,11 +61,24 @@ sync_tree() {
     "$ROOT/" "$REMOTE:$DIR/src/"
 }
 
-# Remote shell prefix: toolchain on PATH, thread count, CPU lock so one worktree's jobs never stack.
-# lock: 1 = take the CPU lock (default), 0 = --nolock (light commands, long-lived servers).
+# Remote shell prefix: toolchain on PATH, then the CPU lane. The host has K slot lock files ($LANES/cpu.0..K-1, shared by
+# every worktree), JOBS/K threads each. A job holds `slots` of them for its whole run (flock -n on each, all-or-nothing and
+# retried, so two jobs can never deadlock each other) and gets slots*JOBS/K threads in NAPL_THREADS and the usual
+# *_NUM_THREADS / parallel-level variables. --nolock = no slot (tiny commands), threads of one slot.
+# The lane fds are inherited by everything the job starts: never `flock` a lane file inside a job, and start daemons
+# (the sccache server is started here, before the slots are taken) outside it.
 prefix() {
-  local gpu=$1 lock=${2:-1} p="cd $DIR/src && export PATH=$DIR/env/bin:$CACHE/bin:\$PATH CMAKE_BUILD_PARALLEL_LEVEL=$JOBS CTEST_PARALLEL_LEVEL=$JOBS SCCACHE_DIR=$CACHE/sccache SCCACHE_CACHE_SIZE=4G SCCACHE_BASEDIRS=$BASEDIRS &&"
-  [[ $lock == 1 ]] && p+=" flock $CPU_LOCK"
+  local gpu=$1 lock=${2:-1} slots=${3:-1} n
+  (( slots >= 1 && slots <= SLOTS )) || { echo "remote.sh: --slots must be 1..$SLOTS (NAPL_SLOTS)" >&2; exit 2; }
+  n=$((JOBS * (lock == 1 ? slots : 1) / SLOTS))
+  local p="cd $DIR/src && export PATH=$DIR/env/bin:$CACHE/bin:\$PATH SCCACHE_DIR=$CACHE/sccache SCCACHE_CACHE_SIZE=4G SCCACHE_BASEDIRS=$BASEDIRS NAPL_THREADS=$n CMAKE_BUILD_PARALLEL_LEVEL=$n CTEST_PARALLEL_LEVEL=$n OMP_NUM_THREADS=$n OPENBLAS_NUM_THREADS=$n MKL_NUM_THREADS=$n LP_NUM_THREADS=$n &&"
+  p+=" { sccache --start-server >/dev/null 2>&1 || true; } &&"
+  if [[ $lock == 1 ]]; then
+    p+=" mkdir -p $LANES && w=0 && while :; do g=0; for i in \$(seq 0 $((SLOTS - 1))); do
+      if (( g < $slots )); then eval \"exec \$((30 + i))>$LANES/cpu.\$i\"; if flock -n \$((30 + i)); then g=\$((g + 1)); else eval \"exec \$((30 + i))>&-\"; fi; fi; done;
+      (( g == $slots )) && break; for i in \$(seq 0 $((SLOTS - 1))); do eval \"exec \$((30 + i))>&-\"; done;
+      (( w++ == 0 )) && echo \"remote.sh: waiting for $slots of $SLOTS cpu slots\" >&2; sleep 2; done &&"
+  fi
   [[ $gpu == 1 && -n $GPU_LOCK ]] && p+=" flock $GPU_LOCK"
   printf '%s' "$p"
 }
@@ -75,19 +93,21 @@ case $cmd in
     ;;
   sync) sync_tree ;;
   run)
-    gpu=0 lock=1
+    gpu=0 lock=1 slots=1
     while [[ ${1:-} == --* ]]; do
-      case $1 in --gpu) gpu=1 ;; --nolock) lock=0 ;; *) echo "unknown option $1" >&2; exit 2 ;; esac; shift
+      case $1 in --gpu) gpu=1 ;; --nolock) lock=0 ;; --slots) slots=$2; shift ;; *) echo "unknown option $1" >&2; exit 2 ;; esac; shift
     done
     sync_tree
-    # A foreground job never holds the lock past NAPL_TIMEOUT (default 1 h): a hung or
+    # A foreground job never holds its slots past NAPL_TIMEOUT (default 1 h): a hung or
     # forgotten server must not block every other napl job. Long work belongs in `bg`.
-    rssh "$(prefix $gpu $lock) timeout ${NAPL_TIMEOUT:-3600} bash -c $(printf '%q' "$*")"
+    rssh "$(prefix $gpu $lock $slots) timeout ${NAPL_TIMEOUT:-3600} bash -c $(printf '%q' "$*")"
     ;;
   bg)
+    slots=1
+    [[ ${1:-} == --slots ]] && { slots=$2; shift 2; }
     name=$1; shift
     sync_tree
-    rssh "tmux new -d -s napl-$name $(printf '%q' "$(prefix 0) bash -c $(printf '%q' "$*") >$DIR/logs/$name.log 2>&1")"
+    rssh "tmux new -d -s napl-$name $(printf '%q' "$(prefix 0 1 $slots) bash -c $(printf '%q' "$*") >$DIR/logs/$name.log 2>&1")"
     echo "started tmux session napl-$name on $REMOTE; tools/remote.sh log $name"
     ;;
   log) rssh "tail -n ${2:-50} $DIR/logs/$1.log; tmux has-session -t napl-$1 2>/dev/null && echo '[running]' || echo '[finished]'" ;;
@@ -95,5 +115,5 @@ case $cmd in
     mkdir -p "$ROOT/remote-out"
     for p in "$@"; do rrsync -az "$REMOTE:$DIR/$p" "$ROOT/remote-out/"; done
     ;;
-  *) sed -n '2,17p' "$0"; exit 2 ;;
+  *) sed -n '2,25p' "$0"; exit 2 ;;
 esac
