@@ -23,7 +23,7 @@ set -euo pipefail
 REMOTE=${NAPL_REMOTE:-hfbox}
 DIR=${NAPL_REMOTE_DIR:-/workspace/wt/napl}
 JOBS=${NAPL_JOBS:-16}  # hfbox is dedicated to napl (user, 2026-10-10): use all 16 cores
-GPU_LOCK=${NAPL_GPU_LOCK-/workspace/airtools/.gpu.lock}
+GPU_LOCK=${NAPL_GPU_LOCK-}  # hfbox: napl owns the whole GPU (user, 2026-10-10); set a lock file to share a GPU
 CPU_LOCK=${NAPL_CPU_LOCK:-$DIR/.cpu.lock}  # per remote dir: one heavy job at a time per worktree
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
