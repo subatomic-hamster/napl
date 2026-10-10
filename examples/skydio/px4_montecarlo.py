@@ -23,6 +23,8 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import montecarlo as native
 
+EXTRA_ENV = {}  # --env / --param: added to every flight's environment
+
 
 def wilson(k, n, z=1.96):
     """Wilson score interval of k successes in n trials."""
@@ -41,6 +43,7 @@ def one(job):
         runs = Path(root) / f"{mission}-{seed}"
         env = {
             **os.environ,
+            **EXTRA_ENV,
             "NAPL_PARAMS": json.dumps({"seed": seed}),
             "NAPL_PX4_INSTANCE": str(inst),
             "OMP_NUM_THREADS": "1",
@@ -134,7 +137,26 @@ def main():
     ap.add_argument("--first", type=int, default=100)
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--out", default="build/skydio_px4_mc")
+    ap.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        metavar="NAME=VAL",
+        help="PX4 parameter on top of the scenario's (tuning sweeps; NAPL_PX4_PARAMS)",
+    )
+    ap.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="NAME=VAL",
+        help="environment variable for the flights (companion knobs, e.g. SKYDIO_LEAD_S)",
+    )
     a = ap.parse_args()
+    EXTRA_ENV.update(e.split("=", 1) for e in a.env)
+    if a.param:
+        EXTRA_ENV["NAPL_PX4_PARAMS"] = json.dumps(
+            {k: float(v) for k, v in (p.split("=", 1) for p in a.param)}
+        )
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     root = Path(str(out) + "_runs")

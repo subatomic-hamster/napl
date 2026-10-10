@@ -39,6 +39,8 @@ LOOP_TICKS = (
     16  # one companion cycle per 16 ms of sim time (62.5 Hz: set-points, trace rows)
 )
 ODOM_EVERY = 2  # ODOMETRY every 2nd cycle: 31 Hz
+LEAD_S = float(os.environ.get("SKYDIO_LEAD_S", 0.0))
+PREROLL_S, PREROLL_V = 0.5, float(os.environ.get("SKYDIO_PREROLL_V", 0.0))
 READY_S = (
     6.0  # estimator settle before arming, after PX4 reports a valid local position (s)
 )
@@ -147,8 +149,63 @@ class Px4Skydio(Skydio):
     def t(self):
         return (self._tick - self.tick_ref) * self.dt
 
+    COLS = Skydio.COLS + [
+        "sp_x",
+        "sp_y",
+        "sp_z",
+        "spv_x",
+        "spv_y",
+        "spv_z",
+        "spa_x",
+        "spa_y",
+        "spa_z",
+        "v_x",
+        "v_y",
+        "v_z",
+        "est_vx",
+        "est_vy",
+    ]
+
+    def _trace(self, p, R_true, v, tilt_cmd):
+        super()._trace(p, R_true, v, tilt_cmd)
+        sp = self.flyer.sp
+        self.rows[-1] += [
+            *sp[0],
+            *sp[1],
+            *sp[2],
+            *v,
+            *self.eskf.v[:2],
+        ]  # what PX4 was asked for and the true velocity: the set-point -> response lag
+
     def _command(self, pp, vv, aa):
-        self.flyer.target(pp, vv, self.yaw_sp, acc=aa)
+        # lead: PX4 realises an acceleration set-point through a ~0.25 s first-order lag (measured, README), so the plan is sent LEAD_S ahead
+        # (constant acceleration); on an axis where the plan brakes it stops at rest, so the lead ends there (no reversal of the velocity set-point)
+        braking = vv * aa < 0
+        L = np.where(
+            braking,
+            np.minimum(LEAD_S, np.abs(vv) / np.maximum(np.abs(aa), 1e-6)),
+            LEAD_S,
+        )
+        self.flyer.target(pp + vv * L + 0.5 * aa * L * L, vv + aa * L, self.yaw_sp, acc=aa)  # fmt: skip
+
+    def _setpoint(self):
+        """fly.py's set-points, plus a rolling start: the subject starts walking the moment the fly phase begins, and PX4 answers an acceleration step ~0.25 s
+        late, so for the last PREROLL_S of the map hover the drone already accelerates toward the tracked subject (to PREROLL_V)."""
+        super()._setpoint()
+        t0 = self.t - self.t_phase - (MAP_S - PREROLL_S)
+        if PREROLL_V > 0 and self.phase == "map" and t0 > 0 and self.est is not None:
+            d = self.est[0] - self.flyer.last[0][:2]
+            if (n := float(np.linalg.norm(d))) > 2.0:
+                a = self.prm.a_max
+                tr = PREROLL_V / a
+                s = 0.5 * a * min(t0, tr) ** 2 + PREROLL_V * max(t0 - tr, 0.0)
+                u = np.append(d / n, 0.0)
+                self.flyer.target(
+                    self.flyer.sp[0] + u * s,
+                    u * min(PREROLL_V, a * t0),
+                    self.yaw_sp,
+                    acc=u * (a if t0 < tr else 0.0),
+                )
 
     # ---- one cycle ------------------------------------------------------------------------------------------------------------------
     def _fetch_imu(self):
