@@ -21,6 +21,8 @@ Results are cached on a digest of (endpoints, gauge, geometry), so rebuilding an
 import hashlib
 import heapq
 import math
+import os
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -43,7 +45,41 @@ EXPAND_LIMIT = 800_000
 LADDER = ((CLEAR, 0.87), (CLEAR, 0.5), (0.001, 0.5), (0.001, 0.25), (0.0005, 0.1))
 
 _cache: dict = {}
+_field_cache: dict = {}
+_item_cache: dict = {}
 _mesh_cache: dict = {}
+
+
+def clear_caches():
+    """Forget every route and field in memory (tests that time or compare fresh routing; the disk cache is only used when NAPL_ROUTE_CACHE is set)."""
+    _cache.clear()
+    _field_cache.clear()
+    _item_cache.clear()
+
+
+def _disk_path(ikey):
+    d = os.environ.get("NAPL_ROUTE_CACHE")
+    return (
+        Path(d) / (hashlib.sha1(repr(ikey).encode()).hexdigest() + ".pkl")
+        if d
+        else None
+    )
+
+
+def _disk_get(ikey):
+    """A route routed by an earlier process (a long recording warms it up headlessly): NAPL_ROUTE_CACHE=<dir>."""
+    p = _disk_path(ikey)
+    try:
+        return pickle.loads(p.read_bytes()) if p and p.exists() else None
+    except Exception:
+        return None
+
+
+def _disk_put(ikey, r):
+    p = _disk_path(ikey)
+    if p:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(pickle.dumps(r))
 
 
 # ---- geometry ------------------------------------------------------------------------------------------------------------------
@@ -201,10 +237,15 @@ def clearance(P, geoms, exclude=()) -> np.ndarray:
 
 
 # ---- the voxel field -----------------------------------------------------------------------------------------------------------
+def _extent(geoms, pts):
+    lo = np.min([g["lo"] for g in geoms] + [np.min(pts, 0)], axis=0) - 0.05
+    hi = np.max([g["hi"] for g in geoms] + [np.max(pts, 0)], axis=0) + 0.05
+    return lo, hi
+
+
 class Field:
     def __init__(self, geoms, pts, pitch=None):
-        lo = np.min([g["lo"] for g in geoms] + [np.min(pts, 0)], axis=0) - 0.05
-        hi = np.max([g["hi"] for g in geoms] + [np.max(pts, 0)], axis=0) + 0.05
+        lo, hi = _extent(geoms, pts)
         ext = hi - lo
         p = pitch or max(0.003, (np.prod(ext) / MAX_VOXELS) ** (1 / 3))
         self.p, self.lo = p, lo
@@ -502,8 +543,29 @@ def route_wires(geoms: list, items: list) -> dict:
         if items
         else np.zeros((1, 3))
     )
-    F = Field(geoms, pts) if geoms else None
-    res = {it["key"]: _route(F, it) for it in items}
+    # A wire is routed against the field alone, so a design that gains a wire only routes that wire: the field is kept per
+    # (geometry, grid extent) and every route per (field, wire). The extent is that of all parts and pins, which a new wire
+    # between existing parts leaves alone.
+    fkey = None
+    if geoms:
+        lo, hi = _extent(geoms, pts)
+        fkey = (_digest(geoms, []), lo.round(6).tobytes(), hi.round(6).tobytes())
+    res = {}
+    for it in items:
+        ikey = (fkey, _digest([], [it]))
+        r = _item_cache.get(ikey) or _disk_get(ikey)
+        if r is None:  # the field (seconds) is only built when a wire has to be routed
+            F = _field_cache.get(fkey) if geoms else None
+            if geoms and F is None:
+                F = Field(geoms, pts)
+                if len(_field_cache) > 1:
+                    _field_cache.pop(next(iter(_field_cache)))
+                _field_cache[fkey] = F
+            r = _route(F, it)
+            _disk_put(ikey, r)
+        if len(_item_cache) > 256:
+            _item_cache.pop(next(iter(_item_cache)))
+        _item_cache[ikey] = res[it["key"]] = r
     if len(_cache) > 32:
         _cache.pop(next(iter(_cache)))
     _cache[sig] = res
