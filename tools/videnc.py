@@ -14,6 +14,7 @@ Encoder. Frames are streamed (raw RGBA on a pipe) to the first backend that pass
 NAPL_VIDEO_BACKEND=gst|ffmpeg|pyav forces one (no probe fallback); the chosen backend is printed.
 """
 
+import fcntl
 import os
 import shutil
 import struct
@@ -94,7 +95,12 @@ def _gst_has(element):
 
 
 def _gst_cmd(out, w, h, fps, av1):
-    enc = "vaav1enc ! av1parse ! webmmux" if av1 else "vah264enc ! h264parse ! mp4mux"
+    rc = "rate-control=vbr bitrate=6000"  # kbit/s; the default (cbr, auto bitrate) made 10x bigger files than ffmpeg's 6M
+    enc = (
+        f"vaav1enc {rc} ! av1parse ! webmmux"
+        if av1
+        else f"vah264enc {rc} ! h264parse ! mp4mux"
+    )
     desc = (
         f"fdsrc fd=0 ! rawvideoparse format=rgba width={w} height={h} framerate={int(fps)}/1 ! "
         f"videoconvert ! vapostproc ! {enc} ! filesink location={out}"
@@ -164,6 +170,12 @@ class Encoder:
                 self.proc = subprocess.Popen(
                     maker(self.out, w, h, fps, av1), stdin=subprocess.PIPE
                 )
+                try:  # a 1 MiB pipe instead of 64 KiB: 3.7 MB frames cost 4x fewer syscalls
+                    fcntl.fcntl(
+                        self.proc.stdin.fileno(), 1031, 1 << 20
+                    )  # F_SETPIPE_SZ (Linux)
+                except (OSError, AttributeError):
+                    pass
                 break
             print(f"videnc: {name} VA encode unusable here ({err or 'probe failed'})")
         if self.proc is None:
@@ -206,7 +218,7 @@ class Encoder:
             assert a.shape[:2] == (self.h, self.w), (
                 f"frame {a.shape[:2]} != video {(self.h, self.w)}"
             )
-            self.proc.stdin.write(np.ascontiguousarray(a).tobytes())
+            self.proc.stdin.write(memoryview(np.ascontiguousarray(a)).cast("B"))
             return
         if isinstance(img, np.ndarray):
             frame = self.av.VideoFrame.from_ndarray(
