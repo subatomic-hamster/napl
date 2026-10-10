@@ -176,7 +176,11 @@ if(WIN32)
   add_custom_command(TARGET napl_render_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:mujoco> $<TARGET_FILE_DIR:napl_render_tests>)
 endif()
-gtest_discover_tests(napl_render_tests PROPERTIES LABELS gpu)
+# The goldens were made on llvmpipe: those tests run on it (deterministic; a CPU renderer is otherwise refused);
+# render_gpu.* run on the default device (the GPU) with a tolerance.
+gtest_discover_tests(napl_render_tests TEST_FILTER render.* PROPERTIES LABELS gpu
+  ENVIRONMENT "NAPL_RENDER_ALLOW_CPU=1;NAPL_VK_DEVICE=llvmpipe")
+gtest_discover_tests(napl_render_tests TEST_FILTER render_gpu.* PROPERTIES LABELS gpu)
 
 if(NAPL_VIEWER)  # needs a window system too: run under a display or `xvfb-run -a ctest --preset gpu`
   add_executable(napl_viewer_tests tests/cpp/test_viewer.cpp)

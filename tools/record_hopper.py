@@ -38,6 +38,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import videnc
+
 W, H, BAR = (
     1600,
     900,
@@ -216,7 +218,7 @@ def cmd_build(a):
 
 def _build(a):
     import design_shot
-    from napl import Sim, _napl
+    from napl import Sim
     from napl.design.viewer import Backend
     from record_turret import compare_designs, run_steps
 
@@ -241,7 +243,7 @@ def _build(a):
             if item is None:
                 return
             k, img = item
-            (out / f"f{k:05d}.png").write_bytes(_napl.encode_png(img))
+            videnc.save_frame(out, f"f{k:05d}", img)
 
     writers = [threading.Thread(target=writer, daemon=True) for _ in range(3)]
     for w_ in writers:
@@ -787,7 +789,6 @@ def cmd_frames(a):
 
 def _frames(a):
     import design_shot
-    from napl import _napl
     from napl import hud as hudmod
 
     p = Player(a.run_dir, a.key)
@@ -806,7 +807,7 @@ def _frames(a):
             item = q.get()
             if item is None:
                 return
-            (out / f"f{item[0]:05d}.png").write_bytes(_napl.encode_png(item[1]))
+            videnc.save_frame(out, f"f{item[0]:05d}", item[1])
 
     writers = [threading.Thread(target=writer, daemon=True) for _ in range(3)]
     for w_ in writers:
@@ -904,7 +905,6 @@ RESULTS = [  # examples/hopper/README.md "Monte Carlo (held-out seeds, flown onc
 
 
 def cmd_encode(a):
-    import av
     from PIL import Image, ImageDraw, ImageFont
 
     FONT = "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
@@ -922,19 +922,14 @@ def cmd_encode(a):
             (FONT, 22),
         )
     )
-    codecs = [c for c in ("libvpx-vp9",) if c in av.codecs_available]
-    if not codecs:
-        raise SystemExit("no VP9 encoder in this PyAV (libx264 is GPL: not used)")
     out = Path(a.out)
-    cont = av.open(str(out), "w")
-    st = cont.add_stream("libvpx-vp9", rate=FPS)
-    st.width, st.height, st.pix_fmt = W, H, "yuv420p"
-    st.options = {"crf": "31", "b": "0", "cpu-used": "2", "row-mt": "1"}
+    enc = videnc.Encoder(
+        out, W, H, FPS, gpl=a.gpl
+    )  # GPU (VA) when this host has it, else PyAV software
     marks, nframes = [], [0]
 
     def emit(img):
-        for pk in st.encode(av.VideoFrame.from_image(img.convert("RGB"))):
-            cont.mux(pk)
+        enc.write(img)
         nframes[0] += 1
 
     def wrap(text, font, width, dr):
@@ -1061,7 +1056,7 @@ def cmd_encode(a):
                     0, min(len(ts) - 1, bisect.bisect_right(ts, t0_ + k * sp / FPS) - 1)
                 )
                 if j not in cache:
-                    cache = {j: Image.open(bd / f"f{j:05d}.png").convert("RGB")}
+                    cache = {j: videnc.load_frame(bd, f"f{j:05d}")}
                 img = Image.new("RGB", (W, H), (6, 7, 9))
                 img.paste(cache[j], (0, 0))
                 c = cur
@@ -1112,7 +1107,7 @@ def cmd_encode(a):
             slow, fast = fps_c / FPS, FPS / fps_c
             for k in range(m["frames"]):
                 tsim = t0c + k / fps_c
-                img = Image.open(sd / f"f{i0 + k:05d}.png").convert("RGB")
+                img = videnc.load_frame(sd, f"f{i0 + k:05d}")
                 cap = next((c for c in caps if c["t0"] <= tsim < c["t1"]), None)
                 rate = (
                     f"slow motion 1/{slow:g}"
@@ -1175,9 +1170,7 @@ def cmd_encode(a):
         "RESULT",
         table,
     )
-    for pk in st.encode():
-        cont.mux(pk)
-    cont.close()
+    enc.close()
     print(
         f"wrote {out}: {out.stat().st_size / 1e6:.1f} MB, {nframes[0]} frames = {nframes[0] / FPS:.1f} s, {W}x{H}"
     )
@@ -1237,7 +1230,19 @@ def main():
         required=True,
         help="KEY=FRAMES_DIR, in video order (the keys of sim_shots.json)",
     )
+    s.add_argument(
+        "--gpl",
+        action="store_true",
+        help="ffmpeg VAAPI first (av1_vaapi / h264_vaapi); default is GStreamer VA (LGPL), then PyAV VP9",
+    )
+    for name in ("build", "_build", "frames", "_frames"):
+        sub.choices[name].add_argument(
+            "--keep-frames",
+            action="store_true",
+            help="also write a PNG per frame (default: raw .rgz only)",
+        )
     a = ap.parse_args()
+    videnc.keep_from(a)
     {
         "explore": cmd_explore,
         "build": cmd_build,

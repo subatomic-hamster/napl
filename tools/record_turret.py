@@ -31,6 +31,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import videnc
+
 W, H = 1280, 720  # the window / the screen grabs
 BAR = 108  # the caption strip below the picture (the window's own status bar stays visible)
 HO = H + BAR  # output frame height
@@ -380,6 +382,7 @@ def cmd_explore(a):
 
 # ---- build under xvfb ----------------------------------------------------------------------------------------------------------------
 def cmd_build(a):
+    videnc.keep_from(a)  # --keep-frames reaches the xvfb child through the environment
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="napl-xvfb-") as fb:
@@ -403,7 +406,7 @@ def cmd_build(a):
 
 def _build(a):
     import design_shot
-    from napl import Sim, _napl
+    from napl import Sim
     from napl.design import Design
     from napl.design.viewer import Backend
 
@@ -434,7 +437,7 @@ def _build(a):
             except Exception:
                 time.sleep(0.05)
                 continue
-            (out / f"f{k:05d}.png").write_bytes(_napl.encode_png(img))
+            videnc.save_frame(out, f"f{k:05d}", img)
             frames.append(round(t, 3))
             k += 1
             time.sleep(max(0.0, 1 / FPS1 - (time.time() - t0 - t)))
@@ -507,7 +510,6 @@ def _build(a):
 
 # ---- encode (throwaway venv: av + Pillow) --------------------------------------------------------------------------------------------
 def cmd_encode(a):
-    import av
     from PIL import Image, ImageDraw, ImageFont
 
     FONT = "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
@@ -524,24 +526,15 @@ def cmd_encode(a):
             (FONT, 14),
         )
     )
-    codecs = [c for c in ("libopenh264", "libvpx-vp9") if c in av.codecs_available]
-    print("encoders available among OpenH264 / VP9:", codecs)
     out = Path(a.out)
-    codec = "libvpx-vp9" if "libvpx-vp9" in codecs else codecs[0]
-    cont = av.open(str(out), "w")
-    st = cont.add_stream(codec, rate=FPS)
-    st.width, st.height, st.pix_fmt = W, HO, "yuv420p"
-    st.options = (
-        {"crf": "32", "b": "0", "cpu-used": "2", "row-mt": "1"}
-        if codec == "libvpx-vp9"
-        else {}
-    )
+    enc = videnc.Encoder(
+        out, W, HO, FPS, gpl=a.gpl
+    )  # GPU (VA) when this host has it, else PyAV software
     marks = []  # (output second, label): the timeline printed at the end
     nframes = [0]
 
     def emit(img):
-        for pk in st.encode(av.VideoFrame.from_image(img.convert("RGB"))):
-            cont.mux(pk)
+        enc.write(img)
         nframes[0] += 1
 
     def wrap(text, font, width, dr):
@@ -662,7 +655,7 @@ def cmd_encode(a):
             t = t0_ + k * sp / FPS
             j = max(0, min(len(ts) - 1, sum(1 for x in ts if x <= t) - 1))
             if j not in cache:
-                cache = {j: Image.open(bd / f"f{j:05d}.png").convert("RGB")}
+                cache = {j: videnc.load_frame(bd, f"f{j:05d}")}
             img = cache[j].copy()
             c = cur_step
             right = [
@@ -716,7 +709,7 @@ def cmd_encode(a):
         # the orbit camera eases in from its start pose: the first second of the run looks at the mast foot, not played
         for k in range(20 if i0 == 0 else 0, n):
             tsim = t0c + k / fps_c
-            img = Image.open(sd / f"f{i0 + k:05d}.png").convert("RGB")
+            img = videnc.load_frame(sd, f"f{i0 + k:05d}")
             cap = next((c for c in caps if c["t0"] <= tsim < c["t1"]), None)
             cap = cap or {"title": "The built turret flies the scenario", "text": ""}
             emit(
@@ -747,9 +740,7 @@ def cmd_encode(a):
         8.0,
         "RESULT",
     )
-    for pk in st.encode():
-        cont.mux(pk)
-    cont.close()
+    enc.close()
     print(
         f"wrote {out}: {out.stat().st_size / 1e6:.1f} MB, {nframes[0]} frames = {nframes[0] / FPS:.1f} s, codec {codec}"
     )
@@ -784,12 +775,22 @@ def main():
         s.add_argument(
             "--steps", type=int, default=0, help="preview run: only the first N steps"
         )
+        s.add_argument(
+            "--keep-frames",
+            action="store_true",
+            help="also write a PNG per grabbed frame (default: raw .rgz only, no PNG encode)",
+        )
     s = sub.add_parser("encode")
     s.add_argument("build_dir")
     s.add_argument("sim_dir")
     s.add_argument("out")
     s.add_argument("--run", required=True)
     s.add_argument("--speedup", type=float, default=1.0)
+    s.add_argument(
+        "--gpl",
+        action="store_true",
+        help="ffmpeg VAAPI first (av1_vaapi / h264_vaapi) and libx264 in the software fallback; default is GStreamer VA (LGPL)",
+    )
     s.add_argument(
         "--captions", default=str(REPO / "docs/showcase/turret/sim_captions.json")
     )

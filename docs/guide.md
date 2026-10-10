@@ -368,6 +368,15 @@ outlines), `noshadows` (the sun shadow map), `nowires`, `boldwires` (cables at l
 true diameter; the Design window turns it on for BUILD / LIBRARY / WIRING, toolbar WIRES). Specular follows the MuJoCo material (`specular`, `shininess`, `metallic`,
 `roughness`); output is 4x MSAA and sRGB.
 
+**Device and off-screen viewer.** Headless renders (`Sim.render`, `Render`) and the off-screen viewer pick the best Vulkan device
+(discrete > integrated > virtual) and refuse a CPU rasteriser (llvmpipe / lavapipe) unless `NAPL_RENDER_ALLOW_CPU=1`;
+`NAPL_VK_DEVICE=<substring of the device name>` forces one. `napl-view MODEL --offscreen WxH` (or `NAPL_OFFSCREEN=1`) runs the
+viewer with no window, X server or swapchain: scene + UI render into an off-screen image on the GPU, 60 fps cap, and
+`napl._napl.viewer_frame()` returns the newest frame as `(seq, (h, w, 4) uint8)`. The recording tools (`tools/design_shot.py`
+`grab()`) use it by default; `NAPL_OFFSCREEN=0` goes back to the Xvfb window (llvmpipe). Recording tools store raw frames
+(`f*.rgz`; `--keep-frames` adds PNGs) and encode through `tools/videnc.py`: GStreamer VA (`vaav1enc` .webm / `vah264enc` .mp4;
+LGPL) when the host has it, `--gpl` tries ffmpeg VAAPI first, else PyAV software (VP9).
+
 **Wires are tubes.** Every wire of the design is drawn from terminal to terminal, one tube per conductor (one per pin pair, at most 16;
 `Sim.tubes()` lists them): insulated outer diameter from the wire's AWG (`napl.design.wiretubes.AWG_OD_MM`), colour by function
 (power red / black, three-conductor motor leads yellow / green / blue, signal yellow / white / blue / ...). Each conductor starts at

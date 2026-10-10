@@ -103,7 +103,7 @@ def main(out, fbdir):
     sim = Sim.load(b.state(d)["xml"], host=True)
     shot = []
 
-    def grab():
+    def shoot():
         try:
             t0 = time.time()
             while (
@@ -116,7 +116,7 @@ def main(out, fbdir):
         finally:
             sim.close_viewer()  # also when the grab raised: otherwise show() never returns
 
-    threading.Thread(target=grab, daemon=True).start()
+    threading.Thread(target=shoot, daemon=True).start()
     watchdog(sim)
     sim.show(script=SCRIPT, width=1280, height=720, design=b)
     if not shot:

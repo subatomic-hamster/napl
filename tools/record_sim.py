@@ -32,6 +32,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import videnc
+
 W, H = 1280, 720
 VID_FPS = 20
 
@@ -252,7 +254,6 @@ def cmd_frames(a):
 
 def _frames(a):
     import design_shot
-    from napl import _napl
     from napl import hud as hudmod
 
     p = Player(a.run_dir, a.camera)
@@ -297,7 +298,7 @@ def _frames(a):
                     )
                 time.sleep(0.08)  # present + the X server's copy
                 img = design_shot.grab(a.fb)
-                (out / f"f{seq:05d}.png").write_bytes(_napl.encode_png(img))
+                videnc.save_frame(out, f"f{seq:05d}", img)
                 log["frames"] += 1
                 if hud.progress()["error"] and not log["errors"]:
                     log["errors"].append(hud.progress()["error"])
@@ -336,38 +337,16 @@ def _frames(a):
 
 # ---- encode (throwaway venv: av + Pillow) ----------------------------------------------------------------------------------------------
 def cmd_encode(a):
-    import av
-    from PIL import Image
-
-    names = []
-    for d in a.dirs:
-        names += sorted(Path(d).glob("f*.png"))
-    codecs = [
-        c for c in ("libx264", "libopenh264", "libvpx-vp9") if c in av.codecs_available
-    ]
-    print("encoders available among h264 / vp9:", codecs)
-    codec = next(c for c in codecs if c != "libx264" or a.gpl)
+    names = [(d, s) for d in a.dirs for s in videnc.frame_stems(d)]
     out = Path(a.out)
-    if codec.startswith("libvpx") and out.suffix != ".webm":
-        out = out.with_suffix(".webm")
-    cont = av.open(str(out), "w")
-    st = cont.add_stream(codec, rate=a.fps)
-    st.width, st.height, st.pix_fmt = W, H, "yuv420p"
-    st.options = (
-        {"crf": "24", "preset": "slow"}
-        if codec == "libx264"
-        else {"crf": "30", "b": "0"}
-        if codec.startswith("libvpx")
-        else {}
-    )
-    for f in names:
-        for pk in st.encode(av.VideoFrame.from_image(Image.open(f).convert("RGB"))):
-            cont.mux(pk)
-    for pk in st.encode():
-        cont.mux(pk)
-    cont.close()
+    enc = videnc.Encoder(
+        out, W, H, a.fps, gpl=a.gpl
+    )  # GPU (VA) when this host has it, else PyAV software
+    for d, s in names:
+        enc.write(videnc.load_array(d, s))
+    enc.close()
     print(
-        f"wrote {out}: {len(names)} frames, {out.stat().st_size / 1e6:.1f} MB, codec {codec}"
+        f"wrote {out}: {len(names)} frames, {out.stat().st_size / 1e6:.1f} MB, encoder {enc.backend}"
     )
 
 
@@ -378,6 +357,11 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common(s, frames=False):
+        s.add_argument(
+            "--keep-frames",
+            action="store_true",
+            help="also write a PNG per frame (default: raw .rgz only)",
+        )
         s.add_argument(
             "--camera", default="overview", help="preset or schedule (see above)"
         )
@@ -424,9 +408,10 @@ def main():
     s.add_argument(
         "--gpl",
         action="store_true",
-        help="allow libx264 (GPL); default is openh264 / VP9 only",
+        help="ffmpeg VAAPI first and libx264 in the software fallback (GPL); default is GStreamer VA (LGPL), then openh264 / VP9",
     )
     a = ap.parse_args()
+    videnc.keep_from(a)
     if a.cmd == "encode":
         cmd_encode(a)
     elif a.cmd == "_frames":

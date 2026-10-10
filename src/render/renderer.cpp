@@ -12,6 +12,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -465,6 +466,9 @@ struct Renderer::Impl {
     };
     const char* env_dev = std::getenv("NAPL_VK_DEVICE");
     const std::string want = env_dev ? lower(env_dev) : "";
+    const char* cpu_env = std::getenv("NAPL_RENDER_ALLOW_CPU");  // software rasterisers (llvmpipe / lavapipe) only when asked for
+    const bool allow_cpu = cpu_env && *cpu_env && std::string(cpu_env) != "0";
+    bool refused_cpu = false;
     for (VkPhysicalDevice cand : pds) {
       VkPhysicalDeviceProperties props;
       vkGetPhysicalDeviceProperties(cand, &props);
@@ -492,6 +496,10 @@ struct Renderer::Impl {
       // (the first of equals), and NAPL_VK_DEVICE=<substring of deviceName, any case> restricts the choice.
       int rank = 0;
       if (!sc) {
+        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU && !allow_cpu) {
+          refused_cpu = true;
+          continue;
+        }
         if (!want.empty() && lower(props.deviceName).find(want) == std::string::npos) continue;
         rank = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU     ? 4
                : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 3
@@ -511,7 +519,12 @@ struct Renderer::Impl {
     if (!pd)
       throw std::runtime_error("no Vulkan device: none of the " + std::to_string(n) + " physical device(s) supports Vulkan 1.3 with dynamic rendering" +
                                (sc ? " and presenting to this window (an X server without DRI3 cannot present from a hardware GPU)" : "") +
-                               (!sc && !want.empty() ? " and matches NAPL_VK_DEVICE=" + want : ""));
+                               (!sc && !want.empty() ? " and matches NAPL_VK_DEVICE=" + want : "") +
+                               (refused_cpu ? " (a CPU renderer such as llvmpipe was refused: set NAPL_RENDER_ALLOW_CPU=1 to use it)" : ""));
+    if (!win) {  // headless Renderer: say once which device renders (the viewer prints its own line)
+      static std::once_flag logged;
+      std::call_once(logged, [&] { std::fprintf(stderr, "napl: rendering on %s\n", name.c_str()); });
+    }
 
     const float prio = 1;
     VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
