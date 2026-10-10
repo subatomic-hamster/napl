@@ -42,14 +42,18 @@ napl is built and run on a Linux build host; the laptop only edits, runs git and
 ```
 tools/remote.sh bootstrap              one-time: toolchain venv (cmake, ninja, uv) on the host
 tools/remote.sh sync                   rsync the working tree to the host (excludes build/, .venv/, .git/, remote-out/)
-tools/remote.sh run [--gpu] [--nolock] CMD   sync, then run CMD in the remote source dir; streams output
-tools/remote.sh bg NAME CMD            sync, then run CMD in tmux session napl-NAME; output to logs/NAME.log
+tools/remote.sh run [--gpu] [--nolock] [--slots N] CMD   sync, then run CMD in the remote source dir; streams output
+tools/remote.sh bg [--slots N] NAME CMD   sync, then run CMD in tmux session napl-NAME; output to logs/NAME.log
 tools/remote.sh log NAME [N]           last N lines of that log and whether it is still running
 tools/remote.sh pull PATH...           copy remote paths (relative to the remote dir) into ./remote-out/
 ```
 
-`run` takes the host CPU lock unless `--nolock` (use `--nolock` for light commands and anything long-lived that must not block
-other jobs) and `--gpu` takes the GPU lock too. A foreground job is killed after `NAPL_TIMEOUT` seconds (default 3600); long work
+CPU lanes: the host has `NAPL_SLOTS` (default 2) slot lock files in `$NAPL_LANES` (default `/workspace/wt/napl-cache/lanes`), shared by all
+worktrees, each worth `NAPL_JOBS / NAPL_SLOTS` (8) threads. `run` / `bg` wait until they hold `--slots N` of them (default 1; `--slots 2` =
+the whole box, 16 threads) and export that thread count as `NAPL_THREADS`, `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`,
+`LP_NUM_THREADS`, `CMAKE_BUILD_PARALLEL_LEVEL` and `CTEST_PARALLEL_LEVEL`. `--nolock` skips the lane (light commands and anything long-lived
+that must not block other jobs). Never `flock` a lane file inside a job. The GPU has no lock (`--gpu` only matters when `NAPL_GPU_LOCK`
+names a file). Size parallelism from `NAPL_THREADS` (`pytest -n $NAPL_THREADS`; the MC drivers' `--workers` default does, bounded by free memory). A foreground job is killed after `NAPL_TIMEOUT` seconds (default 3600); long work
 belongs in `bg`. An ssh connection failure (the host sits behind a funnel that has outages of about 15 minutes) is retried with
 backoff, six times.
 
@@ -58,8 +62,19 @@ The host is a parameter, so a dedicated cloud box works the same way (AWS-ready;
 ```
 NAPL_REMOTE=<ssh alias>  NAPL_REMOTE_DIR=<abs dir>  NAPL_GPU_LOCK=   tools/remote.sh run '...'
 #                                                    ^ empty = dedicated host, no shared GPU lock
-# NAPL_JOBS (default 6): build threads;  NAPL_TIMEOUT (default 3600): foreground limit in seconds
+# NAPL_JOBS (default 16): build threads;  NAPL_TIMEOUT (default 3600): foreground limit in seconds
 ```
+
+C++ compiles go through sccache when it is on the host's PATH (`CMakeLists.txt` picks it up; `-DNAPL_SCCACHE=OFF` opts out). `remote.sh`
+puts `$NAPL_CACHE_DIR/bin` (default `/workspace/wt/napl-cache`) on PATH and points the cache at `$NAPL_CACHE_DIR/sccache` (4 GB cap), with
+every `/workspace/wt/napl*` dir as a base dir, so a clean build of the same commit in another worktree hits the cache. The sccache server is
+one per host and reads its base dirs at start: after creating a new worktree dir run `sccache --stop-server` once (idle servers only).
+
+Python tests: `.venv/bin/python -m pytest tests/python -q -n $NAPL_THREADS` (pytest-xdist, in the `dev` extra; serial is about 1 h 54 min). The
+`px4` tests claim a free PX4 instance 0..9 per test (flock + port check, preferring `NAPL_PX4_INSTANCE`), so workers never share ports;
+more than 10 workers only make the extra px4 tests wait for an instance. A few tests are real-time (PX4, the `napl program` pick/showcase
+scenarios) and can flake when the host is oversubscribed: rerun just those. Take the whole box with an outer timeout, e.g.
+`NAPL_TIMEOUT=7200 tools/remote.sh run --slots 2 'setsid timeout 7000 .venv/bin/python -m pytest tests/python -q -n $NAPL_THREADS --durations=30'`.
 
 First check that the host works (this was run):
 
