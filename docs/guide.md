@@ -776,6 +776,23 @@ Only the quad-X airframe 4902 is supported; PX4 parameters (rate gains, `BAT1_N_
 with this path (`tests/python/test_px4_design.py`): the stock X500 and a quad built from an empty design hover at throttle 0.425 /
 11.5 A; with the four motors swapped for the KDE 2315XF-965 (`swap(auto=True)`) 0.409 / 11.3 A.
 
+#### A companion computer, GPS-denied (vision odometry into EKF2)
+A drone that navigates by its own cameras keeps its autonomy off the flight controller: the companion computer estimates the pose, plans, and talks
+to PX4 over a second MAVLink link (`python/napl/companion.py`, MAVSDK, BSD-3). Three things differ from the flight above:
+
+* **No GPS.** Leave `gnss` out of the bridge config (`px4/bridge_skydio.toml`): the bridge sends no HIL_GPS, and the scenario sets `EKF2_GPS_CTRL=0`.
+* **Vision in.** `Link.odometry(...)` sends ODOMETRY (VIO estimator type, LOCAL_NED, FRD to NED attitude, the pad as origin); `EKF2_EV_CTRL=15` fuses
+  position, height, velocity and yaw. `Link.obstacle_distance(...)` sends OBSTACLE_DISTANCE (72 bins of 5 deg, body FRD) built from a depth image.
+  PX4 v1.17 delivers it to the `obstacle_distance` topic but its collision prevention runs only in Position mode, not Offboard, so the avoidance in an
+  offboard flight is the companion planner's.
+* **Companion data from the bridge.** The program needs the IMU stream PX4 gets: set `ctl = true` under `[interfaces.px4]` and the bridge's
+  `--ctl` socket (`napl.ctl.RemoteSim`, NAPL_CTL in the program's environment) serves `imu <since>`, the buffered HIL_SENSOR gyro / accel records
+  (250 Hz, the last 16 s, each with its sample counter). `[interfaces.px4.params]` passes `PX4_PARAM_*` overrides (applied before the airframe file).
+  `monitor_trace = "companion.csv"` judges the monitors on the file the program writes (the mission signals) instead of the bridge's `trace.csv`.
+
+Arming is done in Offboard (stream set-points, `offboard.start()`, `arm()`): MAVSDK's `is_armable` is judged in the current mode (Hold), which needs a
+global position. A complete example with the measured results: `examples/skydio/README.md`, section "On PX4"; short test: `tests/python/test_px4_skydio.py`.
+
 ### Both arm and drone in one world (the showcase) **[not run: about 3 minutes, over the 2 minute budget; GPU render not needed]**
 
 `examples/showcase/arm_loads_drone.scenario.toml` has `[interfaces.px4]` and `[interfaces.feetech]` together: one physics world
