@@ -426,6 +426,53 @@ def test_assembly_header_op(tmp_path):
         with pytest.raises(Exception):
             d.edit([{"op": "assembly", **bad}])
     assert d.doc["assembly"]["base"] == "fixed"
+    d.edit([{"op": "assembly", "seed": 7}])
+    assert d.doc["assembly"]["seed"] == 7
+
+
+def test_place_keeps_the_rpy_it_was_given():
+    """A half turn about y is [0, pi, 0] as written, not matrix_rpy's equivalent [pi, 0, pi]."""
+    d = Design.open(REPO / "assemblies" / "hopper.toml")
+    d.edit(
+        [
+            {
+                "op": "place",
+                "id": "lidar",
+                "pos": [0.095, 0.0, -0.004],
+                "rpy": [0.0, 3.141592653589793, 0.0],
+            }
+        ]
+    )
+    lid = next(i for i in d.doc["instances"] if i["id"] == "lidar")
+    assert lid["rpy"] == [0.0, 3.141593, 0.0] and lid["pos"] == [0.095, 0.0, -0.004]
+
+
+def test_wire_taps_a_joinable_connector_pin_from_another_port():
+    """The pack's LEAD splice pins are not on its power_out port (OUT.1 / OUT.2) but the connector is joinable: the wire op takes them, as the
+    assembly loader does (hopper.toml: batt_reg1); a pin of a plain connector off the port is still refused."""
+    d = Design.open(REPO / "assemblies" / "hopper.toml")
+    w = next(w for w in d.doc["wires"] if w["name"] == "batt_reg1")
+    d.edit([{"op": "unwire", "name": "batt_reg1"}])
+    d.edit([{"op": "wire", **w}])
+    assert any(
+        x["name"] == "batt_reg1" and x["from_pins"] == ["LEAD.1", "LEAD.2"]
+        for x in d.doc["wires"]
+    )
+    sv = next(w for w in d.doc["wires"] if w["name"] == "reg1_sv1")
+    with pytest.raises(Exception, match="not on port"):
+        d.edit(
+            [
+                {
+                    "op": "wire",
+                    
+                        **sv,
+                        "name": "bad",
+                        "to_pins": ["J2.1", "J2.2"],
+                        "from_pins": ["IO.VOUT", "IO.GND2"]
+                    ,
+                }
+            ]
+        )
 
 
 def test_pose_and_color_schema_checks():

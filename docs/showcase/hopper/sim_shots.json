@@ -1,0 +1,26 @@
+{
+  "divert25": {"keys": [
+    {"t": 0.0,  "target": "veh", "yaw": 30,  "pitch": 12, "dist": 2.6, "spin": 6},
+    {"t": 4.5,  "target": "veh", "yaw": 60,  "pitch": 10, "dist": 2.2, "spin": 12},
+    {"t": 8.0,  "target": "veh", "yaw": 110, "pitch": 45, "dist": 12.0},
+    {"t": 18.0, "target": "veh", "yaw": 120, "pitch": 58, "dist": 20.0},
+    {"t": 21.0, "target": [4.0, 3.0, 12.5], "yaw": 127, "pitch": 3, "dist": 48.0},
+    {"t": 26.0, "target": [4.0, 3.0, 12.5], "yaw": 127, "pitch": 3, "dist": 48.0},
+    {"t": 28.0, "target": "veh", "yaw": 140, "pitch": 60, "dist": 20.0},
+    {"t": 42.0, "target": "veh", "yaw": 215, "pitch": 35, "dist": 8.0},
+    {"t": 44.5, "target": "veh", "yaw": 240, "pitch": 6,  "dist": 3.0},
+    {"t": 48.0, "target": "veh", "yaw": 300, "pitch": 8,  "dist": 2.6}
+  ]},
+  "gusts": {"keys": [
+    {"t": 0.0,  "target": "veh", "yaw": 20,  "pitch": 12, "dist": 2.6, "spin": 8},
+    {"t": 4.5,  "target": "veh", "yaw": 60,  "pitch": 10, "dist": 2.2, "spin": 12},
+    {"t": 6.5,  "target": "veh", "yaw": 120, "pitch": 45, "dist": 10.0},
+    {"t": 13.5, "target": "veh", "yaw": 120, "pitch": 40, "dist": 9.0, "spin": 6},
+    {"t": 19.5, "target": "veh", "yaw": 150, "pitch": 55, "dist": 14.0},
+    {"t": 22.0, "target": [3.0, 0.0, 7.5], "yaw": 270, "pitch": 3, "dist": 30.0},
+    {"t": 28.0, "target": [3.0, 0.0, 7.5], "yaw": 270, "pitch": 3, "dist": 30.0},
+    {"t": 30.5, "target": "veh", "yaw": 230, "pitch": 50, "dist": 10.0},
+    {"t": 33.0, "target": "veh", "yaw": 235, "pitch": 6,  "dist": 3.0},
+    {"t": 36.0, "target": "veh", "yaw": 270, "pitch": 8,  "dist": 2.6}
+  ]}
+}
