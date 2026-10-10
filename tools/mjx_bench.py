@@ -111,7 +111,9 @@ def _ctrl(m, asym):
     if m.nu == 0:
         return np.zeros(0)
     pat = np.array([1.0, -1.0, 0.7, -0.7])[: m.nu]
-    return float(m.body_subtreemass[1]) * G / m.nu * (1.0 + asym * pat)
+    return (
+        float(m.body_subtreemass[1]) * G / m.nu * (1.05 + asym * pat)
+    )  # 5 % over hover: climbs and tilts slowly, never reaches the floor in 5 s
 
 
 def cpu(a):
@@ -191,7 +193,8 @@ def _mjx_setup(path, n, asym):
 
     def scan(db, nsteps=STEPS):
         def body(x, _):
-            x = vstep(mx, x)
+            # with x64 the contact index arrays come back int64 from step but int32 from put_data: cast to the carry dtype
+            x = jax.tree.map(lambda n, o: n.astype(o.dtype), vstep(mx, x), x)
             return x, x.qpos[:, :3]
 
         return jax.lax.scan(body, db, None, length=nsteps)
@@ -275,8 +278,9 @@ def acc(a):
 
     m, d = _load(a.model)
     nsteps = int(a.seconds / m.opt.timestep)
-    ref = _traj_cpu(m, d, _ctrl(m, a.asym), nsteps, 10)
     p0 = d.qpos[:3].copy()
+    ref = _traj_cpu(m, d, _ctrl(m, a.asym), nsteps, 10)
+    got = {}
     for x64 in (False, True):
         f = Path(a.out) / f"traj_{'f64' if x64 else 'f32'}.npy"
         r = _child(
@@ -288,7 +292,7 @@ def acc(a):
         if "error" in r:
             print(json.dumps(r))
             continue
-        t = np.load(f)
+        t = got[x64] = np.load(f)
         e = np.linalg.norm(t - ref, axis=1)
         trav = float(
             np.linalg.norm(np.diff(np.vstack([p0, ref]), axis=0), axis=1).sum()
@@ -300,7 +304,20 @@ def acc(a):
         print(json.dumps(dict(
             what="accuracy", model=Path(a.model).stem, dtype="f64" if x64 else "f32", seconds=a.seconds, asym=a.asym, travelled_m=trav,
             pos_rms_m=float(np.sqrt((e**2).mean())), pos_max_m=float(e.max()), final_err_m=float(e[-1]), final_err_pct=100 * float(e[-1]) / trav,
-            max_err_pct=100 * float(e.max()) / trav, t_err_gt_1cm_s=div(0.01), t_err_gt_10cm_s=div(0.1))), flush=True)  # fmt: skip
+            max_err_pct=100 * float(e.max()) / trav, t_err_gt_1cm_s=div(0.01), t_err_gt_10cm_s=div(0.1),
+            displacement_m=float(np.linalg.norm(ref[-1] - p0)))), flush=True)  # fmt: skip
+    if len(got) == 2:  # precision alone: MJX f32 vs MJX f64
+        e = np.linalg.norm(got[False] - got[True], axis=1)
+        print(
+            json.dumps(
+                dict(
+                    what="accuracy_f32_vs_mjx_f64",
+                    asym=a.asym,
+                    max_err_m=float(e.max()),
+                    max_err_pct=100 * float(e.max()) / trav,
+                )
+            )
+        )
 
 
 def _det(a):
@@ -348,7 +365,19 @@ def sweep(a):
     ]  # cost does not depend on thrust
     for th in a.threads:
         runs = a.n[0]
-        spec = dict(name="b", duration=STEPS * dt, settings=[], monitors=[])
+        mon = dict(
+            name="m",
+            op="always",
+            lo=-1e9,
+            hi=1e9,
+            signal={
+                "path": "/world/" + root.find("./worldbody/body").get("name"),
+                "attr": "pos",
+            },
+        )
+        spec = dict(
+            name="b", duration=STEPS * dt, settings=[], monitors=[mon]
+        )  # a TestSpec needs one monitor
         t = time.perf_counter()
         rows = sim.sweep(spec, params, mode="random", n=runs, seed=1, threads=th)
         w = time.perf_counter() - t
@@ -371,7 +400,7 @@ def main():
     p.add_argument("--threads", type=int, nargs="+", default=[1, 16])
     p.add_argument("--dtypes", nargs="+", default=["f32", "f64"])
     p.add_argument("--reps", type=int, default=3)
-    p.add_argument("--asym", type=float, default=0.1)
+    p.add_argument("--asym", type=float, default=0.002)
     p.add_argument("--seconds", type=float, default=5.0)
     p.add_argument("--steps", type=int, default=5000)
     p.add_argument("--save")

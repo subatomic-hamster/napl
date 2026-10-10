@@ -79,6 +79,11 @@ def _install():
             json.dump(d, f)
 
     atexit.register(dump)
+    import signal
+
+    signal.signal(
+        signal.SIGTERM, lambda *_: sys.exit(1)
+    )  # the program's wall limit kills with SIGTERM: still write the timers
 
 
 if _OUT:
