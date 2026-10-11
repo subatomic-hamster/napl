@@ -606,9 +606,9 @@ Worker ownership: HW/CAD = `cad/`, `parts/cuas-lite/`, `assemblies/cuas-lite.tom
 | # | item | type | proposal / default |
 |---|---|---|---|
 | Q1 | shm header layout, request pacing and slot-reuse rule were not fixed in the briefing | assumption | section 1 clarifications; detector worker must confirm |
-| Q2 | range for 10-15 m: size-based ranging gives 10-25 % error, 1-3 deg elevation error at 12 m | **risk** | v1 ships size ranging with 10 m as the validated range; stretch: an optional Benewake TF-Luna/TFmini-S rangefinder (in `parts/electronics`), roughly +$25 over budget, or manual range entry in the UI for hanging targets |
+| Q2 | range for 10-15 m: size-based ranging gives 10-25 % error, 1-3 deg elevation error at 12 m | **resolved** (user, 2026-10-11) | v1 ships size ranging validated to 10 m PLUS a manual range entry in the UI (operator types the range of a hanging target at a known distance; overrides size ranging for that track). No rangefinder hardware |
 | Q3 | detector input size vs 15 m targets on the Orin Nano (640 vs 960 vs 1080p) | open | detector worker benchmarks; fallback 1920x1080@30 |
-| Q4 | Rival ball: brief says 17.8 mm / 0.95 g, sources say 22.2 mm / 1.86 g | **flag** | spec uses 22.2/1.86 as `BALL`; the user should weigh and measure real balls before CAD is frozen (barrel ID, hopper, tolerance table all derive from it) |
+| Q4 | Rival ball: brief says 17.8 mm / 0.95 g, sources say 22.2 mm / 1.86 g | **resolved** (user, 2026-10-11) | use 22.2 mm / 1.86 g as `BALL` now, one parameter; the user weighs and measures real balls before printing and the CAD regenerates (barrel ID, hopper, tolerance table all derive from it) |
 | Q5 | `[interfaces.native]` hosts the lite harness; no change to `program.py` | assumption | a dedicated `[interfaces.lite]` could be added later; not needed |
 | Q6 | small (<= 0.3 m) quad part for the sim | open | v1 uses existing x500v2/aos5 (0.55 m) so the size prior is configured per class; a smaller quad is optional |
 | Q7 | stepper torque-speed curve not in the datasheet in the repo; 50 % allowance assumed | assumption | replace with the vendor curve at purchase; margins in 6.3 |
