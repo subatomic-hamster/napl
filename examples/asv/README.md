@@ -5,13 +5,16 @@ RPLIDAR S2 lidar, SiK telemetry radio) built from catalogue parts through `napl.
 It navigates from GNSS + IMU + compass only, sees other vessels through its lidar and (simulated) AIS only, and avoids them under COLREG Rules 13-17.
 
 ```
-tools/remote.sh run '.venv/bin/napl program examples/asv/asv-head-on.scenario.toml --runs-dir build/runs'     # one scenario (the other four: see below)
-tools/remote.sh run '.venv/bin/python examples/asv/mc.py --seeds 30 --workers 5 --out build/asv-mc.json'       # Monte Carlo, 30 geometries per scenario
+tools/remote.sh run '.venv/bin/napl program examples/asv/asv-head-on.scenario.toml --runs-dir build/runs'     # one scenario (the other five: see below)
+tools/remote.sh bg mc '.venv/bin/python examples/asv/mc.py --seeds 40 --seed-base 20000 --workers 5 --out build/asv-mc.json'   # Monte Carlo, 40 geometries per scenario
+tools/remote.sh bg ncmc '.venv/bin/python examples/asv/mc.py --noncomplying --kinds crossing_stand_on --seeds 40 --seed-base 20000 --workers 5'   # Rule 17(a)(ii)
 tools/remote.sh run '.venv/bin/python -m pytest tests/python/test_asv.py -q'                                  # the tests
 ```
 
-Everything runs on the build host (hfbox); a scenario takes about 2 minutes of wall time for 2 minutes of simulated time (5 vessels' worth of physics, 125 Hz IMU, a
-10 Hz 1600-ray lidar scan and a 2 Hz planner).
+Everything runs on the build host (hfbox); a full scenario takes 1.5 - 3 minutes of wall time for 2 minutes of simulated time (up to 4 vessels' worth of physics, 125 Hz IMU, a
+10 Hz 1600-ray lidar scan and a 2 Hz planner), the three-traffic one longer. The first build of the ASV assembly routes its cosmetic wire tubes (about 4 minutes of A*
+on one core); the routed paths are cached on disk (`$TMPDIR/napl-wire-cache`, `NAPL_WIRE_CACHE=off` disables it), so later builds and every Monte Carlo worker take under a second.
+`mc.py --fast` runs the same planner / tracker / judge in the synthetic plant of `fastsim.py` (seconds per run, TUNING ONLY: nothing in the results below comes from it).
 
 ## What is here
 
@@ -25,8 +28,8 @@ Everything runs on the build host (hfbox); a scenario takes about 2 minutes of w
 | `colreg.py`, `planner.py` | Rule 13-17 situation classification; sampled-manoeuvre planner with COLREG costs on the tracks and the static lidar points |
 | `traffic.py` | the scripted traffic vessels (keep course, give way, turn to starboard), same autopilot as the ASV, steering on the true state |
 | `judge.py`, `run.py` | judgement from TRUE tracks (collision, closest approach, passing side, manoeuvre per Rule); the program that owns the Sim and writes the artefacts |
-| `asv-*.scenario.toml` | `napl program` scenarios: `patrol`, `head-on`, `crossing-give-way`, `crossing-stand-on`, `overtaking` |
-| `mc.py`, `render_frames.py` | Monte Carlo over seeded geometries and sea states; PNG frames of a finished run (GPU) |
+| `asv-*.scenario.toml` | `napl program` scenarios: `patrol`, `head-on`, `crossing-give-way`, `crossing-stand-on`, `overtaking`, `multi-traffic` (three vessels, mixed roles) |
+| `mc.py`, `fastsim.py`, `render_frames.py` | Monte Carlo over seeded geometries and sea states (Wilson intervals); the fast synthetic-plant harness the planner was tuned in; PNG frames of a finished run (GPU) |
 
 The planner and every estimator read only sensor devices (`/devices/asv_imu`, `asv_mag`, `asv_gnss`, `asv_lidar`) and the AIS channel; the true state is read only to
 write the trace, the telemetry `pose`/`truth` fields and the judgement, and to steer the *traffic* vessels (they are the scenario's script, not the system under test).
@@ -94,12 +97,18 @@ table (quasi-steady lift `cl_alpha |u| w` plus cross-flow drag `cd |w| w`, with 
 - **COLREG** (`colreg.py`, `planner.py`): contacts with risk of collision (closest point of approach below 20 m within 60 s, at most 250 m) are classified once their track is
   4 s old and the situation keeps that class until finally past and clear (Rule 13(d)). Roles: head-on, crossing with the contact on the starboard side, overtaking: **give way**
   (early, substantial action to starboard, no turn to port; head-on passes port-to-port; a crossing avoids passing ahead of the other vessel); crossing with the contact on the port
-  side and being overtaken: **stand on** (keep course and speed, costs 40 per unit of deviation) until the contact's closest point stays under 7 m with 8 s to go (Rule 17(a)(ii)),
-  and then act without turning to port for a vessel on the port side (17(c)); within 4 s the stand-on vessel must act (17(b), `emergency` in the telemetry).
-  The planner rolls out 4 speed fractions x 15 course offsets (7-80 degrees each way, relative to the leg direction) x 3 hold times over 60 s with a kinematic boat model and scores
-  progress along the leg, clearance to static points (6 m wanted), the closest point of approach to each track (12 m wanted, 9 m when overtaking), the Rule costs and a
-  commitment margin. It re-plans at 2 Hz.
-  The thresholds (the 15 degree head-on cone, 12 m, 7 m / 8 s, ...) are tuning choices; the Rules give none. They are listed in the file headers and `judge.py`.
+  side and being overtaken: **stand on** (keep course and speed, costs 40 per unit of deviation) until the contact's closest point stays under 7 m with 13 s to go (Rule 17(a)(ii)),
+  and then act without turning to port for a vessel on the port side (17(c)); within 6.5 s the stand-on vessel must act (17(b), `emergency` in the telemetry).
+  The planner rolls out, over 75 s with a kinematic boat model, 4 speed fractions x two families of manoeuvres: **15 course offsets** (7-80 degrees each way, relative to the leg direction) held
+  for 8 / 16 / 28 s, and **9 parallel lines** (4 m to port ... 24 m to starboard of the leg) followed for 20 / 40 / 75 s (a pass of a slow vessel takes longer than any heading hold, and a heading held long enough
+  to clear it ends tens of metres off the route; a parallel line costs exactly its offset), each followed by the return to the leg. It scores progress along the leg, the widest excursion
+  from the leg, clearance to static points (6 m wanted), the closest point of approach to each track (12 m wanted, 9 m when overtaking; a closest point more than 35 s away counts less,
+  down to a quarter at 65 s: the constant-velocity prediction of a vessel that will still act), the Rule costs and a commitment margin (kept only while a fixed object is near or a
+  contact is still to be passed). It re-plans at 2 Hz. Details that came out of the Monte Carlo and matter for the Rules: the situation is judged on the mission course while no manoeuvre is
+  in force (a boat still settling on its heading would otherwise hide a collision course); a give-way duty is never shed by a re-read of the class (a head-on vessel that has turned to starboard is on our port bow, i.e.
+  "crossing", but the situation stays head-on until we are past); the stand-on vessel acts under 17(a)(ii) only once the trigger (the other vessel's closest point under 7 m with 13 s to go) has held for 1 s, and then
+  for 6 s.
+  The thresholds (the 15 degree head-on cone, 12 m, 7 m / 13 s, ...) are tuning choices; the Rules give none. They are listed in the file headers and `judge.py`.
 
 COLREG text the code follows (International Regulations for Preventing Collisions at Sea 1972; as reproduced at https://ialacolreg.com/en/colreg/rule-13 ... rule-17, which cite the U.S. Coast Guard
 International Navigation Rules): Rule 13(a) "any vessel overtaking any other shall keep out of the way of the vessel being overtaken", 13(b) overtaking = approaching from more than 22.5 degrees abaft the
@@ -122,6 +131,21 @@ and the same telemetry channels. The ASV starts at the origin heading East; the 
 | `asv-crossing-give-way` | Rule 15/16: traffic from the starboard side, keeps course and speed | >= 5 m, passes astern of it, no turn to port, mission complete |
 | `asv-crossing-stand-on` | Rule 15/17: traffic from the port side, turns 45 degrees to starboard at 50 m | >= 5 m, heading within 15 degrees of the route and at least 70 % of the speed it made before (5 s smoothed) while it gives way |
 | `asv-overtaking` | Rule 13: slower traffic (0.6-0.9 m/s) on the route, keeps course | >= 5 m, ASV ahead of it at the end, mission complete |
+| `asv-multi-traffic` | three vessels one after the other, action windows overlapping: crossing from port (gives way: the ASV stands on), crossing from starboard (keeps course: the ASV gives way and passes astern), reciprocal course (turns to starboard: the ASV turns to starboard, port-to-port) | each vessel by its own Rule (`judge.verdict_all`), >= 5 m to every one, mission complete |
+
+Parameters: `seed`, `hs`, `jitter`, `ais`, `traffic_complies`, `visual`, and `t_stop` (end the run early, used by the tests; 0 = the whole scenario).
+
+### How the Rules are judged (`judge.py`, on the TRUE tracks, never the ASV's estimates)
+
+A run succeeds when the mission completes (true position within 8 m of the end waypoint), nothing is hit (centre distance to a vessel under 1.2 m, or to a fixed object under 0.75 m,
+counts as a collision) and the Rule judgement holds. The Rules give no numbers, so these are mine, and each is argued from the Rule text:
+- **closest approach >= 5 m** (four hull lengths of a 1.2 m craft): Rule 8(c) "a large alteration ... passing at a safe distance"; 8(d) "the effectiveness of the action shall be carefully checked until the other vessel is finally past and clear".
+- **head-on (Rule 14(a))**: "each shall alter her course to starboard so that each shall pass on the port side of the other": at the closest point the other vessel is on our port side, and (Rule 16/8(b): "large enough to be readily apparent") we never head more than 10 degrees to port of the route course while it is within 60 m before the closest point.
+- **crossing, ASV gives way (Rule 15/16)**: "avoid crossing ahead of the other vessel": at the closest point we are in the stern half of the other vessel's track; the same 10 degree rule (a turn to port for a vessel on the starboard bow is what the Rules discourage).
+- **crossing, ASV stands on (Rule 17(a)(i))**: "keep her course and speed": inside 60 m before the closest point we stay within 15 degrees of the route and above 70 % of the speed made before (5 s smoothed, because a 1.2 m hull in 0.8 m waves surges instantaneously to near zero and back). With a vessel that does NOT give way, 17(a)(ii) / (b) allow and then require action, so the test is only "no collision" (see the non-complying results).
+- **overtaking (Rule 13(a))**: "shall keep out of the way": the ASV is ahead of the other vessel at the end.
+- **several vessels (Rule 2(b), 8)**: the stand-on vessel is judged only on the samples where the ASV is not itself giving way to another vessel inside 120 m (Rule 16 gives way "early"): a vessel that must give way to one vessel cannot also keep its course for another.
+A criterion that was wrong would be argued here rather than relaxed: none has been changed to make a number better since the first Monte Carlo, except that the stand-on speed test now uses the 5 s smoothed speed against what the boat made before the encounter (the instantaneous 70 % of the nominal speed failed runs that took no action but surged).
 
 All scenarios also monitor the estimate (position error under 8 m, heading error under 15 degrees). The distances are judged on the TRUE tracks (columns of `trace.csv`), the replay log
 (`replay.naplog`) reproduces the final state hash (`napl-replay`), and a repeated run ends on the same hash.
@@ -185,7 +209,8 @@ tools/remote.sh run --gpu '.venv/bin/python -c "import os,json; os.environ[\"NAP
 tools/remote.sh run --gpu '.venv/bin/python examples/asv/render_frames.py build/runs_asv/head_on --out build/frames --fps 30 --from 40 --to 75 --cam wide'
 ```
 
-Cameras: `chase`, `side`, `top`, `bow`, `wide`. The renderer has no deforming water mesh: the sea is a flat translucent plane, the waves exist in the physics only (the hull heaves and pitches).
+Cameras: `chase`, `side`, `top`, `bow`, `wide`. The headless renderer draws the sea as a mesh driven by the physics `Sea` (`sea_surface_mesh`, the same wave model the hull floats on), shaded blue-green with
+a Fresnel sky reflection, a sun specular and distance haze (`water_shade` in `geom.slang`). The solver marks the plane named `water` in a model with a Sea as `GeomVisual.water` and refreshes its mesh from the Sea each frame (`mujoco_solver.cpp`). I did not run or touch the interactive viewer (`src/viewer`, owned by CADUI), so whether it animates the water is untested.
 The C2 map layers: `pose.lat_lon` (own ship), `tracks[].lat_lon` (contacts, coloured by `rule`), `traj` (the chosen path), `mission` (route legs are in `encounters.py`).
 
 ## Honesty notes
@@ -198,8 +223,14 @@ The C2 map layers: `pose.lat_lon` (own ship), `tracks[].lat_lon` (contacts, colo
 - **AIS on a 1.2 m craft is an idealisation:** Class A transponders are for ships; the rates, the 1 s latency and the 2 % loss are the standard's, the vessel size is not. No slot collisions, no reception range limit.
 - **Traffic is scripted and steers on the truth**, with the same autopilot as the ASV; it is the scenario's script, not a second system under test. Its Rule behaviour (turn to starboard, give way) is a script too.
 - **Collision is geometric** (the vessels are `conaffinity 0`): centre distance below 1.2 m to a vessel, or the hull centre within 0.75 m of a fixed object's surface. No contact forces, no damage.
-- **A self-propulsion artefact in waves** (confirmed by an experiment, not fixed): the vessel device's heave damping acts in the body frame, so in a pitching sea it
-  rectifies into a small surge force; a drifting hull in waves gains a little speed. It does not change the passing / not-passing outcomes here but the speed in large waves is a little optimistic.
+- **The wave self-propulsion artefact is fixed (a real modelling error, not a tuning matter).** The vessel device damped surge / sway / heave in the BODY frame: in a pitching
+  hull the heave damping force `-d_heave w_body` has a horizontal component, whose mean over a wave period is `1/2 d_heave a^2 omega k` (a net push, not zero), so an unpowered hull
+  in waves sailed on its own. Measured on this ASV hull, thrusters off, no current, seed 1, 80 s window after 20 s: mean drift speed **0.55 m/s at Hs 0.3 m, 0.88 m/s at 0.5 m,
+  0.87 m/s at 0.8 m (against the waves, toward -x)**; with the new `Vessel.heading_frame = true` (damping and added mass in the yaw-only frame: x along the body x axis projected on the
+  horizontal plane, z vertical; `docs/models.md`) it is **0.0001, 0.0020, 0.0016 m/s**. The powered boat's speed in waves was therefore optimistic in the first stage's runs (an inference from the passive measurement: the powered case was not re-measured with the old model); that is gone. Tests: `vessel.passive_hull_in_waves_drifts_only_with_body_frame_heave_damping` (C++, regular waves, body frame vs heading frame) and
+  `test_passive_asv_hull_in_waves_drifts_only_with_body_frame_heave_damping` (this hull, both frames). The flag is off by default, so no other model changes: `boat-float` still
+  ends on state hash `60e9d2b502df354f` (it does not use the changed path); the two ASV assemblies switch it on, so every ASV scenario hash is new (and so is every other quantity of
+  these runs; the ASV hashes were never pinned, only replay-matched).
 - **Hull and skegs are strip-theory estimates**, not tank or towing data; the reverse-thrust curve is the forward one mirrored (times 0.787).
 - **Thresholds are choices** (12 m wanted CPA, 6 m from fixed objects, 8 s / 7 m for the stand-on vessel to act, the 15 degree head-on cone); the Rules give none. The judge's pass criteria
   (5 m, 10 degrees, 15 degrees and 70 % of the earlier speed) are mine and stated in `judge.py`; a different set changes the success numbers. The speed test was changed after the first
