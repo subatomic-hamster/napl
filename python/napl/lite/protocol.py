@@ -71,6 +71,7 @@ HB_DEADMAN_OK, HB_FIRE_INHIBIT = 1, 2
     EV_BAD_FRAMES,
 ) = range(1, 9)
 # state-change reasons (EVENT 1 arg = new_state | reason << 8)
+R_NONE = 0  # ENGAGING <-> ARMED <-> FIRING bookkeeping transitions (the spec lists reasons only for the others)
 (
     R_BOOT,
     R_WATCHDOG,
