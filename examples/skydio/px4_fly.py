@@ -324,7 +324,9 @@ class Px4Skydio(Skydio):
         if flying:
             self._send_setpoint()
             self._trace(*self.flyer.truth[:2], self.flyer.truth[2][:3], tilt)
-            if self.cyc % 32 == 0:  # PX4's own estimate every 0.5 s
+            if (
+                not self.px4_est or self.t - self.px4_est[-1][0] >= 0.5 - 1e-9
+            ):  # PX4's own estimate every 0.5 s of flight time (not every 32nd cycle: a cycle is 40-80 ms of sim time, as heavy as the planner makes it)
                 n = self.link.tel.position_velocity_ned()
                 self.px4_est.append((self.t, n.position.north_m, n.position.east_m, n.position.down_m, n.velocity.north_m_s, n.velocity.east_m_s, n.velocity.down_m_s,
                                      *companion.enu_to_ned(self.eskf.p - self.p_start), *companion.enu_to_ned(self.eskf.v)))  # fmt: skip
