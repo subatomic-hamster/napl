@@ -189,8 +189,7 @@ std::uint64_t hash_visuals(std::span<const GeomVisual> v) {  // FNV-1a 64 over e
     mix(g.rgba, sizeof g.rgba);
     mix(&g.group, sizeof g.group);
     mix(&g.specular, 4 * sizeof(float));  // specular, shininess, metallic, roughness
-    mix(&g.water, sizeof g.water);
-    if (g.water) {  // the sea mesh changes every frame and is rewritten in place (Renderer::render): only its size is part of the scene
+    if (g.water()) {  // the sea mesh changes every frame and is rewritten in place (Renderer::render): only its size is part of the scene
       const std::size_t n = g.mesh.size();
       mix(&n, sizeof n);
     } else {
@@ -1199,7 +1198,7 @@ struct Renderer::Impl {
       d.mat[0] = g.specular, d.mat[1] = g.shininess, d.mat[2] = g.metallic, d.mat[3] = g.roughness;
       d.visible = d.count > 0 && g.group != 3 && g.rgba[3] > 0;  // group 3: hidden collision geoms (4 = design-builder vehicle geoms: shown)
       d.plane = g.type == GeomType::plane;
-      d.water = g.water;
+      d.water = g.water();
       d.radius = bound_radius(v);
       all.insert(all.end(), v.begin(), v.end());
       if (d.visible && !d.plane && !d.water) {
@@ -1521,7 +1520,7 @@ Image Renderer::render(const Solver& s, const Camera& cam, int width, int height
   const std::vector<GeomVisual> v = s.visuals();
   if (hash_visuals(v) != scene_hash_ || p_->draws.size() != v.size()) set_scene(v);
   for (std::size_t i = 0; i < v.size(); ++i)
-    if (v[i].water) p_->update_water(i, v[i].mesh);
+    if (v[i].water()) p_->update_water(i, v[i].mesh);
   p_->tubes_in = s.tubes();
   const std::vector<GeomPose> poses = s.poses();
   return p_->draw(poses, cam, width, height);

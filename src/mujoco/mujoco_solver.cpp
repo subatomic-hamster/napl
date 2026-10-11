@@ -571,7 +571,7 @@ std::vector<GeomVisual> MujocoSolver::visuals() const {
       if (name && std::strcmp(name, "water") == 0) {
         // a plane named "water" at the world origin in a model with a Sea is the sea surface: the wave field sampled now, over the plane's extent
         v.type = GeomType::mesh;
-        v.water = true;
+        v.group = GeomVisual::kWaterGroup;
         v.mesh = devs::sea_surface_mesh(*dev_, water_axis(m_->geom_size[3 * g]), water_axis(m_->geom_size[3 * g + 1]));
         continue;
       }
