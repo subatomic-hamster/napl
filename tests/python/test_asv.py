@@ -11,6 +11,10 @@ import pytest
 from napl import design
 from napl.design import Design
 
+# Every ASV build routes the same ~40 wires (about 4 min of A* each time, cold); wireroute caches routes on disk when this is set, so only the first run on a machine pays
+os.environ.setdefault(
+    "NAPL_ROUTE_CACHE", str(Path(tempfile.gettempdir()) / "napl-route-cache-asv")
+)
 REPO = Path(__file__).resolve().parents[2]
 EX = REPO / "examples"
 sys.path.insert(0, str(EX))
