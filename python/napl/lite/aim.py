@@ -180,10 +180,16 @@ def lead(
     pos = np.asarray(tr.pos, float) + np.asarray(tr.vel, float) * dt_extra
     m = geom.pose(pan_deg, tilt_deg).muzzle
     sol = None
+    up = np.zeros(3)
     for _ in range(2):
-        sol = ballistics.solve_lead(pel, m, pos, tr.vel, wind)
+        sol = ballistics.solve_lead(pel, m + up, pos + up, tr.vel, wind)
+        if sol is None and not up.any():
+            # solve_lead's flat first guess falls to the ground for long shots from a low mast; the shot itself is fine. Solve 15 m higher
+            # (same angles; the ISA density differs by 0.2 %).
+            up = np.array([0.0, 0.0, 15.0])
+            sol = ballistics.solve_lead(pel, m + up, pos + up, tr.vel, wind)
         if sol is None:
             return None
         m = geom.pose(math.degrees(sol["az"]), math.degrees(sol["el"])).muzzle
     return dict(pan=math.degrees(sol["az"]), tilt=math.degrees(sol["el"]), u=sol["u"], t_flight=sol["t_flight"], ok=sol["ok"], speed=sol["speed"],
-                range=float(np.linalg.norm(pos - m)), intercept=sol["intercept"])  # fmt: skip
+                range=float(np.linalg.norm(pos - m)), intercept=sol["intercept"] - up)  # fmt: skip

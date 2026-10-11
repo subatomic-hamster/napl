@@ -60,7 +60,7 @@ class NaplPlant:
     """SimRP2040's plant over a napl World: joint goals are `goal_position` on the pan / tilt servo devices with goal_speed 0 (the twin's planner is the
     profile), FIRE pulses `fire` on the launcher. estop_open / key_on are the GPIO inputs the harness (or a scenario fault) sets."""
 
-    def __init__(self, world, p_gain=1500):
+    def __init__(self, world, p_gain=10000):
         self.w, self.estop_open, self.key_on = world, False, True
         self._goal = None
         for s in (world.pan, world.tilt):
@@ -406,7 +406,11 @@ class Lockstep:
         self.clock = SimClock(w)
         self.plant = NaplPlant(w)
         self.link = LoopbackLink(self.clock)
-        self.twin = SimRP2040(self.plant, self.link)
+        # step_loss off: the placeholder joints are XL430 servos with a position-loop lag at speed, not steppers; with the real stepper part (and its
+        # pull-in torque curve) the spec's lost-steps model (4 full steps) applies and is the default of SimRP2040
+        self.twin = SimRP2040(
+            self.plant, self.link, step_loss=False, status_from_joint=True
+        )
         self.geom = measure_geometry(w, self.plant)
         self.twin.step(w.t)
         self.camera = SimCamera(self.clock, self._truth)
@@ -414,6 +418,10 @@ class Lockstep:
         self.detector = TruthDetector(self.clock, seed=seed, **(detector_kw or {}))
         self.gimbal = SerialGimbal(self.link, self.clock, session=0x5EED0000 + seed)
         cfg = app_cfg or AppCfg()
+        if (
+            app_cfg is None
+        ):  # the placeholder XL430 joints lag a 240 deg/s command by several degrees; slow slews keep the lag under ~1 deg
+            cfg.fire.vmax, cfg.fire.amax = (100.0, 70.0), (600.0, 500.0)
         cfg.auto_home = True
         self.app = App(
             self.camera,

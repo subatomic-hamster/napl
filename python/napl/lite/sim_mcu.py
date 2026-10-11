@@ -116,6 +116,7 @@ class Axis:
         self.hall = False
         self.prev_hall = False
         self.cmd_joint = None  # last joint angle written to the plant
+        self.stuck_t = 0.0
 
 
 class SimRP2040:
@@ -128,7 +129,9 @@ class SimRP2040:
         step_loss=True,
         cfg_invalid=False,
         home_off_deg=(-1.0, -1.0),
+        status_from_joint=False,
     ):
+        self.status_from_joint = status_from_joint
         self.plant, self.link, self.uid = plant, link, uid
         self.q_hall, self.step_loss = q_hall, step_loss
         self.cfg = dict(p.CFG_DEFAULTS)
@@ -711,16 +714,20 @@ class SimRP2040:
             dv = amax * SUB
             a.v += max(-dv, min(dv, v_cmd - a.v))
             a.pos += a.v * SUB
-            if (
+            far = (
                 a.homed
                 and a.hall
                 and abs(
                     a.pos
                     - self.cfg[(p.CFG_PAN_HOME_OFF, p.CFG_TILT_HOME_OFF)[i]] / spd
-                    - HALL_HALF_WIDTH_DEG  # the window centre
+                    - HALL_HALF_WIDTH_DEG
                 )
-                > 5.0 + HALL_HALF_WIDTH_DEG
-            ):
+                > 5.0
+            )
+            a.stuck_t = (
+                a.stuck_t + SUB if far else 0.0
+            )  # the window centre; a joint sweeping through the window behind a lagging command is not stuck
+            if a.stuck_t > 0.5:
                 self.fault_bits |= p.FAULT_HALL_STUCK
 
     def _homing(self, i, a, q, vcap):
@@ -789,7 +796,14 @@ class SimRP2040:
               | self.pusher_ext * p.F2_PUSHER_EXT | self.inhibit * p.F2_INHIBIT | bool(self.hb_flags & p.HB_DEADMAN_OK) * p.F2_DEADMAN
               | lim(a0, (p.CFG_PAN_MIN, p.CFG_PAN_MAX)) * p.F2_PAN_LIMIT | lim(a1, (p.CFG_TILT_MIN, p.CFG_TILT_MAX)) * p.F2_TILT_LIMIT)  # fmt: skip
         left = max(0, math.ceil(self.arm_deadline - self.t)) if self.armed_state else 0
-        return Status(self.ms, self.state, f1, f2, round(a0.pos * self.spd(0)), round(a1.pos * self.spd(1)), int(round(self.fw)), 0xFFFF,
+        pos = [a.pos for a in self.ax]
+        if self.status_from_joint:  # twin: report where the (non-stepper) placeholder joint really is, as a perfect encoder would
+            q = self.plant.joint_deg()
+            pos = [
+                a.sign * (q[i] - a.offset) if a.homed else a.pos
+                for i, a in enumerate(self.ax)
+            ]
+        return Status(self.ms, self.state, f1, f2, round(pos[0] * self.spd(0)), round(pos[1] * self.spd(1)), int(round(self.fw)), 0xFFFF,
                       self.shots_total & 0xFFFF, self.shots_arm, self.shot_cap if self.armed_state else 0, self.fault_bits, min(left, 0xFFFF),
                       self.last_fire_id & 0xFFFF)  # fmt: skip
 
