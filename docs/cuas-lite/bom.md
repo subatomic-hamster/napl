@@ -23,7 +23,7 @@ Excluded from the totals (user's rule): the Jetson Orin Nano, the Logitech Brio,
 | 15 | E-stop, red mushroom 22 mm, 1NO-1NC (NC used) | 1 | 5.90 | 5.90 | [Maplin Pro](https://pro.maplin.co.uk/products/red-mushroom-22mm-emergency-stop-switch-no-nc), GBP 4.44, 128 in stock (VAT status not stated) | derived |
 | 16 | Key switch E-Switch KO106A102 (SPST, 1 A) | 1 | 3.94 | 3.94 | [Digi-Key](https://www.digikey.com/en/products/detail/e-switch/KO106A102/EG2625-ND/502089) | datasheet |
 | 17 | Songle SRD-12VDC-SL-C relay (weapon rail) | 1 | 0.44 | 0.44 | [LCSC C30431](https://www.lcsc.com/product-detail/C30431.html), $0.4421 | datasheet |
-| 18 | Inline ATC fuse holder 12 AWG + 5 A fuse | 1 | 4.00 | 4.00 | holder $3.00 on an unreadable Amazon page, fuse $1.00 allowance | estimated |
+| 18 | Inline ATC fuse holder 12 AWG + 10 A blade fuse | 1 | 4.00 | 4.00 | holder $3.00 on an unreadable Amazon page, fuse $1.00 allowance | estimated |
 | 19 | XT60 pair (inlet) | 1 | 2.00 | 2.00 | KiwiQuads 3.49 NZD | derived |
 | 20 | (12 V brick: moved to "Optional", not in the total) | | | | | |
 | 21 | LM2596 buck module (5 V weapon rail) | 1 | 1.90 | 1.90 | [ebuildelectronics](https://ebuildelectronics.odoo.com/shop/dc-dc-buck-converter-lm2596-adjustable-69), 109 PHP | derived |
