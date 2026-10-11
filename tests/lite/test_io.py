@@ -204,7 +204,7 @@ def test_hil_smoke_over_a_real_pty(tmp_path):
 
     mcu = PtyMcu()
     plant = KinematicPlant()
-    twin = SimRP2040(plant, mcu)
+    twin = SimRP2040(plant, mcu, home_off_deg=(-1.0, -1.0))
     stop = threading.Event()
 
     def twin_loop():
