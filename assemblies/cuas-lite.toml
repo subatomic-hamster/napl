@@ -10,6 +10,9 @@
 # ELECTRICAL (spec 6.x, firmware pins.h): XT60 inlet -> 5 A fuse -> 12 V bus (Jetson barrel, two TMC2209 VM, key, relay contact). WEAPON RAIL: key (COM-NO) -> E-stop NC -> 12 V relay coil (30 mA): the
 # key (1 A rated) and E-stop carry only the coil current; the relay's NO contact feeds the LM2596 (5 V) which feeds both flywheel motors (MOSFET low side, flyback diode) and the pusher servo. Open key, pressed
 # E-stop or a broken wire de-energises the coil and cuts the weapon rail whatever the Pico does. The Pico (USB from the Jetson, 5 V from the header) reads the key / E-stop nodes through 33k/10k dividers.
+# CABLE LOOP: the flex loop that carries the pan-group leads (tilt motor, tilt hall, Brio USB, flywheel / servo leads) through the turntable opening is sized for +-178 deg pan, not the +-170 deg software range:
+# the pan hard stop (printed rotor tab + one M3 stud in the stator, CAD 8fa7ecc) engages at +-177.9 deg and the homing search can drive to it. The joint range here (+-170 deg) is the software limit.
+# WAIVED CLASHES: four `waived--*` closure mates (below, before the wiring) record known envelope clashes between the CAD and bought-part envelopes (see docs/cuas-lite/bom.md, CAD mismatches).
 # NOT WIRED (no library part yet, no kernel effect): status LEDs and buzzer (GP15-17), TMC DIAG (GP22: the BTT module's header has no DIAG pin), tach (GP13, unused by the firmware), the Jetson's
 # own USB-A / network / DisplayPort, the belts (closed GT2 loops) and the cable clips / camera shims of the CAD.
 
