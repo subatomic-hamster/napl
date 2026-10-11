@@ -3,7 +3,9 @@ controller, the GNSS + IMU estimator on synthetic data, the lidar scan conventio
 clean, build, load), and the five scenarios through `napl program` (monitors pass, the replay log reproduces the state hash)."""
 
 import math
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
