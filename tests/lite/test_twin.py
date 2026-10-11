@@ -334,7 +334,9 @@ def test_lost_steps_clear_homed_and_fault():
     r = Rig().up()
     r.plant.tau = 1e9  # the joint stops following the commanded position ...
     r.plant.q[0] += 5.0  # ... and is 5 deg off while the step count says otherwise
-    r.run(0.05)
+    r.run(
+        0.1
+    )  # the twin faults at once; the firmware (spec 2.2) after DIAG has been high for 50 ms
     assert (
         not r.twin.ax[0].homed
         and r.twin.fault_bits & p.FAULT_DRIVER_DIAG

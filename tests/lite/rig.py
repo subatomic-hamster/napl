@@ -1,5 +1,6 @@
 """Test rig: SimRP2040 + KinematicPlant + LoopbackLink + SerialGimbal on a ManualClock (no kernel, no sleeping)."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -13,12 +14,21 @@ from napl.lite.sim_mcu import KinematicPlant, LoopbackLink, SimRP2040
 DT = 0.005
 
 
+def make_mcu(plant, link, **kw):
+    """SimRP2040, or the firmware's C core (fwmcu.FwMcu) when `pytest --fw-core=PATH` / NAPL_FW_CORE selects it."""
+    if os.environ.get("NAPL_FW_CORE"):
+        from fwmcu import FwMcu
+
+        return FwMcu(plant, link, **kw)
+    return SimRP2040(plant, link, **kw)
+
+
 class Rig:
     def __init__(self, **twin_kw):
         self.clock = ManualClock()
         self.plant = KinematicPlant()
         self.link = LoopbackLink(self.clock)
-        self.twin = SimRP2040(self.plant, self.link, **twin_kw)
+        self.twin = make_mcu(self.plant, self.link, **twin_kw)
         self.gim = SerialGimbal(self.link, self.clock, session=7)
         self.deadman, self.inhibit, self.hb = True, False, True
         self.fw = 0.0
