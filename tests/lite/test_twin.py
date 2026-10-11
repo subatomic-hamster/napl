@@ -148,6 +148,35 @@ def fire_ok(r):
     return ack.result
 
 
+def test_stroke_aborts_when_the_barrel_leaves_the_sector_before_the_feed():
+    """FIRE is accepted with the head at pan 0 inside a +-2 deg fire sector; an AIM then slews it out while the pusher extends (120 ms): the firmware
+    retracts, reports EVENT SECTOR_ABORT, goes to ARMED and feeds no ball."""
+    r = Rig().up()
+    r.gim.set_cfg(p.CFG_FIRE_PAN_MIN, -2000)
+    r.gim.set_cfg(p.CFG_FIRE_PAN_MAX, 2000)
+    r.run(0.05)
+    r.engage()
+    r.gim.aim(30.0, 5.0)
+    fid, ack = r.fire()  # the FIRE frame goes out right behind the AIM
+    assert ack.result == p.OK
+    r.run(0.5)
+    assert r.twin.shots == [] and r.plant.fire_pulses == []
+    assert any(e.code == p.EV_SECTOR_ABORT for _, e in r.gim.events)
+    tr = [s for _, s, _ in r.twin.transitions]
+    assert tr[tr.index(p.FIRING) + 1] == p.ARMED and not r.st.flag2(
+        p.F2_PUSHER_EXT
+    )  # (the rig's flywheel refresh then takes it back to ENGAGING)
+
+
+def test_burst_feeds_n_balls_in_one_fire_while_the_gates_hold():
+    r = Rig().up().engage()
+    fid, ack = r.fire(n=3)
+    r.run(1.6)
+    assert ack.result == p.OK
+    assert [(f, i) for _, f, i in r.twin.shots] == [(fid, 0), (fid, 1), (fid, 2)]
+    assert r.st.state == p.ENGAGING
+
+
 @pytest.mark.parametrize(
     "name",
     [
@@ -156,6 +185,8 @@ def fire_ok(r):
         "deadman",
         "not_spun",
         "tilt_below_min",
+        "pan_outside_sector",
+        "tilt_above_sector",
         "bad_n",
         "not_homed",
         "estop",
@@ -176,6 +207,16 @@ def test_fire_refused_under_each_violated_precondition(name):
     elif name == "tilt_below_min":
         r.gim.aim(0, -5.0)
         r.run(1.5)
+        r.engage()
+        assert fire_ok(r) == p.RANGE
+    elif name in ("pan_outside_sector", "tilt_above_sector"):
+        key, val = (
+            (p.CFG_FIRE_PAN_MIN, 10000)
+            if name[0] == "p"
+            else (p.CFG_FIRE_TILT_MAX, 3000)
+        )
+        r.gim.set_cfg(key, val)  # the head is at pan 0 / tilt 5: outside the sector now
+        r.run(0.05)
         r.engage()
         assert fire_ok(r) == p.RANGE
     elif name == "not_homed":

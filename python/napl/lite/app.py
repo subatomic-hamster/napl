@@ -57,6 +57,7 @@ class App:
         self.last_aim = None
         self.fw_sent = 0.0
         self.cfg_requested = False
+        self.t_sector = -math.inf
         self.home_sent = -math.inf
         self.estop_ui = False
         self.last_refusal = None
@@ -77,10 +78,21 @@ class App:
     def _do(self, now, cmd, kw):
         fc, g = self.fc, self.gim
         if cmd == "arm":
-            if self.failed or not self.cfg.calib_ok or not g.link_ok:
+            if (
+                self.failed
+                or not self.cfg.calib_ok
+                or not g.link_ok
+                or not self.sector_synced()
+            ):
                 self.last_refusal = "arm refused: " + (
                     self.failed
-                    or ("no calibration" if not self.cfg.calib_ok else "no link")
+                    or (
+                        "no calibration"
+                        if not self.cfg.calib_ok
+                        else "no link"
+                        if not g.link_ok
+                        else "fire sector not set on the MCU"
+                    )
                 )
                 return self._note(now, self.last_refusal)
             self.estop_ui = False
@@ -105,6 +117,44 @@ class App:
             self.tracker.set_range(kw["id"], kw.get("metres"))
         elif cmd == "deadman":
             self.deadman_t = now
+
+    def _sector_cfg(self):
+        """The MCU's fire-sector config (spec 2.2, keys 17 and 20-22, mdeg) for the app's sector, or None without one."""
+        s = self.fc.sector
+        if s is None:
+            return None
+        return {
+            p.CFG_FIRE_PAN_MIN: round(s.az_min * 1000),
+            p.CFG_FIRE_PAN_MAX: round(s.az_max * 1000),
+            p.CFG_FIRE_TILT_MIN: round(s.el_min * 1000),
+            p.CFG_FIRE_TILT_MAX: round(s.el_max * 1000),
+        }
+
+    def sector_synced(self):
+        """The MCU reports (CFG_VAL) exactly the app's sector: the second, independent layer of the geofence (the MCU refuses FIRE outside it and
+        aborts a pusher stroke that leaves it). ARM needs it."""
+        want = self._sector_cfg()
+        return want is not None and all(
+            self.gim.cfg.get(k) == v for k, v in want.items()
+        )
+
+    def _sync_sector(self, now):
+        """In SAFE / IDLE (the only states that accept CFG_SET): write the sector to the MCU and read it back; retried every 0.5 s until it matches."""
+        g, want = self.gim, self._sector_cfg()
+        if (
+            want is None
+            or not g.link_ok
+            or self.mismatch
+            or g.status.state not in (p.SAFE, p.IDLE)
+            or self.sector_synced()
+            or now - self.t_sector < 0.5
+        ):
+            return
+        self.t_sector = now
+        for k, v in want.items():
+            if g.cfg.get(k) != v:
+                g.set_cfg(k, v)
+            g._send(p.CfgGet(k))
 
     def _disarm(self):
         self.gim.disarm()
@@ -158,6 +208,7 @@ class App:
             f = self.inflight.pop(res.seq, None)
             if f is not None:
                 new_dec = self._perceive(now, f, res)
+        self._sync_sector(now)
         # home on request (auto) once the MCU is IDLE
         st = g.status
         if (
@@ -187,6 +238,11 @@ class App:
             if ev.code == p.EV_SHOT:
                 fc.on_shot(now)
                 self._note(now, f"shot {fc.shots}/{fc.cfg.shot_cap}")
+            elif ev.code == p.EV_SECTOR_ABORT:
+                fc.on_sector_abort()
+                self._note(
+                    now, f"MCU aborted a ball: barrel left the sector ({ev.arg})"
+                )
             elif ev.code == p.EV_STATE_CHANGE:
                 self._note(
                     now, f"MCU -> {p.STATE_NAMES[ev.arg & 0xFF]} (reason {ev.arg >> 8})"
@@ -232,8 +288,9 @@ class App:
 
     def _inhibit(self, now):
         fc = self.fc
-        live = fc.pending is not None and now - fc.pending[0] < fc.cfg.pending_timeout_s
-        return bool(fc.hard_veto(self._view(now))) or not live
+        return (
+            bool(fc.hard_veto(self._view(now))) or not fc.pending_live(now) or fc.cancel
+        )
 
     def _decide(self, now):
         g, fc = self.gim, self.fc
@@ -261,12 +318,15 @@ class App:
             g.flywheel(d.flywheel)
             self.fw_sent, self.t_fw = d.flywheel, now
         if d.fire:
-            fc.fire_sent(now)  # clears the inhibit for the in-flight shot ...
+            fc.fire_sent(now, d.fire)  # clears the inhibit for the in-flight shot ...
             g.heartbeat(
                 True, False
             )  # ... and the MCU gets that flag immediately before the FIRE (ordered link)
             self.t_hb = now
             g.fire(d.fire)
+        elif fc.cancel:  # a gate failed with a burst in flight: FIRE_INHIBIT now, not at the next heartbeat
+            g.heartbeat(self._deadman_ok(now), True)
+            self.t_hb = now
 
     # ---- state for the UI ----------------------------------------------------------------------------------------------------------------
     def snapshot(self):

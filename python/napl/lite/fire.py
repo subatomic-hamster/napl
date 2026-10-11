@@ -106,7 +106,13 @@ class FireCfg:
     auth_valid_s: float = 10.0
     auth_rounds: int = 3
     spin_down_s: float = 2.0
-    pending_timeout_s: float = 0.8
+    pending_timeout_s: float = (
+        0.8  # for one ball; + burst_ball_s for each further ball of a burst
+    )
+    burst_ball_s: float = 0.5
+    fence_margin_deg: float = (
+        0.5  # geofence margin added to the braking distance (see FireControl.fence)
+    )
     k_v: float = 1.0
     t_actuator: float = aimlib.T_ACTUATOR
     t_fire: float = aimlib.T_FIRE
@@ -165,7 +171,10 @@ class FireControl:
         self.given_up = {}  # track id -> until
         self.shots_at = {}
         self.target_id = None
-        self.pending = None  # (t_sent, target_id)
+        self.pending = None  # (t_sent, target_id, balls still to be fed): the FIRE in flight, cleared by the last EV_SHOT
+        self.cancel = False  # a safety gate failed while a FIRE is in flight: FIRE_INHIBIT goes out at once and the MCU stops the burst
+        self._prev = None  # (t, pan, tilt) of the previous decision, for the slew rate
+        self.rate = (0.0, 0.0)  # deg/s, measured from STATUS
         self.last_refusal = None
         self.last_solution = None  # (t, id, pan, tilt)
         self.vff = (0.0, 0.0)
@@ -199,7 +208,12 @@ class FireControl:
         self.last_shot_t = now
         if self.pending:
             tid = self.pending[1]
-            self.pending = None
+            left = (
+                self.pending[2] - 1
+            )  # a burst keeps the FIRE in flight (no FIRE_INHIBIT) until its last ball is fed
+            self.pending = (
+                (self.pending[0], tid, left, self.pending[3]) if left > 0 else None
+            )
             self.shots_at[tid] = self.shots_at.get(tid, 0) + 1
             if tid in self.auth:
                 self.auth[tid][1] -= 1
@@ -212,8 +226,48 @@ class FireControl:
         if ack.result != p.OK:
             self.pending, self.last_refusal = None, p.RESULT_NAMES[ack.result]
 
-    def fire_sent(self, now):
-        self.pending = (now, self.target_id)
+    def fire_sent(self, now, n=None):
+        n = self.cfg.burst if n is None else n
+        c = self.cfg
+        self.pending = (
+            now,
+            self.target_id,
+            n,
+            now + c.pending_timeout_s + (n - 1) * c.burst_ball_s,
+        )
+        self.cancel = False
+
+    def on_sector_abort(self):
+        """EVENT 9 from the MCU: the stroke was aborted (the barrel left the fire sector); nothing more is in flight."""
+        self.pending = None
+
+    def pending_live(self, now):
+        if self.pending is None:
+            return False
+        return now < self.pending[3]
+
+    def fence(self, aim, v: View):
+        """Clamp the AIM target to the sector shrunk by the braking distance v^2 / (2 amax) at the current slew rate plus `fence_margin_deg`, so that
+        the head never slews out of the geofence between the FIRE decision and the ball being fed. A clamped axis gets no feed-forward. Only while
+        armed (the operator may aim anywhere in IDLE). -> aim tuple"""
+        if not self.armed or self.sector is None or aim is None:
+            return aim
+        s, c = self.sector, self.cfg
+        out = list(aim)
+        for i, (lo, hi) in enumerate(((s.az_min, s.az_max), (s.el_min, s.el_max))):
+            rate = min(
+                self.rate[i] + c.amax[i] * 0.005, c.vmax[i]
+            )  # + one 5 ms control period of acceleration
+            m = rate * rate / (2.0 * c.amax[i]) + c.fence_margin_deg
+            a, b = lo + m, hi - m
+            if a > b:
+                a = b = 0.5 * (lo + hi)
+            tgt = min(max(aim[i], a), b)
+            vff = aim[2 + i]
+            if tgt != aim[i] or (vff > 0 and tgt > b - m) or (vff < 0 and tgt < a + m):
+                vff = 0.0  # at the fence: the planner stops on the target, no feed-forward rides it out
+            out[i], out[2 + i] = tgt, vff
+        return tuple(out)
 
     # ---- gates -------------------------------------------------------------------------------------------------------------------------
     def hard_veto(self, v: View):
@@ -276,8 +330,30 @@ class FireControl:
 
     # ---- one decision ------------------------------------------------------------------------------------------------------------------
     def step(self, now, v: View) -> Decision:
+        """One decision. Wraps `_step` with the two layers that must hold on their own: the AIM target is clamped to the (shrunk) geofence, and the slew
+        rate for that margin is measured from the STATUS positions."""
+        if self._prev is not None and v.now > self._prev[0]:
+            dt = v.now - self._prev[0]
+            m = (abs(v.pan - self._prev[1]) / dt, abs(v.tilt - self._prev[2]) / dt)
+            self.rate = tuple(
+                max(a, 0.5 * b) for a, b in zip(m, self.rate)
+            )  # fast attack, decays by half per decision
+        self._prev = (v.now, v.pan, v.tilt)
+        d = self._step(now, v)
+        d.aim = self.fence(d.aim, v)
+        return d
+
+    def _step(self, now, v: View) -> Decision:
         c, st = self.cfg, v.status
         d = Decision()
+        if (
+            self.pending
+            and st is not None
+            and st.state != p.FIRING
+            and now - self.pending[0] > 0.1
+        ):
+            self.pending = None  # the MCU is not firing (burst aborted or finished without an EVENT we saw): nothing in flight
+            self.cancel = False
         d.stage = (
             "SAFE"
             if (not v.link_ok or st is None or st.state in (p.SAFE, p.FAULT))
@@ -300,11 +376,11 @@ class FireControl:
             self.disarm()  # the MCU left the armed states (cap, timeout, disarm, watchdog): "re-arm" is the operator's call
             veto.append("mcu_not_armed")
         d.reasons = list(veto)
-        pending_live = (
-            self.pending is not None and now - self.pending[0] < c.pending_timeout_s
-        )
+        pending_live = self.pending_live(now)
         if self.pending is not None and not pending_live:
             self.pending = None
+        if self.pending is None:
+            self.cancel = False
         hold = self.last_aim
         if veto and not (set(veto) <= {"cap"} and pending_live):
             d.aim = (hold[0], hold[1], 0.0, 0.0)
@@ -359,7 +435,8 @@ class FireControl:
         ):
             d.reasons.append("barrel_outside_sector")
             d.aim = (hold[0], hold[1], 0.0, 0.0)
-            d.inhibit = not pending_live
+            d.inhibit = True
+            self.cancel |= pending_live  # a burst in flight stops at the next ball
             return d
         # feed-forward from the last two solutions
         pt = self.last_solution
@@ -379,6 +456,7 @@ class FireControl:
             d.flywheel = 0.0
             self.fw_on = False
             d.inhibit = True
+            self.cancel |= pending_live
             return d
         if not self.fw_on:
             self.fw_started_t = now

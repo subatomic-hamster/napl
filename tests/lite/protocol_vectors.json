@@ -62,6 +62,9 @@
   {"name": "cfg_val", "dir": "mcu_to_host", "id": 132, "seq": 5, "fields": {"key": 3, "value": -170000}, "payload_hex": "03f067fdff", "frame_hex": "0a840503f067fdfff9cc00"},
   {"name": "event_shot", "dir": "mcu_to_host", "id": 133, "seq": 6, "fields": {"code": 2, "arg": 65538}, "payload_hex": "0202000100", "frame_hex": "0585060202020103ab3400"},
   {"name": "event_state", "dir": "mcu_to_host", "id": 133, "seq": 7, "fields": {"code": 1, "arg": 512}, "payload_hex": "0100020000", "frame_hex": "0485070102020103e02f00"},
+  {"name": "cfg_set_fire_pan_min", "dir": "host_to_mcu", "id": 8, "seq": 14, "fields": {"key": 20, "value": -60000}, "payload_hex": "14a015ffff", "frame_hex": "0a080e14a015ffff763000"},
+  {"name": "cfg_val_fire_tilt_max", "dir": "mcu_to_host", "id": 132, "seq": 15, "fields": {"key": 22, "value": 60000}, "payload_hex": "1660ea0000", "frame_hex": "06840f1660ea01030fa900"},
+  {"name": "event_sector_abort", "dir": "mcu_to_host", "id": 133, "seq": 16, "fields": {"code": 9, "arg": 1192962}, "payload_hex": "0902341200", "frame_hex": "0785100902341202740100"},
   {"name": "debug", "dir": "mcu_to_host", "id": 134, "seq": 8, "fields": {"text": "hello from the pico"}, "payload_hex": "68656c6c6f2066726f6d20746865207069636f", "frame_hex": "18860868656c6c6f2066726f6d20746865207069636f288500"}
  ],
  "bad_frames_hex": {"bad_crc": "020102010704030201af5600", "bad_cobs": "05112200", "too_short": "0302010100"},

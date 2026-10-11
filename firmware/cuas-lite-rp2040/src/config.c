@@ -1,9 +1,9 @@
-/* Config store: defaults (spec section 2.2) and the flash image (last sector): magic "CLC1", version, 19 x i32 LE, CRC-32 of the first 84 bytes.
+/* Config store: defaults (spec section 2.2) and the flash image (last sector): magic "CLC1", version, 22 x i32 LE, CRC-32 of the first 96 bytes.
  * SPDX-License-Identifier: BSD-3-Clause */
 #include "fw_core.h"
 
 #define MAGIC 0x31434C43u /* "CLC1" little-endian */
-#define IMG_VERSION 1u
+#define IMG_VERSION 2u  /* 2: fire sector keys 20-22 (an image of version 1 is refused: cfg_invalid, defaults) */
 
 static void put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
 static uint32_t get32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
@@ -12,6 +12,7 @@ void fw_cfg_defaults(int32_t c[CFG_COUNT]) {
     static const int32_t d[CFG_COUNT] = {
         0, 16000, 12800, -170000, 170000, -15000, 70000, 0, 0, 0,
         10, 120, 1900, 1100, 120, 300, 700, 0, 300, 200,
+        -170000, 170000, 70000,
     };
     for (int i = 0; i < CFG_COUNT; i++) c[i] = d[i];
 }

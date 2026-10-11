@@ -144,7 +144,25 @@ def gate_not_homed(r):
     return p.NOT_HOMED
 
 
+def gate_sector(key, value):
+    def setup(
+        r,
+    ):  # the head sits at pan 0 / tilt 5 after up(); move the fire sector so that it is outside
+        r.up()
+        r.gim.set_cfg(key, value)
+        r.run(0.05)
+        r.arm()
+        r.fw = 0.8
+        r.run(1.2)
+        assert r.st.state == p.ENGAGING
+        return p.RANGE
+
+    return setup
+
+
 GATES = {
+    "pan_outside_sector": (gate_sector(p.CFG_FIRE_PAN_MIN, 10000), 1),
+    "tilt_above_sector": (gate_sector(p.CFG_FIRE_TILT_MAX, 3000), 1),
     "not_armed": (gate_not_armed, 1),
     "armed_no_flywheel": (gate_armed_no_flywheel, 1),
     "not_spun": (gate_not_spun, 1),
