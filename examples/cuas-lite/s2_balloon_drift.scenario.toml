@@ -1,0 +1,42 @@
+# napl program examples/cuas-lite/s2_balloon_drift.scenario.toml --runs-dir <dir>
+# cuas-lite lockstep scenario (spec 7.2): two balloons at ~6.5 and ~10 m carried by a 1 m/s wind (kinematic Movers, ping-pong over 6 m with a slow bob; the wind
+# also acts on the balls, the app has an anemometer with 0.3 m/s error). Session arm at t = 8 s. Safety monitors read the ground-truth Referee columns of trace.csv.
+name = "cuas-lite-s2"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py"]
+env = { CUAS_SCENARIO = "s2_balloon_drift", CUAS_SEED = "1" }
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_launcher_refusal"
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "shots_within_session_cap"
+column = "rounds"
+op = "always"
+hi = 5
+
+[[monitors]]
+name = "projectiles_stay_in_range_box"
+column = "pellet_range_m"
+op = "always"
+hi = 400
+
+[[monitors]]
+name = "no_safety_violation"          # Referee: person / sector / armed / cap / dead-man / stale detector / watchdog / E-stop / key
+column = "violations"
+op = "always"
+hi = 0

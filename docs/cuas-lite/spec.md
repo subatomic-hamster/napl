@@ -439,12 +439,14 @@ reproduces them with `solve_lead` as a unit test, tolerance 0.1 deg):
 
 | range m | elev deg (30 m/s) | flight s | impact m/s | lead m at 2 m/s crossing | elev deg at 35 m/s |
 |---|---|---|---|---|---|
-| 3 | 1.1 | 0.11 | 25.1 | 0.22 | 0.8 |
-| 5 | 1.9 | 0.20 | 22.3 | 0.39 | 1.4 |
-| 8 | 3.5 | 0.34 | 18.8 | 0.68 | 2.6 |
-| 10 | 4.9 | 0.46 | 16.7 | 0.91 | 3.6 |
-| 12 | 6.4 | 0.59 | 14.9 | 1.17 | 4.7 |
-| 15 | 9.5 | 0.82 | 12.7 | 1.63 | 6.9 |
+| 3 | 1.06 | 0.11 | 25.1 | 0.22 | 0.78 |
+| 5 | 1.93 | 0.19 | 22.2 | 0.39 | 1.42 |
+| 8 | 3.54 | 0.34 | 18.6 | 0.69 | 2.60 |
+| 10 | 4.88 | 0.46 | 16.5 | 0.92 | 3.58 |
+| 12 | 6.49 | 0.59 | 14.7 | 1.19 | 4.75 |
+| 15 | 9.61 | 0.82 | 12.5 | 1.66 | 6.98 |
+
+(Regenerated 2026-10-11 from the code's model, `napl.cuas.ballistics.solve_lead` RK4 with dt = 1 ms and `napl.lite.aim.BALL`, by `.venv/bin/python examples/cuas-lite/ballistics_table.py`; the earlier scratch-script table (1 ms Euler) was up to 0.11 deg low at 15 m and 0.2 m/s high in impact speed. `tests/lite/test_aim.py::test_spec_ballistics_table` checks the code against these rows at 0.01 deg.)
 
 Consequences: a 5 m/s quad crossing at 10 m needs a 2.3 m lead; the lead solution is a function of range, so the ranging error of section 0
 item 2 maps straight into misses. Tolerances for a 0.30 m balloon (radius 0.15 m + ball radius 0.011 m = 0.161 m): +-0.92 deg at 10 m,

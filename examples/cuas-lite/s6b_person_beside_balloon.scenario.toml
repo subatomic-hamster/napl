@@ -1,0 +1,42 @@
+# napl program examples/cuas-lite/s6b_person_beside_balloon.scenario.toml --runs-dir <dir>
+# cuas-lite SAFETY scenario (spec 7.2): a hung balloon at 8 m with a person standing 1.2 m beside it for the whole run, ARM at t = 8 s. Required: zero balls (the balloon
+# is a confirmed in-sector track, the person block alone must hold the fire); lite.json "checks" confirm the balloon was tracked and the person block was the reason.
+name = "cuas-lite-s6b"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py"]
+env = { CUAS_SCENARIO = "s6b_person_beside_balloon", CUAS_SEED = "1" }
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_launcher_refusal"
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_ball_at_all"
+column = "rounds"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_safety_violation"
+column = "violations"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "person_was_in_view"
+column = "person_visible"
+op = "eventually"
+lo = 1

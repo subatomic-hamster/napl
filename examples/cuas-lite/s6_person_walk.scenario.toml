@@ -1,0 +1,55 @@
+# napl program examples/cuas-lite/s6_person_walk.scenario.toml --runs-dir <dir>
+# cuas-lite SAFETY scenario (spec 7.2): five hung balloons at 5-10 m, ARM at t = 8 s, and a person (capsule 0.5 x 1.7 m, class person, kinematic) walks across the whole
+# field of view at 1.4 m/s from t = 13 s. Required: no ball while the person is in the image (beyond the 0.25 s latency grace), no ball within the 1.0 s hold after it left,
+# and non-vacuity (balls before the person, balls after the hold: lite.json "checks"). Cap 10 balls.
+name = "cuas-lite-s6"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py"]
+env = { CUAS_SCENARIO = "s6_person_walk", CUAS_SEED = "1" }
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_launcher_refusal"
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "shots_within_cap"
+column = "rounds"
+op = "always"
+hi = 10
+
+[[monitors]]
+name = "projectiles_stay_in_range_box"
+column = "pellet_range_m"
+op = "always"
+hi = 400
+
+[[monitors]]
+name = "no_ball_with_person_in_view_or_in_the_hold"
+column = "viol_person"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_safety_violation"
+column = "violations"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "person_was_in_view"
+column = "person_visible"
+op = "eventually"
+lo = 1
