@@ -7,7 +7,7 @@
 # to move a part, change the one `[[mates]]` line, or the seat port in the group root's part file).
 #
 # Pan group = parts in frame B above the stator; HOPPER, HOPPER LID and FEED ELBOW are in it (CAD 987985b: the hopper no longer tilts, balls enter the head through the hollow right trunnion).
-# ELECTRICAL (spec 6.x, firmware pins.h): XT60 inlet -> 5 A fuse -> 12 V bus (Jetson barrel, two TMC2209 VM, key, relay contact). WEAPON RAIL: key (COM-NO) -> E-stop NC -> 12 V relay coil (30 mA): the
+# ELECTRICAL (spec 6.x, firmware pins.h): XT60 inlet -> 10 A fuse -> 12 V bus (Jetson barrel, two TMC2209 VM, key, relay contact). WEAPON RAIL: key (COM-NO) -> E-stop NC -> 12 V relay coil (30 mA): the
 # key (1 A rated) and E-stop carry only the coil current; the relay's NO contact feeds the LM2596 (5 V) which feeds both flywheel motors (MOSFET low side, flyback diode) and the pusher servo. Open key, pressed
 # E-stop or a broken wire de-energises the coil and cuts the weapon rail whatever the Pico does. The Pico (USB from the Jetson, 5 V from the header) reads the key / E-stop nodes through 33k/10k dividers.
 # CABLE LOOP: the flex loop that carries the pan-group leads (tilt motor, tilt hall, Brio USB, flywheel / servo leads) through the turntable opening is sized for +-178 deg pan, not the +-170 deg software range:
