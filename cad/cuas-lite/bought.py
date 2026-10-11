@@ -62,17 +62,12 @@ def head_items():
             shape=K.L2H(Pos(K.MUZZLE_X - bd / 2, 0, zc) * Box(bd, bw, bh)),
         )
     )
-    for s, name in ((1, "rod_left"), (-1, "rod_right")):
-        y0, y1 = (YO_ROD, K.Y_P0) if s > 0 else (-YO_ROD, -(K.Y_C1 + 4.0))
-        y0, y1 = min(y0, y1), max(y0, y1)
-        items.append(
-            dict(name=name, mass=0.39 * (y1 - y0), shape=_cyl_y(8.0, y0, y1, 0, 0))
-        )
-    rn, Hs, v_ball, v_cone = K._hopper_dims()
+    y0, y1 = (
+        YO_ROD,
+        K.Y_P0,
+    )  # left rod only: the right trunnion is the hollow beam tube in a 6807 bearing
     items.append(
-        dict(
-            name="balls_full", mass=P.HOPPER_BALLS * P.BALL_M, shape=None, optional=True
-        )
+        dict(name="rod_left", mass=0.39 * (y1 - y0), shape=_cyl_y(8.0, y0, y1, 0, 0))
     )
     return items
 
@@ -80,11 +75,11 @@ def head_items():
 YO_ROD = K.YO - 11.0
 
 
-def balls_cg_L():
-    """Centroid (L) of the ball load in the hopper (cone + cylinder, packing 0.6), by slicing."""
+def balls_cg_B():
+    """Centroid (B, pan group) of the ball load in the hopper (cone + cylinder, packing 0.6), by slicing."""
     h = K.HOPPER
     rn, Hs, _, _ = K._hopper_dims()
-    z0 = P.CHASSIS_Z1 + h["Hn"]
+    z0 = K.elbow_dims()[2] + h["Hn"]
     num = den = 0.0
     n = 400
     for i in range(n):
@@ -99,7 +94,7 @@ def balls_cg_L():
         v = math.pi * h["R_top"] ** 2 * Hs / n
         num += v * z
         den += v
-    return (P.X_F, 0.0, num / den)
+    return (0.0, -P.ELBOW_YH, num / den)
 
 
 def pan_items():
@@ -134,9 +129,9 @@ def pan_items():
         ),
         dict(
             name="bearing_right",
-            mass=P.B608_MASS,
-            shape=_cyl_y(P.B608_OD, -K.Y_C1, -(K.Y_C1 - P.B608_W), 0, ha)
-            - _cyl_y(8.2, -K.Y_C1 - 1, -(K.Y_C1 - P.B608_W) + 1, 0, ha),
+            mass=P.B6807_MASS,
+            shape=_cyl_y(P.B6807_OD, -K.Y_C1, -(K.Y_C1 - P.B6807_W), 0, ha)
+            - _cyl_y(P.B6807_ID, -K.Y_C1 - 1, -(K.Y_C1 - P.B6807_W) + 1, 0, ha),
         ),
     ]
     return items
