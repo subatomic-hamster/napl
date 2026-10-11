@@ -210,9 +210,9 @@ always the rising edge met moving positive and the zero is the same wherever the
 4. **APPROACH** at `homing_speed` (positive); on the hall rising edge the position is set to `home_off` (cfg 7, 8) and the axis **BACKs OFF** 3 deg, then `HOMED`.
 
 Worst case at the defaults (pan, start at the +170 deg soft limit): 1.8 s + 3.5 s + about 0.7 s = about 6 s, inside the 15 s `homing_timeout` (tilt about 2 s). Note for the
-mechanics: SEEK_POS moves up to 180 deg (pan) / 25 deg (tilt) *positive* from an unknown start, which can pass the positive soft limit. Printed pan hard stops at +-178 deg
-catch it (the stepper skips harmlessly at the stop at 100 deg/s / 1.2 A, then SEEK_NEG reverses) and the cable loop is sized for +-178; tilt is caught by
-the -15 deg cradle stop and a soft stop just above +70. The twin (`SimRP2040`) implements the same procedure.
+mechanics: SEEK_POS moves up to 180 deg (pan) / 25 deg (tilt) *positive* from an unknown start, which can pass the positive soft limit. A pan hard stop (printed tab on the rotor at +90 deg, one M3 stud in
+the stator at -90 deg, engages from either side at +-177.9 deg) catches it (the stepper skips harmlessly at the stop at 100 deg/s / 1.2 A, then SEEK_NEG reverses) and the cable loop is sized for +-178; tilt is caught by
+hard stops at -18 / +73 deg (trunnion lug against the yoke_right sector blocks). The twin (`SimRP2040`) implements the same procedure.
 
 **Stepper drivers.** Two TMC2209 on two separate single-wire UARTs at 115200 baud (pan: UART1, GP20 TX / GP21 RX; tilt: UART0, GP0 TX / GP1 RX), each TX through 1 kohm to the
 driver's PDN_UART node. The strap MS1 = MS2 = VIO (16 microsteps) gives *both* drivers UART address 3, so they cannot share a wire; a dead link still runs the axis at 16
