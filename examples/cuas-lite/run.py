@@ -123,7 +123,7 @@ def run_episode(model, run_dir, sp, seed, early_stop=True, write=True):
         ttfs=round(shots[0] - arm_at, 3) if shots else None, t_first_hit=round(first_hit[0] - arm_at, 3) if first_hit else None,
         hits=h.hits, hits_on_targets=hits_on_targets, hit_rate=hits_on_targets / len(shots) if shots else None,
         popped=sorted(h.popped), popped_t={k: round(v, 3) for k, v in h.popped.items()}, n_targets=len(movers),
-        violations=ref.violations, n_violations=ref.n_violations, person_raw=ref.person_raw, person_blocked_ticks=seen["person_blocked"],
+        violations=ref.violations, outside_deg=round(ref.outside_deg, 2), n_violations=ref.n_violations, person_raw=ref.person_raw, person_blocked_ticks=seen["person_blocked"],
         confirmed_ticks=seen["confirmed"], reasons=dict(sorted(why.items(), key=lambda kv: -kv[1])), miss={str(k): v for k, v in sorted(ref.closest.items())}, state_hash=nat["state_hash"], app_failed=h.app.failed, mcu=p.STATE_NAMES[tw.state],
     )  # fmt: skip
     checks = {}

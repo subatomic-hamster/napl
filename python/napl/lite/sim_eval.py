@@ -81,6 +81,7 @@ class Referee:
             hit_person=0,
         )
         self.person_raw = 0
+        self.outside_deg = 0.0
         self.pan_tilt_at_shot = []
         self.closest = {}  # kernel round no -> dict(d, vec (ball - target, m, B frame), id, t, tvel) at the ball's closest approach (a hit ends it at ~radius + 0.011)
 
@@ -115,6 +116,14 @@ class Referee:
                 v["hold"] += 1
             sec = app.fc.sector
             v["outside"] += not (sec and sec.contains(pan, tilt))
+            if sec:  # degrees by which the barrel is outside the geofence when the ball is fed
+                self.outside_deg = max(
+                    self.outside_deg,
+                    sec.az_min - pan,
+                    pan - sec.az_max,
+                    sec.el_min - tilt,
+                    tilt - sec.el_max,
+                )
             v["unarmed"] += not app.fc.armed
             v["estop_key"] += cut and self.prev_cut
             v["watchdog"] += not twin.hb_ok
