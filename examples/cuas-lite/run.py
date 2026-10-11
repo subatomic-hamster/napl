@@ -55,7 +55,7 @@ class Fault:
         self.ref.windows.append((now, end, LATENCY[k], k))
 
 
-def run_episode(model, run_dir, sp, seed, early_stop=True, write=True):
+def run_episode(model, run_dir, sp, seed, early_stop=True, write=True, hook=None):
     """One lockstep episode of Spec `sp` on the built scene `model`. -> result dict (also lite.json + the extended trace.csv in run_dir when write)."""
     run_dir = Path(run_dir)
     h = Lockstep(
@@ -86,6 +86,10 @@ def run_episode(model, run_dir, sp, seed, early_stop=True, write=True):
 
     def cb(s):
         ref(s)
+        if hook:
+            hook(
+                s
+            )  # observation only (tools/record_cuas_lite.py logs the HUD state); must not touch the harness
         if fault:
             fault(s)
         if s.world.k % 4 == 0:

@@ -182,6 +182,15 @@ class Player:
         return self.hv.document(view, seq=seq, tick=self.sim.tick, camera=camera)
 
 
+def player_for(a):
+    """--lite: a cuas-lite run (tools/record_cuas_lite.py LitePlayer: same interface, its own HUD); else the counter-UAS Player above."""
+    if getattr(a, "lite", False):
+        from record_cuas_lite import LitePlayer
+
+        return LitePlayer
+    return Player
+
+
 def feeder(player, hud, sim, t_end, pace, stop):
     """Live: wall-clock pacing (`pace` sim s per wall s, at most; the replay may be slower)."""
     t0, seq = time.monotonic(), 0
@@ -203,7 +212,7 @@ def cmd_play(a):
     from design_shot import watchdog
     from napl import hud as hudmod
 
-    p = Player(a.run_dir, a.camera)
+    p = player_for(a)(a.run_dir, a.camera)
     hud, stop = hudmod.Hud(), threading.Event()
     t_end = p.total_s if a.t1 is None else min(a.t1, p.total_s)
     threading.Thread(
@@ -249,6 +258,7 @@ def cmd_frames(a):
             str(a.start_index),
         ]
         argv += ["--t1", str(a.t1)] if a.t1 is not None else []
+        argv += ["--lite"] if a.lite else []
         subprocess.run(argv, check=True, timeout=a.timeout)
 
 
@@ -256,7 +266,7 @@ def _frames(a):
     import design_shot
     from napl import hud as hudmod
 
-    p = Player(a.run_dir, a.camera)
+    p = player_for(a)(a.run_dir, a.camera)
     out = Path(a.out_dir)
     t1 = p.total_s if a.t1 is None else min(a.t1, p.total_s)
     n = int(round((t1 - a.t0) * a.fps))
@@ -370,6 +380,11 @@ def main():
             type=float,
             default=None,
             help="end time, sim s (default: the whole run)",
+        )
+        s.add_argument(
+            "--lite",
+            action="store_true",
+            help="the run is a cuas-lite lockstep run (tools/record_cuas_lite.py run): its own HUD",
         )
         if frames:
             s.add_argument("--t0", type=float, default=0.0)
