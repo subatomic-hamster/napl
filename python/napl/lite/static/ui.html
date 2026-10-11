@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8"><title>cuas-lite</title>
+<style>
+body{font:14px system-ui;margin:0;background:#111;color:#ddd;display:flex;gap:12px;padding:8px}
+#view{position:relative;width:960px}#view img,#view canvas{position:absolute;left:0;top:0;width:960px;height:540px}
+#view{height:540px;background:#000}
+button{font:inherit;padding:8px 14px;margin:2px;border:0;border-radius:4px;background:#345;color:#eee}
+#arm{background:#a30}#hold{background:#272;padding:22px 30px;font-size:18px;user-select:none;touch-action:none}#hold.on{background:#5c5}
+.bad{color:#f66}.ok{color:#6c6}table{border-collapse:collapse}td,th{padding:2px 6px;border-bottom:1px solid #333}
+input{width:56px;background:#222;color:#eee;border:1px solid #444}
+</style>
+<div><div id="view"><img id="vid"><canvas id="cv" width="960" height="540"></canvas></div>
+<div><button id="arm">ARM</button><button id="disarm">DISARM</button><button id="estop">E-STOP (UI: disarm only)</button><button id="home">HOME</button>
+<button id="hold">HOLD TO FIRE</button></div>
+<pre id="log" style="height:120px;overflow:auto"></pre></div>
+<div style="min-width:360px"><pre id="st"></pre>
+<div>sector az <input id="azmin" value="-60"> .. <input id="azmax" value="60"> el <input id="elmin" value="0"> .. <input id="elmax" value="60">
+r <input id="rmax" value="15"> <button id="setsec">set</button></div>
+<label><input type="checkbox" id="pt" style="width:auto"> authorize each track (stricter mode)</label>
+<table id="tr"></table></div>
+<script>
+const T=new URLSearchParams(location.search).get('token'),$=i=>document.getElementById(i);
+const post=(c,b)=>fetch('/api/'+c+'?token='+T,{method:'POST',body:JSON.stringify(b||{})});
+$('vid').src='/video.mjpg?token='+T;
+$('arm').onclick=()=>post('arm');$('disarm').onclick=()=>post('disarm');$('estop').onclick=()=>post('estop_ui');$('home').onclick=()=>post('home');
+$('pt').onchange=e=>post('auth_mode',{per_track:e.target.checked});
+$('setsec').onclick=()=>post('sector',{az_min:+$('azmin').value,az_max:+$('azmax').value,el_min:+$('elmin').value,el_max:+$('elmax').value,r_max:+$('rmax').value||null});
+let dm=null;const hold=on=>{$('hold').classList.toggle('on',on);if(on&&!dm){post('deadman');dm=setInterval(()=>post('deadman'),200)}if(!on&&dm){clearInterval(dm);dm=null}};
+const h=$('hold');h.onpointerdown=e=>{h.setPointerCapture(e.pointerId);hold(true)};['pointerup','pointercancel','pointerleave'].forEach(e=>h.addEventListener(e,()=>hold(false)));
+window.addEventListener('blur',()=>hold(false));
+const es=new EventSource('/events?token='+T);
+es.onmessage=m=>{const s=JSON.parse(m.data),c=$('cv').getContext('2d');c.clearRect(0,0,960,540);
+ const k=960/(s.frame?s.frame[0]:1280);
+ for(const t of s.tracks){const[b0,b1,b2,b3]=t.bbox;c.strokeStyle=t.engageable?'#f33':t.confirmed?'#fc3':'#8cf';c.lineWidth=t.selected?3:1.5;c.strokeRect(b0*k,b1*k,(b2-b0)*k,(b3-b1)*k);
+  c.fillStyle=c.strokeStyle;c.fillText(t.id+' '+t.cls+' '+t.range+'m',b0*k,b1*k-3)}
+ $('st').innerHTML=`stage <b>${s.stage}</b>  MCU ${s.mcu_state}  link <span class="${s.link?'ok':'bad'}">${s.link}</span>
+armed ${s.armed}  shots ${s.shots}/${s.shot_cap}  arm left ${s.arm_left_s}s
+key ${s.key}  <span class="${s.estop?'bad':''}">E-stop ${s.estop?'PRESSED':'released'}</span>  homed ${s.homed}
+dead-man <span class="${s.deadman?'ok':'bad'}">${s.deadman}</span>  inhibit ${s.inhibit}  person ${s.person_block}
+detector stale ${s.det_stale_s}s  pan/tilt ${s.pan_tilt}  err ${s.err_deg&&s.err_deg.toFixed(2)}
+reasons: ${s.reasons.join(', ')}
+${s.failed?'<span class=bad>FAILED '+s.failed+'</span>':''}${s.last_refusal||''}`;
+ $('log').textContent=s.log.map(l=>l.join('  ')).join('\n');
+ $('tr').innerHTML='<tr><th>id<th>class<th>range<th>manual m<th><th></tr>'+s.tracks.map(t=>`<tr><td>${t.id}<td>${t.cls}<td>${t.range}${t.manual_range?'*':''}
+<td><input id="r${t.id}" placeholder="m"><button onclick="post('range',{id:'${t.id}',metres:+$('r${t.id}').value||null})">set</button>
+<td><button onclick="post('authorize',{id:'${t.id}'})">${t.authorized?'authorized':'authorize'}</button><td class=bad>${t.engageable?'':t.why.join(',')}</tr>`).join('')};
+</script>

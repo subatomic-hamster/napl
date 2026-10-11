@@ -1,0 +1,38 @@
+# napl program examples/cuas-lite/s1_balloon_static.scenario.toml --runs-dir <dir>
+# cuas-lite lockstep scenario (spec 7.2, balloons): the real app + SimRP2040 twin + TruthDetector on the napl kernel (PLACEHOLDER turret:
+# assemblies/turret.toml with a BALL launcher, see python/napl/lite/sim_io.py). Session arm at t = 8 s. CPU only, deterministic.
+# Entry points: scene.py (build), run.py (harness). Monitors read trace.csv columns of napl.cuas.world; the lite safety checks are in lite.json
+# (run.py exits 1 if one fails).
+name = "cuas-lite-s1"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py"]
+env = { CUAS_SCENARIO = "s1_balloon_static", CUAS_SEED = "1", CUAS_SIM_S = "60" }
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_launcher_refusal"          # the app never asked the launcher for a shot it refused
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "shots_within_session_cap"     # app UI cap per arm (FireCfg.shot_cap = 5; the MCU hard cap is 6)
+column = "rounds"
+op = "always"
+hi = 5
+
+[[monitors]]
+name = "projectiles_stay_in_range_box"
+column = "pellet_range_m"
+op = "always"
+hi = 400
