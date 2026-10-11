@@ -733,6 +733,7 @@ def cmd_oplog(a):
         shown += grp
         reqs = [
             R("ui.visibility", 0.6, instances=grp, visible=True),
+            R("select", 0.2, instances=[]),  # no selection outlines over the parts
             R("ui.frame", 1.2, instances=shown),
         ]
         reqs += [
@@ -770,6 +771,16 @@ def cmd_oplog(a):
         )
     )
     # ---- wiring sheets: the card geometry comes from the real flatten state
+    import hashlib
+
+    cpath = Path(
+        a.out
+    ).with_suffix(
+        ".cards.json"
+    )  # the card centres cost a full design build (about 6 min): cached per assembly text
+    sha = hashlib.sha1(ASM.read_bytes() + repr(SHEETS).encode()).hexdigest()
+    cached = json.loads(cpath.read_text()) if cpath.exists() else {}
+    cached = cached if cached.get("sha") == sha else {"sha": sha}
     d = Design.open(ASM)
     b = Backend(lambda: d, Path("/tmp/napl-oplog"))
     by_inst = {i["id"] for i in doc["instances"]}
@@ -784,38 +795,37 @@ def cmd_oplog(a):
                 and w["to"].partition(".")[0] in inst
             }
         )
-        r = json.loads(
-            b(
-                json.dumps(
-                    {
-                        "tool": "flatten.begin",
-                        "args": {"instances": inst, "ports": ports},
-                    }
+        if title not in cached:
+            r = json.loads(
+                b(
+                    json.dumps(
+                        {
+                            "tool": "flatten.begin",
+                            "args": {"instances": inst, "ports": ports},
+                        }
+                    )
                 )
             )
-        )
-        if not r["ok"]:
-            raise SystemExit(f"sheet {n}: {r.get('error')}")
-        cards = r["flatten"]["cards"]
-        wired = lambda c: sum(1 for p in c["pins"] if p.get("wired"))
-        key = sorted(sorted(cards, key=wired, reverse=True)[:3], key=lambda c: c["x"])
-        b(json.dumps({"tool": "flatten.end", "args": {}}))
+            if not r["ok"]:
+                raise SystemExit(f"sheet {n}: {r.get('error')}")
+            cards = r["flatten"]["cards"]
+            wired = lambda c: sum(1 for p in c["pins"] if p.get("wired"))
+            key = sorted(
+                sorted(cards, key=wired, reverse=True)[:3], key=lambda c: c["x"]
+            )
+            cached[title] = [
+                [round(c["x"] + c["w"] / 2), round(c["y"] + c["h"] / 2)] for c in key
+            ]
+            b(json.dumps({"tool": "flatten.end", "args": {}}))
+            cpath.write_text(json.dumps(cached))
         reqs = [
             R("ui.mode", 1.4, name="wiring"),
             R("select", 1.0, instances=inst),
             R("flatten.begin", 3.0, instances=inst, ports=ports),
             R("ui.wire_view", 3.0, fit=True),
         ]
-        for c in key:
-            reqs.append(
-                R(
-                    "ui.wire_view",
-                    4.4,
-                    zoom=0.9,
-                    center=[round(c["x"] + c["w"] / 2), round(c["y"] + c["h"] / 2)],
-                    seconds=2.4,
-                )
-            )
+        for c in cached[title]:
+            reqs.append(R("ui.wire_view", 4.4, zoom=0.9, center=c, seconds=2.4))
         reqs += [R("ui.wire_view", 2.4, fit=True, seconds=1.6), R("flatten.end", 1.0)]
         steps.append(
             dict(
