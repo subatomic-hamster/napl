@@ -19,6 +19,7 @@ c_rating_cont   = { value = 50, unit = "C", src = "S1", fidelity = "datasheet" }
 c_rating_burst  = { value = 100, unit = "C", src = "S1", fidelity = "datasheet" }
 i_max_continuous = { value = 115.0, unit = "A", fidelity = "derived", derivation = "50 C x 2.3 Ah = 115 A (rating label only)." }
 mass            = { value = 0.239, unit = "kg", src = "S1", fidelity = "datasheet" }
+price_usd       = { value = 56.64, unit = "USD", fidelity = "estimated", rationale = "A web search on 2026-10-11 found a GNB 4S 2300 mAh 130C pack at 56.64 USD (a different C-rating variant); this 50C/100C pack (S1, rcdrone.top) was not priced. Optional 4S path of cuas-lite, outside the base BOM." }
 length          = { value = 0.108, unit = "m", src = "S1", fidelity = "datasheet" }
 width           = { value = 0.033, unit = "m", src = "S1", fidelity = "datasheet" }
 height          = { value = 0.034, unit = "m", src = "S1", fidelity = "datasheet" }

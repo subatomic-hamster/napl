@@ -1,0 +1,60 @@
+id = "generic-lazy-susan-6in-square"
+name = "6 in square lazy-susan ball-bearing turntable, 5/16 in thick, 500 lb (turret azimuth bearing)"
+category = "structure.bearing"
+vendor = "Hardware Tree (XLAZSUSN6Z); mass from a Simply Bearings LAZY/6 listing of the same size class"
+part_number = "XLAZSUSN6Z"
+url = "https://hardwaretree.com/products/ball-bearing-swivel-xlazsusn6z"
+
+# Buyable for the turret's azimuth axis: mass, dimensions and price only (briefing item 12); no mounting-hole pattern (neither listing gives one).
+# The mass is NOT from the Hardware Tree page (its weight field reads 0, a placeholder): it is the 0.21825 kg of Simply Bearings LAZY/6, a 6 in x 5/16 in x 500 lb bearing of the same class
+# (literature). A square plate (6 in side) is assumed for both; Simply Bearings calls its 6 in the 'outside diameter'.
+# Part frame: origin at the centre of the bottom face, +z up the rotation axis.
+
+[params]
+width            = { value = 0.1524, unit = "m", src = "S1", fidelity = "datasheet" }   # 6 in square
+length           = { value = 0.1524, unit = "m", src = "S1", fidelity = "datasheet" }
+height           = { value = 0.0079375, unit = "m", src = "S1", fidelity = "datasheet" }   # 5/16 in thick; Simply Bearings: 7.93 mm
+load_rating      = { value = 2224.0, unit = "N", fidelity = "derived", derivation = "500 lb (S1, 'capacity') x 4.4482 N/lb = 2224 N; a static rating, the dynamic / moment rating is not given." }
+mass             = { value = 0.21825, unit = "kg", src = "S2", fidelity = "literature" }   # LAZY/6 of Simply Bearings, not the Hardware Tree unit
+price_usd        = { value = 12.95, unit = "USD", src = "S1", fidelity = "datasheet" }   # 2026-10-11
+
+[[ports]]
+name = "axis"
+kind = "mech"
+type = "bearing.lazy-susan.6"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+fidelity = "estimated"
+rationale = "Fixing-hole pattern is not given by either listing (Simply Bearings: pitch circle 121 mm, inner diameter 119.1 mm); the port records only the rotation axis."
+note = "Both plates are square 152.4 mm; lower plate fixed, upper plate rotates about +z."
+
+[visual]
+src = "V1"
+note = "Two thin square steel plates with a ball ring between them (product photo); drawn as a generic box."
+
+[[visual.elements]]
+gen = "box_device"
+
+[[sources]]
+id = "S1"
+url = "https://hardwaretree.com/products/ball-bearing-swivel-xlazsusn6z"
+title = "Hardware Tree: Ball Bearing Swivel XLAZSUSN6Z"
+accessed = "2026-10-11"
+quote = "Ball Bearing Swivel XLAZSUSN6Z ... $12.95 ... 6″ square lazy susan swivel bearing ... 5/16″ thick ... 500lb capacity"
+
+[[sources]]
+id = "S2"
+url = "https://www.simplybearings.co.uk/products/lazy-6"
+title = "Simply Bearings: 6 inch Square Lazy Susan Turntable Bearing (SKU LAZY/6)"
+accessed = "2026-10-11"
+quote = "6 inch Square Lazy Susan Turntable Bearing ... Outside diameter 6 inch = 152.4mm ... Weight 0.21825kg ... Thickness 7.93mm = 0.312 (5/16) inch ... Max Load Weight 500 lbs ... Inside diameter 119.1mm ... Pitch circle diameter 4.76 inch = 121mm"
+
+[[sources]]
+id = "V1"
+url = "https://hardwaretree.com/products/ball-bearing-swivel-xlazsusn6z"
+title = "Hardware Tree listing photo (appearance only)"
+accessed = "2026-10-11"
+quote = "Ball Bearing Swivel XLAZSUSN6Z"
