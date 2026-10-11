@@ -236,7 +236,7 @@ Fire (a `FIRE` command that the MCU executes) requires ALL; the app sends `FIRE`
 |---|---|---|---|---|
 | 1 | no person in frame | any `person` det with conf >= 0.25 anywhere in the last 1.0 s, or detector stale (> 250 ms with no reply), or detector socket down -> `FIRE_INHIBIT` in every heartbeat and no `FIRE`; the target box must not overlap a person box | refuses `FIRE` while the received `FIRE_INHIBIT` is set (ACK 3) | - |
 | 2 | operator ARMED this session | UI ARM (explicit button, shows key/E-stop state); app state ARMED/ENGAGING requires MCU `state >= 2` | `ARM` preconditions; `FIRE` only in ENGAGING; new `HELLO.session` -> SAFE | - |
-| 3 | confirmed drone/balloon/target track | tracker `confirmed` = >= 5 consecutive detector replies, class in {drone, balloon, target}, conf >= 0.5, and (default mode) operator `authorize` of that track id for N rounds, valid 10 s | - | - |
+| 3 | confirmed drone/balloon/target track | tracker `confirmed` = >= 5 consecutive detector replies, class in {drone, balloon, target}, conf >= 0.5. Default mode (user, 2026-10-11) = **session arm**: once ARMED, every confirmed in-sector track is engageable with no per-track click; optional stricter mode = operator `authorize` of each track id for N rounds, valid 10 s (UI toggle) | - | - |
 | 4 | aim point inside the geofence sector | sector = `{az_min, az_max, el_min, el_max}` deg in the home frame (+ optional `r_max`), set in the UI, persisted in `~/.config/cuas-lite/sector.toml`; both the target position and the commanded barrel direction must lie in it; el_min >= 0 deg | `pan/tilt` soft limits (cfg 3-6) clip `AIM`; `fire_tilt_min` refuses fire below level (ACK 5) | mechanical stops at the limits |
 | 5 | per-arm shot cap and arm timeout not exceeded | counts `EVENT 2`, stops at the UI cap (default 5) and timeout (default 60 s), then disarms | counts actual pusher cycles; clamps cap/timeout to cfg 10/11; leaves ARMED at cap/timeout | - |
 | 6 | web dead-man fresh | UI posts `/api/deadman` every 200 ms while the operator holds the "hold to fire" control; app sets `DEADMAN_OK` iff last post < 500 ms | refuses `FIRE` without `DEADMAN_OK`; spins down flywheel if low > 1 s | - |
@@ -250,8 +250,8 @@ of `examples/cuas/turret.py`), and any exception in the control loop sets the ap
 ### 3.3 App fire-control stages (the same names as the MCU where possible)
 
 `SAFE` (MCU not IDLE+, or link down) -> `IDLE` (scanning optional: pan sweep +-60 deg is **off** by default, enabled from the UI) -> `ARMED` -> `ENGAGING` (a
-confirmed, authorized, in-sector track: AIM + FLYWHEEL, wait for spin-up and pointing error) -> `FIRING` (FIRE burst of 1-3, then re-evaluate).
-Target selection: nearest by estimated range among authorized tracks; give up after 5 rounds without a hit for 6 s (values from `turret.py`).
+confirmed, in-sector track (authorized, in the stricter mode): AIM + FLYWHEEL, wait for spin-up and pointing error) -> `FIRING` (FIRE burst of 1-3, then re-evaluate).
+Target selection: nearest by estimated range among engageable tracks; give up after 5 rounds without a hit for 6 s (values from `turret.py`).
 
 ## 4. App I/O interfaces (Python Protocols), sim and real implementations
 
@@ -613,7 +613,7 @@ Worker ownership: HW/CAD = `cad/`, `parts/cuas-lite/`, `assemblies/cuas-lite.tom
 | Q6 | small (<= 0.3 m) quad part for the sim | open | v1 uses existing x500v2/aos5 (0.55 m) so the size prior is configured per class; a smaller quad is optional |
 | Q7 | stepper torque-speed curve not in the datasheet in the repo; 50 % allowance assumed | assumption | replace with the vendor curve at purchase; margins in 6.3 |
 | Q8 | flywheel launcher performance (30 m/s, spread 10 mrad, Cd 0.47) are estimates | assumption | bench validation fits `k_v`, Cd, spread; sim parameters follow |
-| Q9 | default authorization mode is "click-to-authorize each track"; "auto in sector" is a UI toggle that still requires ARM, dead-man and all gates | assumption | confirm with the user before the first live test |
+| Q9 | authorization mode | **resolved** (user, 2026-10-11) | default = session arm: the operator ARMs, then confirmed in-sector tracks are engaged automatically, still behind the dead-man, person block, sector, shot cap and timeout; per-track click-to-authorize is an optional stricter UI mode |
 | Q10 | E-stop disables steppers and clears homed flags (re-home needed, ~10 s) | decision | keeps position knowledge honest |
 | Q11 | HIL cannot run slower than real time (watchdog is sim-time; the app is wall-time) | limit | video and Monte Carlo use lockstep |
 | Q14 | `World(ctl_ticks=5)` (5 ms) with `napl.cuas.flyer` was not run; the existing cuas showcase uses 4 ms; the NVIDIA dev kit supply range was not fetched | assumption | sim worker verifies the flyer at 5 ms (else 4 ms and a 12 ms STATUS period in the twin); HW worker checks the dev-kit input |
