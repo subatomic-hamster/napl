@@ -438,7 +438,9 @@ item 2 maps straight into misses. Tolerances for a 0.30 m balloon (radius 0.15 m
 
 Belt: GT2 (2 mm pitch, standard; verify belt length at purchase), closed loop, centre distances set by a slotted motor mount (adjustment >= +-4 mm), belt
 tension target 5 N preload per side [est] (keeps shaft radial load < 28 N). Tilt range: -15 deg (barrel into its own cradle; the camera never sees the
-base) to +70 deg (drones overhead at close range; above 70 deg the hopper feed fails). Backlash budget [est]: < 0.2 deg output at the pan, < 0.3 deg at the tilt.
+base) to +70 deg (drones overhead at close range). The hopper rides the pan group, not the head: balls drop through a feed elbow into the hollow right
+trunnion (6807ZZ bearing in place of the right rod + 608), turn 90 deg on the tilt axis and run down a chute to the breech; CAD checks the chute's downhill slope at
+tilt -15/0/35/70 (23/38/73/72 deg). Backlash budget [est]: < 0.2 deg output at the pan, < 0.3 deg at the tilt.
 
 ### 6.2 Required rates against targets (3-15 m) [der: omega = v/R]
 
@@ -458,17 +460,19 @@ Datasheet numbers from the part file (S2, quoted in section 10): holding torque 
 20 mm from the flange, 285 g. Torque-speed curve is not in that datasheet; the figures below use holding torque as the ceiling and a 50 % pull-out
 allowance at the operating speeds [est], to be replaced by the curve at purchase.
 
-- **Pan.** Head 1.5 kg [est] (two 180 motors, cage, hopper with 40 balls = 74 g [der], Brio 65 g (**[src]**), pusher, camera mount, printed yoke ~0.35 kg), radius of gyration 0.07 m
-  -> J = 7.4e-3 kg*m^2 [der]. At 2000 deg/s^2 (34.9 rad/s^2): T_out = 0.258 N*m; at the motor = 0.258 / 5 / 0.9 (belt efficiency [est]) = **0.057 N*m**. Rotor inertia
-  (not published, ~5.7e-6 kg*m^2 [est]) adds ~0.001 N*m. Total ~0.06 N*m = 16 % of holding, 32 % of the 50 % allowance. OK, ~3x margin.
-- **Tilt.** Head 1.2 kg on the tilt axis, J = 7.7e-3 kg*m^2 at 0.08 m; CG within **+-15 mm** of the tilt axis (balance requirement on CAD: counterweight/hopper
-  placement). Static 1.2 * 9.81 * 0.015 = 0.177 N*m output -> 0.049 N*m at the motor; dynamic at 1500 deg/s^2 (26.2 rad/s^2): 0.20 N*m output -> 0.056 N*m. Total 0.105 N*m =
-  29 % of holding (58 % of the allowance). OK, ~1.7x margin. If the CG error is 30 mm the static term doubles to 0.098 and the margin vanishes: balance is the CAD worker's first check.
+- **Pan.** From the CAD solids (`interface.mass_split`, f66ad96): pan group 955 g + tilt group 453 g + 40 balls 74 g; inertia about the pan axis
+  J = 0.0099 (hopper empty) to 0.0109 (full) kg*m^2 [der, bought items as point masses]. At 2000 deg/s^2 (34.9 rad/s^2): T_out = 0.380 N*m; at the motor = 0.380 / 5 / 0.9
+  (belt efficiency [est]) = **0.085 N*m**. Rotor inertia (not published, ~5.7e-6 kg*m^2 [est]) adds ~0.001 N*m. Total ~0.086 N*m = 24 % of holding, 48 % of the 50 % allowance. OK, ~2x margin.
+- **Tilt.** The tilt group is 453 g (hopper moved to the pan group). Its CG hangs 34 mm below the tilt axis, so the balance check is a static torque budget, not a
+  CG radius: budget 0.177 N*m output (= the original 1.2 kg x 15 mm), CAD measures **0.151-0.153 N*m** over the tilt range (~15 % margin) -> 0.042 N*m at the motor
+  (/4/0.9). Dynamic at 1500 deg/s^2: <= 0.056 N*m at the motor (the 1.2 kg / 7.7e-3 kg*m^2 bound; the real 453 g group is lighter). Total <= 0.098 N*m = 27 % of holding
+  (54 % of the allowance). Thin static margin: any head addition (bigger wheels, sensors) must re-run `head_static_torque_within_spec_budget`; a ~300 g ballast
+  above the axis is the fallback, or a gas-spring/rubber-band counterbalance.
 - **Speed.** At 12 V, 200 rpm pan: back-EMF amplitude = 0.1515 V*s/rad (part file `kt_equiv_phase`) x 20.9 rad/s = 3.2 V; electrical frequency = 50 pole pairs x 200 rpm = 167 Hz,
   coil reactance 2*pi*167*3.2 mH = 3.4 ohm; available current ~ (12 - 3.2)/sqrt(1.65^2 + 3.4^2) ~ 2.3 A peak vs 1.68 A rated [der, first order, ignores chopper losses]: 12 V is enough for 200 rpm
   at the 1.2 A RMS setting, and little more; hence a **12 V minimum bus for the steppers (4S/16.8 V gives headroom)**.
 - **Shaft.** Radial belt load at 0.1 N*m with the 20T pulley = 0.1 / 6.37 mm = 15.7 N + preload effect < 28 N (**[src]**); with a 16T it would be 19.6 N + preload, hence 20T.
-- **Power loss:** at the tilt, a stepper power cut lets the barrel drop (1.2 kg head, up to ~0.18 N*m static unbalance): the cradle stop catches it at -15 deg; the CAD worker adds a soft stop.
+- **Power loss:** at the tilt, a stepper power cut lets the barrel drop (453 g tilt group, ~0.15 N*m static unbalance): the cradle stop catches it at -15 deg; the CAD worker adds a soft stop.
 
 ### 6.4 Fasteners, bearings, fab limits
 
@@ -477,7 +481,8 @@ allowance at the operating speeds [est], to be replaced by the curve at purchase
   if the lazy susan demands it.
 - **Pan bearing:** a lazy-susan (turntable) bearing, 100-150 mm (typical retail item; confirm hole pattern and axial play at purchase), carrying the whole head; stator plate on one ring, rotor plate on the other. A
   pan axis shaft is not used; the pan driven pulley is bolted to the rotor plate concentric with the bearing (100T GT2, 63.7 mm pitch diameter [der]).
-- **Tilt bearings:** two **608** bearings (8 x 22 x 7 mm, standard size; not fetched, verify) in the yoke cheeks on an 8 mm steel rod / printed hub, 80T driven pulley fixed to the rod. Two more 608 as
+- **Tilt bearings:** left cheek: one **608** (8 x 22 x 7 mm, standard size; not fetched, verify) on an 8 mm steel stub rod / printed hub, 80T driven pulley fixed to it.
+  Right cheek: one **6807ZZ** (35 x 47 x 7 mm, thin-section; verify) around the hollow printed trunnion the balls pass through (no rod on that side). Two more 608 as
   belt idler/tensioner.
 - **Print limits:** every part fits the 220 mm bed with >= 10 mm margin (**max footprint 200 x 200 mm**), PLA/PETG, 0.4 mm nozzle, 0.2 mm layers, minimal supports (no part needs more
   than one orientation with supports under < 30 % of its footprint; split the base into two halves with dovetail+M3 if it exceeds 200 mm).
@@ -492,19 +497,19 @@ allowance at the operating speeds [est], to be replaced by the curve at purchase
 | electronics_tray | 180 x 110 x 25 | Jetson dev kit (published envelope 100 x 79 x 21 mm, retailer-listed; confirm), Pico + driver board, buck converters, XT60; vented |
 | pan_rotor_plate | 180 x 180 x 6 | bearing ring 2, 100T pulley mount, yoke posts, hall magnet pocket |
 | pan_motor_mount | 55 x 55 x 30 | slotted +-4 mm tension slot, NEMA 17 31 mm pattern, hall sensor pocket on the stator |
-| yoke_left / yoke_right | 120 x 45 x 100 | 608 bearing seats, tilt motor mount on the left cheek, soft stop |
+| yoke_left / yoke_right | 120 x 45 x 100 | 608 seat (left) / 6807ZZ seat (right), tilt motor mount on the left cheek, soft stop |
 | tilt_hub + pulley adapter | 50 dia x 20 | pins the 80T pulley to the 8 mm rod, magnet pocket (tilt hall) |
 | tilt_motor_mount | 55 x 55 x 25 | slotted; on the left cheek |
-| launcher_chassis (cradle) | 150 x 70 x 70 | carries barrel, flywheel cage, pusher, hopper, camera; the CG balance part |
+| launcher_chassis (cradle) | 150 x 70 x 70 | carries barrel, flywheel cage, pusher, camera, feed chute from the right trunnion; the CG balance part |
 | barrel | 24 ID (ball 22.2 + 1.8 clearance) x 110 long | splits into two clamshell halves for printing |
 | flywheel_cage | 70 x 60 x 45 | two 180-size motor seats (shaft gap = ball diameter - 3 mm compression [est] = 19.2 mm); wheels = silicone/rubber discs on the motor shafts (bought) |
-| hopper + feed_tube | 90 dia x 100 + 26 ID tube | holds ~40 balls (380 cm^3 [der]); gravity feed; jam-clearing lid |
+| hopper + lid + feed_elbow | 90 dia x 100 + 26 ID elbow | pan group (does not tilt); holds ~40 balls (380 cm^3 [der]); gravity feed into the hollow right trunnion (6807ZZ); jam-clearing lid. Bench risk: a 76 mm level run along the tilt axis, 3.1x push margin [est] |
 | pusher_slide | 40 x 25 x 20 | SG90/MG90-class servo (9 g) drives a slider; one ball per stroke |
 | camera_mount | 110 x 40 x 35 | clamps the Brio (102 x 27 x 26.5 mm, 65 g (**[src]**)) to the chassis, 1/4-20 insert, +-3 deg boresight shims |
 | front_panel | 120 x 80 x 4 | key switch, E-stop (22 mm hole), arm LED, buzzer |
 | cable_guides, clips | small | strain relief at the turntable |
 
-Mass budget: head 1.5 kg + base 1.5 kg [est]; total < 4 kg.
+Mass budget: pan group 0.96 kg + tilt group 0.45 kg + balls 0.07 kg (CAD f66ad96) + base 1.5 kg [est]; total < 4 kg.
 
 ### 6.6 Electrical and pins (proposal; `firmware/cuas-lite-rp2040/include/pins.h` is the single source)
 

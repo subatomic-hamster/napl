@@ -150,19 +150,61 @@ Z_BELT = 7.0  # belt centre height above the stator top (both axes' pan belt)
 MOUNT_T = 4.0  # motor mount plate
 CABLE_HOLE_D = 28.0
 
-H_T = 180.0  # tilt axis height in B [spec est 120]; raised so the breech clears the rotor plate at +70 deg (tilt sweep check)
+H_T = 202.0  # tilt axis height in B [spec est 120]; raised so the breech clears the rotor plate at +70 deg (tilt sweep check)
+
+# ---- ball feed: hopper on the PAN group, balls enter the head through the hollow right trunnion (axis = tilt axis) ----------------
+# pan-side elbow (fixed) ends in a spigot that sits inside the rotating hollow trunnion (journal, in a 6807 bearing); the ball
+# stops at the elbow point C on the tilt axis and rolls down a straight chute (head side) to the breech port, whatever the tilt.
+SPIG_ID = BALL_D + 1.8  # fixed spigot bore
+SPIG_WALL = 1.8
+SPIG_OD = SPIG_ID + 2 * SPIG_WALL
+JOUR_ID = (
+    SPIG_OD + 0.8
+)  # bore of the rotating hollow trunnion = ball chute bore (running clearance 0.4/side)
+CHUTE_R = (
+    JOUR_ID / 2 - 0.2
+)  # chute bore radius (a hair under the trunnion bore: no equal-radius cylinder intersection)
+DUCT_ID = BARREL_ID + 2.4  # hopper neck / elbow duct bore
+TUBE_OD = 35.0  # hollow trunnion OD = 6807 bearing bore
+B6807_OD, B6807_ID, B6807_W, B6807_MASS = (
+    47.0,
+    35.0,
+    7.0,
+    45.0,
+)  # 6807ZZ [est dims/mass]
+assert JOUR_ID + 5.0 <= TUBE_OD, "ball too large for the 35 mm trunnion tube"
+CHUTE_WALL = 1.6
+BEAM_FOOT_T = 3.0
+FEED_SLOPE_MIN = (
+    15.0  # deg downhill along gravity required over the sloping feed path at every tilt
+)
+ELBOW_SLOPE = 38.0  # deg, sloping duct on the pan side
+ELBOW_YS, ELBOW_YH = (
+    76.0,
+    116.0,
+)  # |y| where the slope meets the axis spigot / hopper axis |y|
+SPIG_TIP_Y = 15.0  # spigot tip |y| (ball leaves it into the head chute elbow at y = 0)
+ROLL_MU = (
+    0.1  # rolling/sliding resistance of a foam ball in the level run [est, bench test]
+)
 
 # ---- head, launcher frame L (barrel axis z=0, flywheel centre x=0); head frame H = L - (X_A, 0, Z_A) ---------------------------------
-CAGE_X, CAGE_W, CAGE_Z0, CAGE_Z1 = 70.0, 100.0, -17.0, 38.0
+CAGE_X, CAGE_W, CAGE_Z0, CAGE_Z1 = 70.0, 100.0, -17.0, 31.0
 X_F = -50.0  # feed (ball drop) x
 PISTON_LEN, PISTON_STROKE = 48.0, 44.0
 BARREL_LEN = 110.0
 BARREL_R = BARREL_ID / 2 + 3.0  # outer radius
 CHASSIS_X0, CHASSIS_Z0, CHASSIS_Z1, CHASSIS_W = -118.0, -17.0, 22.0, 70.0
-X_A, Z_A = 2.0, 33.0  # tilt axis position in L (balanced by checks.py; see HEAD CG)
+X_A = 15.0  # tilt axis x in L (set from the head CG, see checks.balance)
+Z_A = (
+    CAGE_Z1 + BEAM_FOOT_T + TUBE_OD / 2
+)  # tilt axis height in L: the trunnion beam sits on the cage top (motor pockets stay open)
 WC = CAGE_W  # cradle width between trunnion bosses
 BOSS_L, BOSS_D = 7.0, 16.0
 CHEEK_Y0, CHEEK_T = WC / 2 + BOSS_L + 1.0, 10.0
 CAM_PLATE_T = 4.0
-BALANCE_LIMIT = 15.0  # mm, spec 6.3
+BALANCE_LIMIT = 15.0  # mm, spec 6.3 (for the 1.2 kg head the spec allows 1.2 * 9.81 * 0.015 = 0.177 N*m static)
+TILT_STATIC_BUDGET_NM = (
+    1.2 * 9.81 * 0.015
+)  # spec 6.3 static unbalance torque allowance at the tilt joint
 TILT_RANGE = (-15.0, 70.0)
