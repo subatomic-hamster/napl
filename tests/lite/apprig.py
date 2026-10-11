@@ -12,7 +12,8 @@ from napl.lite.app import App, AppCfg
 from napl.lite.fire import Sector
 from napl.lite.gimbal import SerialGimbal
 from napl.lite.sim_io import ManualClock, SimCamera, TruthDetector
-from napl.lite.sim_mcu import KinematicPlant, LoopbackLink, SimRP2040
+from napl.lite.sim_mcu import KinematicPlant, LoopbackLink
+from rig import make_mcu
 
 DT = 0.005
 
@@ -37,7 +38,7 @@ class AppRig:
         self.clock = ManualClock()
         self.plant = KinematicPlant()
         self.link = LoopbackLink(self.clock)
-        self.twin = SimRP2040(self.plant, self.link)
+        self.twin = make_mcu(self.plant, self.link)
         self.geom = Geometry()
         self.targets = list(targets if targets is not None else [balloon()])
         self.cam = SimCamera(self.clock, self._truth)
