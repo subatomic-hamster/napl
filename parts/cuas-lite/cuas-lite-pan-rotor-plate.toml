@@ -46,6 +46,18 @@ fidelity = "derived"
 derivation = "pan_pulley_100t is modelled in frame B (manifest interface.frames.pan_joint children): identity pose."
 
 [[ports]]
+name = "seat_pan_stop_tab"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+fidelity = "derived"
+derivation = "pan_stop_tab is modelled in frame B (pan_joint children, CAD 8fa7ecc): identity pose."
+
+[[ports]]
 name = "seat_cable_collar"
 kind = "mech"
 type = "frame.origin"

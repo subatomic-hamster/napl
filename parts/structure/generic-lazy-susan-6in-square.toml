@@ -21,10 +21,27 @@ mass             = { value = 0.21825, unit = "kg", src = "S2", fidelity = "liter
 price_usd        = { value = 4.95, unit = "USD", src = "S1", fidelity = "datasheet" }   # 2026-10-11 (buy 6 for 4.50 each); 'Limited Quantity Available'
 price_hardwaretree_usd = { value = 12.95, unit = "USD", src = "S3", fidelity = "datasheet" }   # the earlier choice (XLAZSUSN6Z), 2026-10-11
 
+# Collision envelope: the 6 in square plate with the 117.5 mm opening (S1, RF Parts) as a square frame of four slabs (the opening taken as its 117.5 mm square: the round hole is inscribed, so this is slightly
+# conservative at the corners only), 7.94 mm thick.
 [[geometry.shapes]]
 shape = "box"
-size = [0.0762, 0.0762, 0.00397]
-pos = [0.0, 0.0, 0.00397]
+size = [0.0762, 0.008725, 0.00397]
+pos = [0.0, 0.067475, 0.00397]
+
+[[geometry.shapes]]
+shape = "box"
+size = [0.0762, 0.008725, 0.00397]
+pos = [0.0, -0.067475, 0.00397]
+
+[[geometry.shapes]]
+shape = "box"
+size = [0.008725, 0.05875, 0.00397]
+pos = [0.067475, 0.0, 0.00397]
+
+[[geometry.shapes]]
+shape = "box"
+size = [0.008725, 0.05875, 0.00397]
+pos = [-0.067475, 0.0, 0.00397]
 
 [[ports]]
 name = "axis"

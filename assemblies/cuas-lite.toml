@@ -68,7 +68,6 @@ pos = [0.0, 0.0, 0.0]
 id = "pan_hall_mount"
 part = "cuas-lite-pan-hall-mount"
 group = "base"
-pos = [0.0, 0.0, 0.0]
 
 [[instances]]
 id = "front_panel"
@@ -132,7 +131,8 @@ pos = [0.045, -0.042, -0.082]
 id = "relay"
 part = "songle-srd-12vdc-sl-c-relay"
 group = "electronics"
-pos = [0.082, -0.050, -0.0705]
+pos = [0.078, -0.027, -0.0815]
+rpy = [0.0, 0.0, 1.5707963]
 
 [[instances]]
 id = "q1"
@@ -162,7 +162,7 @@ pos = [0.092, -0.002, -0.078]
 id = "fuse"
 part = "generic-inline-atc-fuse-holder-12awg"
 group = "electronics"
-pos = [-0.060, 0.054, -0.0745]
+pos = [-0.125, 0.0, -0.070]
 
 [[instances]]
 id = "xt60"
@@ -305,6 +305,11 @@ group = "pan"
 [[instances]]
 id = "collar"
 part = "cuas-lite-cable-collar"
+group = "pan"
+
+[[instances]]
+id = "pan_stop_tab"
+part = "cuas-lite-pan-stop-tab"
 group = "pan"
 
 [[instances]]
@@ -497,6 +502,11 @@ a = "rotor.seat_cable_collar"
 b = "collar.origin"
 
 [[mates]]
+name = "pan_stop_tab--rotor"
+a = "rotor.seat_pan_stop_tab"
+b = "pan_stop_tab.origin"
+
+[[mates]]
 name = "yoke_l--rotor"
 a = "rotor.seat_yoke_left"
 b = "yoke_l.origin"
@@ -669,6 +679,72 @@ b = "mag_tilt.origin"
 name = "launcher--chassis"
 a = "chassis.seat_launcher"
 b = "launcher.origin"
+
+# Bolted printed pairs (closure mates: both parts are modelled in one group frame at identity, so the transform check is exact). A closure adds no joint; it declares that the two parts are screwed
+# together, so their contact / insert-and-lip overlap is not an INTERFERENCE.
+[[mates]]
+name = "cam_mount--barrel_a"
+a = "barrel_a.frame_up"
+b = "cam_mount.origin"
+closure = true
+
+[[mates]]
+name = "cam_mount--barrel_b"
+a = "barrel_b.frame_up"
+b = "cam_mount.origin"
+closure = true
+
+[[mates]]
+name = "feed_elbow--yoke_r"
+a = "yoke_r.frame_up"
+b = "feed_elbow.origin"
+closure = true
+
+[[mates]]
+name = "hopper_lid--hopper"
+a = "hopper.frame_up"
+b = "hopper_lid.origin"
+closure = true
+
+[[mates]]
+name = "pan_hall_mount--stator"
+a = "stator.seat_pan_hall_mount"
+b = "pan_hall_mount.origin"
+
+# ---- KNOWN CLASHES, WAIVED (closure mates through assembly-specific `clash_*` ports; no joint, no physical interface). Each is a real mismatch between the CAD and a bought-part envelope, listed in
+# docs/cuas-lite/bom.md "CAD mismatches" for the CAD worker. They are NOT fixes.
+#   beam / fw motors : CAD models the 180 motor 25 mm long, the listing says 32 mm (can runs 1.7 / 4.0 mm into the trunnion beam).
+#   estop / nema_pan : the estimated 35 mm E-stop contact block against the pan motor body, 3.6 mm (E-stop hole at y = -28 mm, motor half-width 21 mm).
+#   lazy_susan / pan_hall_mount : LS plate edge x = -76.2 mm vs the mount's pocket (x -85..-75 mm), 1.2 mm.
+[[mates]]
+name = "waived--beam--fw_motor_pos"
+a = "beam.clash_fw_motor_pos_y"
+b = "fw_motor_pos.origin"
+closure = true
+
+[[mates]]
+name = "waived--beam--fw_motor_neg"
+a = "beam.clash_fw_motor_neg_y"
+b = "fw_motor_neg.origin"
+closure = true
+
+[[mates]]
+name = "waived--estop--nema_pan"
+a = "estop.clash_nema_pan"
+b = "nema_pan.origin"
+closure = true
+
+[[mates]]
+name = "waived--pan_hall_mount--lazy_susan"
+a = "pan_hall_mount.clash_lazy_susan"
+b = "lazy_susan.origin"
+closure = true
+
+[[mates]]
+name = "tilt_motor_mount--yoke_l"
+a = "yoke_l.frame_up"
+b = "tilt_motor_mount.origin"
+closure = true
 
 # ================================================================ wiring =========================================================================================================
 # ---- 12 V supply: brick -> XT60 -> fuse -> bus; returns to the XT60 minus ------------------------------------------------------------------------------------------------------------

@@ -30,3 +30,14 @@ axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 note = "The part frame as a port: the chassis's seat port mates here."
+
+[[ports]]
+name = "frame_up"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame, axis +z: the 'a' side of a closure mate to a printed part modelled in the same group frame (bolted pair, identity transform)."

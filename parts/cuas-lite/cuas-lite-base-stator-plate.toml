@@ -21,6 +21,18 @@ bbox_min = [-0.1, -0.1, -0.008]
 bbox_max = [0.1, 0.1, 0.018]
 
 [[ports]]
+name = "seat_pan_hall_mount"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+fidelity = "derived"
+derivation = "pan_hall_mount is modelled in frame B (the stator's own frame): identity pose. Mating it (instead of free placement) makes the hall mount a bolted part of the stator for the interference rule."
+
+[[ports]]
 name = "seat_rotor"
 kind = "mech"
 type = "frame.origin"
