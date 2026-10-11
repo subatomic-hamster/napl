@@ -2,7 +2,7 @@
 
 Prices in USD, looked up 2026-10-11. Fidelity: **datasheet** = a price read from the vendor page, **derived** = converted from another currency at an assumed rate (1.15 USD/EUR, 1.33 USD/GBP, 7.8 HKD/USD, 120 BDT/USD, none looked up),
 **estimated** = a search snippet, an unfetchable page, or an allowance with no listing. Part ids are in `parts/`; the assembly is `assemblies/cuas-lite.toml`.
-Excluded from the totals (user's rule): the Jetson Orin Nano, the Logitech Brio, the foam rounds (consumable, shown separately).
+Excluded from the totals (user's rule): the Jetson Orin Nano, the Logitech Brio, the foam rounds (consumable, shown separately), the 12 V brick (optional, shown separately).
 
 | # | Part | Qty | Unit | Line | Source | Fidelity |
 |---|------|-----|------|------|--------|----------|
@@ -25,28 +25,39 @@ Excluded from the totals (user's rule): the Jetson Orin Nano, the Logitech Brio,
 | 17 | Songle SRD-12VDC-SL-C relay (weapon rail) | 1 | 0.44 | 0.44 | [LCSC C30431](https://www.lcsc.com/product-detail/C30431.html), $0.4421 | datasheet |
 | 18 | Inline ATC fuse holder 12 AWG + 5 A fuse | 1 | 4.00 | 4.00 | holder $3.00 on an unreadable Amazon page, fuse $1.00 allowance | estimated |
 | 19 | XT60 pair (inlet) | 1 | 2.00 | 2.00 | KiwiQuads 3.49 NZD | derived |
-| 20 | 12 V 5 A brick, 5.5x2.1 mm | 1 | 24.95 | 24.95 | [Adafruit 352](https://www.adafruit.com/product/352), 7 in stock (library part `facmogu-12v-5a-psu`, $23 estimated, is $1.95 cheaper but not verified in stock) | datasheet |
+| 20 | (12 V brick: moved to "Optional", not in the total) | | | | | |
 | 21 | LM2596 buck module (5 V weapon rail) | 1 | 1.90 | 1.90 | [ebuildelectronics](https://ebuildelectronics.odoo.com/shop/dc-dc-buck-converter-lm2596-adjustable-69), 109 PHP | derived |
 | 22 | IRLB8721 MOSFET (one per flywheel) | 2 | 2.25 | 4.50 | [Adafruit 355](https://www.adafruit.com/product/355) | datasheet |
 | 23 | 1N5822 Schottky diode (flyback) | 2 | 0.34 | 0.68 | [TME](https://www.tme.com/us/en-us/details/1n5822-e3_54/tht-schottky-diodes/vishay/) | datasheet |
 | 24 | Resistors 1/4 W (13 in the wiring: key / E-stop sense dividers, EN pull-ups, gate pull-down) | 13 | 0.05 | 0.65 | [Adafruit 2784](https://www.adafruit.com/product/2784) in quantity | estimated |
-| 25 | M3 fastener kit, 765 pcs (US seller) | 1 | 14.00 | 14.00 | eBay search snippet; the in-stock 522-pc SCC kit (HK$65, $8.33) is flagged both sold out and in stock | estimated |
-| 26 | M3 brass heat-set inserts, 100 pcs (about 40 used: see "Fasteners") | 1 | 10.00 | 10.00 | TME about $0.10 each at 100 (search snippet); Adafruit 4256 (50 pack, $5.95) is out of stock | estimated |
-| 27 | USB cable, Pico micro-USB to Jetson (the Brio brings its own) | 1 | 2.50 | 2.50 | allowance | estimated |
-| 28 | DC cables: barrel plug to the Jetson (from the 12 V bus), brick pigtail to the XT60 (2 pcs) | 2 | 2.00 | 4.00 | allowance | estimated |
+| 25 | M3 fastener kit, 522 pcs (SCC) | 1 | 8.33 | 8.33 | [SCC Ltd](https://scccltd.com/products/522pcs-m3-m4-hex-socket-screw-nut-kit), HK$65 / 7.8; **price datasheet-derived, stock unverified** (the page shows both "In stock" and "Sold out"); a US 765-pc eBay kit at $14 (snippet) is the fallback | derived |
+| 26 | M3 brass heat-set inserts, 100 pcs (CAD needs **82**: see "Fasteners"; a 50 pack does not cover it) | 1 | 10.00 | 10.00 | TME about $0.10 each at 100 (search snippet); Adafruit 4256 (50 pack, $5.95) is out of stock. **Price and stock unverified** | estimated |
+| 26b | M4 brass heat-set inserts (4 stator posts, hole 5.6 mm) | 4 | 0.375 | 1.50 | allowance, no listing fetched | estimated |
+| 27 | USB cable (Pico micro-USB to Jetson) and DC cables (barrel plug to the Jetson from the 12 V bus, XT60 pigtail): one allowance line | 1 | 4.00 | 4.00 | allowance, no listing | estimated |
 | 29 | Status LEDs (3) and buzzer (GP15-17, not in the wiring model) | 1 | 2.00 | 2.00 | allowance | estimated |
-| 30 | Hookup wire (silicone 18/22/24/26/28 AWG, about 17 m in the wiring model) and connectors | 1 | 10.00 | 10.00 | allowance (spec.md budget line "wire/connectors $10") | estimated |
+| 30 | Hookup wire (silicone 18/22/24/26/28 AWG, about 17 m in the wiring model) and connectors | 1 | 6.00 | 6.00 | allowance, no listing (about 17 m in the wiring model; spec.md had $10) | estimated |
 
-**Hardware total: $165.56** (items 1-30).
-**Filament: $21.97** (CAD build 8fa7ecc: 29 printed parts + 1, 1098.6 g at $20/kg).
-**Hardware + filament: $187.53.** This is **$37.53 over the $150 target.**
-**Rounds (consumable, outside the hardware total):** Nerf Rival 100-round pack, $14.99 ([Nerf wiki / retailer listings](https://nerf.fandom.com/wiki/Rival_Round)). With rounds: **$202.52.**
+## Totals (target: hardware + filament <= $150; excludes the Jetson, Brio, rounds and the optional brick)
 
-## Where the money is, and the levers (not applied)
+- Hardware, items 1-30 without the brick: **$129.94**.
+- Filament: **$21.99** (CAD d165505 build: 1099.7 g at $20/kg).
+- **Hardware + filament = 129.94 + 21.99 = $151.93, which is $1.93 over the $150 target.**
+- Rounds (consumable, outside the hardware total): Nerf Rival 100-round pack, $14.99 ([Nerf wiki / retailer listings](https://nerf.fandom.com/wiki/Rival_Round)). With rounds: 151.93 + 14.99 = **$166.92**.
 
-Lean alternatives, all already researched: 12 V brick at the facmogu $23 (-1.95), M3 kit at the SCC $8.33 (-5.67), a 50-piece insert pack at about $5 (-5), wire and connectors at $6 (-4), USB and DC cable allowances at $4 (-2.50)
-brings the total to about $168. The $150 target is not reachable with this parts list without dropping a function (the relay weapon rail is $0.44 and stays; the Pico is $5). The two largest single lines are the brick ($24.95)
-and the stepper pair + drivers ($32.00).
+How the cheapest-pack switch changes the total (all against the earlier $165.56 hardware total):
+165.56 - 24.95 (brick to Optional) - 5.67 (SCC kit $8.33 for $14) - 4.00 (wire $6 for $10) - 2.50 (cables $4 for $6.50) + 1.50 (M4 inserts, new line) = 129.94.
+The insert line stays $10 because the CAD needs 82 M3 inserts and a 50-piece pack (about $5) does not cover them (see "Fasteners"). Stock or price fidelity of the switched lines: SCC kit price derived from HK$65, stock unverified; inserts price and stock unverified (search snippet); wire and cables are allowances.
+
+Levers if the last $1.93 matters (not applied): facmogu is not relevant now that the brick is optional; the 6807ZZ at $7.49 has a $3.09 eBay offer (-4.40, ABEC1, unverified); the two flywheel-motor MOSFETs plus diodes could be a single driver (needs an electrical change).
+
+## Optional
+
+| Part | Qty | Unit | Source | Fidelity |
+|------|-----|------|--------|----------|
+| 12 V 5 A brick, 5.5x2.1 mm (suggested buy) | 1 | 24.95 | [Adafruit 352](https://www.adafruit.com/product/352), 7 in stock; library part `facmogu-12v-5a-psu` ($23, estimated, not verified in stock) is the cheaper alternative | datasheet |
+
+The XT60 inlet takes the builder's own 12 V supply or a 3S/4S LiPo, so the brick is not counted. With the brick: 151.93 + 24.95 = $176.88.
+
 ## Added since the last BOM
 
 Relay (17), 13 resistors (24), USB and DC cables (27, 28), LED and buzzer allowance (29), the 6807ZZ (12) with one 608 and one rod fewer, the 20T pulleys at the cheaper Olimex price and no 60T pulley (4), the E-stop at the Maplin price (15),
@@ -55,8 +66,13 @@ the pan stop parts (below).
 ## Fasteners for the pan hard stop
 
 `pan_stop_stud` (M3 x 14 threaded stud in a heat-set insert in the stator) and `pan_stop_tab` (printed, 1.2 g, two countersunk M3 screws into two inserts in the rotor underside): the SCC 522-piece kit lists M3 screws in 8, 10, 12 and 16 mm,
-flat-head and round-head, so the countersunk screws are covered; **a 14 mm length is not in that kit**, so the stud is an M3 x 16 screw (kit) cut to length, or an M3 x 14 from the 765-piece kit (item 25, contents not read). The three
-inserts (one stator, two rotor) come from item 26. Insert count for the whole turret is a CAD hole count estimate (about 40), the pack of 100 covers it.
+flat-head and round-head, so the countersunk screws are covered; **a 14 mm length is not in that kit**, so the stud is an M3 x 16 screw (kit) cut to length. The three
+inserts (one stator, two rotor) are in the count below.
+
+Insert count, from the CAD (d165505): `cad/cuas-lite/parts.py` was run with `hole()` instrumented to count every hole of insert diameter, times the part count:
+**82 M3 inserts (4.2 mm holes)** (launcher_chassis 22, pan_rotor_plate 18 incl. the two pan-stop tab inserts, pan_pulley_100t 6, base_leg 2 x 4 = 8, electronics_tray 4, feed_elbow 4, tilt_hub 4, yoke_left 4, yoke_right 4,
+base_stator_plate 3 incl. the pan-stop stud insert, barrel halves 2 + 2, piston 1) **and 4 M4 inserts (5.6 mm holes, stator posts for the lazy susan)**.
+A 50-piece pack is **not enough**; the next size up, 100 M3 pieces at about $10, covers it with 18 spare (item 26); the 4 M4 inserts are item 26b (allowance).
 
 ## Lazy susan
 
