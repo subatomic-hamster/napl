@@ -196,6 +196,43 @@ TEST(render, error_bad_size) {
   }
 }
 
+// The default device is a real GPU: it draws the scene within a tolerance of llvmpipe (a different rasteriser: edge / MSAA /
+// shadow differences), and a CPU renderer is refused without NAPL_RENDER_ALLOW_CPU=1. Compared with llvmpipe in the same
+// process, not with the golden. (ctest runs these two without the CPU environment the golden tests get, see CMakeLists.txt.)
+TEST(render_gpu, smoke_default_device_is_not_cpu_and_matches_llvmpipe_loosely) {
+  const auto s = scene();
+  std::string n;
+  Image a;
+  {  // (one Renderer at a time: volk's function table is process-global)
+    Renderer gpu;
+    n = gpu.device_name();
+    a = gpu.render(*s, kGoldenCam, kW, kH);
+  }
+  EXPECT_EQ(n.find("llvmpipe"), std::string::npos) << n;
+  EXPECT_EQ(n.find("lavapipe"), std::string::npos) << n;
+  ASSERT_EQ(setenv("NAPL_RENDER_ALLOW_CPU", "1", 1), 0);  // own process: ctest runs one test each
+  ASSERT_EQ(setenv("NAPL_VK_DEVICE", "llvmpipe", 1), 0);
+  Renderer cpu;
+  const Image b = cpu.render(*s, kGoldenCam, kW, kH);
+  const double p = psnr_rgb(a.rgba, b.rgba);
+  std::cout << "device: " << n << " vs " << cpu.device_name() << "\nPSNR: " << p << " dB\n";
+  EXPECT_GT(p, 28);
+}
+
+TEST(render_gpu, cpu_device_is_refused_unless_allowed) {
+  ASSERT_EQ(unsetenv("NAPL_RENDER_ALLOW_CPU"), 0);
+  ASSERT_EQ(setenv("NAPL_VK_DEVICE", "llvmpipe", 1), 0);  // own process: ctest runs one test each
+  try {
+    Renderer r;
+    FAIL() << "a CPU renderer was used without NAPL_RENDER_ALLOW_CPU";
+  } catch (const std::runtime_error& e) {
+    EXPECT_NE(std::string(e.what()).find("NAPL_RENDER_ALLOW_CPU"), std::string::npos) << e.what();
+  }
+  ASSERT_EQ(setenv("NAPL_RENDER_ALLOW_CPU", "1", 1), 0);
+  Renderer r;
+  EXPECT_NE(r.device_name().find("llvmpipe"), std::string::npos) << r.device_name();
+}
+
 TEST(render, error_no_vulkan_device) {
   ASSERT_EQ(setenv("VK_DRIVER_FILES", "/nonexistent/none_icd.json", 1), 0);  // own process: ctest runs one test each
   try {

@@ -114,24 +114,127 @@ Thin poles (0.05-0.09 m radius) are the hard case for a 160 x 90 image at 0.095 
   walker, whose routes bend 45-90 deg at corners; a detection miss counts only 35 % against a visible hypothesis because the detector's misses come in runs of seconds. A person who
   stops, reverses or walks a very different route is found only when the camera happens to sweep over them. `W_VIS`, `LOST_STANDOFF`, `LOOK_OFF` and the belief constants were tuned by hand
   on seeds 1, 111, 302, 100, 105, 108, 110, 117, 205.
-- **Not attempted: either mission through PX4 (the gap, precisely).** `napl program`'s px4 interface runs PX4 SITL in lockstep through `napl-px4-bridge`
-  (`src/px4/main.cpp`), which owns the World and sends HIL_SENSOR (IMU, baro, mag), HIL_GPS, HIL_STATE_QUATERNION and BATTERY_STATUS and applies
-  HIL_ACTUATOR_CONTROLS to the ESC throttles. Confirmed by grep of that file: it sends no ODOMETRY / VISION_POSITION_ESTIMATE and no OBSTACLE_DISTANCE, so PX4's
-  EKF2 would have to run on GPS (this drone's state estimate is an IMU + VIO + baro filter that does not use GPS) or the bridge would need a
-  vision-odometry injection path fed by a VIO stand-in. Inferred (not tried): the Python planner and the depth device live in a World that the bridge
-  owns, so reading 160 x 90 depth frames at 25 Hz needs the bridge's `--ctl` socket (`get` / `mget`, rates untested) or an in-process depth export,
-  and the setpoints would go to PX4 as MAVLink offboard position / velocity targets (`NAPL_MAVLINK`) instead of through `cuas.flyer.Flyer`. That is a
-  rewrite of `fly.py`'s plumbing plus a bridge feature, not a configuration. `cuas.flyer.Flyer` gains were not compared with PX4 defaults.
+- **Through PX4: done, see "On PX4" below** (`follow.px4.scenario.toml`, `goal.px4.scenario.toml`). The two native scenarios above are unchanged and still fly
+  `cuas.flyer.Flyer`; the PX4 ones fly the same planner and estimator with PX4 as the flight controller and no GPS.
 - The **depth image is sub-sampled 160 x 90** of the real 1280 x 720 (same field of view 87 x 58 deg, 0.28-10 m range, 25 Hz); no stereo matching artefacts,
   flying pixels, or sunlight washout. Ray casting is exact against the MJCF geoms; the drone's own landing gear and props are NOT in the image
   (the camera sits ahead of them; checked on a frame).
-- **The flight controller is `cuas.flyer.Flyer`** (cascaded PD + geometric attitude + thrust curves calibrated from the motor / prop models), not PX4.
-  The acceleration feed-forward is emulated through the position setpoint.
+- **The native flight controller is `cuas.flyer.Flyer`** (cascaded PD + geometric attitude + thrust curves calibrated from the motor / prop models), not PX4.
+  The acceleration feed-forward is emulated through the position setpoint. The PX4 scenarios replace it with PX4 v1.17 (next section).
 - Not modelled: the printed nose bracket, M2.5 stand-offs, cable clamps (about 25 g); the Pi's heatsink / fan. The Pi 5 mass (46 g) is an estimate.
   The 6 DRC warnings are inherited unchanged from `assemblies/x500v2.toml`.
 - "Collision" is the physics: a MuJoCo `<contact>` sensor on the airframe subtree against the obstacle body (and the subject). `clearance_m` is the exact
   analytic surface distance of the generator's primitives minus a 0.40 m airframe bounding sphere (evaluation only; the planner never sees it).
 - The wind is a steady 0.8 / 0.4 m/s plus Dryden turbulence (W20 = 1 m/s), light for a forest.
+
+## On PX4 (GPS-denied, companion computer)
+
+`follow.px4.scenario.toml` and `goal.px4.scenario.toml` fly the same airframe, planner, depth map and estimator under real PX4 v1.17 SITL, with PX4 as the
+flight controller and **no GPS**: `px4/bridge_skydio.toml` has no `gnss` key (the bridge sends no HIL_GPS; a ctest asserts it) and `EKF2_GPS_CTRL=0`. The
+program (`px4_fly.py`, class `Px4Skydio(Skydio)`) is the Pi 5 companion: its own MAVSDK link to PX4, separate from the bridge, as on the real drone.
+The monitors are copied unchanged from the native scenarios (they are judged on the program's `companion.csv`, which has the same columns as the
+native trace; `trace.csv` stays the bridge's, which is what the replay and `render_frames.py` use).
+
+```
+NAPL_PX4_INSTANCE=5 .venv/bin/napl program examples/skydio/goal.px4.scenario.toml   --runs-dir build/runs   # ~2.5 min wall (PX4 boot ~25 s + lockstep flight), PASS + replay match
+NAPL_PX4_INSTANCE=5 .venv/bin/napl program examples/skydio/follow.px4.scenario.toml --runs-dir build/runs   # NAPL_PARAMS='{"seed": 111}' for another seed
+.venv/bin/python examples/skydio/px4_montecarlo.py --mission both --seeds 12 --workers 2 --out build/skydio_px4_mc   # under the shared CPU lock; PX4 instances 5 and 6
+```
+
+| message / path | direction | rate | what it is |
+|---|---|---|---|
+| HIL_SENSOR, HIL_STATE_QUATERNION, BATTERY_STATUS (bridge) | sim -> PX4 | 250 Hz (one per 4 ms step) | IMU, baro, (mag), battery; no HIL_GPS |
+| ODOMETRY (MAVSDK `MavlinkDirect`) | companion -> PX4 | 31 Hz | the ESKF pose and velocity (LOCAL_NED, pad as origin, VIO estimator type, FRD attitude); EKF2 fuses it |
+| OBSTACLE_DISTANCE | companion -> PX4 | 31 Hz | 72 bins x 5 deg, body FRD, nearest depth-map point within +-0.6 m of the vehicle height; bins the camera cannot see are UNKNOWN, not clear |
+| offboard position + velocity + acceleration set-points | companion -> PX4 | 62 Hz | the planner's output through `Px4Flyer._command` (same arithmetic as the native `Flyer` target) |
+| `--ctl` socket `imu <since>` | bridge -> companion | polled | the 250 Hz gyro / accel records the bridge sent to PX4, buffered 16 s with their sample counters, so the companion's ESKF sees exactly PX4's IMU |
+
+PX4 parameters that differ from the x500v2 airframe 4902 (`[interfaces.px4.params]`, applied as `PX4_PARAM_*` before the airframe file): `EKF2_GPS_CTRL=0`,
+`EKF2_EV_CTRL=15` (position, height, velocity, yaw), `EKF2_HGT_REF=3` (vision), `EKF2_MAG_TYPE=5` (no mag fusion), `SYS_HAS_MAG=0`, `SYS_HAS_GPS=0`, `EKF2_EV_DELAY=20` ms,
+`EKF2_EV_NOISE_MD=1` with `EKF2_EVP_NOISE` 0.1 m, `EKF2_EVV_NOISE` 0.1 m/s, `EKF2_EVA_NOISE` 0.05 rad, `MPC_TILTMAX_AIR=26` (the native max tilt), `CP_DIST=1.0`,
+and, added by the PX4VIO2 stage, `MPC_TKO_RAMP_T=0.5` (default 3 s; rationale in "Why follow.px4 failed" below).
+Names and ranges were read in the v1.17.0 tree, not recalled. `NAPL_PX4_PARAMS='{"NAME": value}'` overrides or adds a parameter for one run and
+`px4_montecarlo.py --param NAME=VAL` sets it for a sweep (used for the tuning experiments below; nothing but `MPC_TKO_RAMP_T` was kept).
+
+**Does PX4 do GPS-denied vision fusion here? Yes, shown by its own log.** In the ulog of the first run `estimator_status_flags` has `cs_ev_pos`, `cs_ev_vel`,
+`cs_ev_hgt` and `cs_ev_yaw` set and `cs_gnss_*` never, `solution_status_flags` shows horizontal relative position / velocity valid, and the commander printed
+"Ready for takeoff!" 3-4 s after the first ODOMETRY. PX4's own position follows the companion's: RMS 0.06 m (worst run 0.07 m) over all 24 flights below.
+
+### Results (PX4 SITL, seeds 100-111, 12 per mission, 2 workers)
+
+PX4 is not lockstep-deterministic (its tasks run on wall-clock timers), so the same seed gives a different flight each time; each run replays to its own
+hash (`replay.match` 24 of 24), but the numbers below cannot be reproduced to the digit. 12 seeds give wide intervals; the native tables above use 24 and 24 held-out.
+
+| | goal | follow |
+|---|---|---|
+| Monte Carlo success (`montecarlo.py` definition), Wilson 95 % | 12/12 = 100 % [76, 100] % | 12/12 = 100 % [76, 100] % |
+| every scenario monitor passed (the strict check) | 12 of 12 | **6 of 12** (the `follow_distance_band`, 3-8 m, failed on seeds 100, 103, 104, 106, 109, 110) |
+| contacts | 0 | 0 |
+| min clearance, worst run / mean (m) | 0.34 / 0.49 | 0.14 / 0.46 |
+| time to goal mean / worst (s), or follow distance median of medians (m) | 18.4 / 20.0 | 4.54 (IQR 4.49-4.69) |
+| subject seen (fraction) / detector recall on visible frames | - | 0.95 / 0.96 |
+
+The table above is the PX4VIO stage (before the fixes below). The native path passes that monitor on seed 1 and, in the tables above, on 24 of 24 forests (23 of 24 held-out); on PX4 the follow band is the weak point.
+
+**PX4VIO2 stage (this code; the strict check is the scenario monitor `follow_distance_band`, 3-8 m from t = 10 s, not widened):**
+
+| follow.px4 strict band | passes | Wilson 95 % |
+|---|---|---|
+| PX4VIO baseline, seeds 100-111 | 6/12 | [25, 75] % |
+| same config re-flown in this stage (c0), seeds 100-111 | 9/12 | [47, 91] % |
+| `MPC_TKO_RAMP_T=0.5` only, seeds 100-123 | 18/24 | [55, 88] % |
+| + rolling start (final code), seeds 100-123 (intermediate run e2) | 21/24 | [69, 96] % |
+| **final code, training seeds 100-111** | **7/12** | [32, 81] % |
+| **final code, held-out seeds 700-723, flown once** | **22/24** | [74, 98] % |
+| goal.px4, final code, seeds 100-111 | 12/12, 0 contacts | [76, 100] % |
+
+The target (>= 11/12 on the training seeds) was **not met**: the final training run gave 7/12. The held-out block met its target (22/24) by point estimate, but the interval
+is [74, 98] %, and the same config gave 6/12 and 9/12 on the same seeds before the changes, so the run-to-run noise of PX4 SITL (not lockstep-deterministic) is as large as the effect.
+Final training run: follow distance median 4.60 m (IQR 4.52-4.76), 0 contacts, min clearance 0.12 m; held-out: median 4.55 m, 0 contacts, min clearance 0.25 m.
+Goal, final code: mean speed 2.95 m/s, worst-run clearance 0.34 m, time to goal 18.4 / 21.2 s (mean / worst).
+
+### Why follow.px4 failed, measured (PX4VIO2)
+Measured on the companion trace (`companion.csv` now also records the set-point, the true velocity and the estimated velocity):
+- **PX4 tracks the velocity set-point fine.** Identified from set-point to true velocity: first-order lag tau 220-300 ms (mean 268 ms in the final run), gain 0.85-1.08. The earlier guess
+  "the PX4 position loop answers more slowly than `cuas.flyer.Flyer`" is **withdrawn**. The planner replans every 40 ms from the *estimated* state, which hides this lag.
+- **The start transient was the dominant failure.** PX4's smooth-takeoff ramp (`MPC_TKO_RAMP_T` = 3 s) held the drone on the pad until t = 2.9 s and the last 0.3 m of the climb took until 7 s,
+  so the walk (t = 4.0 s) began before the quad could follow and the monitor window (from 10 s) opened mid-transient, with the distance at 8.1 m at its peak. With `MPC_TKO_RAMP_T = 0.5`
+  the walk starts at 4.1 s as natively; the distance at t = 10 s is 5.05 m on average (max 5.9 m, final training run).
+- **Rolling start** (`Px4Skydio._setpoint`): in the last 0.5 s of the map phase the companion accelerates toward the subject (at the planner's `a_max`, up to 1.5 m/s, `SKYDIO_PREROLL_V`), so
+  the quad leaves the pad with the subject. Start-peak distance 8.12 m without it, 7.67 m with it, native 7.2-7.6 m.
+- **What is left is subject loss in clutter, which the native path shares.** In the final training run every miss (seeds 100, 101, 103, 104, 106) first exceeded 8 m at t = 19-25 s with the quad slow
+  (0.5-1.8 m/s at that moment, minimum 0.07-1.0 m/s in the 4 s before) and, in 4 of 5, a detector dropout of 0.4-2.9 s at about 24-25 s. Seeds 100, 104 and 118 also stall the *native* planner
+  (vdes = 0 with few safe directions). Held-out misses: seed 720 (9.9 m; dropouts of 1.0 s and 1.7 s) and 722 (8.8 m, no dropout, 0.3 m/s minimum speed in the prior 4 s). Not fixed: planner behaviour, not PX4.
+
+### Tried and rejected (this stage)
+- **Lead extrapolation** of the set-point by `LEAD_S` seconds of planned velocity / acceleration to cancel the lag: 4 of 96 flights went unstable (chatter in clutter) against 0 of 72 without. `SKYDIO_LEAD_S` stays as an experiment knob, default 0 (identity).
+- **`MC_ROLL_P` = `MC_PITCH_P` = 12 and 8.5** (faster attitude loop): instability and crashes. Not kept.
+
+### Stack.mavlink port fix
+`python/napl/px4.py` assumed the offboard port was 14540 + instance. PX4's `px4-rc.mavlink` sends every instance above 9 to udp 14549, so `Stack(instance=10, 12)` listened on the wrong port.
+It is now `14540 + n` for n <= 9, else 14549 (test: `test_stack_offboard_port_follows_rcs_routing`). Instances 5 and 6, used here, were never affected.
+
+### What is not the same as the real drone / as the native path
+- **The strict follow band is not reliably met on PX4.** 7/12 (training) and 22/24 (held-out, flown once) with the final code, true rate probably 60-90 %. The monitors were not widened.
+  The remaining misses are subject-loss / clutter stalls of the planner, shared with the native path and not fixed here. The 11/12 training target was not reached.
+- **`MPC_TKO_RAMP_T = 0.5` and the rolling start were found by diagnosing seeds 100-111**, so those seeds are not independent evidence; the 700-723 block is.
+- **Airframe mismatch.** The airframe is the x500v2 (PX4 4902: gains, hover thrust, mixer) plus camera, Pi 5 and regulator: 1.681 kg against 1.52 kg. `EKF2_EV_POS_X/Y/Z`
+  stay 0 (the camera is not at the IMU; the real vehicle needs the lever arm), and PX4's rate / attitude gains were not re-tuned for the extra mass.
+- **The ESKF sees PX4's IMU at 250 Hz** (the bridge's HIL rate), not the native 500 Hz; the VIO stand-in (statistical 25 Hz, 50 ms latency) and the baro are the same as native.
+- **Real compute time is in the loop.** The companion runs in wall-clock lockstep with the sim, so Python's planner time (mean 31 ms, worst 62 ms) adds to the simulated 50-60 ms
+  latencies; the native run has no such coupling. This is the realistic direction, but it means the PX4 numbers depend on the host's load.
+- **OBSTACLE_DISTANCE does not steer the drone.** PX4 v1.17 calls collision prevention only from the Position-mode stick task (`FlightTaskManualPosition`), not in Offboard, so
+  `CP_DIST` has no effect here (the message is delivered to the `obstacle_distance` topic; the log shows it). Avoidance is the companion planner's, as on the native path.
+- **Boot readiness** waits for PX4's reported position to agree with the companion's (0.3 m, 0.3 m/s) after 12 s: MAVSDK's `is_local_position_ok` flaps on vision-only
+  fusion and `is_armable` is judged in Hold, which needs a global position. Arming is done in Offboard.
+- **No failure injection, no wind compensation tuning, one forest generator**; 12 seeds per mission only.
+
+For a video, run a PX4 flight and render it exactly like a native one (the run directory holds `telemetry.jsonl`, `depth.npz`, `model/forest.json`, `replay.naplog` and the bridge's `trace.csv`):
+
+```
+NAPL_PX4_INSTANCE=5 .venv/bin/napl program examples/skydio/follow.px4.scenario.toml --runs-dir build/runs
+tools/remote.sh run --gpu '.venv/bin/python examples/skydio/render_frames.py build/runs/skydio-follow-px4-<stamp> --out build/frames --cam chase --fps 30'   # --cam side|top|fpv, --detections, --belief, --from/--to
+```
 
 ## Parts list (the real drone this models)
 

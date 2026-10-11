@@ -327,6 +327,14 @@ NB_MODULE(_napl, m) {
   m.attr("schema_json") = kSchemaJson;  // flatc --jsonschema output, embedded at build time
 #ifdef NAPL_HAS_VIEWER
   m.attr("has_viewer") = true;
+  // Off-screen viewer (NAPL_OFFSCREEN=1): the newest frame as (seq, (h, w, 4) uint8 RGBA), or None before the first one.
+  m.def("viewer_frame", []() -> nb::object {
+    std::vector<std::uint8_t> px;
+    int w = 0, h = 0;
+    const std::uint64_t seq = viewer_latest_frame(&px, &w, &h);
+    if (!seq || px.empty()) return nb::none();
+    return nb::make_tuple(seq, copy_array<std::uint8_t>(px.data(), {static_cast<std::size_t>(h), static_cast<std::size_t>(w), 4}));
+  });
 #else
   m.attr("has_viewer") = false;
 #endif

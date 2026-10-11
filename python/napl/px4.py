@@ -6,10 +6,14 @@
     final = st.stop()                        # {"tick": n, "state_hash": "<hex>"} of the bridge's World; kills both processes
 
 tests/python/test_px4_flight.py launches through this same Stack (after stop(): st.rc = the bridge's exit code).
-Env: NAPL_PX4_DIR (PX4 checkout, default the hfbox path), NAPL_PX4_INSTANCE (default 0), NAPL_BRIDGE_EXE, NAPL_REPLAY_EXE.
+Env: NAPL_PX4_DIR (PX4 checkout, default the hfbox path), NAPL_PX4_INSTANCE (default 0), NAPL_BRIDGE_EXE, NAPL_REPLAY_EXE,
+NAPL_PX4_SPEED (default 1 = real time; the bridge paces sim time at this factor, PX4 follows the HIL clock in lockstep. Measured on
+12 Skydio seeds x goal/follow at 1/2/4/8: success within the Wilson intervals, but whole-MC wall only 1084 -> 977 -> 906 -> 824 s,
+because PX4 boot, the planner and the replay are wall-bound; measured on a loaded host, so the default stays 1).
 Everything binds 127.0.0.1-reachable ports 4560+N (tcp) and 14540+N / 14550+N / 18570+N (udp); never 5177-5194, 8000, 8010, 8093.
 """
 
+import json
 import os
 import queue
 import re
@@ -117,12 +121,15 @@ class Stack:
         run_dir,
         model=None,
         instance=None,
-        speed=1.0,
+        speed=None,
         connect_timeout=120,
         params=None,
         ctl=False,
     ):  # params: extra PX4 parameters (name -> value) applied after napl_sitl.params; ctl: the bridge also serves st.ctl
-        self.params = dict(params or {})
+        self.params = {
+            **(params or {}),
+            **json.loads(os.environ.get("NAPL_PX4_PARAMS", "{}")),
+        }  # NAPL_PX4_PARAMS='{"MC_ROLL_P": 10}': per-run override of the scenario's parameters (tuning sweeps, examples/skydio/px4_montecarlo.py --param)
         n = (
             int(os.environ.get("NAPL_PX4_INSTANCE", 0))
             if instance is None
@@ -132,12 +139,17 @@ class Stack:
             Path(cfg),
             Path(run_dir),
             model,
-            speed,
+            float(os.environ.get("NAPL_PX4_SPEED", 1.0))
+            if speed is None
+            else speed,  # NAPL_PX4_SPEED: bridge pacing, sim s per wall s (lockstep, PX4 follows HIL time); 1 = real time, 0 = as fast as possible
             connect_timeout,
         )
-        self.tcp, self.udp = [4560 + n], [14540 + n, 14550 + n, 14580 + n, 18570 + n]
+        off = (
+            14540 + n if n <= 9 else 14549
+        )  # px4-rc.mavlink: instances above 9 all send their offboard stream to 14549
+        self.tcp, self.udp = [4560 + n], [off, 14550 + n, 14580 + n, 18570 + n]
         self.n, self.bridge, self.px4, self.rc = n, None, None, None
-        self.mavlink = f"udp://:{14540 + n}"  # a MAVSDK program listens here (PX4 sends its offboard stream to 14540)
+        self.mavlink = f"udp://:{off}"  # a MAVSDK program listens here (PX4 sends its offboard stream to 14540 + n)
         self.trace, self.log = self.dir / "trace.csv", self.dir / "replay.naplog"
         # ctl: unix socket onto the bridge's World (napl.ctl.RemoteSim); short path (sun_path is 107 bytes), removed by the bridge
         self.ctl = (

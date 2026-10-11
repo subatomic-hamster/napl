@@ -34,6 +34,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import videnc
+
 W, H = 1280, 720
 NAME, DESC = "car4", "4-wheel skid-steer car built from an empty design"
 BLANK = '<mujoco model="blank"><worldbody><geom name="floor" type="plane" size="3 3 0.1"/></worldbody></mujoco>'
@@ -221,7 +223,7 @@ def ui_prelude(b, req):
 
 def _build(oplog, out, fb, expect, ui=True):
     import design_shot
-    from napl import Sim, _napl
+    from napl import Sim
     from napl.design import Design
     from napl.design import assembly as A
     from napl.design.viewer import Backend
@@ -249,11 +251,11 @@ def _build(oplog, out, fb, expect, ui=True):
         while not stop.is_set():
             t = time.time() - t0
             try:
-                img = design_shot.xwd_rgba(Path(fb) / "Xvfb_screen0")
+                img = design_shot.grab(fb)
             except Exception:  # the file is rewritten under us: skip this grab
                 time.sleep(0.05)
                 continue
-            (out / f"f{n_png[0]:05d}.png").write_bytes(_napl.encode_png(img))
+            videnc.save_frame(out, f"f{n_png[0]:05d}", img)
             frames.append(round(t, 3))
             n_png[0] += 1
             time.sleep(max(0.0, 1 / FPS1 - (time.time() - t0 - t)))
@@ -397,8 +399,7 @@ def decorated(xml_text):
 
 
 def cmd_drive(a):
-    import numpy as np
-    from napl import _napl, showcase
+    from napl import showcase
     from screenshots import Replay
 
     out = Path(a.out_dir)
@@ -456,9 +457,7 @@ def cmd_drive(a):
         main[16:336, W - 336 : W - 16] = (
             over  # overhead inset, top right (the encoder draws its frame)
         )
-        (out / f"f{k:05d}.png").write_bytes(
-            _napl.encode_png(np.ascontiguousarray(main))
-        )
+        videnc.save_frame(out, f"f{k:05d}", main)
     h, ok = r.finish()
     (out / "hud.json").write_text(
         json.dumps(
@@ -477,7 +476,6 @@ def cmd_drive(a):
 
 # ---- encode (throwaway venv: av + Pillow) ----------------------------------------------------------------------------------------------
 def cmd_encode(a):
-    import av
     from PIL import Image, ImageDraw, ImageFont
 
     FONT = "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
@@ -491,34 +489,13 @@ def cmd_encode(a):
     p1, p2 = Path(a.part1), Path(a.part2)
     tl = json.loads((p1 / "timeline.json").read_text())
     hud = json.loads((p2 / "hud.json").read_text())
-    codecs = [
-        c
-        for c in (
-            "libx264",
-            "libopenh264",
-            "libvpx-vp9",
-        )  # (the generic name "h264" resolves to libx264: not listed)
-        if c in av.codecs_available
-    ]
-    print("encoders available among h264 / vp9:", codecs)
     out = Path(a.out)
-    codec = next(c for c in codecs if c != "libx264" or a.gpl)
-    if codec.startswith("libvpx") and out.suffix != ".webm":
-        out = out.with_suffix(".webm")
-    cont = av.open(str(out), "w")
-    st = cont.add_stream(codec, rate=FPS)
-    st.width, st.height, st.pix_fmt = W, H, "yuv420p"
-    st.options = (
-        {"crf": "26", "preset": "slow"}
-        if codec == "libx264"
-        else {"crf": "34", "b": "0"}
-        if codec.startswith("libvpx")
-        else {}
-    )
+    enc = videnc.Encoder(
+        out, W, H, FPS, gpl=a.gpl
+    )  # GPU (VA) when this host has it, else PyAV software
 
     def emit(img):
-        for pk in st.encode(av.VideoFrame.from_image(img.convert("RGB"))):
-            cont.mux(pk)
+        enc.write(img)
 
     def wrap(text, font, width, draw):
         lines, cur = [], ""
@@ -566,7 +543,7 @@ def cmd_encode(a):
         while j + 1 < len(ts) and ts[j + 1] <= t:
             j += 1
         if j not in cache:
-            cache = {j: Image.open(p1 / f"f{j:05d}.png").convert("RGB")}
+            cache = {j: videnc.load_frame(p1, f"f{j:05d}")}
         img = cache[j].copy()
         dr = ImageDraw.Draw(img)
         cur = None
@@ -665,7 +642,7 @@ def cmd_encode(a):
     fr = hud["frames"]
     xs = [(f["x"], f["y"]) for f in fr]
     for k, f in enumerate(fr):
-        img = Image.open(p2 / f"f{k:05d}.png").convert("RGB")
+        img = videnc.load_frame(p2, f"f{k:05d}")
         dr = ImageDraw.Draw(img)
         dr.rectangle([0, 0, W, 34], fill=(8, 10, 14))
         dr.text(
@@ -712,10 +689,8 @@ def cmd_encode(a):
         ],
         5.0,
     )
-    for pk in st.encode():
-        cont.mux(pk)
-    cont.close()
-    print(f"wrote {out}: {out.stat().st_size / 1e6:.1f} MB, codec {codec}")
+    enc.close()
+    print(f"wrote {out}: {out.stat().st_size / 1e6:.1f} MB, encoder {enc.backend}")
 
 
 def main():
@@ -761,9 +736,16 @@ def main():
     s.add_argument(
         "--gpl",
         action="store_true",
-        help="allow libx264 (GPL); default is openh264 / VP9 only",
+        help="ffmpeg VAAPI first and libx264 in the software fallback (GPL); default is GStreamer VA (LGPL), then openh264 / VP9",
     )
+    for name in ("build", "drive"):
+        sub.choices[name].add_argument(
+            "--keep-frames",
+            action="store_true",
+            help="also write a PNG per frame (default: raw .rgz only)",
+        )
     a = ap.parse_args()
+    videnc.keep_from(a)
     if a.cmd == "_build":
         _build(a.oplog, a.out_dir, a.fb, a.expect, not a.no_ui)
     elif a.cmd == "_render":

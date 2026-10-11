@@ -39,6 +39,7 @@ note = "16 header holes (male 0.1 in pins supplied, unsoldered); Pololu lists th
 
 [[ports]]
 name = "vmot"
+pins = ["PWR.1", "PWR.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -51,6 +52,7 @@ note = "VMOT/GND header pins; the board has no reverse-voltage protection (S1)."
 
 [[ports]]
 name = "motor_out"
+pins = ["PWR.3", "PWR.4", "PWR.5", "PWR.6"]   # 2B, 2A, 1A, 1B
 kind = "power"
 type = "stepper-bipolar-4wire"
 gender = "neutral"
@@ -61,12 +63,73 @@ note = "1A/1B/2A/2B outputs for one bipolar stepper (or 6/8-lead unipolar wired 
 
 [[ports]]
 name = "step_dir"
+pins = ["CTL.7", "CTL.8", "CTL.1", "CTL.2", "CTL.3", "CTL.4", "CTL.5", "CTL.6"]   # STEP, DIR, ENABLE, MS1-MS3, RESET, SLEEP
 kind = "signal"
 type = "step-dir"
 gender = "male"
 level_min = { value = 3.0, unit = "V", src = "S1", fidelity = "datasheet" }
 level_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
 note = "STEP, DIR, ENABLE and MS1-MS3 pins."
+
+# ---- Connectors (pin level): the 16 header holes, two rows of eight on a 0.1 in grid (P1: the pin labels of Pololu's wiring diagram and top-view
+# photo). CTL is the control row (ENABLE ... DIR), PWR the power/motor row (VMOT ... GND). The row spacing (0.5 in = the 0.6 in board width less
+# one 0.1 in margin per side) and the orientation are read off the product photo (estimated).
+[[connectors]]
+id = "CTL"
+name = "control header row (8 holes)"
+type = "header-1x8-2.54mm"
+gender = "male"
+pos = [0.0, -0.00635, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 8
+pitch = 0.00254
+src = "P1"
+fidelity = "datasheet"
+pose_rationale = "Pin names and order from P1; the row spacing 0.5 in and which side is 'left' are estimated from the product photo."
+pins = [
+  { number = 1, name = "ENABLE", kind = "signal", dir = "in", v_min = 3.0, v_max = 5.5, note = "active-low enable (the page's overbar label)" },
+  { number = 2, name = "MS1", kind = "signal", dir = "in", v_min = 3.0, v_max = 5.5, note = "microstep select 1 (100 kohm pull-down, P1)" },
+  { number = 3, name = "MS2", kind = "signal", dir = "in", v_min = 3.0, v_max = 5.5, note = "microstep select 2 (50 kohm pull-down, P1)" },
+  { number = 4, name = "MS3", kind = "signal", dir = "in", v_min = 3.0, v_max = 5.5, note = "microstep select 3 (100 kohm pull-down, P1)" },
+  { number = 5, name = "RESET", kind = "signal", dir = "in", v_min = 3.0, v_max = 5.5, note = "active-low reset; floating on the board (P1: connect it to SLEEP to enable)" },
+  { number = 6, name = "SLEEP", kind = "signal", dir = "in", v_min = 3.0, v_max = 5.5, note = "active-low sleep" },
+  { number = 7, name = "STEP", kind = "signal", dir = "in", v_min = 3.0, v_max = 5.5 },
+  { number = 8, name = "DIR", kind = "signal", dir = "in", v_min = 3.0, v_max = 5.5 },
+]
+
+[[connectors]]
+id = "PWR"
+name = "power and motor header row (8 holes)"
+type = "header-1x8-2.54mm"
+gender = "male"
+pos = [0.0, 0.00635, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 8
+pitch = 0.00254
+src = "P1"
+fidelity = "datasheet"
+pose_rationale = "Pin names and order from P1; the row spacing 0.5 in and which side is 'right' are estimated from the product photo."
+pins = [
+  { number = 1, name = "VMOT", kind = "power", dir = "in", v_min = 8.0, v_max = 35.0, i_max = 2.0, note = "motor supply 8-35 V (S1); no reverse-voltage protection" },
+  { number = 2, name = "GND", kind = "ground", note = "motor supply ground" },
+  { number = 3, name = "2B", kind = "power", dir = "out", i_max = 1.0, note = "coil 2; 1 A continuous per phase without a heat sink, 2 A with cooling (S1)" },
+  { number = 4, name = "2A", kind = "power", dir = "out", i_max = 1.0, note = "coil 2" },
+  { number = 5, name = "1A", kind = "power", dir = "out", i_max = 1.0, note = "coil 1" },
+  { number = 6, name = "1B", kind = "power", dir = "out", i_max = 1.0, note = "coil 1" },
+  { number = 7, name = "VDD", kind = "power", dir = "in", v_min = 3.0, v_max = 5.5, note = "logic supply 3-5.5 V (S1)" },
+  { number = 8, name = "GND", kind = "ground", note = "logic ground" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://www.pololu.com/product/1182"
+title = "Pololu item 1182 product page, pictures 0J10073 (minimal wiring diagram) and 0J10061 (top view with dimensions): header pin labels transcribed from the images"
+accessed = "2026-10-09"
+quote = "Left row, top to bottom: ENABLE, MS1, MS2, MS3, RESET, SLEEP, STEP, DIR. Right row, top to bottom: VMOT, GND, 2B, 2A, 1A, 1B, VDD, GND. The driver requires a logic supply voltage (3 V to 5.5 V) to be connected across the VDD and GND pins and a motor supply voltage (8 - 35 V) to be connected across VMOT and GND. MS1 and MS3 have internal 100kΩ pull-down resistors and MS2 has an internal 50kΩ pull-down. Please note that the RST pin is floating; if you are not using the pin, you can connect it to the adjacent SLP pin."
 
 [[sources]]
 id = "S1"

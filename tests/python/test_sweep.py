@@ -77,7 +77,10 @@ def test_threads_6_equal_threads_1_exactly():
     assert (
         one == six
     )  # full rows: params, verdicts, every monitor stat, exact float equality
-    assert one == sim().sweep(spec(), params, threads=64)  # capped at 6, same result
+    assert one == sim().sweep(spec(), params, threads=16)
+    assert one == sim().sweep(
+        spec(), params, threads=64
+    )  # capped at the core count, same result
 
 
 def test_kp_1e9_diverges_and_others_unaffected():

@@ -43,6 +43,7 @@ rationale = "Underside seat (double-sided tape / zip ties on a flat deck): the r
 
 [[ports]]
 name = "power_in"
+pins = ["IN.1", "IN.2"]
 lead = {}   # the battery leads ship on the ESC and are inside its 150.4 g (the retailer's weight 'with wires'); gauge and length not published
 kind = "power"
 type = "wire-lead"
@@ -55,6 +56,7 @@ note = "Battery leads (connector not stated in S1; the pack's XT60 is not rated 
 
 [[ports]]
 name = "motor_out"
+pins = ["MOT.1", "MOT.2", "MOT.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -67,9 +69,74 @@ note = "v_from = power_in: the bridge's output swing is the voltage on its input
 
 [[ports]]
 name = "signal"
+pins = ["SIG.1", "SIG.2"]
 kind = "signal"
 type = "pwm"
 gender = "neutral"
+
+# ---- Connectors (pin level). S1 (retailer table) gives ratings, the BEC and the size only: no lead gauge, connector or throttle-lead pinout. Leads are
+# drawn at the ends (battery in on -x, motor and throttle out on +x); contact counts follow from the port types (2-wire supply, 3 phases, a
+# throttle signal + ground pair). The BEC output (5-12 V, 10 A) is not modelled by this part, so it has no pins here. All of it is estimated.
+[[connectors]]
+id = "IN"
+name = "battery leads"
+type = "wire-lead"
+gender = "neutral"
+joinable = true
+pos = [-0.0416, 0.0, 0.01125]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.01
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives '120A/150A' and '3-8S' but no lead gauge, length or connector (the port note says the same); two leads (+, -) are implied by a DC supply input, their exit end is assumed."
+pins = [
+  { number = 1, name = "BAT+ (red)", kind = "power", dir = "in", v_max = 33.6, i_max = 120.0, fidelity = "derived", derivation = "v_max 8S x 4.2 V (S1 '3-8S'); i_max the 120 A continuous rating (S1)." },
+  { number = 2, name = "BAT- (black)", kind = "ground", i_max = 120.0, fidelity = "derived", derivation = "The 120 A continuous rating (S1)." },
+]
+
+[[connectors]]
+id = "MOT"
+name = "motor output leads"
+type = "wire-lead"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [0.0416, 0.0, 0.01125]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.008
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 states the 120 A / 150 A rating only; three phase leads A B C by convention (swapping two reverses the motor), exit end and spacing assumed."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 120.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 120.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 120.0 },
+]
+
+[[connectors]]
+id = "SIG"
+name = "throttle signal lead"
+type = "servo-lead-2"
+gender = "neutral"
+pos = [0.0416, 0.012, 0.01125]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0025
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 lists the PWM-type input only (port 'signal'); a throttle signal + ground pair is the minimum a PWM input needs. Any BEC conductor of the real harness is not modelled (the part leaves the BEC unused)."
+pins = [
+  { number = 1, name = "SIGNAL", kind = "signal", dir = "in" },
+  { number = 2, name = "GND", kind = "ground" },
+]
 
 [[sources]]
 id = "S1"

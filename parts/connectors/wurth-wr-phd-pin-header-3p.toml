@@ -19,6 +19,7 @@ temp_max            = { value = 378.15, unit = "K", src = "S1", fidelity = "data
 
 [[ports]]
 name = "header"
+pins = ["HDR.1", "HDR.2", "HDR.3"]
 kind = "power"
 type = "servo-3pin"
 gender = "male"
@@ -26,6 +27,26 @@ v_max = { value = 250, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "passthrough"
 note = "Working voltage 250 V (AC) and 3 A per pin; servo use is far below this"
+
+# Pin level (derived): 3 pins in one row at the S1 pitch; function of each pin is set by the board or servo lead it is used with.
+[[connectors]]
+id = "HDR"
+name = "pin header (3 pins)"
+type = "servo-3pin"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "derived"
+derivation = "Pin count is the part designation (3-pin header); pitch is the S1 value (2.54 mm); numbering 1..3 along the row is assumed."
+pose_rationale = "A catalogue part has no board frame: mating face at the origin."
+pins = [
+  { number = 1, name = "1", kind = "power" }, { number = 2, name = "2", kind = "power" }, { number = 3, name = "3", kind = "power" },
+]
 
 [[sources]]
 id = "S1"

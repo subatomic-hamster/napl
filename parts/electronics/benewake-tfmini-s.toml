@@ -31,6 +31,7 @@ operating_temp_max  = { value = 333.15, unit = "K", src = "S1", fidelity = "data
 
 [[ports]]
 name = "power_in"
+pins = ["J.1", "J.2"]
 kind = "power"
 type = "wire-lead"
 gender = "neutral"
@@ -41,6 +42,7 @@ note = "Supply voltage 5V±0.1V; i_max is the peak current; connector style not 
 
 [[ports]]
 name = "uart"
+pins = ["J.3", "J.4"]
 kind = "signal"
 type = "uart"
 gender = "neutral"
@@ -48,10 +50,42 @@ level = { value = 3.3, unit = "V", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "i2c"
+pins = ["J.3", "J.4"]
 kind = "signal"
 type = "i2c"
 gender = "neutral"
 level = { value = 3.3, unit = "V", src = "S1", fidelity = "datasheet" }
+
+# Pin level: Table 5 of the Benewake TFmini-S manual (P1), 4-wire lead with a GH1.25-4P terminal. Pins 3 and 4 are shared by UART (RXD / TXD) and I2C (SDA / SCL) depending on the configured interface, so only the UART port claims them; the I2C port is the same two pins.
+[[connectors]]
+id = "J"
+name = "GH1.25-4P lead terminal"
+type = "jst-gh-4"
+port_type = "tfmini-s-lead"
+gender = "neutral"
+pos = [-0.121, 0.0, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 4
+pitch = 0.00125
+src = "P1"
+fidelity = "literature"
+rationale = "Pin table from a reseller copy of the Benewake manual (the manufacturer PDF text has no pin table); pitch 1.25 mm is implied by the GH1.25 name, and gender is not stated."
+pose_rationale = "The datasheet gives a 10 cm cable; the terminal is at the cable end, 10 cm behind the 42 mm body (positional estimate)."
+pins = [
+  { number = 1, name = "GND", kind = "ground", note = "black" },
+  { number = 2, name = "+5V", kind = "power", dir = "in", v = 5.0, v_max = 5.1, i_max = 0.2, note = "red; power supply" },
+  { number = 3, name = "RXD/SDA", kind = "signal", dir = "in", v = 3.3, note = "white; receiving (UART) / data (I2C)" },
+  { number = 4, name = "TXD/SCL", kind = "signal", dir = "out", v = 3.3, note = "green; transmitting (UART) / clock (I2C)" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://www.worldronemarket.com/benewake-tfmini-s-lidar-module-manual/"
+title = "Benewake TFmini-S LiDAR Module Manual (reseller copy), Table 5 pin functions"
+accessed = "2026-10-09"
+quote = "Table 5: Function and Connection Description of each pin (TFmini-S): 1 Black GND Ground; 2 Red +5V Power supply; 3 White RXD/SDA Receiving/Data; 4 Green TXD/SCL Transmitting/Clock. Type of connecting terminal: GH1.25-4P."
 
 [[sources]]
 id = "S1"

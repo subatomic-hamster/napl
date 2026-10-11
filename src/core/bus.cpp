@@ -317,7 +317,9 @@ Out run_sweep(const World& live, const std::vector<std::byte>* snap, const napl:
       }
     }
   };
-  const std::size_t nthreads = std::min<std::size_t>({static_cast<std::size_t>(std::max(1, sw.threads())), 6, runs});  // house rule: <= 6
+  // sw.threads() and the run count are the limits; the host's core count is the ceiling (hfbox is dedicated: the old "<= 6" house rule is lifted).
+  const std::size_t nthreads = std::min<std::size_t>({static_cast<std::size_t>(std::max(1, sw.threads())),
+                                                      std::max<std::size_t>(1, std::thread::hardware_concurrency()), runs});
   std::vector<std::thread> pool;
   for (std::size_t t = 1; t < nthreads; ++t) pool.emplace_back(work);
   work();

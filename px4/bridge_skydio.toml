@@ -1,0 +1,24 @@
+# napl-px4-bridge config for the Skydio-style quadrotor (assemblies/skydio.toml composed with the forest by examples/skydio/skydio_scene.py; the
+# scenario passes the generated scene.xml with --model). GPS-DENIED: no `gnss` key, so the bridge sends no HIL_GPS and PX4 gets its position from the
+# companion computer's ODOMETRY (examples/skydio/px4_fly.py, python/napl/companion.py). Device names are the compose() ones: "<vehicle>_<device>".
+# Same airframe as bridge_x500v2_asm.toml (the Skydio is the X500 V2 plus camera, Pi 5 and regulator), so the same PX4 airframe 4902 and motor order.
+base = "/world/skydio_bottom"          # root instance (bottom plate), free joint bottom:free; FLU, +x forward
+imu = "skydio_imu"                     # 500 Hz in the model (>= the 250 Hz HIL step rate the bridge needs)
+baro = "skydio_baro"
+mag = "skydio_mag"                     # sent to PX4; the scenario turns magnetometer fusion off (EKF2_MAG_TYPE 5): heading comes from the vision yaw
+battery = "skydio_battery"
+
+[motors]
+# entry i = PX4 controls[i] = motor i+1 of the assembly (m1 front-right CCW, m2 rear-left CCW, m3 front-left CW, m4 rear-right CW, see assemblies/x500v2.toml)
+esc = ["skydio_esc1", "skydio_esc2", "skydio_esc3", "skydio_esc4"]
+
+[home]                                 # ground-truth message (HIL_STATE_QUATERNION) origin only: PX4 never uses it for navigation here
+lat = 47.3769
+lon = 8.5417
+alt = 408.0
+
+[px4]
+sysid = 1                              # PX4's MAV_SYS_ID
+compid = 180                           # ours (MAV_COMP_ID_BATTERY), must differ from PX4's
+battery_rate_hz = 5
+cells = 4

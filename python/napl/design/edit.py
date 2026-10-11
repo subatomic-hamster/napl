@@ -957,11 +957,13 @@ class Design:
                     f"wire {end} '{s[end]}': port kind {p.get('kind')!r}, wires join power or signal ports"
                 )
             for ref in s.get(end + "_pins") or []:
-                if PN.find_pin(part, ref) is None:
+                pin = PN.find_pin(part, ref)
+                if pin is None:
                     raise DesignError(
                         f"wire {end} '{s[end]}': {part.id} has no pin '{ref}' (connectors: {sorted(part.connectors)})"
                     )
-                if p.get("pins") and ref not in p["pins"]:
+                # a joinable connector (a splice point on a lead) may be tapped from any port of its part, as the assembly loader allows
+                if p.get("pins") and ref not in p["pins"] and not pin.get("joinable"):
                     raise DesignError(
                         f"wire {end} '{s[end]}': pin {ref} is not on port {pn} (its pins: {p['pins']})"
                     )
@@ -1543,16 +1545,24 @@ class Design:
             about = self._vec3(s["about"], "about") if s.get("about") else p
             p = about + Rd @ (p - about)
             R = Rd @ R
+        rpy = None
         if s.get("rpy") is not None:
             from .snap import rpy_matrix
 
-            R = rpy_matrix(self._vec3(s["rpy"], "rpy"))
+            rpy = self._vec3(s["rpy"], "rpy")
+            R = rpy_matrix(rpy)
         if s.get("pos") is not None:
             p = self._vec3(s["pos"], "pos")
         if s.get("delta") is not None:
             p = p + self._vec3(s["delta"], "delta")
         inst["pos"] = [round(float(x), 6) for x in p]
-        inst["rpy"] = [round(float(x), 6) for x in matrix_rpy(R)]
+        # an rpy the caller gave is stored as written (a half turn about y is [0, pi, 0], not matrix_rpy's equivalent [pi, 0, pi])
+        inst["rpy"] = [
+            round(float(x), 6)
+            for x in (
+                rpy if rpy is not None and s.get("rot") is None else matrix_rpy(R)
+            )
+        ]
         ch.update(pos=inst["pos"], rpy=inst["rpy"])
         return ch
 
@@ -1567,10 +1577,12 @@ class Design:
             if not 0 < float(s["timestep"]) <= 0.01:
                 raise DesignError("assembly: timestep is in (0, 0.01] s")
             a["timestep"] = ch["timestep"] = float(s["timestep"])
+        if s.get("seed") is not None:  # the devices' noise seed
+            a["seed"] = ch["seed"] = int(s["seed"])
         if s.get("description"):
             a["description"] = ch["description"] = str(s["description"])
         if len(ch) == 1:
-            raise DesignError("assembly: give base, timestep or description")
+            raise DesignError("assembly: give base, timestep, seed or description")
         return ch
 
     def _op_color(self, doc, s) -> dict:

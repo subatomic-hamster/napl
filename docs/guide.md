@@ -42,14 +42,18 @@ napl is built and run on a Linux build host; the laptop only edits, runs git and
 ```
 tools/remote.sh bootstrap              one-time: toolchain venv (cmake, ninja, uv) on the host
 tools/remote.sh sync                   rsync the working tree to the host (excludes build/, .venv/, .git/, remote-out/)
-tools/remote.sh run [--gpu] [--nolock] CMD   sync, then run CMD in the remote source dir; streams output
-tools/remote.sh bg NAME CMD            sync, then run CMD in tmux session napl-NAME; output to logs/NAME.log
+tools/remote.sh run [--gpu] [--nolock] [--slots N] CMD   sync, then run CMD in the remote source dir; streams output
+tools/remote.sh bg [--slots N] NAME CMD   sync, then run CMD in tmux session napl-NAME; output to logs/NAME.log
 tools/remote.sh log NAME [N]           last N lines of that log and whether it is still running
 tools/remote.sh pull PATH...           copy remote paths (relative to the remote dir) into ./remote-out/
 ```
 
-`run` takes the host CPU lock unless `--nolock` (use `--nolock` for light commands and anything long-lived that must not block
-other jobs) and `--gpu` takes the GPU lock too. A foreground job is killed after `NAPL_TIMEOUT` seconds (default 3600); long work
+CPU lanes: the host has `NAPL_SLOTS` (default 2) slot lock files in `$NAPL_LANES` (default `/workspace/wt/napl-cache/lanes`), shared by all
+worktrees, each worth `NAPL_JOBS / NAPL_SLOTS` (8) threads. `run` / `bg` wait until they hold `--slots N` of them (default 1; `--slots 2` =
+the whole box, 16 threads) and export that thread count as `NAPL_THREADS`, `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`,
+`LP_NUM_THREADS`, `CMAKE_BUILD_PARALLEL_LEVEL` and `CTEST_PARALLEL_LEVEL`. `--nolock` skips the lane (light commands and anything long-lived
+that must not block other jobs). Never `flock` a lane file inside a job. The GPU has no lock (`--gpu` only matters when `NAPL_GPU_LOCK`
+names a file). Size parallelism from `NAPL_THREADS` (`pytest -n $NAPL_THREADS`; the MC drivers' `--workers` default does, bounded by free memory). A foreground job is killed after `NAPL_TIMEOUT` seconds (default 3600); long work
 belongs in `bg`. An ssh connection failure (the host sits behind a funnel that has outages of about 15 minutes) is retried with
 backoff, six times.
 
@@ -58,8 +62,19 @@ The host is a parameter, so a dedicated cloud box works the same way (AWS-ready;
 ```
 NAPL_REMOTE=<ssh alias>  NAPL_REMOTE_DIR=<abs dir>  NAPL_GPU_LOCK=   tools/remote.sh run '...'
 #                                                    ^ empty = dedicated host, no shared GPU lock
-# NAPL_JOBS (default 6): build threads;  NAPL_TIMEOUT (default 3600): foreground limit in seconds
+# NAPL_JOBS (default 16): build threads;  NAPL_TIMEOUT (default 3600): foreground limit in seconds
 ```
+
+C++ compiles go through sccache when it is on the host's PATH (`CMakeLists.txt` picks it up; `-DNAPL_SCCACHE=OFF` opts out). `remote.sh`
+puts `$NAPL_CACHE_DIR/bin` (default `/workspace/wt/napl-cache`) on PATH and points the cache at `$NAPL_CACHE_DIR/sccache` (4 GB cap), with
+every `/workspace/wt/napl*` dir as a base dir, so a clean build of the same commit in another worktree hits the cache. The sccache server is
+one per host and reads its base dirs at start: after creating a new worktree dir run `sccache --stop-server` once (idle servers only).
+
+Python tests: `.venv/bin/python -m pytest tests/python -q -n $NAPL_THREADS` (pytest-xdist, in the `dev` extra; serial is about 1 h 54 min). The
+`px4` tests claim a free PX4 instance 0..9 per test (flock + port check, preferring `NAPL_PX4_INSTANCE`), so workers never share ports;
+more than 10 workers only make the extra px4 tests wait for an instance. A few tests are real-time (PX4, the `napl program` pick/showcase
+scenarios) and can flake when the host is oversubscribed: rerun just those. Take the whole box with an outer timeout, e.g.
+`NAPL_TIMEOUT=7200 tools/remote.sh run --slots 2 'setsid timeout 7000 .venv/bin/python -m pytest tests/python -q -n $NAPL_THREADS --durations=30'`.
 
 First check that the host works (this was run):
 
@@ -331,6 +346,24 @@ the matching `Design` method, rebuilds and reloads the model keeping camera and 
 after each edit (red = error, `*` = new from the last edit; clicking one selects the instance involved). Edits are not saved
 until you press save; comments of a hand-written TOML are not kept by a save.
 
+**Layout (after Fusion 360 / Onshape / KiCad).** An application bar (mark, design name, the page tabs BUILD / LIBRARY / WIRING / SIMULATE /
+PROGRAM as a workspace switcher, quick undo / redo / save), a ribbon of grouped icon + label tools for the active page (BUILD: Select, Move,
+Rotate | Align, Mirror, Duplicate, Remove | Mate (port snapping), Colour | Measure, Check | Undo, Redo | Save; WIRING: Wire, Pin wire |
+Autowire | DRC, Fit; each button is an existing function, nothing is decoration), docked panels (BUILD: left BROWSER = the assembly tree
+with a visibility eye per part, mates, wires and devices, or PARTS = the library list; right PROPERTIES / DRC / PLACE / HISTORY), and a
+status bar (selection, units, snap state, part count, mass, DRC counts, sim time). The 3D view has a view cube (click a face for Front /
+Back / Left / Right / Top / Bottom), home (iso), zoom-to-fit, orbit / pan, a cable-emphasis toggle and a scale bar; BUILD uses the light
+studio backdrop with a 1 m / 10 cm (and, close up, 1 cm) floor grid, SIMULATE the outdoor sky. Hover pre-highlights and selects in the one
+accent blue. MEASURE: click two parts for the centre distance, dx / dy / dz and the clear gap. WIRING draws the sheet like a schematic
+(dark sheet, thin grid, nets coloured by kind, junction dots where conductors share a pin, a title block); labels follow a level of
+detail: all pin labels when zoomed in, only the wired pins in between, connector titles when zoomed out. Icons are drawn with ImDrawList
+primitives (no icon font to license); fonts are the Apache-2.0 Roboto and Cousine of Dear ImGui.
+
+**Camera moves for recordings.** Backend ops (`ui.camera` stays the preset / instant one): `camera.orbit {target?, yaw_deg?, pitch_deg?,
+dist?, seconds?=3, relative?=true, ease?=smooth|linear}` glides the camera around `target` (relative: the angles are sweeps added to the
+current ones, so `yaw_deg=360` is one full turn; `dist` dollies), `camera.fly {eye, look, seconds?, ease?}` flies the eye and the look-at
+point along straight lines. Wall-clock time, any 3D page (BUILD, LIBRARY, SIMULATE).
+
 #### A HUD over the 3D view **[not run here: needs a display and a Vulkan device]**
 
 `Sim.load(model, host=True)` + `sim.show(hud=napl.hud.Hud(), clean=True)` opens the SIMULATE view with no panes; any thread then calls
@@ -349,6 +382,15 @@ ground fading into the haze) or `studio` (neutral backdrop, metre grid; the Desi
 outlines), `noshadows` (the sun shadow map), `nowires`, `boldwires` (cables at least 4 px wide on screen at any zoom; the data keeps their
 true diameter; the Design window turns it on for BUILD / LIBRARY / WIRING, toolbar WIRES). Specular follows the MuJoCo material (`specular`, `shininess`, `metallic`,
 `roughness`); output is 4x MSAA and sRGB.
+
+**Device and off-screen viewer.** Headless renders (`Sim.render`, `Render`) and the off-screen viewer pick the best Vulkan device
+(discrete > integrated > virtual) and refuse a CPU rasteriser (llvmpipe / lavapipe) unless `NAPL_RENDER_ALLOW_CPU=1`;
+`NAPL_VK_DEVICE=<substring of the device name>` forces one. `napl-view MODEL --offscreen WxH` (or `NAPL_OFFSCREEN=1`) runs the
+viewer with no window, X server or swapchain: scene + UI render into an off-screen image on the GPU, 60 fps cap, and
+`napl._napl.viewer_frame()` returns the newest frame as `(seq, (h, w, 4) uint8)`. The recording tools (`tools/design_shot.py`
+`grab()`) use it by default; `NAPL_OFFSCREEN=0` goes back to the Xvfb window (llvmpipe). Recording tools store raw frames
+(`f*.rgz`; `--keep-frames` adds PNGs) and encode through `tools/videnc.py`: GStreamer VA (`vaav1enc` .webm / `vah264enc` .mp4;
+LGPL) when the host has it, `--gpl` tries ffmpeg VAAPI first, else PyAV software (VP9).
 
 **Wires are tubes.** Every wire of the design is drawn from terminal to terminal, one tube per conductor (one per pin pair, at most 16;
 `Sim.tubes()` lists them): insulated outer diameter from the wire's AWG (`napl.design.wiretubes.AWG_OD_MM`), colour by function
@@ -757,6 +799,23 @@ ERROR PX4_MOTOR_ORDER ['fc.pwm2', 'esc1']
 Only the quad-X airframe 4902 is supported; PX4 parameters (rate gains, `BAT1_N_CELLS 4`) stay those of the airframe file. Measured
 with this path (`tests/python/test_px4_design.py`): the stock X500 and a quad built from an empty design hover at throttle 0.425 /
 11.5 A; with the four motors swapped for the KDE 2315XF-965 (`swap(auto=True)`) 0.409 / 11.3 A.
+
+#### A companion computer, GPS-denied (vision odometry into EKF2)
+A drone that navigates by its own cameras keeps its autonomy off the flight controller: the companion computer estimates the pose, plans, and talks
+to PX4 over a second MAVLink link (`python/napl/companion.py`, MAVSDK, BSD-3). Three things differ from the flight above:
+
+* **No GPS.** Leave `gnss` out of the bridge config (`px4/bridge_skydio.toml`): the bridge sends no HIL_GPS, and the scenario sets `EKF2_GPS_CTRL=0`.
+* **Vision in.** `Link.odometry(...)` sends ODOMETRY (VIO estimator type, LOCAL_NED, FRD to NED attitude, the pad as origin); `EKF2_EV_CTRL=15` fuses
+  position, height, velocity and yaw. `Link.obstacle_distance(...)` sends OBSTACLE_DISTANCE (72 bins of 5 deg, body FRD) built from a depth image.
+  PX4 v1.17 delivers it to the `obstacle_distance` topic but its collision prevention runs only in Position mode, not Offboard, so the avoidance in an
+  offboard flight is the companion planner's.
+* **Companion data from the bridge.** The program needs the IMU stream PX4 gets: set `ctl = true` under `[interfaces.px4]` and the bridge's
+  `--ctl` socket (`napl.ctl.RemoteSim`, NAPL_CTL in the program's environment) serves `imu <since>`, the buffered HIL_SENSOR gyro / accel records
+  (250 Hz, the last 16 s, each with its sample counter). `[interfaces.px4.params]` passes `PX4_PARAM_*` overrides (applied before the airframe file).
+  `monitor_trace = "companion.csv"` judges the monitors on the file the program writes (the mission signals) instead of the bridge's `trace.csv`.
+
+Arming is done in Offboard (stream set-points, `offboard.start()`, `arm()`): MAVSDK's `is_armable` is judged in the current mode (Hold), which needs a
+global position. A complete example with the measured results: `examples/skydio/README.md`, section "On PX4"; short test: `tests/python/test_px4_skydio.py`.
 
 ### Both arm and drone in one world (the showcase) **[not run: about 3 minutes, over the 2 minute budget; GPU render not needed]**
 

@@ -36,6 +36,7 @@ note = "Header pin count and spacing are not in the retrieved spec text; opaque 
 
 [[ports]]
 name = "vmot"
+pins = ["PWR.7", "PWR.8"]   # VMOT, GND
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -48,6 +49,7 @@ note = "Motor supply input; reverse-voltage protection present (S1)."
 
 [[ports]]
 name = "motor_a"
+pins = ["PWR.3", "PWR.4"]   # AO1, AO2
 kind = "power"
 type = "dc-motor-2wire"
 gender = "neutral"
@@ -58,6 +60,7 @@ note = "Channel A output; also pairs with channel B to drive one bipolar stepper
 
 [[ports]]
 name = "motor_b"
+pins = ["PWR.6", "PWR.5"]   # BO1, BO2
 kind = "power"
 type = "dc-motor-2wire"
 gender = "neutral"
@@ -68,12 +71,73 @@ note = "Channel B output."
 
 [[ports]]
 name = "pwm_in"
+pins = ["CTL.1", "CTL.2", "CTL.3", "CTL.5", "CTL.6", "CTL.7", "CTL.4"]   # PWMA, AIN2, AIN1, BIN1, BIN2, PWMB, STBY
 kind = "signal"
 type = "pwm"
 gender = "male"
 level_min = { value = 2.7, unit = "V", src = "S1", fidelity = "datasheet" }  # minimum logic voltage
 level_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }  # maximum logic voltage
 note = "PWM and direction inputs, up to 100 kHz PWM (S1)."
+
+# ---- Connectors (pin level): the 16 header holes, two rows of eight on a 0.1 in grid (P1: the page's picture of the top view with the pads labeled).
+# PWR is the motor/power row (GND, VCC, AO1 ... GND), CTL the control row (PWMA ... GND). The row spacing (0.5 in = the 0.6 in board width less
+# one 0.1 in margin per side) and the orientation are read off the product photo (estimated).
+[[connectors]]
+id = "PWR"
+name = "motor and power header row (8 holes)"
+type = "header-1x8-2.54mm"
+gender = "male"
+pos = [0.0, -0.00635, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 8
+pitch = 0.00254
+src = "P1"
+fidelity = "datasheet"
+pose_rationale = "Pin names and order from P1; the row spacing 0.5 in and which side is 'left' are estimated from the product photo."
+pins = [
+  { number = 1, name = "GND", kind = "ground", note = "logic ground" },
+  { number = 2, name = "VCC", kind = "power", dir = "in", v_min = 2.7, v_max = 5.5, note = "logic supply 2.7-5.5 V (S2 / P1: logic voltage VCC)" },
+  { number = 3, name = "AO1", kind = "power", dir = "out", i_max = 1.0, note = "motor channel A output 1; 1 A continuous, 3 A peak per channel (S1)" },
+  { number = 4, name = "AO2", kind = "power", dir = "out", i_max = 1.0, note = "motor channel A output 2" },
+  { number = 5, name = "BO2", kind = "power", dir = "out", i_max = 1.0, note = "motor channel B output 2" },
+  { number = 6, name = "BO1", kind = "power", dir = "out", i_max = 1.0, note = "motor channel B output 1" },
+  { number = 7, name = "VMOT", kind = "power", dir = "in", v_min = 4.5, v_max = 13.5, i_max = 2.0, note = "motor supply 4.5-13.5 V, reverse-voltage protected (S1); 2 A with both channels paralleled" },
+  { number = 8, name = "GND", kind = "ground", note = "motor ground" },
+]
+
+[[connectors]]
+id = "CTL"
+name = "control header row (8 holes)"
+type = "header-1x8-2.54mm"
+gender = "male"
+pos = [0.0, 0.00635, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 8
+pitch = 0.00254
+src = "P1"
+fidelity = "datasheet"
+pose_rationale = "Pin names and order from P1; the row spacing 0.5 in and which side is 'right' are estimated from the product photo."
+pins = [
+  { number = 1, name = "PWMA", kind = "signal", dir = "in", v_min = 2.7, v_max = 5.5, note = "channel A speed (PWM up to 100 kHz, S1)" },
+  { number = 2, name = "AIN2", kind = "signal", dir = "in", v_min = 2.7, v_max = 5.5, note = "channel A direction 2; internally pulled low" },
+  { number = 3, name = "AIN1", kind = "signal", dir = "in", v_min = 2.7, v_max = 5.5, note = "channel A direction 1; internally pulled low" },
+  { number = 4, name = "STBY", kind = "signal", dir = "in", v_min = 2.7, v_max = 5.5, note = "active-low standby; pulled low internally, must be driven high (2.7-5.5 V) to enable the driver (P1)" },
+  { number = 5, name = "BIN1", kind = "signal", dir = "in", v_min = 2.7, v_max = 5.5, note = "channel B direction 1; internally pulled low" },
+  { number = 6, name = "BIN2", kind = "signal", dir = "in", v_min = 2.7, v_max = 5.5, note = "channel B direction 2; internally pulled low" },
+  { number = 7, name = "PWMB", kind = "signal", dir = "in", v_min = 2.7, v_max = 5.5, note = "channel B speed (PWM)" },
+  { number = 8, name = "GND", kind = "ground", note = "logic ground" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://www.pololu.com/product/713"
+title = "Pololu item 713 product page, picture 0J4621 (top view with pads labeled): header pin labels transcribed from the image, plus the page text"
+accessed = "2026-10-09"
+quote = "Left row, top to bottom: GND, VCC, AO1, AO2, BO2, BO1, VMOT, GND. Right row, top to bottom: PWMA, AIN2, AIN1, STBY, BIN1, BIN2, PWMB, GND. The STBY pin is pulled low internally, putting the TB6612FNG into a low-power sleep mode by default, and must be driven high (2.7 V - 5.5 V) in order to enable the driver. The AO1 and AO2 pins form one motor channel while the BO1 and BO2 pins form the other. All control inputs are internally pulled low."
 
 [[sources]]
 id = "S1"

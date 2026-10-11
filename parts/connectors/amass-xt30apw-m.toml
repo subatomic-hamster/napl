@@ -30,6 +30,7 @@ rationale = "0.3 g (~+-40 %): the retailer figure is for a different XT30 varian
 
 [[ports]]
 name = "male"
+pins = ["MATE.1", "MATE.2"]
 kind = "power"
 type = "xt30"
 gender = "male"
@@ -37,6 +38,27 @@ v_max = { value = 80, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 20, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "passthrough"
 note = "20 A max at a temperature rise <= 85 K"
+
+# Pin level (estimated): 2-pole connector; contacts numbered 1..2 in a line.
+[[connectors]]
+id = "MATE"
+name = "mating contacts (2-pole)"
+type = "xt30"
+gender = "male"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.005
+src = "S1"
+fidelity = "estimated"
+rationale = "Pole count is the family (XT30, 2-pole); S1 gives no contact numbering, polarity marking or pole spacing, so the contacts are numbered 1..2 and the spacing is a typical value for the family."
+pose_rationale = "Connector body geometry is not in S1: contacts on the mating face at the origin."
+pins = [
+  { number = 1, name = "1", kind = "power" },
+  { number = 2, name = "2", kind = "power" },
+]
 
 [[sources]]
 id = "S1"

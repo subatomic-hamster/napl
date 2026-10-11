@@ -20,6 +20,7 @@ wire_awg_max        = { value = 24, unit = "AWG", src = "S1", fidelity = "datash
 
 [[ports]]
 name = "housing"
+pins = ["HOUSING.1", "HOUSING.2"]
 kind = "power"
 type = "jst-ph.2"
 gender = "female"
@@ -30,12 +31,52 @@ note = "Cable-side crimp housing; the 2 A rating is for AWG #24 wire"
 
 [[ports]]
 name = "header"
+pins = ["HEADER.1", "HEADER.2"]
 kind = "power"
 type = "jst-ph.2"
 gender = "male"
 v_max = { value = 100, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 2.0, unit = "A", src = "S1", fidelity = "datasheet" }
 role = "passthrough"
+
+# Pin level (derived): 2 circuits, numbered 1..2; polarity marking is defined by the pack or board that uses the connector, not by the connector.
+[[connectors]]
+id = "HOUSING"
+name = "cable-side crimp housing (2 circuits)"
+type = "jst-ph.2"
+gender = "female"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.002
+src = "S1"
+fidelity = "derived"
+derivation = "Contact count is the part designation (2 positions); pitch is the S1 series value (2.0 mm); numbering 1..2 along the row is assumed."
+pose_rationale = "A catalogue connector has no board frame: mating face at the origin."
+pins = [
+  { number = 1, name = "1", kind = "power" }, { number = 2, name = "2", kind = "power" },
+]
+
+[[connectors]]
+id = "HEADER"
+name = "board-side header (2 circuits)"
+type = "jst-ph.2"
+gender = "male"
+pos = [0.03, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.002
+src = "S1"
+fidelity = "derived"
+derivation = "As HOUSING."
+pose_rationale = "Placed 30 mm to the side of the housing so the halves do not overlap."
+pins = [
+  { number = 1, name = "1", kind = "power" }, { number = 2, name = "2", kind = "power" },
+]
 
 [[sources]]
 id = "S1"

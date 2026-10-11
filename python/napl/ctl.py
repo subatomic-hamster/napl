@@ -90,6 +90,12 @@ class RemoteSim:
     def query(self, path, attr, frame=""):
         return self.get(path, attr, frame)[1], ""
 
+    def imu(self, since=0):
+        """The IMU samples the bridge sent to PX4 after world tick `since` -> (current tick, ndarray (n, 7): counter, gyro xyz, accel xyz, device
+        FLU frame). The bridge keeps 16 s; a companion computer's estimator calls this each cycle with the last counter it has."""
+        t = self._rpc(f"imu {int(since)}")
+        return int(t[0]), np.array([float(x) for x in t[2:]]).reshape(int(t[1]), 7)
+
     def query_many(self, path, attrs):
         return np.array(
             [float(x) for x in self._rpc(f"mget {path} {' '.join(attrs)}")[1:]]

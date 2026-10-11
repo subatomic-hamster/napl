@@ -10,7 +10,7 @@ Protocol (the point of keeping two seed ranges apart):
 A flight is a success when it lands (no abort) with all of the monitors of the scenario file: touchdown speed < 0.5 m/s, touchdown tilt < 5 deg, within 0.3 m of the pad, upright at the end,
 battery above 18 V and 15 % charge left, vane command at the limit for < 10 % of the powered time (and, for the hover mission, within 0.5 m of the hover height).
 
-Run it under the CPU lock with an outer timeout (workers <= 6): flock /workspace/wt/napl/.cpu.lock timeout 3600 python examples/hopper/mc.py ..."""
+Run it under the CPU lock with an outer timeout: flock /workspace/wt/napl/.cpu.lock timeout 3600 python examples/hopper/mc.py ..."""
 
 import argparse
 import json
@@ -138,7 +138,12 @@ def main(argv=None):
         "--train", type=int, default=40, help="training seeds per candidate"
     )
     ap.add_argument("--test", type=int, default=300, help="report seeds")
-    ap.add_argument("--workers", type=int, default=6, help="processes (<= 6)")
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=nparams.default_workers(),
+        help="processes (default: every core, bounded by free memory)",
+    )
     ap.add_argument("--out", default="")
     ap.add_argument(
         "--pick",
@@ -172,8 +177,8 @@ def main(argv=None):
     base.setdefault("disperse", True)
     base.setdefault("wind_fixed", False)
     base.setdefault("wind_dir_deg", -1.0)
-    if not 1 <= a.workers <= 6:
-        raise SystemExit("--workers must be 1..6 (shared box)")
+    if a.workers < 1:
+        raise SystemExit("--workers must be >= 1")
     hover = a.scenario == "hop10"
     t0 = time.time()
     out = {

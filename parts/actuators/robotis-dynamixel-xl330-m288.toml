@@ -78,6 +78,7 @@ note = "ROBOTIS XL330 output horn interface; spline/bolt circle not published as
 
 [[ports]]
 name = "power_in"
+pins = ["TTL.1", "TTL.2"]
 kind = "power"
 type = "jst-eh.3"
 gender = "female"
@@ -88,10 +89,41 @@ i_peak = { value = 1.74, unit = "A", src = "S1", fidelity = "datasheet" }  # sta
 
 [[ports]]
 name = "bus"
+pins = ["TTL.3"]
 kind = "signal"
 type = "dynamixel-ttl"
 gender = "female"
 level = { value = 3.3, unit = "V", src = "S1", fidelity = "datasheet" }
+
+# Pin level: the TTL connector (JST EHR-03 housing, pinout GND / VDD / DATA) from the e-Manual Connector Information table (P1).
+[[connectors]]
+id = "TTL"
+name = "TTL connector (JST EHR-03)"
+type = "jst-eh-3"
+port_type = "jst-eh.3"
+gender = "female"
+pos = [-0.010, 0.0, -0.008]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0025
+src = "P1"
+fidelity = "datasheet"
+rationale = "P1 gives the housing (JST EHR-03) and the pin functions; the 2.5 mm pitch is the JST EH-series pitch, not stated in P1."
+pose_rationale = "The e-Manual drawing is not machine-readable, so the connector position on the case is a positional estimate (side of the case, near the base)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "in" },
+  { number = 3, name = "DATA", kind = "signal", dir = "io", note = "half-duplex TTL, 3.3 V logic (5 V compatible) on XL330 (P1)" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/"
+title = "ROBOTIS e-Manual XL330-M288-T, Connector Information"
+accessed = "2026-10-09"
+quote = "Connector Information | Item | TTL | Pinout | 1 | GND | 2 | VDD | 3 | DATA | Housing | JST EHR-03 | PCB Header | JST B3B-EH-A | Crimp Terminal | JST SEH-001T-P0.6 | Wire Gauge for DYNAMIXEL | 21 AWG"
 
 [[sources]]
 id = "S1"

@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -427,7 +429,9 @@ struct Renderer::Impl {
   std::vector<VkSemaphore> sc_done;  // render finished, per swapchain image
   VkSemaphore acquire_sem = nullptr;
 
-  explicit Impl(const WindowRenderer::Surface* window = nullptr) : win(window) {
+  bool sc = false;  // swapchain mode (a window that presents); a window with Surface::offscreen renders into tgt and reads back instead
+
+  explicit Impl(const WindowRenderer::Surface* window = nullptr) : win(window), sc(window && !window->offscreen) {
     if (volkInitialize() != VK_SUCCESS) throw std::runtime_error("no Vulkan loader (libvulkan) found on this machine");
     try {
       init();
@@ -444,7 +448,7 @@ struct Renderer::Impl {
     app.apiVersion = VK_API_VERSION_1_3;
     VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ici.pApplicationInfo = &app;
-    if (win) {
+    if (sc) {
       ici.enabledExtensionCount = static_cast<std::uint32_t>(win->instance_extensions.size());
       ici.ppEnabledExtensionNames = win->instance_extensions.data();
     }
@@ -455,12 +459,22 @@ struct Renderer::Impl {
       throw std::runtime_error("no Vulkan device: the driver lacks the window-system extensions needed to show a window");
     check(ir, "vkCreateInstance");
     volkLoadInstance(inst);
-    if (win) surface = win->create(inst);
+    if (sc) surface = win->create(inst);
 
     std::uint32_t n = 0;
     check(vkEnumeratePhysicalDevices(inst, &n, nullptr), "vkEnumeratePhysicalDevices");
     std::vector<VkPhysicalDevice> pds(n);
     check(vkEnumeratePhysicalDevices(inst, &n, pds.data()), "vkEnumeratePhysicalDevices");
+    int best = -1;
+    const auto lower = [](std::string s) {
+      for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      return s;
+    };
+    const char* env_dev = std::getenv("NAPL_VK_DEVICE");
+    const std::string want = env_dev ? lower(env_dev) : "";
+    const char* cpu_env = std::getenv("NAPL_RENDER_ALLOW_CPU");  // software rasterisers (llvmpipe / lavapipe) only when asked for
+    const bool allow_cpu = cpu_env && *cpu_env && std::string(cpu_env) != "0";
+    bool refused_cpu = false;
     for (VkPhysicalDevice cand : pds) {
       VkPhysicalDeviceProperties props;
       vkGetPhysicalDeviceProperties(cand, &props);
@@ -476,23 +490,47 @@ struct Renderer::Impl {
       vkGetPhysicalDeviceQueueFamilyProperties(cand, &nq, nullptr);
       std::vector<VkQueueFamilyProperties> qs(nq);
       vkGetPhysicalDeviceQueueFamilyProperties(cand, &nq, qs.data());
-      if (win && !can_present(cand)) continue;
-      for (std::uint32_t i = 0; i < nq && !pd; ++i) {
-        VkBool32 present = !win;
-        if (win && vkGetPhysicalDeviceSurfaceSupportKHR(cand, i, surface, &present) != VK_SUCCESS) present = VK_FALSE;
-        if ((qs[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present) {
-          pd = cand;
-          qfam = i;
-          name = props.deviceName;
-          const VkSampleCountFlags ok = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
-          msaa = (ok & VK_SAMPLE_COUNT_4_BIT) ? VK_SAMPLE_COUNT_4_BIT : VK_SAMPLE_COUNT_1_BIT;
-        }
+      if (sc && !can_present(cand)) continue;
+      std::uint32_t q = nq;  // first graphics queue (that can present, in swapchain mode)
+      for (std::uint32_t i = 0; i < nq && q == nq; ++i) {
+        VkBool32 present = !sc;
+        if (sc && vkGetPhysicalDeviceSurfaceSupportKHR(cand, i, surface, &present) != VK_SUCCESS) present = VK_FALSE;
+        if ((qs[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present) q = i;
       }
-      if (pd) break;
+      if (q == nq) continue;
+      // Swapchain mode takes the first device that can present. Headless / off-screen: discrete > integrated > virtual > cpu
+      // (the first of equals), and NAPL_VK_DEVICE=<substring of deviceName, any case> restricts the choice.
+      int rank = 0;
+      if (!sc) {
+        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU && !allow_cpu) {
+          refused_cpu = true;
+          continue;
+        }
+        if (!want.empty() && lower(props.deviceName).find(want) == std::string::npos) continue;
+        rank = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU     ? 4
+               : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 3
+               : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU    ? 2
+               : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU            ? 0
+                                                                           : 1;
+      }
+      if (pd && rank <= best) continue;
+      best = rank;
+      pd = cand;
+      qfam = q;
+      name = props.deviceName;
+      const VkSampleCountFlags ok = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
+      msaa = (ok & VK_SAMPLE_COUNT_4_BIT) ? VK_SAMPLE_COUNT_4_BIT : VK_SAMPLE_COUNT_1_BIT;
+      if (sc) break;
     }
     if (!pd)
       throw std::runtime_error("no Vulkan device: none of the " + std::to_string(n) + " physical device(s) supports Vulkan 1.3 with dynamic rendering" +
-                               (win ? " and presenting to this window (an X server without DRI3 cannot present from a hardware GPU)" : ""));
+                               (sc ? " and presenting to this window (an X server without DRI3 cannot present from a hardware GPU)" : "") +
+                               (!sc && !want.empty() ? " and matches NAPL_VK_DEVICE=" + want : "") +
+                               (refused_cpu ? " (a CPU renderer such as llvmpipe was refused: set NAPL_RENDER_ALLOW_CPU=1 to use it)" : ""));
+    if (!win) {  // headless Renderer: say once which device renders (the viewer prints its own line)
+      static std::once_flag logged;
+      std::call_once(logged, [&] { std::fprintf(stderr, "napl: rendering on %s\n", name.c_str()); });
+    }
 
     const float prio = 1;
     VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -506,7 +544,7 @@ struct Renderer::Impl {
     dci.queueCreateInfoCount = 1;
     dci.pQueueCreateInfos = &qci;
     const char* swapchain_ext = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-    if (win) {
+    if (sc) {
       dci.enabledExtensionCount = 1;
       dci.ppEnabledExtensionNames = &swapchain_ext;
     }
@@ -536,7 +574,7 @@ struct Renderer::Impl {
     check(vkAllocateCommandBuffers(dev, &cai, &cb), "vkAllocateCommandBuffers");
     VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     check(vkCreateFence(dev, &fci, nullptr, &fence), "vkCreateFence");
-    if (win) {
+    if (sc) {
       VkSemaphoreCreateInfo semi{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       check(vkCreateSemaphore(dev, &semi, nullptr, &acquire_sem), "vkCreateSemaphore");
       std::uint32_t nf = 0;
@@ -1236,13 +1274,90 @@ struct Renderer::Impl {
     return true;
   }
 
+  // Off-screen viewer frame: scene (MSAA, resolved into tgt.color) + overlay on top, copied to `rgba` (w*h*4, RGBA8).
+  // Same passes as window_frame; no swapchain, no semaphores.
+  void offscreen_frame(std::span<const GeomPose> poses, const Camera& cam, int w, int h,
+                       const std::function<void(VkCommandBuffer)>& overlay, std::vector<std::uint8_t>& rgba) {
+    ensure_target(w, h);
+    prepare(poses, cam, w, h);
+    check(vkResetCommandBuffer(cb, 0), "vkResetCommandBuffer");
+    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    check(vkBeginCommandBuffer(cb, &bi), "vkBeginCommandBuffer");
+    for (VkImage img : {tgt.color, tgt.ms_c})
+      if (img)
+        transition(img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_PIPELINE_STAGE_2_NONE, 0, kColorOut, kColorW);
+    transition(tgt.ms_d, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+               VK_PIPELINE_STAGE_2_NONE, 0, kDepthTest, kDepthRW);
+    record_shadow();
+    record_main(tgt.color_v, w, h);
+    if (overlay) {
+      VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+      mb.srcStageMask = kColorOut;
+      mb.srcAccessMask = kColorW;
+      mb.dstStageMask = kColorOut;
+      mb.dstAccessMask = kColorW | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+      VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      di.memoryBarrierCount = 1;
+      di.pMemoryBarriers = &mb;
+      vkCmdPipelineBarrier2(cb, &di);
+      VkRenderingAttachmentInfo ca{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      ca.imageView = tgt.color_v;
+      ca.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      ca.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      ca.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+      VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+      ri.renderArea = {{0, 0}, {static_cast<std::uint32_t>(w), static_cast<std::uint32_t>(h)}};
+      ri.layerCount = 1;
+      ri.colorAttachmentCount = 1;
+      ri.pColorAttachments = &ca;
+      vkCmdBeginRendering(cb, &ri);
+      overlay(cb);
+      vkCmdEndRendering(cb);
+    }
+    transition(tgt.color, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+               kColorOut, kColorW, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {static_cast<std::uint32_t>(w), static_cast<std::uint32_t>(h), 1};
+    vkCmdCopyImageToBuffer(cb, tgt.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tgt.rb_color, 1, &region);
+    VkMemoryBarrier2 hb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    hb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    hb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    hb.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+    hb.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+    VkDependencyInfo hd{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    hd.memoryBarrierCount = 1;
+    hd.pMemoryBarriers = &hb;
+    vkCmdPipelineBarrier2(cb, &hd);
+    check(vkEndCommandBuffer(cb), "vkEndCommandBuffer");
+    VkCommandBufferSubmitInfo cbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+    cbi.commandBuffer = cb;
+    VkSubmitInfo2 si{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+    si.commandBufferInfoCount = 1;
+    si.pCommandBufferInfos = &cbi;
+    check(vkResetFences(dev, 1, &fence), "vkResetFences");
+    check(vkQueueSubmit2(queue, 1, &si, fence), "vkQueueSubmit2");
+    check(vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+    check(vmaInvalidateAllocation(vma, tgt.rb_color_a, 0, VK_WHOLE_SIZE), "vmaInvalidateAllocation");
+    rgba.resize(static_cast<std::size_t>(w) * h * 4);
+    std::memcpy(rgba.data(), tgt.color_ptr, rgba.size());
+  }
+
   bool window_frame(std::span<const GeomPose> poses, const Camera& cam, int w, int h,
-                    const std::function<void(VkCommandBuffer)>& overlay) {
+                    const std::function<void(VkCommandBuffer)>& overlay, std::vector<std::uint8_t>* rgba) {
     if (poses.size() != draws.size())
       throw std::invalid_argument("frame: " + std::to_string(poses.size()) + " poses for a scene of " + std::to_string(draws.size()) + " geoms");
     const V3 look{cam.lookat[0] - cam.pos[0], cam.lookat[1] - cam.pos[1], cam.lookat[2] - cam.pos[2]};
     if (!(dot(look, look) > 0) || !(cam.fovy > 0 && cam.fovy < 180)) throw std::invalid_argument("bad camera");
     if (w < 1 || h < 1) return false;
+    if (!sc) {
+      if (!rgba) throw std::invalid_argument("frame: an off-screen WindowRenderer needs an output buffer");
+      if (w > 16384 || h > 16384) throw std::invalid_argument("render size out of range");
+      offscreen_frame(poses, cam, w, h, overlay, *rgba);
+      return true;
+    }
     if (!swapchain || sc_stale || w != req_w || h != req_h) {
       sc_stale = false;
       req_w = w;
@@ -1425,8 +1540,8 @@ void WindowRenderer::set_style(const RenderStyle& s) {
   p_->has_style = true;
 }
 bool WindowRenderer::frame(std::span<const GeomPose> poses, const Camera& cam, int width, int height,
-                           const std::function<void(VkCommandBuffer)>& overlay) {
-  return p_->window_frame(poses, cam, width, height, overlay);
+                           const std::function<void(VkCommandBuffer)>& overlay, std::vector<std::uint8_t>* rgba) {
+  return p_->window_frame(poses, cam, width, height, overlay, rgba);
 }
 
 RenderHook make_render_hook() {

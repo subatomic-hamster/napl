@@ -129,7 +129,7 @@ def _flatten(out, fb):
         return r
 
     def grab(tag):
-        img = design_shot.xwd_rgba(Path(fb) / "Xvfb_screen0")
+        img = design_shot.grab(fb)
         (out / f"flatten-{tag}.png").write_bytes(_napl.encode_png(img))
         print("wrote", tag)
 

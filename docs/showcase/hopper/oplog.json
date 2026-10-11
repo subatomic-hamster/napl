@@ -1,0 +1,270 @@
+{
+  "about": "The steps of the hopper build video, in order: what the agent (Claude) sent through napl.design.viewer.Backend (the object the viewer window talks to) while building assemblies/hopper.toml from an empty design. `reqs` are Backend requests (tool + args; `wait` = seconds to let the window show it; `until` = wait for the window to commit an animated drop; `expect_fail` = the Design is expected to refuse it); `macro: place` = LIBRARY page search typed into the box, then an animated library.drag from the part's card to its port. `why` is the agent's reason, shown as the caption. References into the pre-written reference assembly (so its long provenance tables are not retyped): `ref_mate` (mate name + joint), design_edit `ref` {offboard, place, params, device_maps, devices}, flatten.wire `ref_wire`. tools/record_hopper.py replays this file; docs/showcase/hopper/README.md says who decided what.",
+  "steps": [
+    {"seg": "LIBRARY", "title": "Start from an empty design: the deck frame", "speed": 1.2,
+     "why": "Nothing is placed yet. The vehicle hangs under one structural part: a 3D-printed PETG deck with a duct opening, servo brackets on four sides, deck seats for the electronics and four leg hinges. It becomes the root; every other part mates to one of its named ports.",
+     "reqs": [
+       {"tool": "ui.mode", "args": {"name": "library"}, "wait": 0.8},
+       {"tool": "library.search", "args": {"text": "hopper deck", "type_ms": 60}, "wait": 2.2},
+       {"tool": "library.drop", "args": {"part": "hopper-deck-frame-edf80", "id": "frame", "group": "airframe"}, "wait": 1.0},
+       {"tool": "ui.mode", "args": {"name": "build"}, "wait": 0.6},
+       {"tool": "ui.camera", "args": {"preset": "iso"}, "wait": 0.4},
+       {"tool": "ui.frame", "args": {"instances": ["frame"]}, "wait": 1.4},
+       {"tool": "camera.orbit", "args": {"yaw_deg": 120, "seconds": 4.0}, "wait": 4.3}
+     ]},
+    {"seg": "BUILD", "title": "A free-flying vehicle: 1 ms step, noise seed 7", "speed": 1.0, "dwell": 0.8,
+     "why": "The design header: a free base (the vehicle flies, it is not bolted down), the kernel's 1 ms physics step and the seed that fixes every sensor's noise stream, so the same design always replays to the same state hash.",
+     "reqs": [
+       {"tool": "design_edit", "args": {"ops": [{"op": "assembly", "base": "free", "timestep": 0.001, "seed": 7, "description": "EDF VTVL hopper: 80 mm 12-blade ducted fan on 6S, four aluminium jet vanes on XL330 servos, Teensy 4.0 flight computer, lidar + baro + GNSS + IMU, four skid legs"}]}, "wait": 1.6}
+     ]},
+    {"seg": "LIBRARY", "title": "The 80 mm 12-blade duct through the deck", "speed": 2.0,
+     "why": "One QX-Motor 80 mm 12-blade EDF is the whole propulsion: 33 N on a loaded 22.2 V pack for a 1.29 kg vehicle, so thrust-to-weight is 2.6 and hover needs only 12.7 N. The duct snaps to the deck's duct opening; the exit plane ends up 30 mm under the deck.",
+     "macro": "place", "search": "80mm 12-blade", "part": "qx-80mm-12-blade-edf-duct", "to": "frame.duct", "port": "mount", "id": "duct", "group": "propulsion", "ref_mate": "frame--duct"},
+    {"seg": "LIBRARY", "title": "Motor in the duct's seat", "speed": 2.2,
+     "why": "QF3538 2000 KV inrunner, 335 g (datasheet), 12N10P, rated for 6S. Seated on the duct's motor seat, it is the part whose KV, winding resistance and no-load current the ESC model later reads from the part file.",
+     "macro": "place", "search": "qf3538", "part": "qx-qf3538-2000kv-edf-motor", "to": "duct.motor_seat", "port": "base", "id": "motor", "group": "propulsion", "ref_mate": "duct--motor"},
+    {"seg": "LIBRARY", "title": "The fan on the motor shaft, as a spinning joint", "speed": 2.2,
+     "why": "The fan is a separate body: a spin hinge on the shaft with no travel limit, which is what the kernel's rotor device drives from the ESC. Its thrust and torque coefficients come from the vendor's throttle table, not from a guess.",
+     "macro": "place", "search": "12-blade fan", "part": "qx-80mm-12-blade-edf-fan", "to": "motor.shaft", "port": "hub", "id": "fan", "group": "propulsion", "ref_mate": "spin"},
+    {"seg": "BUILD", "title": "The propulsion stack, from all sides", "speed": 2.4, "dwell": 0.4,
+     "why": "Camera orbit: duct, motor and fan are concentric through the deck opening, the fan plane 45 mm above the deck.",
+     "reqs": [
+       {"tool": "ui.frame", "args": {"instances": []}, "wait": 1.0},
+       {"tool": "camera.orbit", "args": {"yaw_deg": 360, "pitch_deg": -8, "relative": true, "seconds": 7.0}, "wait": 7.3}
+     ]},
+    {"seg": "LIBRARY", "title": "ESC on the deck", "speed": 2.0,
+     "why": "Hobbywing Platinum 120 A V5: 3-8S, 150 g, battery leads on one end and motor and throttle leads on the other. The hover current is only about 25 A; the 105 A full-throttle row of the fan table is what sizes it.",
+     "macro": "place", "search": "platinum 120a", "part": "hobbywing-platinum-120a-v5-esc", "to": "frame.deck_esc", "port": "base", "id": "esc", "group": "propulsion", "ref_mate": "frame--esc"},
+    {"seg": "LIBRARY", "title": "Battery dropped free beside the duct", "speed": 2.2,
+     "why": "Tattu 2200 mAh 6S 95C, 321 g, a quarter of the vehicle mass. The pack has no mate: it lies on the deck wherever the centre of mass wants it, so it is dropped on the deck and then placed by coordinates.",
+     "reqs": [
+       {"tool": "ui.mode", "args": {"name": "library"}, "wait": 0.4},
+       {"tool": "library.search", "args": {"text": "tattu 2200", "type_ms": 45}, "wait": 1.8},
+       {"tool": "library.drop", "args": {"part": "tattu-2200mah-6s-95c-xt60", "point": [0.062, 0.0, 0.27015], "rpy": [0.0, 0.0, 1.5707963], "id": "batt", "group": "power"}, "wait": 1.0},
+       {"tool": "ui.mode", "args": {"name": "build"}, "wait": 0.6},
+       {"tool": "ui.frame", "args": {"instances": []}, "wait": 1.2}
+     ]},
+    {"seg": "BUILD", "title": "Battery 14.8 mm along its axis to balance the CG", "speed": 1.4, "dwell": 0.5,
+     "why": "The flight computer assumes the thrust line passes through the centre of mass. The rest of the vehicle sits off-centre in y, so the pack is placed 14.8 mm along its long axis to balance it: exact coordinates through the same place op the gizmo uses, rotated a quarter turn so its long axis runs along y.",
+     "reqs": [
+       {"tool": "select", "args": {"instances": ["batt"]}, "wait": 0.8},
+       {"tool": "gizmo.move", "args": {"instance": "batt", "delta": [0.0, 0.0148, 0.0], "animate": true, "snap": false}, "wait": 2.4},
+       {"tool": "design_edit", "args": {"ref": {"place": ["batt"]}}, "wait": 1.0}
+     ]},
+    {"seg": "LIBRARY", "title": "Four vane servos: Robotis XL330-M288-T", "speed": 2.2,
+     "why": "Each jet vane needs a fast, small, position-controlled servo: the XL330 is 18 g, 5 V, TTL bus at 1 Mbps with a 288:1 gearbox. Servo 1 goes on the +x bracket.",
+     "macro": "place", "search": "xl330", "part": "robotis-xl330-m288-t", "to": "frame.servo_xp", "port": "base", "id": "sv1", "group": "vanes", "ref_mate": "frame--sv1",
+     "post": [{"tool": "design_edit", "args": {"ref": {"params": ["sv1"]}}, "wait": 0.8}]},
+    {"seg": "LIBRARY", "title": "Servo 2 (+y)", "speed": 3.2, "why": "The same part on the +y bracket, 90 degrees round the duct.",
+     "macro": "place", "part": "robotis-xl330-m288-t", "to": "frame.servo_yp", "port": "base", "id": "sv2", "group": "vanes", "ref_mate": "frame--sv2",
+     "post": [{"tool": "design_edit", "args": {"ref": {"params": ["sv2"]}}, "wait": 0.5}]},
+    {"seg": "LIBRARY", "title": "Servo 3 (-x)", "speed": 3.2, "why": "Opposite servo 1. Pairs on opposite sides give roll and pitch torque a symmetric lever arm, and let yaw be a common mode between them.",
+     "macro": "place", "part": "robotis-xl330-m288-t", "to": "frame.servo_xn", "port": "base", "id": "sv3", "group": "vanes", "ref_mate": "frame--sv3",
+     "post": [{"tool": "design_edit", "args": {"ref": {"params": ["sv3"]}}, "wait": 0.5}]},
+    {"seg": "LIBRARY", "title": "Servo 4 (-y)", "speed": 3.2, "why": "The fourth bracket.",
+     "macro": "place", "part": "robotis-xl330-m288-t", "to": "frame.servo_yn", "port": "base", "id": "sv4", "group": "vanes", "ref_mate": "frame--sv4",
+     "post": [{"tool": "design_edit", "args": {"ref": {"params": ["sv4"]}}, "wait": 0.5}]},
+    {"seg": "LIBRARY", "title": "Jet vane 1 on servo 1's horn, as a hinge", "speed": 2.2,
+     "why": "A 45 x 34 mm 6061 aluminium plate, 8 g, sits in the exhaust under the duct and turns about a radial hinge: its normal force is the steering. The hinge is limited to +-20 degrees (the plate would touch its neighbour's wake beyond); the flight software limits itself to +-17.",
+     "macro": "place", "search": "jet vane", "part": "generic-jet-vane-alu-45x34", "to": "sv1.output", "port": "horn_seat", "id": "vane1", "group": "vanes", "ref_mate": "vane1-joint"},
+    {"seg": "LIBRARY", "title": "Vane 2", "speed": 3.2, "why": "Servo 2's vane.",
+     "macro": "place", "part": "generic-jet-vane-alu-45x34", "to": "sv2.output", "port": "horn_seat", "id": "vane2", "group": "vanes", "ref_mate": "vane2-joint"},
+    {"seg": "LIBRARY", "title": "Vane 3", "speed": 3.2, "why": "Servo 3's vane.",
+     "macro": "place", "part": "generic-jet-vane-alu-45x34", "to": "sv3.output", "port": "horn_seat", "id": "vane3", "group": "vanes", "ref_mate": "vane3-joint"},
+    {"seg": "LIBRARY", "title": "Vane 4", "speed": 3.2, "why": "Servo 4's vane.",
+     "macro": "place", "part": "generic-jet-vane-alu-45x34", "to": "sv4.output", "port": "horn_seat", "id": "vane4", "group": "vanes", "ref_mate": "vane4-joint"},
+    {"seg": "BUILD", "title": "Four vanes in the exhaust: orbit", "speed": 2.4, "dwell": 0.4,
+     "why": "Camera orbit from below the deck: the four plates sit 0.10 m under the fan plane, inside the jet's potential core, with a 0.10 m lever arm to the centre of mass.",
+     "reqs": [
+       {"tool": "camera.orbit", "args": {"yaw_deg": 0, "pitch_deg": -30, "dist": 0.65, "relative": false, "seconds": 2.0}, "wait": 2.2},
+       {"tool": "camera.orbit", "args": {"yaw_deg": 360, "relative": true, "seconds": 7.0}, "wait": 7.3}
+     ]},
+    {"seg": "LIBRARY", "title": "Four skid legs", "speed": 2.4,
+     "why": "The solid-motor lander's own skid legs: hinged at the deck, splayed, with the feet 0.239 m under it. They are what the sim touches down on.",
+     "macro": "place", "search": "lander leg skid", "part": "generic-lander-leg-skid", "to": "frame.leg1", "port": "hinge", "id": "leg1", "group": "legs", "ref_mate": "frame--leg1"},
+    {"seg": "LIBRARY", "title": "Leg 2", "speed": 3.4, "why": "Second skid.", "macro": "place", "part": "generic-lander-leg-skid", "to": "frame.leg2", "port": "hinge", "id": "leg2", "group": "legs", "ref_mate": "frame--leg2"},
+    {"seg": "LIBRARY", "title": "Leg 3", "speed": 3.4, "why": "Third skid.", "macro": "place", "part": "generic-lander-leg-skid", "to": "frame.leg3", "port": "hinge", "id": "leg3", "group": "legs", "ref_mate": "frame--leg3"},
+    {"seg": "LIBRARY", "title": "Leg 4", "speed": 3.4, "why": "Fourth skid.", "macro": "place", "part": "generic-lander-leg-skid", "to": "frame.leg4", "port": "hinge", "id": "leg4", "group": "legs", "ref_mate": "frame--leg4"},
+    {"seg": "LIBRARY", "title": "Flight computer: Teensy 4.0", "speed": 2.4,
+     "why": "600 MHz Cortex-M7, 3.5 g: it runs the 250 Hz control loop of examples/hopper/flight.py. The deck has a seat for it on the sensor sled.",
+     "macro": "place", "search": "teensy 4.0", "part": "pjrc-teensy-4-0", "to": "frame.deck_fc", "port": "base", "id": "fc", "group": "avionics", "ref_mate": "frame--fc"},
+    {"seg": "LIBRARY", "title": "Two 5 V regulators for servos and logic", "speed": 2.4,
+     "why": "The XL330 servos run on 5 V and the pack is 22 V, so two Pololu D24V50F5 buck modules (6-38 V in, 5 V 5 A out) share the load: one feeds servos 1-2, the other 3-4. Two means that one failing takes two vanes, not four.",
+     "macro": "place", "search": "d24v50f5", "part": "pololu-d24v50f5", "to": "frame.deck_reg1", "port": "base", "id": "reg1", "group": "avionics", "fasteners": "", "ref_mate": "frame--reg1",
+     "post": [{"tool": "design_edit", "args": {"ref": {"params": ["reg1"]}}, "wait": 1.0}]},
+    {"seg": "LIBRARY", "title": "The second regulator, on the opposite strip", "speed": 3.0,
+     "why": "Same part on the -y strip so the deck stays balanced.",
+     "macro": "place", "part": "pololu-d24v50f5", "to": "frame.deck_reg2", "port": "base", "id": "reg2", "group": "avionics", "fasteners": "", "ref_mate": "frame--reg2",
+     "post": [{"tool": "design_edit", "args": {"ref": {"params": ["reg2"]}}, "wait": 0.6}]},
+    {"seg": "LIBRARY", "title": "GNSS module and antenna harness", "speed": 2.6,
+     "why": "The ZED-F9P RTK breakout and its patch antenna ride on one harness allowance. The library harness (30 g) assumes an 8 g M10Q class module; this vehicle needs RTK for a 0.3 m landing, which costs 62 g, so the mass is overridden with that reasoning.",
+     "macro": "place", "search": "avionics harness", "part": "generic-avionics-harness", "to": "frame.deck_harness", "port": "base", "id": "harness", "group": "avionics", "ref_mate": "frame--harness",
+     "post": [{"tool": "design_edit", "args": {"ref": {"params": ["harness"]}}, "wait": 1.2}]},
+    {"seg": "LIBRARY", "title": "Downward lidar: Benewake TF-Luna", "speed": 2.4,
+     "why": "A 5 g single-point rangefinder, 0.2-8 m, looks straight down from under the deck. The landing law runs on its height, not on GNSS. It is placed by coordinates: 95 mm out on +x, facing down.",
+     "reqs": [
+       {"tool": "ui.mode", "args": {"name": "library"}, "wait": 0.4},
+       {"tool": "library.search", "args": {"text": "tf-luna", "type_ms": 45}, "wait": 1.6},
+       {"tool": "library.drop", "args": {"part": "benewake-tf-luna", "point": [0.095, 0.0, 0.2469], "id": "lidar", "group": "avionics"}, "wait": 1.0},
+       {"tool": "ui.mode", "args": {"name": "build"}, "wait": 0.6},
+       {"tool": "design_edit", "args": {"ref": {"place": ["lidar"], "params": ["lidar"]}}, "wait": 1.6}
+     ]},
+    {"seg": "BUILD", "title": "The chips that have no body", "speed": 1.6, "dwell": 0.5,
+     "why": "The IMU, barometer and GNSS chips, and a servo cable, are added as off-board instances: they carry the sensor datasheet numbers (noise densities, ranges, accuracy) into the simulation but no body or mass; the Teensy sled they sit on is already part of the deck.",
+     "reqs": [
+       {"tool": "ui.mode", "args": {"name": "library"}, "wait": 0.4},
+       {"tool": "library.search", "args": {"text": "icm-42688", "type_ms": 40}, "wait": 1.4},
+       {"tool": "library.search", "args": {"text": "ms5611", "type_ms": 40}, "wait": 1.2},
+       {"tool": "library.search", "args": {"text": "zed-f9p", "type_ms": 40}, "wait": 1.2},
+       {"tool": "design_edit", "args": {"ref": {"offboard": ["icm", "baro_chip", "gnss_chip", "cable"]}}, "wait": 1.4},
+       {"tool": "ui.mode", "args": {"name": "build"}, "wait": 0.8}
+     ]},
+    {"seg": "BUILD", "title": "The assembled vehicle: orbit", "speed": 2.4, "dwell": 0.4,
+     "why": "Camera orbit over the finished airframe: pack, ESC, regulators, Teensy and the GNSS harness around the duct, vanes in the exhaust below, skid legs splayed.",
+     "reqs": [
+       {"tool": "ui.frame", "args": {"instances": []}, "wait": 0.8},
+       {"tool": "camera.orbit", "args": {"yaw_deg": 360, "pitch_deg": 22, "relative": true, "seconds": 8.0}, "wait": 8.3}
+     ]},
+    {"seg": "BUILD", "title": "Where the datasheet is silent, the number says so", "speed": 1.5, "dwell": 0.5,
+     "why": "Numbers never go in bare. Pololu publishes no weight for the D24V50F5 (5 g, estimated, as the lander); the TF-Luna part has only a maximum mass; the RTK harness is 62 g, not 30; each servo got a bus ID and 1 Mbps. Every override carries its unit, fidelity and rationale; the tooltip shows it.",
+     "reqs": [
+       {"tool": "select", "args": {"instances": ["reg1"]}, "wait": 0.8},
+       {"tool": "ui.hover", "args": {"instance": "reg1", "seconds": 5}, "wait": 4.0},
+       {"tool": "select", "args": {"instances": []}, "wait": 0.4}
+     ]},
+    {"seg": "BUILD", "title": "Colours", "speed": 1.8,
+     "why": "Cosmetic, saved with the design: the deck white, the vanes orange so their motion reads in the flight, the legs dark, the fan and duct grey, the pack blue.",
+     "reqs": [
+       {"tool": "ui.frame", "args": {"instances": []}, "wait": 1.2},
+       {"tool": "set_color", "args": {"instance": "frame", "rgba": [0.86, 0.87, 0.9, 1.0]}, "wait": 0.8},
+       {"tool": "set_color", "args": {"instance": "vane1", "rgba": [0.98, 0.5, 0.08, 1.0]}, "wait": 0.4},
+       {"tool": "set_color", "args": {"instance": "vane2", "rgba": [0.98, 0.5, 0.08, 1.0]}, "wait": 0.4},
+       {"tool": "set_color", "args": {"instance": "vane3", "rgba": [0.98, 0.5, 0.08, 1.0]}, "wait": 0.4},
+       {"tool": "set_color", "args": {"instance": "vane4", "rgba": [0.98, 0.5, 0.08, 1.0]}, "wait": 0.4},
+       {"tool": "set_color", "args": {"instance": "batt", "rgba": [0.18, 0.36, 0.78, 1.0]}, "wait": 0.6},
+       {"tool": "set_color", "args": {"instance": "leg1", "rgba": [0.14, 0.15, 0.17, 1.0]}, "wait": 0.2},
+       {"tool": "set_color", "args": {"instance": "leg2", "rgba": [0.14, 0.15, 0.17, 1.0]}, "wait": 0.2},
+       {"tool": "set_color", "args": {"instance": "leg3", "rgba": [0.14, 0.15, 0.17, 1.0]}, "wait": 0.2},
+       {"tool": "set_color", "args": {"instance": "leg4", "rgba": [0.14, 0.15, 0.17, 1.0]}, "wait": 0.6},
+       {"tool": "select", "args": {"instances": []}, "wait": 0.5},
+       {"tool": "camera.orbit", "args": {"yaw_deg": 200, "pitch_deg": 24, "relative": true, "seconds": 5.0}, "wait": 5.3}
+     ]},
+    {"seg": "BUILD", "title": "The DRC says what is still open", "speed": 1.3,
+     "why": "Mechanics are done: the status bar shows the part count, mass and the design-rule check. The power ports nobody has wired are listed: that is the next job, the 2D wiring sheet. A measure between the fan and a vane checks the lever arm.",
+     "reqs": [
+       {"tool": "ui.frame", "args": {"instances": []}, "wait": 1.4},
+       {"tool": "design_check", "args": {}, "wait": 2.0},
+       {"tool": "ui.measure", "args": {"a": "fan", "b": "vane1"}, "wait": 3.0},
+       {"tool": "ui.measure", "args": {"off": true}, "wait": 0.5},
+       {"tool": "ui.hover", "args": {"instance": "vane1", "seconds": 4}, "wait": 3.0}
+     ]},
+    {"seg": "WIRING", "title": "Wiring mode: pick the parts and their terminals", "speed": 1.2,
+     "why": "The electrical side: battery, ESC, motor, the two regulators, the four servos, the Teensy and the lidar. Wiring mode lists the connectors of the selected parts: every pin as printed on the part, not a simplified power port.",
+     "reqs": [
+       {"tool": "ui.mode", "args": {"name": "wiring"}, "wait": 1.4},
+       {"tool": "select", "args": {"instances": ["batt", "esc", "motor", "reg1", "reg2", "sv1", "sv2", "sv3", "sv4", "fc", "lidar"]}, "wait": 1.6}
+     ]},
+    {"seg": "WIRING", "title": "Flatten to the 2D sheet: every real pin", "speed": 1.0,
+     "why": "Cards for the chosen parts, drawn as a signal flow from the battery on the left to the loads on the right. Each card shows the connector pins with their numbers and functions: the ESC's battery leads, motor phases A B C and its throttle signal and ground; the Pololu pads; the Teensy's right-hand header; the servos' JST plugs.",
+     "reqs": [
+       {"tool": "flatten.begin", "args": {"instances": ["batt", "esc", "motor", "reg1", "reg2", "sv1", "sv2", "sv3", "sv4", "fc", "lidar"], "ports": ["batt.power_out", "esc.power_in", "esc.motor_out", "esc.signal", "motor.phase", "reg1.vin", "reg1.vout", "reg2.vin", "reg2.vout", "sv1.port_a", "sv1.port_b", "sv2.port_a", "sv3.port_a", "sv3.port_b", "sv4.port_a", "fc.vin", "lidar.power_in"]}, "wait": 3.0},
+       {"tool": "ui.wire_view", "args": {"fit": true}, "wait": 1.0}
+     ]},
+    {"seg": "WIRING", "title": "Power chain: battery, ESC, motor, regulators", "speed": 1.3,
+     "why": "Pack to ESC on 10 AWG (the leads ship on the ESC), ESC to the motor's three phase pins, and the pack to both regulators on 18 AWG, spliced onto the pack's discharge lead (a joinable pad, so three conductors may share it). Lengths are estimates with the reason in the wire.",
+     "reqs": [
+       {"tool": "flatten.wire", "args": {"ref_wire": "batt_esc"}, "wait": 2.0},
+       {"tool": "flatten.wire", "args": {"ref_wire": "esc_motor"}, "wait": 2.0},
+       {"tool": "flatten.wire", "args": {"ref_wire": "batt_reg1"}, "wait": 2.0},
+       {"tool": "flatten.wire", "args": {"ref_wire": "batt_reg2"}, "wait": 2.0}
+     ]},
+    {"seg": "WIRING", "title": "A pin mistake: the pack straight onto the Teensy", "speed": 1.0,
+     "why": "A slip a datasheet-reading eye catches and a port-level model does not: the 22 V pack's plus pin joined to the Teensy's VIN pin. The pin rules read the voltage of each pin: the wire turns red and the DRC says PIN_VOLTAGE_MISMATCH, BAT+ drives 25.2 V, above the Vin range 3.6 to 5.5 V.",
+     "reqs": [
+       {"tool": "flatten.wire", "args": {"from": "batt.OUT.1", "to": "fc.R.VIN"}, "wait": 3.0},
+       {"tool": "design_check", "args": {}, "wait": 4.0}
+     ]},
+    {"seg": "WIRING", "title": "Fixed: remove it, the regulator feeds the Teensy", "speed": 1.2,
+     "why": "The wire goes, the finding goes with it. The Teensy is fed from the 5 V regulator, as it should be.",
+     "reqs": [
+       {"tool": "flatten.unwire", "args": {"name": "batt.OUT.1--fc.R.VIN"}, "wait": 2.4}
+     ]},
+    {"seg": "WIRING", "title": "Servo daisy chains and logic feeds", "speed": 1.3,
+     "why": "Each regulator feeds a two-servo chain: the regulator to servo 1's JST plug, then the X3P Dynamixel cable from its second plug to servo 2 (GND, 5 V and DATA on three conductors), likewise 3 and 4. The Teensy and the lidar hang on regulator 1.",
+     "reqs": [
+       {"tool": "flatten.wire", "args": {"ref_wire": "reg1_sv1"}, "wait": 1.8},
+       {"tool": "flatten.wire", "args": {"ref_wire": "sv1_sv2"}, "wait": 1.8},
+       {"tool": "flatten.wire", "args": {"ref_wire": "reg2_sv3"}, "wait": 1.8},
+       {"tool": "flatten.wire", "args": {"ref_wire": "sv3_sv4"}, "wait": 1.8},
+       {"tool": "flatten.wire", "args": {"ref_wire": "reg1_fc"}, "wait": 1.8},
+       {"tool": "flatten.wire", "args": {"ref_wire": "reg1_lidar"}, "wait": 1.8},
+       {"tool": "flatten.layout", "args": {}, "wait": 2.0},
+       {"tool": "ui.wire_view", "args": {"fit": true}, "wait": 2.0}
+     ]},
+    {"seg": "WIRING", "title": "Back to 3D: the conductors are tubes routed around the parts", "speed": 1.2,
+     "why": "The wires are already in the design. In 3D each bundle leaves its connector along the connector's axis, keeps 2 mm clear of every part and bends no tighter than six wire diameters; the camera orbits to show they go around the duct, the pack and the ESC, never through.",
+     "reqs": [
+       {"tool": "flatten.end", "args": {}, "wait": 1.0},
+       {"tool": "ui.mode", "args": {"name": "build"}, "wait": 1.0},
+       {"tool": "ui.view", "args": {"emphasise_wires": true}, "wait": 0.5},
+       {"tool": "select", "args": {"instances": []}, "wait": 0.5},
+       {"tool": "ui.frame", "args": {"instances": []}, "wait": 1.6},
+       {"tool": "camera.orbit", "args": {"yaw_deg": 360, "pitch_deg": 35, "dist": 0.7, "relative": true, "seconds": 9.0}, "wait": 9.4}
+     ]},
+    {"seg": "WIRING", "title": "A closer look from below", "speed": 1.4,
+     "why": "Under the deck: the lidar lead and the servo cables run along the brackets; the camera flies in close to the ESC end and then to the regulators.",
+     "reqs": [
+       {"tool": "camera.orbit", "args": {"yaw_deg": 200, "pitch_deg": -25, "dist": 0.45, "relative": false, "seconds": 3.5}, "wait": 3.8},
+       {"tool": "camera.orbit", "args": {"yaw_deg": 120, "relative": true, "seconds": 5.0}, "wait": 5.3}
+     ]},
+    {"seg": "BUILD", "title": "Device bindings: the simulation side", "speed": 2.2,
+     "why": "The simulator needs to know what each part does: the battery, two regulators, the ESC driving the motor, the fan as a rotor with the vendor's C_T / C_Q table, four jet vanes, four servos, the IMU, GNSS, barometer and lidar. Values come from part data through the maps; every estimate carries its reason.",
+     "reqs": [
+       {"tool": "design_edit", "args": {"ref": {"device_maps": "all"}}, "wait": 1.6},
+       {"tool": "design_edit", "args": {"ref": {"devices": "all"}}, "wait": 2.4},
+       {"tool": "design_check", "args": {}, "wait": 3.0}
+     ]},
+    {"seg": "PROGRAM", "title": "PROGRAM: the flight software", "speed": 1.4,
+     "why": "flight.py, 250 Hz, no simulator imports: sensors in (IMU, barometer, GNSS, lidar, battery monitor), four vane servo goals and the ESC throttle out. A state machine: PAD calibration, SPOOL, CLIMB, TRANSIT, HOVER, DESCENT, FINAL on the lidar, TOUCHDOWN, with aborts for tilt, battery, GNSS loss and leaving the plan.",
+     "reqs": [
+       {"tool": "ui.mode", "args": {"name": "program"}, "wait": 2.4},
+       {"tool": "ui.program", "args": {"file": "examples/hopper/flight.py", "scroll": 0.0}, "wait": 4.4},
+       {"tool": "ui.program", "args": {"file": "examples/hopper/flight.py", "scroll": 0.46}, "wait": 5.0}
+     ]},
+    {"seg": "PROGRAM", "title": "Estimator: what the vehicle believes", "speed": 1.4,
+     "why": "estimator.py: attitude from the gyro alone after a pad calibration (tilt and heading zeroed there), per-axis position and velocity filters fed by the accelerometer and by delayed RTK fixes, height from the barometer and, close to the ground, the lidar. The controller never sees simulator truth.",
+     "reqs": [
+       {"tool": "ui.program", "args": {"file": "examples/hopper/estimator.py", "scroll": 0.0}, "wait": 4.2},
+       {"tool": "ui.program", "args": {"file": "examples/hopper/estimator.py", "scroll": 0.62}, "wait": 4.4}
+     ]},
+    {"seg": "PROGRAM", "title": "Trajectory: minimum-jerk legs between waypoints", "speed": 1.2,
+     "why": "trajectory.py: each leg of the mission (climb to 25 m, cross 10 m, descend) is a minimum-jerk polynomial with a speed and acceleration limit, so the references the loops chase are smooth and the thrust command never steps.",
+     "reqs": [
+       {"tool": "ui.program", "args": {"file": "examples/hopper/trajectory.py", "scroll": 0.0}, "wait": 4.4}
+     ]},
+    {"seg": "PROGRAM", "title": "Control: attitude loop and the vane allocation", "speed": 1.4,
+     "why": "control.py: position to velocity to attitude cascade; the three body torques are mapped onto four vane angles by the pseudo-inverse of the vane torque matrix, roll and pitch first, yaw in the null space (the same angle on opposite vane pairs) within the +-17 degree limit; the flat-plate law of the vane device is inverted for the angle.",
+     "reqs": [
+       {"tool": "ui.program", "args": {"file": "examples/hopper/control.py", "scroll": 0.0}, "wait": 4.2},
+       {"tool": "ui.program", "args": {"file": "examples/hopper/control.py", "scroll": 0.2}, "wait": 5.0}
+     ]},
+    {"seg": "PROGRAM", "title": "Energy and spool logic: the thrust loop", "speed": 1.4,
+     "why": "ThrustCtl turns the thrust command into an ESC duty at the measured pack voltage, rate-limited (the fan's spin-up torque would disturb yaw) and trimmed by an integrator on the accelerometer, so a weak cell or a heavy vehicle still hovers; the spool state keeps ramping until the legs leave the ground.",
+     "reqs": [
+       {"tool": "ui.program", "args": {"file": "examples/hopper/control.py", "scroll": 1.0}, "wait": 5.0}
+     ]},
+    {"seg": "PROGRAM", "title": "The scenario file: the mission and its judges", "speed": 1.2,
+     "why": "divert25.scenario.toml: a 25 m hop with a 10 m divert (8 m east, 6 m north) in wind, with the scatter of the Monte Carlo as parameters, and the monitors the runner judges the trace on: reach 24 m, divert 9.5 m, touchdown under 0.5 m/s and 5 degrees, within 0.3 m of the second pad, no abort.",
+     "reqs": [
+       {"tool": "ui.program", "args": {"file": "examples/hopper/divert25.scenario.toml", "scroll": 0.0}, "wait": 4.4},
+       {"tool": "ui.program", "args": {"file": "examples/hopper/divert25.scenario.toml", "scroll": 1.0}, "wait": 5.0}
+     ]},
+    {"seg": "BUILD", "title": "Save the design", "speed": 1.0,
+     "why": "Design.save writes the assembly as TOML. This file is what the simulation flies next: the hopper above, not a copy of the reference.",
+     "reqs": [
+       {"tool": "ui.program", "args": {}, "wait": 0.2},
+       {"tool": "ui.mode", "args": {"name": "build"}, "wait": 1.2},
+       {"tool": "design_save", "args": {"path": "__SAVE__"}, "wait": 2.4}
+     ]}
+  ]
+}

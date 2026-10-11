@@ -64,6 +64,7 @@ pins = ["IO.VOUT", "IO.GND2"]
 # ---- Connectors (pin level). S1 lists the five connection points; the order along the edge is not in the page text, so the pad order is an estimate.
 [[connectors]]
 id = "IO"
+joinable = true   # bare solder pads: several wires may be soldered to one pad
 name = "5 solder pads on a 0.1 in grid"
 type = "pad-1x5-2.54mm"
 gender = "neutral"

@@ -15,6 +15,8 @@
 #include <functional>
 #include <future>
 #include <map>
+#include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -117,11 +119,11 @@ void vk_check(VkResult r) {
   if (r != VK_SUCCESS) throw std::runtime_error("ImGui Vulkan backend error (VkResult " + std::to_string(r) + ")");
 }
 struct ImGuiBackends {
-  ImGuiBackends(GLFWwindow* win, const WindowRenderer::Handles& h) : fmt(h.color_format) {
+  ImGuiBackends(GLFWwindow* win, const WindowRenderer::Handles& h) : fmt(h.color_format), glfw(win != nullptr) {  // win null: off-screen, no platform backend
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;  // no imgui.ini in the working directory
-    ImGui_ImplGlfw_InitForVulkan(win, true);
+    if (win) ImGui_ImplGlfw_InitForVulkan(win, true);
     ImGui_ImplVulkan_InitInfo ii = {};
     ii.ApiVersion = VK_API_VERSION_1_3;
     ii.Instance = h.instance;
@@ -129,7 +131,9 @@ struct ImGuiBackends {
     ii.Device = h.device;
     ii.QueueFamily = h.queue_family;
     ii.Queue = h.queue;
-    ii.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
+    // One sampled-image descriptor per font atlas plus one per registered texture (library thumbnails, HUD images). radv
+    // enforces the pool size (VK_ERROR_FRAGMENTED_POOL on the 9th texture); llvmpipe never did.
+    ii.DescriptorPoolSize = 4096;
     ii.MinImageCount = 2;
     ii.ImageCount = 3;
     ii.UseDynamicRendering = true;
@@ -141,11 +145,18 @@ struct ImGuiBackends {
   }
   ~ImGuiBackends() {
     ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
+    if (glfw) ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
   }
   VkFormat fmt;
+  bool glfw;
 };
+
+// The newest off-screen frame (see viewer_latest_frame in viewer.h).
+std::mutex g_frame_mu;
+std::vector<std::uint8_t> g_frame;
+int g_frame_w = 0, g_frame_h = 0;
+std::uint64_t g_frame_seq = 0;
 
 // ---- scene tree --------------------------------------------------------------------------------------------------------
 struct Node {
@@ -225,32 +236,43 @@ class Viewer {
   }
 
   void run() {
-    GlfwInit glfw;
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GlfwWindow window(opts_.width, opts_.height);
-    if (!glfwVulkanSupported()) throw std::runtime_error("no Vulkan loader found (GLFW could not load libvulkan)");
+    // Off-screen (opts_.offscreen or NAPL_OFFSCREEN=1): no GLFW, no window, no swapchain, no X server; every frame is read
+    // back to RGBA (viewer_latest_frame). ImGui gets its display size / delta time from here instead of the GLFW backend.
+    const char* off_env = std::getenv("NAPL_OFFSCREEN");
+    const bool off = opts_.offscreen || (off_env && *off_env && std::string(off_env) != "0");
+    std::optional<GlfwInit> glfw;
+    std::optional<GlfwWindow> window;
     WindowRenderer::Surface surf;
-    std::uint32_t n = 0;
-    const char** exts = glfwGetRequiredInstanceExtensions(&n);
-    if (!exts) throw std::runtime_error("this window system cannot present Vulkan images (" + g_glfw_error + ")");
-    surf.instance_extensions.assign(exts, exts + n);
-    surf.create = [&](VkInstance inst) {
-      VkSurfaceKHR s = nullptr;
-      const VkResult r = glfwCreateWindowSurface(inst, window.w, nullptr, &s);
-      if (r != VK_SUCCESS)
-        throw std::runtime_error("cannot create a Vulkan surface for the window (VkResult " + std::to_string(r) + "): " + g_glfw_error);
-      return s;
-    };
+    if (off) {
+      surf.offscreen = true;
+    } else {
+      glfw.emplace();
+      glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+      window.emplace(opts_.width, opts_.height);
+      if (!glfwVulkanSupported()) throw std::runtime_error("no Vulkan loader found (GLFW could not load libvulkan)");
+      std::uint32_t n = 0;
+      const char** exts = glfwGetRequiredInstanceExtensions(&n);
+      if (!exts) throw std::runtime_error("this window system cannot present Vulkan images (" + g_glfw_error + ")");
+      surf.instance_extensions.assign(exts, exts + n);
+      surf.create = [&](VkInstance inst) {
+        VkSurfaceKHR s = nullptr;
+        const VkResult r = glfwCreateWindowSurface(inst, window->w, nullptr, &s);
+        if (r != VK_SUCCESS)
+          throw std::runtime_error("cannot create a Vulkan surface for the window (VkResult " + std::to_string(r) + "): " + g_glfw_error);
+        return s;
+      };
+    }
     WindowRenderer renderer(surf);
+    if (off) std::fprintf(stderr, "napl-view: off-screen %dx%d on %s\n", opts_.width, opts_.height, renderer.device_name().c_str());
     if (opts_.design_api) {  // the build view looks like a studio; NAPL_RENDER_STYLE still overrides
       RenderStyle st = default_render_style();
       st.sky = RenderStyle::Sky::studio;
       set_default_render_style(st);
     }
-    ImGuiBackends gui(window.w, renderer.handles());
+    ImGuiBackends gui(window ? window->w : nullptr, renderer.handles());
     theme::init();
     if (opts_.clean) {  // a recording / HUD view: no pointer drawn over the picture
-      glfwSetInputMode(window.w, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+      if (window) glfwSetInputMode(window->w, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
       ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     }
     libui::Thumbs thumbs;
@@ -261,10 +283,13 @@ class Viewer {
       dreq("cats", design::request("library.categories"), true);
       dreq("search", [this] { return search_req(); }, true);  // the first page of the library (an empty query lists everything)
     }
-    for (int n_frame = 0; !glfwWindowShouldClose(window.w) && !(opts_.frames > 0 && n_frame >= opts_.frames) &&
+    using Clock = std::chrono::steady_clock;
+    auto last = Clock::now();
+    std::vector<std::uint8_t> shot;
+    for (int n_frame = 0; !(window && glfwWindowShouldClose(window->w)) && !(opts_.frames > 0 && n_frame >= opts_.frames) &&
                           !(opts_.stop && opts_.stop->load());
          ++n_frame) {
-      glfwPollEvents();
+      if (window) glfwPollEvents();
       for (const ScriptCmd& c : script_) {
         if (c.frame != n_frame) continue;
         if (c.action == "select") select(c.args[0]);
@@ -278,18 +303,41 @@ class Viewer {
       poll();
 
       ImGui_ImplVulkan_NewFrame();
-      ImGui_ImplGlfw_NewFrame();
+      if (window) {
+        ImGui_ImplGlfw_NewFrame();
+      } else {
+        ImGuiIO& io = ImGui::GetIO();
+        const auto now = Clock::now();
+        io.DisplaySize = ImVec2(static_cast<float>(opts_.width), static_cast<float>(opts_.height));
+        io.DisplayFramebufferScale = ImVec2(1, 1);
+        io.DeltaTime = std::max(1e-4f, std::chrono::duration<float>(now - last).count());
+        last = now;
+        // The pointer sits where Xvfb parks it (the screen centre): popups that open at the pointer land where they did there.
+        if (n_frame == 0) io.AddMousePosEvent(opts_.width / 2.f, opts_.height / 2.f);
+      }
       ImGui::NewFrame();
       ui();
       ImGui::Render();
 
-      int fw = 0, fh = 0;
-      glfwGetFramebufferSize(window.w, &fw, &fh);
+      int fw = opts_.width, fh = opts_.height;
+      if (window) glfwGetFramebufferSize(window->w, &fw, &fh);
       renderer.set_tubes(cur_.tubes);
-      const bool drawn = renderer.frame(cur_.poses, view_cam_, fw, fh, [](VkCommandBuffer cb) {
+      const bool drawn = renderer.frame(shown_poses(), view_cam_, fw, fh, [](VkCommandBuffer cb) {
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
-      });
-      if (!drawn) glfwWaitEventsTimeout(0.05);  // minimised or swapchain rebuilding: do not spin
+      }, window ? nullptr : &shot);
+      if (!window) {
+        {
+          std::lock_guard<std::mutex> lk(g_frame_mu);
+          g_frame.swap(shot);
+          g_frame_w = fw;
+          g_frame_h = fh;
+          ++g_frame_seq;
+        }
+        // ponytail: fixed 60 fps cap (what FIFO vsync gives a window); no free-running GPU loop. Make it an option if a tool wants more.
+        std::this_thread::sleep_until(last + std::chrono::microseconds(16667));
+      } else if (!drawn) {
+        glfwWaitEventsTimeout(0.05);  // minimised or swapchain rebuilding: do not spin
+      }
     }
     draining_ = true;  // edits still queued or running finish (and their model reloads are issued) before we return
     while (dfut_.valid() || !dq_.empty()) {
@@ -776,6 +824,10 @@ class Viewer {
     if (!has_design_ && mode_ == Mode::Simulate && pending_mode_.empty()) mode_ = Mode::Build;  // an editable design opens on BUILD
     has_design_ = true;
     rebuild_scene();
+    if (!framed_ && !scene_.empty()) {  // opening a design frames it, like a CAD app (a scripted camera set before this is kept)
+      framed_ = true;
+      if (!cam_anim_.active && !opts_.clean) frame_selection(true, true);
+    }
     for (auto& [part, t] : targets_) t.requested = false;  // the open ports changed: ghost targets are asked again on the next drag
     if (finding_ >= static_cast<int>(design_.findings.size())) {
       finding_ = -1;
@@ -999,7 +1051,8 @@ class Viewer {
 
   // ================================ layout: top bar, status bar, per-mode panes =====================================================
   enum class Mode { Build, Library, Wiring, Simulate, Program };
-  static constexpr float kTop = 38, kStatus = 26;
+  // kApp = the application bar; kTop = where the page content starts (below the ribbon); kStatus = the status bar.
+  static constexpr float kApp = theme::kAppBar, kTop = theme::kAppBar + theme::kRibbon, kStatus = theme::kStatusBar;
   static constexpr ImGuiWindowFlags kPane = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav;
 
@@ -1024,9 +1077,9 @@ class Viewer {
     const bool narrow = W < 900;
     float l = 0, r = 0;
     switch (mode_) {
-      case Mode::Build: l = narrow ? 0 : 272, r = narrow ? 0 : 322; break;
+      case Mode::Build: l = narrow ? 0 : 268, r = narrow ? 0 : 316; break;
       case Mode::Library: l = std::round(W * 0.78f); break;
-      case Mode::Simulate: l = narrow ? 0 : 300, r = narrow ? 0 : 300; break;
+      case Mode::Simulate: l = narrow ? 0 : 290, r = narrow ? 0 : 290; break;
       default: break;
     }
     pane_l_ = l;
@@ -1062,19 +1115,34 @@ class Viewer {
     return c;
   }
 
+  // The application bar: mark + design name on the left, the workspace (page) tabs, quick-access undo / redo / save on the right.
   void top_bar(float W) {
     ImGui::SetNextWindowPos({0, 0});
-    ImGui::SetNextWindowSize({W, kTop});
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0.02f, 0.02f, 0.025f, 0.92f});
+    ImGui::SetNextWindowSize({W, kApp});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::kBar);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {16, 0});
     ImGui::Begin("##top", nullptr, kPane | ImGuiWindowFlags_NoScrollbar);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImGui::PushFont(nullptr, 17.f);
-    dl->AddText({16, 9}, theme::u32(theme::kText), "NAPL");
+    dl->AddRectFilled({12, 8}, {30, 26}, theme::u32(theme::kAccent), 3);  // the mark: an isometric cube in the accent square
+    theme::icon(dl, theme::Icon::Cube, {21, 17}, 14, IM_COL32(255, 255, 255, 255));
+    ImGui::PushFont(nullptr, theme::kFontTitle);
+    dl->AddText({38, 8}, theme::u32(theme::kText), "NAPL");
     ImGui::PopFont();
-    ImGui::SetCursorScreenPos({96, 0});
+    std::string title = has_design_ && !design_.assembly.empty() ? design_.assembly : sim_title_.empty() ? "untitled" : sim_title_;
+    if (dstate_.undo > 0) title += "  *";  // unsaved edits since the document was opened (the undo stack is not empty)
+    ImGui::PushFont(nullptr, theme::kFontSmall);
+    float title_w = 0;
+    if (W >= 1000) {
+      title_w = std::min(ImGui::CalcTextSize(title.c_str()).x, 220.f);
+      dl->PushClipRect({90, 0}, {90 + 224, kApp}, true);
+      dl->AddText({90, 11}, theme::u32(theme::kDim), title.c_str());
+      dl->PopClipRect();
+      title_w += 24;
+    }
+    ImGui::PopFont();
+    ImGui::SetCursorScreenPos({90 + title_w + 8, 4});
     std::vector<const char*> labels;
     std::vector<Mode> modes;
     for (Mode m : {Mode::Build, Mode::Library, Mode::Wiring, Mode::Simulate, Mode::Program}) {
@@ -1088,45 +1156,183 @@ class Viewer {
       if (modes[i] == mode_) active = static_cast<int>(i);
     const int hit = theme::tabs(labels.data(), static_cast<int>(labels.size()), active);
     if (hit >= 0) set_mode(mode_name(modes[hit]));
-    if (opts_.design_api) {  // right side: undo / redo / save, as quiet text buttons
-      ImGui::PushFont(nullptr, 13.f);
-      const auto tb = [&](const char* text, float& x, bool enabled) {
-        const float w = ImGui::CalcTextSize(text).x;
-        x -= w + 18;
-        ImGui::SetCursorScreenPos({x, 10});
-        ImGui::BeginDisabled(!enabled);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0, 0, 0, 0});
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {0, 2});
-        const bool c = ImGui::Button(text);
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
-        ImGui::EndDisabled();
-        return c;
-      };
-      float x = W - 8;
-      if (tb("SAVE", x, true)) d_save(save_buf_);
-      if (ImGui::IsItemHovered()) ImGui::SetTooltip("write the design TOML%s%s", dstate_.path.empty() ? "" : ": ", dstate_.path.c_str());
-      if (tb(("REDO " + std::to_string(dstate_.redo)).c_str(), x, dstate_.redo > 0)) d_undo(true);
-      if (tb(("UNDO " + std::to_string(dstate_.undo)).c_str(), x, dstate_.undo > 0)) d_undo(false);
-      ImGui::PopFont();
+    if (opts_.design_api) {  // quick access (right): undo / redo / save
+      using theme::Icon;
+      float x = W - 12 - 3 * 28;
+      ImGui::SetCursorScreenPos({x, 3});
+      if (theme::icon_button("##qundo", Icon::Undo, 28, false, dstate_.undo > 0, "undo (Ctrl+Z)")) d_undo(false);
+      ImGui::SetCursorScreenPos({x + 28, 3});
+      if (theme::icon_button("##qredo", Icon::Redo, 28, false, dstate_.redo > 0, "redo (Ctrl+Shift+Z)")) d_undo(true);
+      ImGui::SetCursorScreenPos({x + 56, 3});
+      if (theme::icon_button("##qsave", Icon::Save, 28, false, true, nullptr)) d_save(save_buf_);
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("save: write the design TOML%s%s", dstate_.path.empty() ? "" : ": ", dstate_.path.c_str());
       if (save_buf_[0] == 0 && !dstate_.path.empty()) std::snprintf(save_buf_, sizeof save_buf_, "%s", dstate_.path.c_str());
     }
-    dl->AddLine({0, kTop - 0.5f}, {W, kTop - 0.5f}, theme::u32(theme::kLine));
+    ImGui::Dummy({0, 0});  // (theme::tabs leaves the cursor past its last tab: an item must follow)
+    dl->AddLine({0, kApp - 0.5f}, {W, kApp - 0.5f}, theme::u32(theme::kLine));
+    ImGui::End();
+  }
+
+  // The ribbon under the application bar: grouped icon + label tools of the active page. Every button is an existing function of the
+  // window (gizmo mode, the Backend ops, the page's own actions); nothing here is decoration.
+  void ribbon_bar(float W) {
+    ImGui::SetNextWindowPos({0, kApp});
+    ImGui::SetNextWindowSize({W, theme::kRibbon});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::kPanel);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+    ImGui::Begin("##ribbon", nullptr, kPane | ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    using theme::Icon;
+    theme::Ribbon r;
+    r.begin({0, kApp});
+    const bool ed = opts_.design_api && has_design_;
+    const design::Instance* sel = sel_instance();
+    const bool can = ed && sel && sel->id != dstate_.root;
+    const auto history = [&] {
+      r.group("HISTORY");
+      if (r.button(Icon::Undo, "Undo", false, ed && dstate_.undo > 0, "undo the last edit (Ctrl+Z)")) d_undo(false);
+      if (r.button(Icon::Redo, "Redo", false, ed && dstate_.redo > 0, "redo (Ctrl+Shift+Z)")) d_undo(true);
+    };
+    switch (mode_) {
+      case Mode::Build: {
+        r.group("SELECT");
+        if (r.button(Icon::Select, "Select", gizmo_.mode == b3::Gizmo::Off, ed, "no gizmo: click to select, Shift/Ctrl adds")) gizmo_.mode = b3::Gizmo::Off, measure_ = 0;
+        if (r.button(Icon::Move, "Move", gizmo_.mode == b3::Gizmo::Move, ed, "G: move along an axis or on the ground plane")) gizmo_.mode = b3::Gizmo::Move, measure_ = 0;
+        if (r.button(Icon::Rotate, "Rotate", gizmo_.mode == b3::Gizmo::Rotate, ed, "R: rotate about an axis (snaps to the angle step)")) gizmo_.mode = b3::Gizmo::Rotate, measure_ = 0;
+        r.group("MODIFY");
+        if (r.button(Icon::Align, "Align", false, ed && sel_.size() > 1, "align the selected parts (pick two or more): opens the ALIGN list")) ImGui::OpenPopup("##align");
+        if (r.button(Icon::Mirror, "Mirror", false, can, "mirror a copy across the world plane normal to Y")) dreq("edit", design::request("mirror", "{\"silent\":true,\"instances\":" + json_list(sel_) + ",\"axis\":\"y\"}"));
+        if (r.button(Icon::Copy, "Duplicate", false, can, "copy the selected part next to itself")) dreq("edit", design::request("duplicate", "{\"silent\":true,\"instance\":" + q(sel->id) + "}"));
+        if (r.button(Icon::Trash, "Remove", false, can, "Del: remove the selected part")) d_remove(sel->id);
+        r.group("ASSEMBLE");
+        if (r.button(Icon::Mate, "Mate", snap_.ports, ed, "snap to ports while dragging (mate seats); the PLACE tab lists the alternatives")) snap_.ports = !snap_.ports;
+        if (r.button(Icon::Colour, "Colour", false, can, "pick the part's colour")) {
+          right_tab_ = 0;
+          color_flash_ = ImGui::GetTime() + 0.05;
+        }
+        r.group("INSPECT");
+        if (r.button(Icon::Measure, "Measure", measure_ > 0, ed, "click two parts: distance between their centres and the clear gap (Esc ends)")) measure_ = measure_ ? 0 : 1, measure_a_.clear(), measure_b_.clear();
+        if (r.button(Icon::Check, "Check", right_tab_ == 2, ed, "design rule check: findings on the DRC tab")) right_tab_ = 2;
+        history();
+        r.group("DOCUMENT");
+        if (r.button(Icon::Save, "Save", false, ed, "write the design TOML")) d_save(save_buf_);
+        break;
+      }
+      case Mode::Library: {
+        r.group("FIND");
+        if (r.button(Icon::Clear, "Clear", false, true, "clear the search text and category")) {
+          lib_.query[0] = 0;
+          lib_.category.clear();
+          lib_.dirty = true;
+        }
+        r.group("USE");
+        const bool pick = !lib_.selected.empty() && ed;
+        if (r.button(Icon::Add, "Add", false, pick, "add the open part to the design (onto the selected part's best open port)")) add_part(lib_.selected);
+        if (r.button(Icon::Swap, "Swap", false, pick && sel, "replace the selected part with the open one")) d_swap(sel->id, lib_.selected, true);
+        history();
+        break;
+      }
+      case Mode::Wiring: {
+        r.group("WIRE");
+        const bool fl = flat_.active();
+        if (r.button(Icon::Wire, "Wire", fl, ed, "2D canvas: drag from a pin to another pin to lay a wire")) flat_.begin_selected(dstate_, sel_.empty() ? "" : sel_.back());
+        if (r.button(Icon::Pin, "Pin wire", fl, ed && fl, "pin-level wires: a connector's pins are drawn one by one; drag pin to pin")) flat_.zoom_to_pins();
+        r.group("AUTOMATE");
+        if (r.button(Icon::Auto, "Autowire", false, ed, "wire every open port that has one sensible target")) d_autowire_all();
+        r.group("VERIFY");
+        if (r.button(Icon::Check, "DRC", false, ed, "design rule check (DRC tab in BUILD)")) set_mode("build"), right_tab_ = 2;
+        if (r.button(Icon::Fit, "Fit", false, fl, "fit the sheet in the window")) flat_.fit_view();
+        history();
+        break;
+      }
+      case Mode::Simulate: {
+        r.group("RUN");
+        if (cur_.running) {
+          if (r.button(Icon::Pause, "Pause", true, true, "pause the simulation")) send(env_pause(kSource), "pause");
+        } else if (r.button(Icon::Play, "Run", false, true, "run at the rate set in the left panel")) {
+          send(env_run(kSource, rate_), "run");
+        }
+        if (r.button(Icon::Step, "Step", false, !cur_.running, "advance by the ticks set in the left panel")) send(env_step(kSource, std::max(1, steps_)), "step");
+        r.group("VIEW");
+        if (r.button(Icon::Fit, "Fit", false, !scene_.empty(), "frame the whole model")) frame_selection(true);
+        if (r.button(Icon::Home, "Iso", false, true, "isometric view")) camera_preset("iso");
+        if (ed) {
+          r.group("DESIGN CHECK");
+          if (r.button(Icon::Play, "Hover", false, true, "design check run: hover 5 s")) d_simulate("hover");
+        }
+        break;
+      }
+      case Mode::Program: {
+        r.group("SOURCE");
+        if (r.button(Icon::Doc, "Design", prog_file_text_.empty(), true, "show the design TOML")) prog_file_text_.clear(), prog_file_name_.clear();
+        r.group("LOG");
+        if (r.button(Icon::Clear, "Clear log", false, true, "empty the session log")) log_.clear();
+        if (ed) history();
+        break;
+      }
+    }
+    r.end();
+    if (ImGui::BeginPopup("##align")) {  // ALIGN: min / centre / max of the selection on an axis, or equal gaps
+      const char* const axes[] = {"X", "Y", "Z"};
+      const char* const to[] = {"min", "center", "max"};
+      for (int ax = 0; ax < 3; ++ax) {
+        ImGui::TextUnformatted(axes[ax]);
+        for (int t = 0; t < 3; ++t) {
+          ImGui::SameLine();
+          ImGui::PushID(ax * 3 + t);
+          if (ImGui::SmallButton(to[t])) place_group("align", ax, to[t]), ImGui::CloseCurrentPopup();
+          ImGui::PopID();
+        }
+        ImGui::SameLine();
+        ImGui::PushID(100 + ax);
+        if (ImGui::SmallButton("distribute")) place_group("distribute", ax, ""), ImGui::CloseCurrentPopup();
+        ImGui::PopID();
+      }
+      ImGui::EndPopup();
+    }
     ImGui::End();
   }
 
   void status_bar(float W, float H) {
     ImGui::SetNextWindowPos({0, H - kStatus});
     ImGui::SetNextWindowSize({W, kStatus});
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0.02f, 0.02f, 0.025f, 0.92f});
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {16, 0});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::kBar);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12, 0});
     ImGui::Begin("##status", nullptr, kPane | ImGuiWindowFlags_NoScrollbar);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddLine({0, H - kStatus + 0.5f}, {W, H - kStatus + 0.5f}, theme::u32(theme::kLine));
-    ImGui::PushFont(nullptr, 12.f);
-    const float y = H - kStatus + 6;
+    ImGui::PushFont(nullptr, theme::kFontSmall);
+    const float y = H - kStatus + 5;
+    std::size_t errors = 0, warns = 0;
+    for (const design::Finding& f : design_.findings) {
+      if (f.severity == "error") ++errors;
+      else if (f.severity == "warning") ++warns;
+    }
+    // right-hand readouts, right to left; each one is dropped (lowest priority first) when the window is too narrow for it
+    struct Seg {
+      std::string text;
+      ImVec4 col;
+      int prio;  // dropped first when high
+    };
+    std::vector<Seg> segs;
+    char b[96];
+    std::snprintf(b, sizeof b, "T %.3f s", static_cast<double>(cur_.tick) * cur_.dt);
+    segs.push_back({b, theme::kDim, 0});
+    if (has_design_) {
+      std::snprintf(b, sizeof b, "DRC  %zu ERR  %zu WARN", errors, warns);
+      segs.push_back({b, errors ? theme::kErr : warns ? theme::kWarn : theme::kOk, 0});
+      std::snprintf(b, sizeof b, "MASS  %.3f kg", design_.mass_total);
+      segs.push_back({b, theme::kText, 1});
+      std::snprintf(b, sizeof b, "%zu PARTS", design_.instances.size());
+      segs.push_back({b, theme::kText, 2});
+      if (snap_.grid > 0) std::snprintf(b, sizeof b, "SNAP  %g mm  %g\xC2\xB0%s%s", snap_.grid * 1000, snap_.angle, snap_.edges ? "  EDGE" : "", snap_.ports ? "  PORT" : "");
+      else std::snprintf(b, sizeof b, "SNAP  OFF");
+      segs.push_back({b, snap_.grid > 0 || snap_.edges || snap_.ports ? theme::kText : theme::kDim, 3});
+      segs.push_back({"UNITS  mm  kg", theme::kDim, 4});
+    }
     std::string left = "NO SELECTION";
     if (!sel_.empty()) {
       left = "SELECTED  " + sel_.back();
@@ -1135,43 +1341,50 @@ class Viewer {
     } else if (!selected_.empty()) {
       left = "PRIM  " + selected_;
     }
-    dl->AddText({16, y}, theme::u32(theme::kText), left.c_str());
-    std::string msg = !dstatus_.empty() ? dstatus_ : !dstate_.build_error.empty() ? "does not build: " + dstate_.build_error : !status_.empty() ? status_ : dfut_.valid() ? "working: " + dcur_.kind + " ..." : "";
+    const float min_left = 300, sep = 26;
+    const auto total = [&] {
+      float w = 12;
+      for (const Seg& s : segs) w += ImGui::CalcTextSize(s.text.c_str()).x + sep;
+      return w;
+    };
+    while (segs.size() > 1 && W - total() < min_left) {  // drop the highest-priority-number segment
+      auto it = std::max_element(segs.begin(), segs.end(), [](const Seg& a, const Seg& c) { return a.prio < c.prio; });
+      segs.erase(it);
+    }
+    float x = W - 12;
+    for (const Seg& s : segs) {  // drawn right to left in the order pushed: time at the far right
+      x -= ImGui::CalcTextSize(s.text.c_str()).x;
+      dl->AddText({x, y}, theme::u32(s.col), s.text.c_str());
+      x -= sep / 2;
+      dl->AddLine({x, H - kStatus + 5}, {x, H - 5}, theme::u32(theme::kLine));
+      x -= sep / 2;
+    }
+    // left: the selection, then the message / hint of the page in what is left
+    const float left_w = std::min(ImGui::CalcTextSize(left.c_str()).x, (x - 12) * 0.5f);
+    dl->PushClipRect({12, 0}, {12 + left_w, H}, true);
+    dl->AddText({12, y}, theme::u32(theme::kText), left.c_str());
+    dl->PopClipRect();
+    std::string msg = !dstatus_.empty() ? dstatus_ : !dstate_.build_error.empty() ? "does not build: " + dstate_.build_error : !status_.empty() ? status_ : dfut_.valid() && !dcur_.quiet ? "working: " + dcur_.kind + " ..." : "";
     if (msg.empty() && !edit_summary_.empty()) msg = edit_summary_;
-    if (msg.empty() && has_design_ && W > 1000) {  // keyboard hints of the page, while nothing else needs the space
-      const char* hint = mode_ == Mode::Build     ? "G MOVE   R ROTATE   F FRAME   1-4 VIEWS   DEL REMOVE   CTRL+Z UNDO"
-                         : mode_ == Mode::Library ? "CLICK A CARD FOR DETAILS   DRAG ONE INTO THE 3D VIEW"
-                         : mode_ == Mode::Wiring  ? "DRAG PIN TO PIN   WHEEL ZOOMS   MIDDLE DRAG PANS   DEL REMOVES THE SELECTED WIRE"
-                                                  : "";
-      dl->PushClipRect({W * 0.30f, 0}, {W * 0.70f, H}, true);
-      dl->AddText({W * 0.30f, y}, theme::u32(theme::kDim, 0.65f), hint);
-      dl->PopClipRect();
+    const bool bad = !dstatus_.empty() || !status_.empty() || !dstate_.build_error.empty();
+    const float mx = 12 + left_w + 24, avail = x - 12 - mx;
+    bool hint = false;
+    if (msg.empty() && has_design_) {  // keyboard hints of the page, while nothing else needs the space
+      hint = true;
+      msg = mode_ == Mode::Build     ? "G MOVE   R ROTATE   F FRAME   1-4 VIEWS   DEL REMOVE   CTRL+Z UNDO"
+            : mode_ == Mode::Library ? "CLICK A CARD FOR DETAILS   DRAG ONE INTO THE 3D VIEW"
+            : mode_ == Mode::Wiring  ? "DRAG PIN TO PIN   WHEEL ZOOMS   MIDDLE DRAG PANS   DEL REMOVES WIRE"
+                                     : "";
     }
-    if (!msg.empty()) {
-      const bool bad = !dstatus_.empty() || !status_.empty() || !dstate_.build_error.empty();
-      dl->PushClipRect({W * 0.30f, 0}, {W * 0.70f, H}, true);
-      dl->AddText({W * 0.30f, y}, theme::u32(bad ? theme::kWarn : theme::kDim), msg.c_str());
-      dl->PopClipRect();
-    }
-    std::size_t errors = 0, warns = 0;
-    for (const design::Finding& f : design_.findings) {
-      if (f.severity == "error") ++errors;
-      else if (f.severity == "warning") ++warns;
-    }
-    char t[48];
-    std::snprintf(t, sizeof t, "T %.3f s", static_cast<double>(cur_.tick) * cur_.dt);
-    float x = W - 16 - ImGui::CalcTextSize(t).x;
-    dl->AddText({x, y}, theme::u32(theme::kDim), t);
-    if (has_design_) {
-      char b[32];
-      std::snprintf(b, sizeof b, "%zu WARN", warns);
-      x -= 12 + ImGui::CalcTextSize(b).x;
-      dl->AddText({x, y}, theme::u32(warns ? theme::kWarn : theme::kDim), b);
-      std::snprintf(b, sizeof b, "%zu ERR", errors);
-      x -= 16 + ImGui::CalcTextSize(b).x;
-      dl->AddText({x, y}, theme::u32(errors ? theme::kErr : theme::kOk), b);
-      x -= 18;
-      dl->AddText({x - ImGui::CalcTextSize("DRC").x, y}, theme::u32(theme::kDim), "DRC");
+    if (!msg.empty() && avail > 40) {
+      if (ImGui::CalcTextSize(msg.c_str()).x > avail) {  // a hint that does not fit whole is left out; a message gets an ellipsis
+        if (hint) msg.clear();
+        else {
+          while (msg.size() > 1 && ImGui::CalcTextSize((msg + "...").c_str()).x > avail) msg.pop_back();
+          msg += "...";
+        }
+      }
+      if (!msg.empty()) dl->AddText({mx, y}, theme::u32(bad ? theme::kWarn : theme::kDim, bad ? 1.f : 0.8f), msg.c_str());
     }
     ImGui::PopFont();
     ImGui::End();
@@ -1189,20 +1402,137 @@ class Viewer {
   // ---------------------------------------- BUILD ------------------------------------------------------------------------------
   void build_panes(float W, float H) {
     const float ph = H - kTop - kStatus;
-    if (pane_l_ > 0) {
-      libui::Actions a;
-      libui::sidebar(lib_, *thumbs_, {0, kTop}, {pane_l_, ph}, a);
-      lib_actions(a);
-    }
+    if (pane_l_ > 0) browser_pane(ph);
     if (pane_r_ > 0) inspector_pane(W, ph);
-    viewport_tools();
+    viewport_overlay();
+  }
+
+  // The left dock: BROWSER (the assembly tree: instances by group, mates, wires, devices, each instance with a visibility eye) and
+  // PARTS (the component library list; cards drag into the 3D view).
+  void browser_pane(float ph) {
+    if (left_tab_ == 1) {
+      libui::Actions a;
+      libui::sidebar(lib_, *thumbs_, {0, kTop + 30}, {pane_l_, ph - 30}, a);  // (below the tab strip)
+      lib_actions(a);
+      ImGui::SetNextWindowPos({0, kTop});
+      ImGui::SetNextWindowSize({pane_l_, 30});
+      ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::kPanel);
+      ImGui::Begin("##ltabs", nullptr, kPane | ImGuiWindowFlags_NoScrollbar);
+      ImGui::PopStyleColor();
+      left_tabs();
+      ImGui::Dummy({0, 0});  // (theme::tabs leaves the cursor past its last tab: an item must follow)
+      ImGui::End();
+      return;
+    }
+    begin_pane("##left", {0, kTop}, {pane_l_, ph});
+    left_tabs();
+    ImGui::SetCursorPos({ImGui::GetStyle().WindowPadding.x, 40});
+    ImGui::BeginChild("##browser", {0, 0});
+    browser_tree();
+    ImGui::EndChild();
+    ImGui::End();
+  }
+  void left_tabs() {
+    static const char* const tabs[] = {"BROWSER", "PARTS"};
+    const int hit = theme::tabs(tabs, 2, left_tab_, 18.f);
+    if (hit >= 0) left_tab_ = hit;
+  }
+
+  // One tree row: visibility eye, label (selectable), a dim detail text at the right edge.
+  bool tree_row(const std::string& id, const char* label, const std::string& detail, bool selected, bool* eye, bool hl = false) {
+    const float w = ImGui::GetContentRegionAvail().x, rh = ImGui::GetTextLineHeight() + 6;
+    ImGui::PushID(id.c_str());
+    ImGui::PushStyleColor(ImGuiCol_Text, hl ? theme::kWarn : theme::kText);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (eye ? 22.f : 0.f));
+    const bool hit = ImGui::Selectable(label, selected, 0, {w - (eye ? 22.f : 0.f), rh});
+    ImGui::PopStyleColor();
+    const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+    if (ImGui::IsItemHovered() && scene_.count(id)) tree_hover_ = id;
+    if (!detail.empty()) {
+      ImDrawList* dl = ImGui::GetWindowDrawList();
+      ImGui::PushFont(nullptr, theme::kFontSmall);
+      const float dw = ImGui::CalcTextSize(detail.c_str()).x, lw = ImGui::CalcTextSize(label).x + 18;
+      if (mx.x - mn.x - lw > dw + 6) dl->AddText({mx.x - dw - 6, mn.y + 4}, theme::u32(theme::kDim), detail.c_str());
+      ImGui::PopFont();
+    }
+    if (eye) {  // (same height as the row: the cursor then advances exactly one row)
+      ImGui::SetCursorScreenPos({mn.x - 22, mn.y});
+      if (theme::icon_button("##eye", *eye ? theme::Icon::Eye : theme::Icon::EyeOff, rh, false, true, *eye ? "hide this part in the 3D view" : "show this part")) *eye = !*eye;
+    }
+    ImGui::PopID();
+    return hit;
+  }
+
+  void browser_tree() {
+    using theme::Icon;
+    if (!has_design_) {
+      ImGui::TextDisabled("No design is open.");
+      return;
+    }
+    ImGui::PushFont(nullptr, theme::kFontBody);
+    if (ImGui::TreeNodeEx("##asm", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s", design_.assembly.c_str())) {
+      std::map<std::string, std::vector<const design::Instance*>> by_group;
+      for (const design::Instance& i : design_.instances) by_group[i.group.empty() ? "(ungrouped)" : i.group].push_back(&i);
+      if (ImGui::TreeNodeEx("##inst", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "Parts  (%zu)", design_.instances.size())) {
+        for (const auto& [g, list] : by_group) {
+          if (!ImGui::TreeNodeEx(("##g" + g).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s  (%zu)", g.c_str(), list.size())) continue;
+          for (const design::Instance* i : list) {
+            bool vis = !hidden_.count(i->id);
+            const bool hl = hl_.count(i->id) > 0;
+            const std::string label = i->id + (i->id == dstate_.root ? "  (root)" : "");
+            if (tree_row(i->id, label.c_str(), i->part, is_selected(i->id), &vis, hl)) {
+              std::vector<std::string> next = ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl ? sel_ : std::vector<std::string>{};
+              if (!std::erase(next, i->id)) next.push_back(i->id);
+              set_sel(next);
+            }
+            if (vis != !hidden_.count(i->id)) {
+              if (vis) hidden_.erase(i->id);
+              else hidden_.insert(i->id);
+              hidden_dirty_ = true;
+            }
+          }
+          ImGui::TreePop();
+        }
+        ImGui::TreePop();
+      }
+      const auto select_ends = [&](const std::string& a, const std::string& b) {
+        set_sel({a.substr(0, a.find('.')), b.substr(0, b.find('.'))});
+      };
+      if (ImGui::TreeNodeEx("##mates", ImGuiTreeNodeFlags_SpanAvailWidth, "Mates  (%zu)", dstate_.mates.size())) {
+        for (std::size_t k = 0; k < dstate_.mates.size(); ++k) {
+          const design::Mate& m = dstate_.mates[k];
+          if (tree_row("m" + std::to_string(k), (m.name.empty() ? m.a + " - " + m.b : m.name).c_str(), m.name.empty() ? "" : m.a + " - " + m.b, false, nullptr)) select_ends(m.a, m.b);
+        }
+        ImGui::TreePop();
+      }
+      if (ImGui::TreeNodeEx("##wires", ImGuiTreeNodeFlags_SpanAvailWidth, "Wires  (%zu)", dstate_.wires.size())) {
+        for (std::size_t k = 0; k < dstate_.wires.size(); ++k) {
+          const design::WireRow& w = dstate_.wires[k];
+          if (tree_row("w" + std::to_string(k), (w.name.empty() ? w.from + " > " + w.to : w.name).c_str(), w.name.empty() ? "" : w.from + " > " + w.to, false, nullptr)) select_ends(w.from, w.to);
+        }
+        ImGui::TreePop();
+      }
+      if (ImGui::TreeNodeEx("##devs", ImGuiTreeNodeFlags_SpanAvailWidth, "Devices  (%zu)", dstate_.devices.size())) {
+        for (std::size_t k = 0; k < dstate_.devices.size(); ++k) {
+          const design::Device& d = dstate_.devices[k];
+          tree_row("d" + std::to_string(k), d.name.c_str(), d.type, false, nullptr);
+        }
+        ImGui::TreePop();
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopFont();
   }
 
   void inspector_pane(float W, float ph) {
     begin_pane("##right", pane_pos(true, W), {pane_r_, ph});
-    static const char* const tabs[] = {"INSPECT", "PARTS", "DRC", "PLACE", "HISTORY"};
-    const int hit = theme::tabs(tabs, 5, right_tab_, 13.f);
-    if (hit >= 0) right_tab_ = hit;
+    static const char* const tabs[] = {"PROPERTIES", "DRC", "PLACE", "HISTORY"};
+    static const int tab_ids[] = {0, 2, 3, 4};  // right_tab_ values (1 = the old PARTS list, now the BROWSER on the left)
+    int cur = 0;
+    for (int k = 0; k < 4; ++k)
+      if (tab_ids[k] == right_tab_) cur = k;
+    const int hit = theme::tabs(tabs, 4, cur, 16.f);
+    if (hit >= 0) right_tab_ = tab_ids[hit];
     ImGui::SetCursorPos({ImGui::GetStyle().WindowPadding.x, ImGui::GetCursorPosY() + 30});  // theme::tabs leaves the cursor on its row
     ImGui::BeginChild("##rbody", {0, 0});
     const design::Instance* sel = sel_instance();
@@ -1262,7 +1592,7 @@ class Viewer {
     ImGui::TextDisabled("%s   total %.4f kg   %zu parts", design_.assembly.c_str(), design_.mass_total, design_.instances.size());
     ImGui::Spacing();
     if (!sel) {
-      ImGui::TextDisabled("click a part in the 3D view or the PARTS tab");
+      ImGui::TextDisabled("click a part in the 3D view or the browser");
       snapping_controls();
       return;
     }
@@ -1468,56 +1798,208 @@ class Viewer {
     }
   }
 
-  void viewport_tools() {
-    ImGui::SetNextWindowPos({vp_.x + 12, vp_.y + 12});
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0.02f, 0.02f, 0.025f, 0.80f});
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8, 5});
-    ImGui::Begin("##vptools", nullptr, kPane | ImGuiWindowFlags_AlwaysAutoResize);
+  // Viewport furniture (BUILD, top-right of the 3D view): the view cube (click a face for that standard view, drag nothing), the
+  // navigation buttons, and bottom-left a scale bar with the camera distance. Nothing here overlaps the docked panels.
+  void viewport_overlay() {
+    using theme::Icon;
+    constexpr float kBoxW = 144, kCube = 26;
+    const float bx = vp_.z - kBoxW - 8, by = vp_.y + 8;
+    ImGui::SetNextWindowPos({bx, by});
+    ImGui::SetNextWindowSize({kBoxW, 150});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+    ImGui::Begin("##vpnav", nullptr, kPane | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
-    const auto mode_btn = [&](const char* label, b3::Gizmo::Mode m, const char* tip) {
-      const bool on = gizmo_.mode == m;
-      ImGui::PushStyleColor(ImGuiCol_Text, on ? theme::kAccent : theme::kDim);
-      if (ImGui::SmallButton(label)) gizmo_.mode = m;
-      ImGui::PopStyleColor();
-      ImGui::SetItemTooltip("%s", tip);
-      ImGui::SameLine();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const b3::Cam cam = b3::Cam::make(view_cam_, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y);
+    const ImVec2 c{bx + kBoxW / 2, by + 62};
+    ImGui::SetCursorScreenPos({bx, by});
+    ImGui::InvisibleButton("##cube", {kBoxW, 118});  // (captures the pointer over the cube so it does not orbit the scene)
+    const ImVec2 mp = ImGui::GetIO().MousePos;
+    const auto proj = [&](b3::V3 v) { return ImVec2{c.x + static_cast<float>(b3::dot(v, cam.r)) * kCube, c.y - static_cast<float>(b3::dot(v, cam.u)) * kCube}; };
+    struct Face {
+      const char* name;
+      b3::V3 n;
+      double yaw, pitch;
     };
-    mode_btn("MOVE", b3::Gizmo::Move, "G: move along an axis or on the ground plane");
-    mode_btn("ROTATE", b3::Gizmo::Rotate, "R: rotate about an axis (snaps to the angle step)");
-    mode_btn("OFF", b3::Gizmo::Off, "no gizmo");
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-    const struct { const char* l; const char* p; } views[] = {{"TOP", "top"}, {"FRONT", "front"}, {"SIDE", "side"}, {"ISO", "iso"}};
-    for (const auto& v : views) {
-      ImGui::PushStyleColor(ImGuiCol_Text, theme::kDim);
-      if (ImGui::SmallButton(v.l)) camera_preset(v.p);
-      ImGui::PopStyleColor();
-      ImGui::SameLine();
+    static const Face faces[] = {{"RIGHT", {1, 0, 0}, 0, 0}, {"LEFT", {-1, 0, 0}, 3.14159265, 0}, {"BACK", {0, 1, 0}, 1.5707963, 0},
+                                 {"FRONT", {0, -1, 0}, -1.5707963, 0}, {"TOP", {0, 0, 1}, -1.5707963, 1.5}, {"BOTTOM", {0, 0, -1}, -1.5707963, -1.5}};
+    // back to front: the faces most facing away first (only the visible ones are drawn, so painter's order is by facing)
+    int order[6] = {0, 1, 2, 3, 4, 5};
+    std::sort(order, order + 6, [&](int a, int b) { return b3::dot(faces[a].n, cam.f) > b3::dot(faces[b].n, cam.f); });
+    int hit = -1;
+    for (int oi = 0; oi < 6; ++oi) {
+      const Face& f = faces[order[oi]];
+      const double facing = -b3::dot(f.n, cam.f);
+      if (facing <= 0.02) continue;
+      // the face's two in-plane axes
+      const b3::V3 u = std::abs(f.n.z) > 0.5 ? b3::V3{1, 0, 0} : b3::V3{0, 0, 1}, v = b3::cross(f.n, u);
+      const ImVec2 q[4] = {proj(f.n + u + v), proj(f.n - u + v), proj(f.n - u - v), proj(f.n + u - v)};
+      const auto inside = [&] {  // convex quad: all cross products one sign
+        int pos = 0, neg = 0;
+        for (int k = 0; k < 4; ++k) {
+          const ImVec2 a = q[k], b = q[(k + 1) % 4];
+          ((b.x - a.x) * (mp.y - a.y) - (b.y - a.y) * (mp.x - a.x) >= 0 ? pos : neg)++;
+        }
+        return pos == 4 || neg == 4;
+      }();
+      const bool hov = inside && ImGui::IsItemHovered();
+      if (hov) hit = order[oi];
+      const float shade = 0.20f + 0.16f * static_cast<float>(facing);
+      dl->AddConvexPolyFilled(q, 4, hov ? theme::u32(theme::kAccent, 0.9f) : theme::u32({shade + 0.04f, shade + 0.05f, shade + 0.08f, 1.f}, 0.95f));
+      dl->AddPolyline(q, 4, theme::u32({1, 1, 1, 0.45f}), ImDrawFlags_Closed, 1.f);
+      if (facing > 0.3) {
+        ImGui::PushFont(nullptr, 9.5f + 1.5f * static_cast<float>(facing));
+        const ImVec2 ts = ImGui::CalcTextSize(f.name), mid{(q[0].x + q[2].x) / 2, (q[0].y + q[2].y) / 2};
+        dl->AddText({mid.x - ts.x / 2, mid.y - ts.y / 2}, theme::u32(hov ? ImVec4{1, 1, 1, 1} : theme::kText, static_cast<float>(std::min(1.0, facing * 1.6))), f.name);
+        ImGui::PopFont();
+      }
     }
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("FRAME")) frame_selection();
-    ImGui::SameLine();
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text, emph_wires_ ? theme::kAccent : theme::kDim);
-    if (ImGui::SmallButton("WIRES")) emph_wires_ = !emph_wires_;
+    if (hit >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) camera_to(faces[hit].yaw, faces[hit].pitch);
+    if (hit >= 0) ImGui::SetTooltip("%s view", faces[hit].name);
+    // axis triad from the cube's lower-left corner region: X red, Y green, Z blue
+    const char* const an[3] = {"X", "Y", "Z"};
+    const ImVec2 o{bx + 14, by + 100};
+    for (int a = 0; a < 3; ++a) {
+      const b3::V3 ax = b3::axis_vec(a);
+      const ImVec2 e{o.x + static_cast<float>(b3::dot(ax, cam.r)) * 16, o.y - static_cast<float>(b3::dot(ax, cam.u)) * 16};
+      dl->AddLine(o, e, b3::axis_color(a), 2.f);
+      ImGui::PushFont(nullptr, 9.5f);
+      dl->AddText({e.x + (e.x >= o.x ? 2 : -8), e.y - 5}, b3::axis_color(a), an[a]);
+      ImGui::PopFont();
+    }
+    // navigation buttons
+    float x = bx + kBoxW - 5 * 28;
+    ImGui::SetCursorScreenPos({x, by + 120});
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::kText);
+    if (theme::icon_button("##home", Icon::Home, 28, false, true, "isometric view")) camera_preset("iso");
+    ImGui::SetCursorScreenPos({x + 28, by + 120});
+    if (theme::icon_button("##fit", Icon::Fit, 28, false, true, "zoom to fit the selection (or everything); F")) frame_selection();
+    ImGui::SetCursorScreenPos({x + 56, by + 120});
+    if (theme::icon_button("##orbit", Icon::Orbit, 28, !nav_pan_, true, "orbit: left-drag turns the view (wheel zooms)")) nav_pan_ = false;
+    ImGui::SetCursorScreenPos({x + 84, by + 120});
+    if (theme::icon_button("##pan", Icon::Pan, 28, nav_pan_, true, "pan: left-drag slides the view (right/middle drag always pans)")) nav_pan_ = true;
+    ImGui::SetCursorScreenPos({x + 112, by + 120});
+    if (theme::icon_button("##wires", Icon::Net, 28, emph_wires_, true, "emphasise cables: at least 4 px wide at any zoom (true diameter unchanged)")) emph_wires_ = !emph_wires_;
     ImGui::PopStyleColor();
-    ImGui::SetItemTooltip("emphasise cables: at least 4 px wide at any zoom (their true diameter is unchanged)");
     ImGui::End();
+    scale_bar();
   }
 
+  // Bottom-left of the viewport: a scale bar (rounded to 1/2/5 x 10^n) at the orbit target's depth and the camera distance.
+  void scale_bar() {
+    const ImGuiIO& io = ImGui::GetIO();
+    const b3::Cam cam = b3::Cam::make(view_cam_, io.DisplaySize.x, io.DisplaySize.y);
+    const b3::V3 t{orbit_.target[0], orbit_.target[1], orbit_.target[2]};
+    const double ppm = cam.px_per_m(t);
+    if (!(ppm > 0)) return;
+    double m = 1e-3;
+    for (const double s : {1.0, 2.0, 5.0})
+      for (double e = 1e-4; e < 1e3; e *= 10)
+        if (s * e * ppm <= 140 && s * e > m) m = s * e;
+    const float len = static_cast<float>(m * ppm);
+    char lab[48];
+    if (m < 1) std::snprintf(lab, sizeof lab, "%g mm", m * 1000);
+    else std::snprintf(lab, sizeof lab, "%g m", m);
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    const float x0 = vp_.x + 16, y0 = vp_.w - 18;
+    if (y0 < vp_.y + 60) return;
+    const ImU32 col = IM_COL32(40, 46, 58, 230), halo = IM_COL32(255, 255, 255, 140);
+    for (int pass = 0; pass < 2; ++pass) {
+      const float th = pass == 0 ? 4.f : 1.6f;
+      const ImU32 cc = pass == 0 ? halo : col;
+      dl->AddLine({x0, y0}, {x0 + len, y0}, cc, th);
+      dl->AddLine({x0, y0 - 4}, {x0, y0 + 4}, cc, th);
+      dl->AddLine({x0 + len, y0 - 4}, {x0 + len, y0 + 4}, cc, th);
+    }
+    ImGui::PushFont(nullptr, theme::kFontSmall);
+    dl->AddText({x0 + 1, y0 - 19}, halo, lab);
+    dl->AddText({x0, y0 - 20}, col, lab);
+    ImGui::PopFont();
+  }
+
+  // The poses handed to the renderer: the simulation's, except that geoms of instances hidden in the browser are collapsed to a point
+  // (zero rotation = zero area). A geom belongs to the smallest instance box that contains its origin (the visuals carry no body
+  // link); geoms in no box (floor, loose sim geoms) stay. Approximate by design, exact for parts that do not overlap.
+  const std::vector<GeomPose>& shown_poses() {
+    if (hidden_.empty()) return cur_.poses;
+    const std::string key = dstate_.rev + "/" + std::to_string(frame_scene_) + "/" + std::to_string(cur_.poses.size());
+    if (key != geom_owner_key_) {
+      geom_owner_key_ = key;
+      geom_owner_.assign(cur_.poses.size(), "");
+      for (std::size_t g = 0; g < cur_.poses.size(); ++g) {
+        double best = 1e300;
+        for (const auto& [id, s] : scene_) {
+          bool in = true;
+          double vol = 1;
+          for (int k = 0; k < 3; ++k) {
+            in = in && cur_.poses[g].pos[k] >= s.lo[k] - 1e-4 && cur_.poses[g].pos[k] <= s.hi[k] + 1e-4;
+            vol *= s.hi[k] - s.lo[k] + 2e-4;
+          }
+          if (in && vol < best) best = vol, geom_owner_[g] = id;
+        }
+      }
+    }
+    hidden_poses_ = cur_.poses;
+    for (std::size_t g = 0; g < hidden_poses_.size() && g < geom_owner_.size(); ++g)
+      if (!geom_owner_[g].empty() && hidden_.count(geom_owner_[g])) std::fill(std::begin(hidden_poses_[g].rot), std::end(hidden_poses_[g].rot), 0.0);
+    return hidden_poses_;
+  }
+
+  // camera.orbit / camera.fly (python/napl/design/uiops.py): a smooth move over `seconds` of wall-clock time.
+  void camera_move(const design::Json& e) {
+    constexpr double kDeg = 3.14159265358979 / 180;
+    const auto vec3 = [&](const char* k, b3::V3& out) {
+      double p[3];
+      if (e.at(k).kind != design::Json::Arr || e.at(k).arr.size() < 3) return false;
+      design::vec_from(e.at(k), p, 3);
+      out = {p[0], p[1], p[2]};
+      return true;
+    };
+    CamAnim a;
+    a.active = true;
+    a.t0 = ImGui::GetTime();
+    a.dur = std::max(0.0, e.n("seconds", 3.0));
+    a.linear = e.s("ease") == "linear";
+    a.yaw0 = a.yaw1 = orbit_.yaw, a.pitch0 = a.pitch1 = orbit_.pitch, a.dist0 = a.dist1 = orbit_.dist;
+    const Camera now_cam = orbit_.camera();
+    if (e.s("kind") == "fly") {
+      a.fly = true;
+      a.eye0 = {now_cam.pos[0], now_cam.pos[1], now_cam.pos[2]};
+      a.look0 = {orbit_.target[0], orbit_.target[1], orbit_.target[2]};
+      if (!vec3("eye", a.eye1) || !vec3("look", a.look1)) return;
+    } else {
+      const bool rel = e.at("relative").kind != design::Json::Bool || e.at("relative").num != 0;
+      a.sweep = rel;
+      if (vec3("target", a.target_to)) {
+        a.move_target = true;
+        a.target_from = {orbit_.target[0], orbit_.target[1], orbit_.target[2]};
+      }
+      if (e.at("yaw_deg").kind == design::Json::Num) a.yaw1 = rel ? orbit_.yaw + e.n("yaw_deg") * kDeg : e.n("yaw_deg") * kDeg;
+      if (e.at("pitch_deg").kind == design::Json::Num) a.pitch1 = std::clamp(rel ? orbit_.pitch + e.n("pitch_deg") * kDeg : e.n("pitch_deg") * kDeg, -1.5, 1.5);
+      if (e.at("dist").kind == design::Json::Num) a.dist1 = std::max(0.02, e.n("dist"));
+    }
+    cam_anim_ = a;
+    if (a.dur <= 1e-3) step_cam_anim(a.t0);  // (instant)
+  }
+
+  void camera_to(double yaw, double pitch) {
+    cam_anim_ = {true, ImGui::GetTime(), orbit_.yaw, orbit_.pitch, orbit_.dist, yaw, pitch, orbit_.dist};
+  }
   void camera_preset(const std::string& p) {
-    static const std::map<std::string, std::pair<double, double>> pre = {{"front", {-1.5707963, 0.0}}, {"side", {0.0, 0.0}}, {"top", {-1.5707963, 1.5}}, {"iso", {-0.6, 0.55}}};
+    static const std::map<std::string, std::pair<double, double>> pre = {{"front", {-1.5707963, 0.0}}, {"side", {0.0, 0.0}}, {"top", {-1.5707963, 1.5}}, {"iso", {-0.6, 0.55}},
+                                                                         {"back", {1.5707963, 0.0}}, {"left", {3.14159265, 0.0}}, {"bottom", {-1.5707963, -1.5}}};
     const auto it = pre.find(p);
     if (it == pre.end()) return;
     cam_anim_ = {true, ImGui::GetTime(), orbit_.yaw, orbit_.pitch, orbit_.dist, it->second.first, it->second.second, orbit_.dist};
   }
-  void frame_selection() {
+  // Frame the selection (everything when nothing is selected or `all`); `instant`: no glide (the first frame of a design).
+  void frame_selection(bool all = false, bool instant = false) {
     b3::V3 lo{1e9, 1e9, 1e9}, hi{-1e9, -1e9, -1e9};
     bool any = false;
     for (const std::string& id : sel_) {
+      if (all) break;
       const auto it = scene_.find(id);
       if (it == scene_.end()) continue;
       for (int k = 0; k < 3; ++k) {
@@ -1541,6 +2023,7 @@ class Viewer {
     cam_anim_.target_from = {orbit_.target[0], orbit_.target[1], orbit_.target[2]};
     cam_anim_.target_to = c;
     cam_anim_.move_target = true;
+    if (instant) cam_anim_.dur = 0, step_cam_anim(cam_anim_.t0);
   }
 
   // The sidebar / page asked for something.
@@ -1654,6 +2137,7 @@ class Viewer {
       prim_inspector();
       ImGui::End();
     }
+    viewport_overlay();
   }
 
   void sim_controls() {
@@ -1831,14 +2315,17 @@ class Viewer {
     layout(W, H);
     smooth_viewport(io.DeltaTime);
     view_cam_ = view_camera(W, H);
-    if (opts_.design_api) {  // cables stay visible at any zoom in the design views; SIMULATE shows true widths
+    if (opts_.design_api) {  // cables stay visible at any zoom in the design views; SIMULATE shows true widths and the outdoor sky
       const float want = emph_wires_ && mode_ != Mode::Simulate ? 4.f : 0.f;
+      const RenderStyle::Sky sky = mode_ == Mode::Simulate ? RenderStyle::Sky::outdoor : RenderStyle::Sky::studio;
       RenderStyle st = default_render_style();
-      if (st.wire_px != want) {
+      if (st.wire_px != want || st.sky != sky) {
         st.wire_px = want;
+        st.sky = sky;
         set_default_render_style(st);
       }
     }
+    tree_hover_.clear();
     libui::Actions la;
     if (!pending_mode_.empty() && set_mode(pending_mode_)) pending_mode_.clear();
     libui::tick_typing(lib_, now, la);
@@ -1848,6 +2335,7 @@ class Viewer {
     }
     if (!opts_.clean) {
       top_bar(W);
+      ribbon_bar(W);
       switch (mode_) {
         case Mode::Build: build_panes(W, H); break;
         case Mode::Library: library_page(H); break;
@@ -1873,8 +2361,21 @@ class Viewer {
   }
 
   void step_cam_anim(double now) {
-    const double u = std::clamp((now - cam_anim_.t0) / 0.5, 0.0, 1.0), e = u * u * (3 - 2 * u);
-    orbit_.yaw = cam_anim_.yaw0 + std::remainder(cam_anim_.yaw1 - cam_anim_.yaw0, 6.283185307179586) * e;
+    const double u = cam_anim_.dur > 1e-3 ? std::clamp((now - cam_anim_.t0) / cam_anim_.dur, 0.0, 1.0) : 1.0;
+    const double e = cam_anim_.linear ? u : u * u * (3 - 2 * u);
+    if (cam_anim_.fly) {  // eye and look-at along straight lines; the orbit parameters follow from them
+      const b3::V3 eye = cam_anim_.eye0 + (cam_anim_.eye1 - cam_anim_.eye0) * e, look = cam_anim_.look0 + (cam_anim_.look1 - cam_anim_.look0) * e;
+      const b3::V3 d = eye - look;
+      const double r = std::max(1e-6, b3::len(d));
+      for (int k = 0; k < 3; ++k) orbit_.target[k] = look[k];
+      orbit_.dist = r;
+      orbit_.yaw = std::atan2(d.y, d.x);
+      orbit_.pitch = std::clamp(std::asin(std::clamp(d.z / r, -1.0, 1.0)), -1.5, 1.5);
+      if (u >= 1) cam_anim_.active = false;
+      return;
+    }
+    orbit_.yaw = cam_anim_.sweep ? cam_anim_.yaw0 + (cam_anim_.yaw1 - cam_anim_.yaw0) * e
+                                 : cam_anim_.yaw0 + std::remainder(cam_anim_.yaw1 - cam_anim_.yaw0, 6.283185307179586) * e;
     orbit_.pitch = cam_anim_.pitch0 + (cam_anim_.pitch1 - cam_anim_.pitch0) * e;
     orbit_.dist = cam_anim_.dist0 + (cam_anim_.dist1 - cam_anim_.dist0) * e;
     if (cam_anim_.move_target)
@@ -1898,18 +2399,22 @@ class Viewer {
     if (build) {
       const design::Instance* sel = sel_instance();
       const auto git = sel ? scene_.find(sel->id) : scene_.end();
-      const bool can_edit = opts_.design_api && git != scene_.end() && sel->id != dstate_.root;
+      const bool can_edit = opts_.design_api && git != scene_.end() && sel->id != dstate_.root && measure_ == 0 && gizmo_.mode != b3::Gizmo::Off;
       // hover + selection marks
-      if (free_mouse && !gizmo_.dragging() && !nav_drag_) hover_inst_ = b3::pick(cam, m, scene_).id;
+      if (free_mouse && !gizmo_.dragging() && !nav_drag_) hover_inst_ = b3::pick(cam, m, scene_, "", &hidden_).id;
       else if (!free_mouse && !gizmo_.dragging()) hover_inst_.clear();
+      if (!tree_hover_.empty() && !gizmo_.dragging()) hover_inst_ = tree_hover_;  // the browser row under the pointer
       if (tip_force_until_ > now && scene_.count(tip_force_)) hover_inst_ = tip_force_;  // scripted ui.hover
       if (hover_inst_ != hover_prev_) { hover_prev_ = hover_inst_; hover_since_ = now; }
+      // CAD blue: the pre-highlight of the part under the pointer is a thin box outline with a faint wash, the selection a heavier
+      // outline of every shape with a brighter wash
       for (const auto& [id, g] : scene_) {
-        const bool s = is_selected(id), h = id == hover_inst_;
-        if (!s && !h) continue;
-        b3::draw_brackets(dl, cam, g.lo, g.hi, s ? theme::u32(theme::kAccent) : theme::u32({1, 1, 1, 1}, 0.55f), s ? 1.8f : 1.2f);
-        if (s && id == sel_.back() && !gizmo_.dragging()) for (const b3::Box& b : g.boxes) b3::draw_box(dl, cam, b, theme::u32(theme::kAccent, 0.35f), 1.f);
+        const bool s = is_selected(id), h = id == hover_inst_ && !s;
+        if ((!s && !h) || hidden_.count(id)) continue;
+        for (const b3::Box& b : g.boxes) b3::draw_box(dl, cam, b, theme::u32(theme::kAccent, s ? 0.95f : 0.55f), s ? 1.7f : 1.1f);
+        b3::draw_brackets(dl, cam, g.lo, g.hi, theme::u32(theme::kAccent, s ? 1.f : 0.7f), s ? 1.8f : 1.2f);
       }
+      draw_measure(dl, cam);
       if (can_edit) {
         go = gizmo_.update(cam, scene_, git->second, snap_, free_mouse && !nav_drag_, io.KeyCtrl, vp_);
         if (go.released) finish_gizmo(go, now);
@@ -1967,7 +2472,11 @@ class Viewer {
     if (press_) {
       if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
         if (!press_moved_ && std::hypot(io.MousePos.x - press_pos_.x, io.MousePos.y - press_pos_.y) > 4) press_moved_ = true;
-        if (press_moved_) {
+        if (press_moved_ && nav_pan_) {
+          for (int k = 0; k < 3; ++k) orbit_.target[k] += (-cam.r[k] * io.MouseDelta.x + cam.u[k] * io.MouseDelta.y) * per_px;
+          cam_anim_.active = false;
+          nav_drag_ = true;
+        } else if (press_moved_) {
           orbit_.yaw -= 0.01 * io.MouseDelta.x;
           orbit_.pitch = std::clamp(orbit_.pitch + 0.01 * io.MouseDelta.y, -1.5, 1.5);
           cam_anim_.active = false;
@@ -1984,9 +2493,54 @@ class Viewer {
     }
   }
 
+  // MEASURE readout: a dimension line between the two parts' box centres with end ticks, the centre distance and the clear gap
+  // between the boxes (0 = touching / overlapping) in a small label; while only A is picked, a hint follows it.
+  void draw_measure(ImDrawList* dl, const b3::Cam& cam) {
+    if (measure_ == 0) return;
+    const ImU32 col = theme::u32(theme::kAccent);
+    const auto ga = scene_.find(measure_a_), gb = scene_.find(measure_b_);
+    ImGui::PushFont(nullptr, theme::kFontSmall);
+    if (ga == scene_.end() || gb == scene_.end()) {
+      const char* hint = measure_a_.empty() ? "MEASURE: click the first part" : "MEASURE: click the second part";
+      const ImVec2 ts = ImGui::CalcTextSize(hint);
+      dl->AddRectFilled({vp_.x + 16, vp_.y + 14}, {vp_.x + 28 + ts.x, vp_.y + 22 + ts.y}, theme::u32(theme::kBar, 0.92f), 3);
+      dl->AddText({vp_.x + 22, vp_.y + 18}, col, hint);
+      ImGui::PopFont();
+      return;
+    }
+    const b3::V3 ca = (ga->second.lo + ga->second.hi) * 0.5, cb = (gb->second.lo + gb->second.hi) * 0.5;
+    double gap2 = 0;
+    for (int k = 0; k < 3; ++k) {
+      const double d = std::max({0.0, gb->second.lo[k] - ga->second.hi[k], ga->second.lo[k] - gb->second.hi[k]});
+      gap2 += d * d;
+    }
+    const double dist = b3::len(cb - ca) * 1000, gap = std::sqrt(gap2) * 1000;
+    ImVec2 pa, pb;
+    if (cam.project(ca, pa) && cam.project(cb, pb)) {
+      dl->AddLine(pa, pb, theme::u32(theme::kBar, 0.9f), 4.f);
+      dl->AddLine(pa, pb, col, 1.8f);
+      for (const ImVec2 p : {pa, pb}) dl->AddCircleFilled(p, 4.f, col, 12);
+      char t[96];
+      std::snprintf(t, sizeof t, "%.1f mm   (dx %.1f  dy %.1f  dz %.1f)   gap %.1f mm", dist, (cb.x - ca.x) * 1000, (cb.y - ca.y) * 1000, (cb.z - ca.z) * 1000, gap);
+      const ImVec2 ts = ImGui::CalcTextSize(t), mid{(pa.x + pb.x) / 2, (pa.y + pb.y) / 2};
+      const ImVec2 p0{std::clamp(mid.x - ts.x / 2 - 6, vp_.x + 8, vp_.z - ts.x - 20), std::clamp(mid.y - ts.y - 12, vp_.y + 8, vp_.w - 30)};
+      dl->AddRectFilled(p0, {p0.x + ts.x + 12, p0.y + ts.y + 8}, theme::u32(theme::kBar, 0.95f), 3);
+      dl->AddRect(p0, {p0.x + ts.x + 12, p0.y + ts.y + 8}, col, 3);
+      dl->AddText({p0.x + 6, p0.y + 4}, theme::u32(theme::kText), t);
+    }
+    ImGui::PopFont();
+  }
+
   void click_select(const b3::Cam& cam, ImVec2 px) {
-    const std::string id = b3::pick(cam, px, scene_).id;
+    const std::string id = b3::pick(cam, px, scene_, "", &hidden_).id;
     const ImGuiIO& io = ImGui::GetIO();
+    if (measure_ > 0) {  // MEASURE: the first click picks A, the second B, the next one starts over
+      if (id.empty()) return;
+      if (measure_a_.empty() || !measure_b_.empty()) measure_a_ = id, measure_b_.clear();
+      else if (id != measure_a_) measure_b_ = id;
+      measure_ = measure_b_.empty() ? 2 : 3;  // 1 = pick A, 2 = pick B, 3 = result shown
+      return;
+    }
     std::vector<std::string> next = io.KeyShift || io.KeyCtrl ? sel_ : std::vector<std::string>{};
     if (!id.empty() && !std::erase(next, id)) next.push_back(id);
     set_sel(next);
@@ -2047,11 +2601,12 @@ class Viewer {
       }
       return;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_G, false)) gizmo_.mode = b3::Gizmo::Move;
-    if (ImGui::IsKeyPressed(ImGuiKey_R, false)) gizmo_.mode = b3::Gizmo::Rotate;
+    if (ImGui::IsKeyPressed(ImGuiKey_G, false)) gizmo_.mode = b3::Gizmo::Move, measure_ = 0;
+    if (ImGui::IsKeyPressed(ImGuiKey_R, false)) gizmo_.mode = b3::Gizmo::Rotate, measure_ = 0;
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) frame_selection();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
       if (gizmo_.dragging()) gizmo_.cancel();
+      else if (measure_ > 0) measure_ = 0, measure_a_.clear(), measure_b_.clear();
       else set_sel({});
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_X, false)) {
@@ -2268,6 +2823,20 @@ class Viewer {
       prog_file_name_ = e.s("name"), prog_file_text_ = e.s("text");
       prog_scroll_ = e.at("scroll").kind == design::Json::Num ? static_cast<float>(e.at("scroll").num) : -1.f;
       if (mode_ != Mode::Program) set_mode("program");
+    } else if (cmd == "camera_move") {
+      camera_move(e);
+    } else if (cmd == "visibility") {
+      const bool vis = e.at("visible").kind != design::Json::Bool || e.at("visible").num != 0;
+      for (const design::Json& i : e.at("instances").arr) {
+        if (vis) hidden_.erase(i.str);
+        else hidden_.insert(i.str);
+      }
+    } else if (cmd == "measure") {
+      measure_a_ = e.s("a"), measure_b_ = e.s("b");
+      measure_ = measure_a_.empty() ? 0 : measure_b_.empty() ? 2 : 3;
+      if (measure_ > 0 && mode_ != Mode::Build) set_mode("build");
+    } else if (cmd == "wire_view") {
+      flat_.view(e.n("zoom", 0), e.at("fit").num != 0, e.n("cx", wire2d::Canvas::kKeep), e.n("cy", wire2d::Canvas::kKeep), e.n("seconds", 0));
     } else if (cmd == "camera") {
       if (!e.s("preset").empty()) camera_preset(e.s("preset"));
       else cam_anim_ = {true, now, orbit_.yaw, orbit_.pitch, orbit_.dist, e.n("yaw", orbit_.yaw), e.n("pitch", orbit_.pitch), e.n("dist", orbit_.dist)};
@@ -2300,6 +2869,7 @@ class Viewer {
       sel_synced_ = ids;  // (the backend already knows)
       set_sel(ids);
     } else if (cmd == "search") {
+      left_tab_ = 1;  // typing happens in the PARTS list's search box
       lib_.category = e.s("category");
       lib_.filters.clear();
       for (const auto& [k, r] : e.at("filters").obj)
@@ -2341,6 +2911,7 @@ class Viewer {
       }
       flash_until_ = now + 1.4;
     } else if (cmd == "drag") {
+      left_tab_ = 1;  // the ghost flies out of the PARTS list
       anim_ = {};
       anim_.active = true;
       anim_.part = e.s("part");
@@ -2414,6 +2985,11 @@ class Viewer {
     double t0 = 0, yaw0 = 0, pitch0 = 0, dist0 = 0, yaw1 = 0, pitch1 = 0, dist1 = 0;
     b3::V3 target_from, target_to;
     bool move_target = false;
+    // camera.orbit / camera.fly (ui_event "camera_move"): duration, easing, a yaw SWEEP (no shortest-way wrap), or a straight fly
+    // of the eye and the look-at point
+    double dur = 0.5;
+    bool linear = false, sweep = false, fly = false;
+    b3::V3 eye0, eye1, look0, look1;
   };
 
   Host& host_;
@@ -2471,6 +3047,16 @@ class Viewer {
   std::map<std::string, std::array<float, 4>> color_pick_;
   bool color_dirty_ = false;
   CamAnim cam_anim_;
+  int left_tab_ = 0;                // BUILD left dock: 0 BROWSER, 1 PARTS (the library list)
+  bool framed_ = false;             // the design has been framed once on open
+  int measure_ = 0;                 // MEASURE tool: 0 off, 1 pick A, 2 pick B, 3 result
+  std::string measure_a_, measure_b_, tree_hover_;
+  bool nav_pan_ = false;            // left-drag pans instead of orbiting (view cube panel)
+  std::set<std::string> hidden_;    // instances switched off with the eye in the browser
+  bool hidden_dirty_ = false;
+  std::string geom_owner_key_;
+  std::vector<std::string> geom_owner_;
+  std::vector<GeomPose> hidden_poses_;
   Anim anim_;
   Ghost ghost_;
   bool ghost_in_vp_ = false, was_dragging_ = false;
@@ -2500,6 +3086,14 @@ class Viewer {
 }  // namespace
 
 void run_viewer(Host& host, const ViewerOptions& opts) { Viewer(host, opts).run(); }
+
+std::uint64_t viewer_latest_frame(std::vector<std::uint8_t>* rgba, int* width, int* height) {
+  std::lock_guard<std::mutex> lk(g_frame_mu);
+  if (rgba) *rgba = g_frame;
+  if (width) *width = g_frame_w;
+  if (height) *height = g_frame_h;
+  return g_frame_seq;
+}
 
 std::vector<ScriptCmd> parse_script(const std::string& script) {
   std::vector<ScriptCmd> out;

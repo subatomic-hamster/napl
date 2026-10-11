@@ -71,6 +71,7 @@ note = "Output flange pattern is in CubeMars' drawings (not retrieved); opaque f
 
 [[ports]]
 name = "power"
+pins = ["PWR.1", "PWR.2"]
 kind = "power"
 type = "xt30pw-2+2"
 gender = "male"
@@ -82,6 +83,7 @@ note = "Power connector and CAN connector are both listed as XT30PW(2+2)-M (S1);
 
 [[ports]]
 name = "can"
+pins = ["PWR.3", "PWR.4"]
 kind = "signal"
 type = "can"
 gender = "male"
@@ -89,10 +91,64 @@ note = "CAN connector XT30PW(2+2)-M, shared with power (S1). Bit rate and logic 
 
 [[ports]]
 name = "uart"
+pins = ["UART.1", "UART.2", "UART.3"]
 kind = "signal"
 type = "uart"
 gender = "male"
 note = "UART connector A1257WR-S-3P (white CJT-3pin interface for the upper computer; S1). Levels not retrieved."
+
+# Pin level (literature): pin order and colours are from the CubeMars AK V3 driver-board manual (P1), which lists the same XT30PW(2+2)-M and A1257WR-S-3P onboard connectors as S1; the actuator page itself gives no pin table.
+[[connectors]]
+id = "PWR"
+name = "XT30PW(2+2)-M power + CAN"
+type = "xt30pw-2+2"
+port_type = "xt30pw-2+2"
+gender = "male"
+pos = [0.028, 0.0, -0.049]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+src = "P1"
+fidelity = "literature"
+rows = 1
+cols = 4
+pitch = 0.0025
+rationale = "Pin order is from the AK54 V3 driver-board manual, not this actuator's own sheet; same connector part number. Pin pitch (2.5 mm, in-line) is an estimate; the manual gives no dimensions."
+pose_rationale = "Connector location on the rear cover is not documented in retrieved text: placed on the rear face at z = -body_length, offset 28 mm from the axis (positional estimate)."
+pins = [
+  { number = 1, name = "V+", kind = "power", dir = "in", v_max = 48.0, i_max = 6.25, note = "red" },
+  { number = 2, name = "GND", kind = "ground", note = "black" },
+  { number = 3, name = "CAN_H", kind = "signal", dir = "io", note = "white" },
+  { number = 4, name = "CAN_L", kind = "signal", dir = "io", note = "blue" },
+]
+
+[[connectors]]
+id = "UART"
+name = "A1257WR-S-3P serial"
+type = "uart"
+port_type = "uart"
+gender = "male"
+pos = [-0.028, 0.0, -0.049]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+src = "P1"
+fidelity = "literature"
+rows = 1
+cols = 3
+pitch = 0.00125
+rationale = "Pin order is from the AK54 V3 driver-board manual (a second CubeMars manual lists TX and RX swapped); not this actuator's own sheet. Pitch 1.25 mm is inferred from the A1257 series name, not stated."
+pose_rationale = "Rear-face placement is a positional estimate; actual location is not in retrieved text."
+pins = [
+  { number = 1, name = "GND", kind = "ground", note = "black" },
+  { number = 2, name = "RX", kind = "signal", dir = "in", note = "serial signal input, yellow" },
+  { number = 3, name = "TX", kind = "signal", dir = "out", note = "serial signal output, green" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://www.cubemars.com/images/file/202511/AK54-4810-1C-A2%20Driver%20Installation%20Instructions.pdf"
+title = "CubeMars AK54-4810-1C-A2 Driver Installation Instructions V1.0.0, 4.2 Driver Interface Pin Definitions"
+accessed = "2026-10-09"
+quote = "Serial Communication: 1 Serial signal ground (GND) Black; 2 Serial signal input (RX) Yellow; 3 Serial signal output (TX) Green. Power input and CAN communication: 1 Positive Pole (+) Red; 2 Negative Pole (-) Black; 3 CAN communication high side (CAN_H) White; 4 CAN communication low side (CAN_L) Blue. Onboard interface model: A1257WR-S-3P (CJT), XT30PW(2+2)-M (AMASS)."
 
 [[sources]]
 id = "S1"

@@ -82,6 +82,7 @@ note = "ROBOTIS X430 output horn interface; spline/bolt circle not published as 
 
 [[ports]]
 name = "power_in"
+pins = ["TTL.1", "TTL.2"]
 kind = "power"
 type = "jst-eh.3"
 gender = "female"
@@ -93,6 +94,7 @@ note = "TTL connector (JST EHR-03); the RS-485 connector (JST EHR-04) carries th
 
 [[ports]]
 name = "bus_ttl"
+pins = ["TTL.3"]
 kind = "signal"
 type = "dynamixel-ttl"
 gender = "female"
@@ -100,10 +102,65 @@ note = "TTL half-duplex multidrop on JST EHR-03; ROBOTIS notes the reference cir
 
 [[ports]]
 name = "bus_rs485"
+pins = ["RS485.3", "RS485.4"]
 kind = "signal"
 type = "rs485"
 gender = "female"
 note = "RS-485 on JST EHR-04 (DATA+/DATA-); same bus as TTL, alternative physical layer."
+
+# Pin level: the TTL (JST EHR-03) and RS-485 (JST EHR-04) connectors from the e-Manual Connector Information table (P1). RS485.1 / RS485.2 (GND, VDD) are the
+# same daisy-chain nets as TTL.1 / TTL.2 (see the power_in note) and stay in the connector's own synthetic port.
+[[connectors]]
+id = "TTL"
+name = "TTL connector (JST EHR-03)"
+type = "jst-eh-3"
+port_type = "jst-eh.3"
+gender = "female"
+pos = [-0.01425, 0.0, -0.012]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0025
+src = "P1"
+fidelity = "datasheet"
+rationale = "P1 gives the housing (JST EHR-03) and the pin functions; the 2.5 mm pitch is the JST EH-series pitch, not stated in P1."
+pose_rationale = "The e-Manual drawing is not machine-readable, so the connector position on the case is a positional estimate (side of the case, near the base)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "in" },
+  { number = 3, name = "DATA", kind = "signal", dir = "io", note = "half-duplex TTL (P1)" },
+]
+
+[[connectors]]
+id = "RS485"
+name = "RS-485 connector (JST EHR-04)"
+type = "jst-eh-4"
+port_type = "rs485"
+gender = "female"
+pos = [0.01425, 0.0, -0.012]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 4
+pitch = 0.0025
+src = "P1"
+fidelity = "datasheet"
+rationale = "P1 gives the housing (JST EHR-04) and the pin functions; the 2.5 mm pitch is the JST EH-series pitch, not stated in P1."
+pose_rationale = "The e-Manual drawing is not machine-readable, so the connector position on the case is a positional estimate (opposite side from the TTL connector)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VDD", kind = "power", dir = "in" },
+  { number = 3, name = "DATA+", kind = "signal", dir = "io" },
+  { number = 4, name = "DATA-", kind = "signal", dir = "io" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://emanual.robotis.com/docs/en/dxl/x/xm430-w210/"
+title = "ROBOTIS e-Manual XM430-W210, Connector Information"
+accessed = "2026-10-09"
+quote = "Connector Information | Item | TTL | RS-485 | Pinout | 1 | GND | 2 | VDD | 3 | DATA | 1 | GND | 2 | VDD | 3 | DATA+ | 4 | DATA- | Housing | JST EHR-03 | JST EHR-04 | PCB Header | JST B3B-EH-A | JST B4B-EH-A | Crimp Terminal | JST SEH-001T-P0.6 | JST SEH-001T-P0.6 | Wire Gauge for DYNAMIXEL | 21 AWG | 21 AWG"
 
 [[sources]]
 id = "S1"

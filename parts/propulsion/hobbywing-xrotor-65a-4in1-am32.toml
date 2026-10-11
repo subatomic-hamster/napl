@@ -44,6 +44,7 @@ note = "30.5 x 30.5 mm per S1 (screw size not stated; M3 assumed as for other 30
 
 [[ports]]
 name = "power_in"
+pins = ["BAT.1", "BAT.2"]
 kind = "power"
 type = "xt60"
 gender = "neutral"
@@ -53,6 +54,7 @@ i_max = { value = 260.0, unit = "A", fidelity = "derived", derivation = "4 chann
 
 [[ports]]
 name = "motor_out_1"
+pins = ["M1.1", "M1.2", "M1.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -63,6 +65,7 @@ i_burst = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_2"
+pins = ["M2.1", "M2.2", "M2.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -73,6 +76,7 @@ i_burst = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_3"
+pins = ["M3.1", "M3.2", "M3.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -83,6 +87,7 @@ i_burst = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_4"
+pins = ["M4.1", "M4.2", "M4.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -93,9 +98,153 @@ i_burst = { value = 80.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "signal"
+pins = ["SIG.6", "SIG.7", "SIG.8", "SIG.9", "SIG.3", "SIG.1"]   # S1 .. S4 throttle inputs, CRT current sense, GND
 kind = "signal"
 type = "dshot"
 gender = "neutral"
+
+# ---- Connectors (pin level). S1: 12 AWG x 130 mm red/black input wires with an XT60 soldered on, 'No wires but solder tabs' for the outputs, a
+# 5 V / 0.6 A BEC. The signal harness is not documented for this board; the pin names and order are those of the sibling XRotor Micro 45A
+# manual (P1: GND, BAT, CRT, GND, 5V, S1-S4, minus the 10 V BEC pin). Positions are estimates.
+[[connectors]]
+id = "BAT"
+name = "XT60 on 12 AWG x 130 mm input wires"
+type = "xt60"
+gender = "male"
+pos = [0.0, -0.021, 0.0033]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0072
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "S1 states the XT60 with wires soldered on and the wire gauge/length; the exit edge is estimated, the XT60 contact pitch (7.2 mm) is the family's. The listing does not state the plug gender: male (the load side of the XT60 pair) is assumed."
+pins = [
+  { number = 1, name = "BAT+ (red)", kind = "power", dir = "in", v_max = 25.2, i_max = 260.0, fidelity = "derived", derivation = "v_max: 6S x 4.2 V (S1 'LiPo power input 3S-6S'); i_max: 4 x 65 A continuous (S1) if all four run flat out." },
+  { number = 2, name = "BAT- (black)", kind = "ground", i_max = 260.0, fidelity = "derived", derivation = "4 x 65 A continuous (S1)." },
+]
+
+[[connectors]]
+id = "M1"
+name = "motor 1 solder tabs"
+type = "solder-pad-1x3"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [0.0185, -0.0145, 0.0033]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0035
+src = "S1"
+fidelity = "estimated"
+rationale = "S1: 'Output Wire: No wires but solder tabs', 65 A continuous / 80 A burst per channel. The tab positions, the corner of motor 1 and the A B C labels are conventions (swapping two phases reverses the motor)."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 65.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 65.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 65.0 },
+]
+
+[[connectors]]
+id = "M2"
+name = "motor 2 solder tabs"
+type = "solder-pad-1x3"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [-0.0185, -0.0145, 0.0033]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0035
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 65.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 65.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 65.0 },
+]
+
+[[connectors]]
+id = "M3"
+name = "motor 3 solder tabs"
+type = "solder-pad-1x3"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [-0.0185, 0.0145, 0.0033]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0035
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 65.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 65.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 65.0 },
+]
+
+[[connectors]]
+id = "M4"
+name = "motor 4 solder tabs"
+type = "solder-pad-1x3"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [0.0185, 0.0145, 0.0033]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.0035
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 65.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 65.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 65.0 },
+]
+
+[[connectors]]
+id = "SIG"
+name = "signal harness (9 positions)"
+type = "header-1x9"
+gender = "male"
+pos = [0.0255, 0.0, 0.0066]
+axis = [0.0, 0.0, 1.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 9
+pitch = 0.001
+src = "P1"
+fidelity = "estimated"
+rationale = "P1 documents the signal port of the sibling XRotor Micro 45A (10V GND BAT CRT GND 5V S1 S2 S3 S4). This board has a 5 V BEC only (S1: 'BEC Output 5V@0.6A'), so the list without the 10 V pin is used; housing, pitch and position are not published."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "BAT", kind = "signal", dir = "out", note = "battery voltage monitoring port (P1)" },
+  { number = 3, name = "CRT", kind = "signal", dir = "out", note = "amperage monitoring port (P1)" },
+  { number = 4, name = "GND", kind = "ground" },
+  { number = 5, name = "5V", kind = "power", dir = "out", v = 5.0, i_max = 0.6, note = "BEC output (S1: 5V@0.6A); P1: '5V Power output port (for FC, camera, 5V LED)'" },
+  { number = 6, name = "S1", kind = "signal", dir = "in", note = "throttle signal input of ESC M1 (P1)" },
+  { number = 7, name = "S2", kind = "signal", dir = "in", note = "throttle signal input of ESC M2 (P1)" },
+  { number = 8, name = "S3", kind = "signal", dir = "in", note = "throttle signal input of ESC M3 (P1)" },
+  { number = 9, name = "S4", kind = "signal", dir = "in", note = "throttle signal input of ESC M4 (P1)" },
+]
+
+[[sources]]
+id = "P1"
+url = "https://support.hobbywingdirect.com/hc/article_attachments/29229277733395"
+title = "Hobbywing XRotor Micro 45A BLHeli_32 4in1 DShot1200 user manual (sibling 30.5 x 30.5 board with BEC), 'Definitions for Different Ports'"
+accessed = "2026-10-09"
+quote = "10V GND BAT CRT GND 5V S1 S2 S3 S4 ... BAT: Battery Volt monitoring port ... CTR: Amp monitoring port with the amperage of 15.2mv/A ... GND: Ground wire ... 5V: 5V Power output port ... S1-4: Throttle Signal Input Ports. Port S1 is for ESC M1, S2 is for M2, S3 is for M3, and S4 is for M4. POWER INPUT: Power input soldering point"
 
 [[sources]]
 id = "S1"

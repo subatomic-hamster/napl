@@ -30,6 +30,7 @@ size = [0.033, 0.0109, 0.0055]
 
 [[ports]]
 name = "power_in"
+pins = ["IN.1", "IN.2"]
 kind = "power"
 type = "wire-lead"
 gender = "neutral"
@@ -41,6 +42,7 @@ note = "16 AWG red/black leads, 500 mm, no connector (S1)"
 
 [[ports]]
 name = "motor_out"
+pins = ["MOT.1", "MOT.2", "MOT.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -52,9 +54,73 @@ note = "3 x 16 AWG black wires, 75 mm (Version A)"
 
 [[ports]]
 name = "signal"
+pins = ["SIG.1", "SIG.2"]
 kind = "signal"
 type = "pwm"
 gender = "neutral"
+
+# ---- Connectors (pin level). S1: 'Input Wires: Red-16AWG-500mm 1 / Black-16AWG-500mm 1', 'Output Wires: Black-16AWG-75mm*3', 'Input Connectors: No',
+# 'BEC: No'. The throttle lead is not described. Leads are drawn at the ends (battery in on -x, motor and throttle out on +x).
+[[connectors]]
+id = "IN"
+name = "battery leads (16 AWG x 500 mm)"
+type = "wire-lead"
+gender = "neutral"
+joinable = true
+pos = [-0.033, 0.0, 0.0]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.006
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "S1 gives the two leads (red, black), gauge and length and 'Input Connectors: No'; the exit end and spacing are estimated."
+pins = [
+  { number = 1, name = "BAT+ (red)", kind = "power", dir = "in", v_max = 25.2, i_max = 40.0, fidelity = "derived", derivation = "v_max 6S x 4.2 V (S1 '3-6S LiPo'); i_max the 40 A continuous rating (S1)." },
+  { number = 2, name = "BAT- (black)", kind = "ground", i_max = 40.0, fidelity = "derived", derivation = "The 40 A continuous rating (S1)." },
+]
+
+[[connectors]]
+id = "MOT"
+name = "motor output wires (3 x 16 AWG x 75 mm)"
+type = "wire-lead"
+port_type = "motor-3phase"
+gender = "neutral"
+joinable = true
+pos = [0.033, 0.0, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.004
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "S1 gives three identical black output wires (so phase labels A B C are a convention: swapping two reverses the motor); exit end and spacing are estimated."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 40.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 40.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 40.0 },
+]
+
+[[connectors]]
+id = "SIG"
+name = "throttle signal lead"
+type = "servo-lead-2"
+gender = "neutral"
+pos = [0.033, 0.007, 0.0]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.0025
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 describes no throttle lead. A throttle signal + ground pair is the minimum a PWM input needs; with 'BEC: No' (S1) there is no +5 V conductor to list."
+pins = [
+  { number = 1, name = "SIGNAL", kind = "signal", dir = "in" },
+  { number = 2, name = "GND", kind = "ground" },
+]
 
 [[sources]]
 id = "S1"

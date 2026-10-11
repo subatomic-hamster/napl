@@ -47,6 +47,7 @@ note = "30.5 x 30.5 mm per S1; 4 mm PCB hole, M3 screw with grommet"
 
 [[ports]]
 name = "power_in"
+pins = ["BAT.1", "BAT.2"]
 kind = "power"
 type = "solder-pad"
 gender = "neutral"
@@ -56,6 +57,7 @@ i_max = { value = 200.0, unit = "A", fidelity = "derived", derivation = "4 chann
 
 [[ports]]
 name = "motor_out_1"
+pins = ["M1.1", "M1.2", "M1.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -65,6 +67,7 @@ i_max = { value = 50.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_2"
+pins = ["M2.1", "M2.2", "M2.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -74,6 +77,7 @@ i_max = { value = 50.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_3"
+pins = ["M3.1", "M3.2", "M3.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -83,6 +87,7 @@ i_max = { value = 50.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "motor_out_4"
+pins = ["M4.1", "M4.2", "M4.3"]
 kind = "power"
 type = "motor-3phase"
 gender = "neutral"
@@ -92,9 +97,156 @@ i_max = { value = 50.0, unit = "A", src = "S1", fidelity = "datasheet" }
 
 [[ports]]
 name = "signal"
+pins = ["SIG.5", "SIG.6", "SIG.7", "SIG.8", "SIG.4", "SIG.3"]   # M1 .. M4 DShot, CURRENT, GND
 kind = "signal"
 type = "dshot"
 gender = "neutral"
+
+# ---- Connectors (pin level). P2 (retailer page) lists the 8-pin 1 mm-pitch cables, a telemetry output pad, an analog current sensor and 'Solder/DIY'
+# battery connection; it does not give the 8 pin functions. Their order is taken from the Holybro flight controller the ESC is sold with (P1:
+# Kakute ESC port = B+, R7 (telemetry), GND, CURRENT, M1-M4), because the supplied cable is 8-pin to 8-pin. Pad positions are estimates.
+[[connectors]]
+id = "SIG"
+name = "ESC signal port (8-pin, 1.0 mm)"
+type = "jst-sh-8"
+gender = "male"
+pos = [0.0, 0.0145, 0.006]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 8
+pitch = 0.001
+src = "P1"
+fidelity = "estimated"
+rationale = "P2 gives an 8-pin, 1 mm pitch connector carrying M1-M4, current, ground, telemetry and VBAT but no order; the order is the Holybro Kakute ESC-port table (P1) that the supplied 8-pin to 8-pin cable mates to. Housing type (JST-SH) and position are assumed."
+pins = [
+  { number = 1, name = "B+", kind = "power", dir = "out", v_max = 25.2, note = "battery voltage to the FC (P1: 'Battery positive voltage (2S-8S)'); v_max 6S x 4.2 V (P2 4S-6S input)" },
+  { number = 2, name = "TLM", kind = "signal", dir = "out", note = "ESC telemetry output (P2: 'Telemetry Output Pad'); the FC side is R7 (UART7 RX)" },
+  { number = 3, name = "GND", kind = "ground" },
+  { number = 4, name = "CURRENT", kind = "signal", dir = "out", note = "analog current sensor (P2), scale ratio 120" },
+  { number = 5, name = "M1", kind = "signal", dir = "in", note = "motor 1 DShot input" },
+  { number = 6, name = "M2", kind = "signal", dir = "in", note = "motor 2 DShot input" },
+  { number = 7, name = "M3", kind = "signal", dir = "in", note = "motor 3 DShot input" },
+  { number = 8, name = "M4", kind = "signal", dir = "in", note = "motor 4 DShot input" },
+]
+
+[[connectors]]
+id = "BAT"
+name = "battery solder pads (BAT+ / BAT-)"
+type = "solder-pad-1x2"
+gender = "neutral"
+joinable = true
+pos = [0.0, -0.0185, 0.003]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 2
+pitch = 0.008
+src = "P2"
+fidelity = "estimated"
+rationale = "P2 says the battery connection is 'Solder/DIY' (no connector fitted); pad count is two, the layout (+ then -, 8 mm apart on the edge opposite the signal port) is assumed."
+pins = [
+  { number = 1, name = "BAT+", kind = "power", dir = "in", v_max = 25.2, i_max = 200.0, fidelity = "derived", derivation = "v_max 6S x 4.2 V (S1 'Input Voltage Range 4S - 6S'); i_max 4 x 50 A continuous (S1)." },
+  { number = 2, name = "BAT-", kind = "ground", i_max = 200.0, fidelity = "derived", derivation = "4 x 50 A continuous (S1)." },
+]
+
+[[connectors]]
+id = "M1"
+name = "motor 1 solder pads"
+type = "solder-pad-1x3"
+gender = "neutral"
+joinable = true
+pos = [0.017, -0.013, 0.003]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "S1 gives 50 A continuous / 60 A burst per channel; the pad positions, the corner of motor 1 and the A B C labels are not published (conventions: swapping two phases reverses the motor)."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 50.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 50.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 50.0 },
+]
+
+[[connectors]]
+id = "M2"
+name = "motor 2 solder pads"
+type = "solder-pad-1x3"
+gender = "neutral"
+joinable = true
+pos = [-0.017, -0.013, 0.003]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 50.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 50.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 50.0 },
+]
+
+[[connectors]]
+id = "M3"
+name = "motor 3 solder pads"
+type = "solder-pad-1x3"
+gender = "neutral"
+joinable = true
+pos = [-0.017, 0.013, 0.003]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 50.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 50.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 50.0 },
+]
+
+[[connectors]]
+id = "M4"
+name = "motor 4 solder pads"
+type = "solder-pad-1x3"
+gender = "neutral"
+joinable = true
+pos = [0.017, 0.013, 0.003]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.003
+src = "S1"
+fidelity = "estimated"
+rationale = "As M1."
+pins = [
+  { number = 1, name = "A", kind = "power", dir = "out", i_max = 50.0 },
+  { number = 2, name = "B", kind = "power", dir = "out", i_max = 50.0 },
+  { number = 3, name = "C", kind = "power", dir = "out", i_max = 50.0 },
+]
+
+[[sources]]
+id = "P1"
+url = "https://docs.holybro.com/autopilot/kakute-h7-v1-v2-mini/kakute-h7-v2/pinout"
+title = "Kakute H7 V2 Pinout (Holybro docs; Holybro llms-full.txt text export), ESC port table of the flight controller this ESC is sold with"
+accessed = "2026-10-09"
+quote = "ESC Port 1: B+ Battery positive voltage (2S-8S) | R7 UART7 RX | GND | CURRENT | M1 | M2 | M3 | M4"
+
+[[sources]]
+id = "P2"
+url = "https://www.readymaderc.com/products/details/87187-holybro-tekko32-f4-4in1-50a-esc-am32"
+title = "ReadyMadeRC - Holybro Tekko32 F4 4in1 50A ESC (AM32), package contents and specification table"
+accessed = "2026-10-09"
+quote = "ESC Telemetry: Supported (Telemetry Output Pad) | Onboard Analog Current Sensor (Amperage Meter Scale Ratio: 120) | (1) 8-Pin to 8-Pin 1mm Pitch 65mm Cable | (1) 8-Pin to 8-Pin 1mm Pitch 25mm Cable | Solder/DIY"
 
 [[sources]]
 id = "S1"

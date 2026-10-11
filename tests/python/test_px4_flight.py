@@ -33,7 +33,12 @@ pytestmark = pytest.mark.px4
 # `napl program`; this test only adds the MAVSDK flight and the checks.
 REPO = px4.REPO
 PX4_BIN, BRIDGE, REPLAY, PARAMS = px4.PX4_BIN, px4.BRIDGE, px4.REPLAY, px4.PARAMS
-N = int(os.environ.get("NAPL_PX4_INSTANCE", "0"))
+
+
+def _n():  # the instance conftest._px4_instance claimed for this test (ports 4560+n, 14540+n, ...)
+    return int(os.environ.get("NAPL_PX4_INSTANCE", "0"))
+
+
 CFGS = {
     "asm": REPO / "px4" / "bridge_x500v2_asm.toml",
     "fixture": REPO / "px4" / "bridge_x500.toml",
@@ -46,8 +51,8 @@ SKIP = px4.skip_reason()
 
 
 def strays(tmp):
-    """Live processes of this run: command line names one of our binaries / the tmp dir, or cwd is the tmp dir."""
-    needles = [str(PX4_BIN.parent) + "/", str(BRIDGE), str(REPLAY), str(tmp)]
+    """Live processes of this run: command line names the tmp dir, or cwd is the tmp dir (not "any bridge / px4 / replay": other xdist workers run those too)."""
+    needles = [str(tmp)]
     out = []
     for d in Path("/proc").iterdir():
         if not d.name.isdigit() or int(d.name) == os.getpid():
@@ -100,7 +105,7 @@ async def fly(bridge, tmp, ev):
     mv = Mavsdk(Configuration.create_with_component_type(ComponentType.GROUND_STATION))
     tasks = []
     try:
-        await mv.add_any_connection(f"udp://:{14540 + N}")
+        await mv.add_any_connection(f"udp://:{14540 + _n()}")
         system = await mv.first_autopilot(timeout_s=60.0)
         assert system is not None, "MAVSDK found no autopilot on the offboard link"
         tel, act = TelemetryAsync(system), ActionAsync(system)
@@ -206,7 +211,7 @@ def test_px4_flight(model):
     tmp = Path(tempfile.mkdtemp(prefix="napl_px4_"))
     cfg, base, mass = model_info(model)
     ev = {"t0": time.time(), "base": base, "mass": mass, "model": model}
-    st = px4.Stack(cfg, tmp, instance=N)  # the model comes from the bridge config
+    st = px4.Stack(cfg, tmp, instance=_n())  # the model comes from the bridge config
     keep = os.environ.get("NAPL_PX4_KEEP")
     try:
         st.start()  # raises on busy / forbidden ports

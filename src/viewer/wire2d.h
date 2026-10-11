@@ -62,6 +62,15 @@ class Canvas {
   bool active() const { return active_; }
   // Hover cards / hover highlight of the canvas: 0 auto (only while a person moves the mouse), 1 always, 2 never (ui.view tooltips).
   void set_tooltips(int mode) { tip_mode_ = mode; }
+  // Ribbon hooks (WIRING page): flatten the picked components, or the BUILD selection when nothing is picked; zoom to 100 % (every
+  // pin label readable); fit the sheet in the window.
+  void begin_selected(const design::State& st, const std::string& selected);
+  void zoom_to_pins();
+  void fit_view() { fit(); }
+  // ui.wire_view: fit the sheet, or zoom to `zoom` (0 = keep) with canvas point (cx, cy) at the middle of the sheet (NaN = keep the
+  // current middle; kKeep = 1e30); `seconds` > 0 glides there (eased) instead of jumping: a recorded pan / zoom.
+  static constexpr double kKeep = 1e30;
+  void view(double zoom, bool fit_it, double cx = kKeep, double cy = kKeep, double seconds = 0);
   // A message for the canvas's toast strip (a refusal of an op a scripted agent sent: the window never saw that reply).
   void notify(const std::string& text, bool bad) { toast(text, bad); }
   // Inside the viewer's WIRING pane window (cursor at the pane's top-left, `size` = its content area): the component /
@@ -80,6 +89,7 @@ class Canvas {
   };
   void apply(const design::Json& f);
   void select_ui(const design::State& st, const std::string& selected);
+  void begin_flatten();
   void canvas_ui();
   void side_ui();
   void fit();
@@ -104,8 +114,12 @@ class Canvas {
   Drag drag_;
   ImVec2 org_{0, 0}, sz_{800, 600};  // the pane (screen coordinates), set by page()
   float zoom_ = 1, ox_ = 40, oy_ = 40;  // canvas -> screen: screen = o + canvas * zoom
+  struct ViewAnim {                      // ui.wire_view with seconds: an eased glide of (zoom, ox, oy)
+    double t0 = -1, dur = 0;
+    float z0 = 1, ox0 = 0, oy0 = 0, z1 = 1, ox1 = 0, oy1 = 0;
+  } va_;
   bool fit_pending_ = false;
-  std::string toast_;
+  std::string toast_, title_;  // title_: the design's name (title block)
   bool toast_bad_ = false;
   double toast_t_ = -1e9;
   double layout_t_ = -1e9;         // when the backend last moved the cards: they glide from (x0, y0) to (tx, ty), wires fade in after

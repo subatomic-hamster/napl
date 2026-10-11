@@ -1,11 +1,11 @@
 {"captions": [
- {"t0": 0.0, "t1": 3.0, "title": "Overview: four drones, one turret",
-  "text": "The swarm program flies four drones pseudorandomly (seeded, so it repeats). The turret camera finds them, tracks them across frames and picks a target."},
- {"t0": 3.0, "t1": 7.0, "title": "Track, pick, aim, wait for the operator",
-  "text": "A pellet is a point mass with quadratic air drag, gravity and the wind the turret estimates from its mast anemometer, so the aim point leads the drone."},
+ {"t0": 0.0, "t1": 4.0, "title": "The built turret, from every side",
+  "text": "The assembly built in the first half of the video, now simulated: the camera circles the pan-tilt stack. Four drones are about to fly their seeded swarm program."},
+ {"t0": 4.0, "t1": 7.0, "title": "Track, pick, aim, wait for the operator",
+  "text": "The turret camera (picture-in-picture) finds the drones, tracks them across frames and picks a target. A pellet is a point mass with quadratic air drag, gravity and the wind the turret estimates from its mast anemometer, so the aim point leads the drone."},
  {"t0": 7.0, "t1": 8.4, "title": "Hit: slow motion",
-  "text": "drone3 takes a pellet. Slowed 4x. The kernel reports which body the pellet struck; a scenario rule maps that to damage, with no dice roll."},
- {"t0": 8.4, "t1": 16.4, "title": "Next target (2x speed)",
+  "text": "drone3 takes a pellet. Slowed 4x, the camera close on the drone. The kernel reports which body the pellet struck; a scenario rule maps that to damage, with no dice roll."},
+ {"t0": 8.4, "t1": 16.4, "title": "Next target (2x speed), camera circling the swarm",
   "text": "The operator authorizes one track at a time. Misses are real: drag and gravity drop the pellet, wind pushes it sideways."},
  {"t0": 16.4, "t1": 17.6, "title": "Closing on drone4",
   "text": "Pellets pass within centimetres of drone4 before one lands."},
@@ -13,6 +13,8 @@
   "text": "drone4 is hit (slowed 4x). Functional damage, then the physics does the rest: it ends tilted past 80 degrees or falls."},
  {"t0": 18.6, "t1": 24.0, "title": "Back to the swarm (2x speed)",
   "text": "Remaining drones keep flying their program; the turret re-acquires."},
- {"t0": 24.0, "t1": 60.0, "title": "The rest of the 60 s run (4x speed)",
-  "text": "Pellet drag, gravity and wind decide the outcome; the final counters are on the end card."}
+ {"t0": 24.0, "t1": 52.0, "title": "The rest of the 60 s run (4x speed)",
+  "text": "Pellet drag, gravity and wind decide the outcome; the final counters are on the end card."},
+ {"t0": 52.0, "t1": 61.0, "title": "Last seconds, real time: back around the turret",
+  "text": "The same turret at the end of the run, the camera circling it again."}
 ]}

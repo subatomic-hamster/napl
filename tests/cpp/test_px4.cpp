@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -14,6 +15,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -329,6 +331,80 @@ TEST(Px4Bridge, rejects_inconsistent_home) {
   EXPECT_EQ(p.wait(), 1);
   EXPECT_NE(out.find("[home] differs"), std::string::npos) << out;
   fs::remove(bad);
+}
+
+// GPS-denied config (no `gnss` key): the stream has HIL_SENSOR and ground truth but no HIL_GPS; and the ctl socket's `imu <since>` returns the
+// IMU samples that went to PX4, one per HIL step, with the world tick they were taken at (a companion computer's estimator reads these).
+TEST(Px4Bridge, gps_denied_and_imu_history_over_ctl) {
+  const fs::path dir = fs::temp_directory_path() / ("px4_nogps_" + std::to_string(getpid()));
+  fs::create_directories(dir);
+  const std::string cfg = (dir / "bridge.toml").string(), sock = (dir / "ctl.sock").string();
+  {
+    std::ifstream in(kCfg);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string t = ss.str();
+    t.replace(t.find("gnss = \"gnss\""), 13, "");
+    t.replace(t.find("../devices/all.xml"), 18, kData + "/devices/all.xml");
+    std::ofstream(cfg) << t;
+  }
+  const int port = free_port(SOCK_STREAM), px4_udp = free_port(SOCK_DGRAM), our_udp = free_port(SOCK_DGRAM);
+  Proc bridge({NAPL_PX4_BRIDGE_EXE, "--config", cfg, "--port", std::to_string(port), "--px4-udp", std::to_string(px4_udp), "--udp-bind",
+               std::to_string(our_udp), "--ctl", sock, "--connect-timeout", "20"});  // real time: 250 steps/s, so the 16 s history never wraps here
+  std::string l;
+  ASSERT_TRUE(bridge.expect("listening", l, 30));
+  const int fd = connect_to(port);
+  ASSERT_GE(fd, 0);
+  Link px4(fd, MAVLINK_COMM_0);
+  mavlink_message_t m;
+  mavlink_msg_heartbeat_pack(1, 1, &m, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_PX4, 0, 0, MAV_STATE_ACTIVE);
+  px4.send(m);
+  ASSERT_TRUE(bridge.expect("connected", l, 10));
+  std::vector<mavlink_hil_sensor_t> sens;
+  int gps = 0;
+  while (sens.size() < 100) {  // no HIL_ACTUATOR_CONTROLS is ever sent: the bridge free-runs
+    ASSERT_TRUE(px4.next(m, 10000));
+    if (m.msgid == MAVLINK_MSG_ID_HIL_SENSOR) mavlink_msg_hil_sensor_decode(&m, &sens.emplace_back());
+    else if (m.msgid == MAVLINK_MSG_ID_HIL_GPS) ++gps;
+  }
+  EXPECT_EQ(gps, 0);
+
+  const int cfd = socket(AF_UNIX, SOCK_STREAM, 0);
+  sockaddr_un ua{};
+  ua.sun_family = AF_UNIX;
+  std::strncpy(ua.sun_path, sock.c_str(), sizeof ua.sun_path - 1);
+  // ttsr-ignore: cpp/no-reinterpret-const-cast (the BSD sockets API takes sockaddr*)
+  ASSERT_EQ(connect(cfd, reinterpret_cast<sockaddr*>(&ua), sizeof ua), 0);
+  ASSERT_EQ(::write(cfd, "imu 0\n", 6), 6);
+  std::string reply;
+  for (char c; reply.empty() || reply.back() != '\n';) {
+    pollfd p{cfd, POLLIN, 0};
+    ASSERT_GT(poll(&p, 1, 10000), 0);
+    ASSERT_EQ(::read(cfd, &c, 1), 1);
+    reply += c;
+  }
+  close(cfd);
+  std::istringstream is(reply);
+  std::string ok;
+  std::uint64_t tick = 0, cnt = 0;
+  is >> ok >> tick >> cnt;
+  ASSERT_EQ(ok, "ok");
+  ASSERT_GE(cnt, sens.size());
+  for (std::uint64_t i = 0; i < cnt; ++i) {
+    std::uint64_t counter;
+    double g[3], a[3];
+    ASSERT_TRUE(is >> counter >> g[0] >> g[1] >> g[2] >> a[0] >> a[1] >> a[2]) << "record " << i;
+    EXPECT_EQ(counter, 4 * i + 2) << "all.xml IMU is 500 Hz: step i covers ticks [4i, 4i + 4), its last sample was taken at counter 4i + 2";
+    if (i < sens.size()) {  // the same sample HIL_SENSOR carried, FLU instead of FRD
+      EXPECT_NEAR(a[0], sens[i].xacc, 1e-4);
+      EXPECT_NEAR(a[1], -sens[i].yacc, 1e-4);
+      EXPECT_NEAR(a[2], -sens[i].zacc, 1e-4);
+      EXPECT_NEAR(g[0], sens[i].xgyro, 1e-5);
+      EXPECT_NEAR(g[1], -sens[i].ygyro, 1e-5);
+      EXPECT_NEAR(g[2], -sens[i].zgyro, 1e-5);
+    }
+  }
+  fs::remove_all(dir);
 }
 
 TEST(Px4Bridge, loopback_lockstep_all_xml) {

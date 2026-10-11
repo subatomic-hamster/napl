@@ -201,7 +201,10 @@ float4 fsMain(VsOut i) : SV_Target0 {
     const float2 fw = max(fwidth(w), 1e-5);
     const float2 g1 = abs(frac(w - 0.5) - 0.5) / fw, g2 = abs(frac(w * 10.0 - 0.5) - 0.5) / (fw * 10.0);
     const float l1 = 1.0 - saturate(min(g1.x, g1.y) - 0.5), l2 = (1.0 - saturate(min(g2.x, g2.y) - 0.5)) * exp(-dist * 0.35);
-    albedo = lerp(albedo, albedo * 0.45, saturate(max(l1 * 0.9, l2 * 0.35)));
+    // 1 cm lines: only close to the camera, and only while a pixel is much smaller than the pitch (benchtop-scale designs)
+    const float2 g3 = abs(frac(w * 100.0 - 0.5) - 0.5) / (fw * 100.0);
+    const float l3 = (1.0 - saturate(min(g3.x, g3.y) - 0.5)) * exp(-dist * 3.0) * saturate(1.0 - max(fw.x, fw.y) * 80.0);
+    albedo = lerp(albedo, albedo * 0.45, saturate(max(max(l1 * 0.9, l2 * 0.35), l3 * 0.16)));
   }
   const float metal = d.mat.z >= 0 ? d.mat.z : 0.0;
   const float3 L = sc.sun_dir.xyz;

@@ -1,0 +1,79 @@
+# napl program examples/skydio/goal.px4.scenario.toml --runs-dir <dir>      (needs PX4 SITL, napl-px4-bridge and mavsdk; see python/napl/px4.py)
+# Mission (a) of goal.scenario.toml, but PX4 SITL flies the airframe: the Skydio autonomy (px4_fly.py) is a COMPANION COMPUTER (VIO ODOMETRY into EKF2 with GPS
+# disabled, the depth map as OBSTACLE_DISTANCE, the planner's trajectory as offboard set-points). Same monitors, same thresholds as the native scenario.
+# Each run replays to its own hash (PX4 timing is not lockstep-deterministic). See README.md "On PX4".
+name = "skydio-goal-px4"
+
+[model]
+script = "scene_goal.py"
+
+[interfaces.px4]
+bridge = "../../px4/bridge_skydio.toml"
+ctl = true
+monitor_trace = "companion.csv"
+[interfaces.px4.params]                        # see follow.px4.scenario.toml for the reason of each
+EKF2_GPS_CTRL = 0
+EKF2_EV_CTRL = 15
+EKF2_HGT_REF = 3
+EKF2_MAG_TYPE = 5
+EKF2_EV_DELAY = 20
+EKF2_EV_NOISE_MD = 1
+EKF2_EVP_NOISE = 0.1
+EKF2_EVV_NOISE = 0.1
+EKF2_EVA_NOISE = 0.05
+SYS_HAS_MAG = 0
+SYS_HAS_GPS = 0
+MPC_TILTMAX_AIR = 26
+MPC_TKO_RAMP_T = 0.5
+CP_DIST = 1.0
+
+[program]
+cmd = ["python", "{dir}/px4_fly.py"]
+env = { SKYDIO_MISSION = "goal" }
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the forest / wall / arch layout, the goal, the wind turbulence, the IMU / VIO / baro noise. PX4's timing makes the flight itself not repeatable from the seed."
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+# monitors: columns of <run dir>/companion.csv, one row per 16 ms of sim time from take-off (t = 0) on; identical to goal.scenario.toml
+[[monitors]]
+name = "no_collision"                        # the MuJoCo contact sensor on the airframe subtree vs the obstacle body: zero contacts, ever
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "clearance_positive"                  # exact analytic distance to the nearest obstacle surface minus the 0.40 m airframe bounding sphere
+column = "clearance_m"
+op = "always"
+lo = 0.05
+
+[[monitors]]
+name = "reaches_goal_within_45s"
+column = "dist_goal"
+op = "eventually"
+hi = 1.5
+to = 45
+
+[[monitors]]
+name = "cruises_at_4mps_where_clear"
+column = "speed"
+op = "eventually"
+lo = 4.0
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45

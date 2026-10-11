@@ -23,7 +23,7 @@ WIRED = sorted(
 def built(tmp_path_factory):
     class Lazy(dict):  # builds an assembly the first time a test asks for it
         def __missing__(self, n):
-            wireroute._cache.clear()
+            wireroute.clear_caches()
             self[n] = design.build(
                 REPO / "assemblies" / f"{n}.toml", PARTS, tmp_path_factory.mktemp(n)
             )
@@ -90,7 +90,7 @@ def test_routed_tubes_leave_their_connectors_straight(built, name):
 def test_routing_is_deterministic(tmp_path):
     outs = []
     for k in range(2):
-        wireroute._cache.clear()
+        wireroute.clear_caches()
         r = design.build(REPO / "assemblies" / "turret.toml", PARTS, tmp_path / str(k))
         outs.append([t for *_, t in napl.Sim.load(r["xml"]).tubes()])
     assert len(outs[0]) == len(outs[1]) > 0
@@ -133,8 +133,48 @@ def test_a_wall_between_the_ends_is_routed_around():
         "ub": np.array([0.0, 0.0, 1.0]),
         "d": 0.002,
     }
-    wireroute._cache.clear()
+    wireroute.clear_caches()
     r = wireroute.route_wires([wall], [item])[0]
     assert r["ok"]
     dense, _ = _dense(r["centre"])
     assert (wireroute.clearance(dense, [wall]) > 0.001).all()
+
+
+def test_a_second_wire_does_not_reroute_the_first_and_the_disk_cache_round_trips(
+    tmp_path, monkeypatch
+):
+    wall = {
+        "kind": "box",
+        "size": [0.002, 0.04, 0.04],
+        "T": np.eye(4),
+        "owner": "wall",
+        "name": "wall",
+        "lo": np.array([-0.002, -0.04, -0.04]),
+        "hi": np.array([0.002, 0.04, 0.04]),
+    }
+
+    def wire(key, z):
+        return {
+            "key": key,
+            "a": np.array([[-0.05, 0.0, z]]),
+            "b": np.array([[0.05, 0.0, z]]),
+            "na": np.array([-1.0, 0.0, 0.0]),
+            "nb": np.array([1.0, 0.0, 0.0]),
+            "ua": np.array([0.0, 0.0, 1.0]),
+            "ub": np.array([0.0, 0.0, 1.0]),
+            "d": 0.002,
+        }
+
+    routed = []
+    real = wireroute._route
+    monkeypatch.setattr(
+        wireroute, "_route", lambda F, it: routed.append(it["key"]) or real(F, it)
+    )
+    monkeypatch.setenv("NAPL_ROUTE_CACHE", str(tmp_path))
+    wireroute.clear_caches()
+    first = wireroute.route_wires([wall], [wire(0, 0.0)])[0]
+    wireroute.route_wires([wall], [wire(0, 0.0), wire(1, 0.01)])
+    assert routed == [0, 1]  # wire 0 was not routed again when wire 1 joined
+    wireroute.clear_caches()  # a new process: the disk cache answers
+    again = wireroute.route_wires([wall], [wire(0, 0.0)])[0]
+    assert routed == [0, 1] and np.array_equal(first["centre"], again["centre"])

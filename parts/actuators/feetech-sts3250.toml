@@ -68,6 +68,7 @@ note = "25T spline, OD 5.9 mm."
 
 [[ports]]
 name = "power_in"
+pins = ["BUS.1", "BUS.2"]
 kind = "power"
 type = "5264-3p"
 gender = "female"
@@ -79,9 +80,33 @@ note = "Connector type '5264-3P' is published for the STS3215/HL families; STS32
 
 [[ports]]
 name = "bus"
+pins = ["BUS.3"]
 kind = "signal"
 type = "feetech-ttl"
 gender = "female"
+
+# Pin level: the 3-pin TTL bus connector. The sources only say '3-pin connector'; the 5264-3P housing and the GND / VCC / signal order are taken from the sister STS3215 / HL servos.
+[[connectors]]
+id = "BUS"
+name = "bus connector (3-pin, 5264-3P assumed)"
+type = "5264-3p"
+port_type = "5264-3p"
+gender = "female"
+pos = [-0.02, 0.0, -0.012]
+axis = [-1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 3
+pitch = 0.00254
+src = "S1"
+fidelity = "estimated"
+rationale = "The sources give 'TTL serial bus, 3-pin connector' only; housing (5264-3P), pin order (GND, VCC, signal) and 2.54 mm pitch are inferred from the STS3215 / HL3606 pages of the same vendor."
+pose_rationale = "Case dimensions are not in the sources, so the connector position is a positional estimate (end of the case, near the base)."
+pins = [
+  { number = 1, name = "GND", kind = "ground" },
+  { number = 2, name = "VCC", kind = "power", dir = "in" },
+  { number = 3, name = "SIGNAL", kind = "signal", dir = "io", note = "TTL serial bus" },
+]
 
 [[sources]]
 id = "S1"
