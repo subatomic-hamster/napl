@@ -20,9 +20,8 @@ target_compile_definitions(cuas_lite_rp2040 PRIVATE
   PICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=0
   PICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1
   PICO_STDIO_USB_STDOUT_TIMEOUT_US=2000
-  PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=0
-  PICO_USB_PRODUCT_STRING="cuas-lite turret"
-  PICO_STDIO_USB_DEVICE_PRODUCT_STRING="cuas-lite turret")
+  PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=0)
+# (the default USB strings stay: /dev/serial/by-id/usb-Raspberry_Pi_Pico_<uid>-if00 is what the app and the udev rule look for)
 target_link_libraries(cuas_lite_rp2040 pico_stdlib pico_stdio_usb pico_unique_id pico_flash hardware_pwm hardware_uart hardware_timer hardware_watchdog
   hardware_flash hardware_irq pico_bootrom m)
 pico_enable_stdio_usb(cuas_lite_rp2040 1)

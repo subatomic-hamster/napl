@@ -20,7 +20,7 @@
 static const uint8_t step_pin[2] = {PIN_PAN_STEP, PIN_TILT_STEP}, dir_pin[2] = {PIN_PAN_DIR, PIN_TILT_DIR}, en_pin[2] = {PIN_PAN_EN, PIN_TILT_EN};
 static volatile int32_t target[2];      /* cumulative microsteps the planner asked for (written by the main loop) */
 static volatile uint8_t dir_inv[2];
-static int32_t done[2];                 /* ISR only */
+static volatile int32_t done[2];        /* written by the ISR only */
 static int16_t win_n[2];
 static uint8_t acc[2], pulse[2], win_tick;
 
@@ -118,7 +118,7 @@ void hal_apply(const fw_out_t *o) {
             emitted_total[i] += o->step_n[i];
             target[i] = emitted_total[i];
         } else {
-            emitted_total[i] = target[i];  /* drop any backlog while the drivers are off */
+            emitted_total[i] = target[i] = done[i];  /* drop any backlog while the drivers are off */
         }
     }
     pwm_set_gpio_level(fw_slice_pin, o->fw_duty > 1000 ? 1000 : o->fw_duty);

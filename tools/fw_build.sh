@@ -13,4 +13,6 @@ B=${FW_BUILD:-$ROOT/build/fw-rp2040}
 cmake -S "$ROOT/firmware/cuas-lite-rp2040" -B "$B" -G Ninja -DPICO_NO_PICOTOOL=1 "$@" >/dev/null
 cmake --build "$B"
 arm-none-eabi-size "$B/cuas_lite_rp2040.elf"
-ls -l "$B/cuas_lite_rp2040.uf2"
+# the SDK's own UF2 step needs picotool (libusb headers); convert the .bin instead
+python3 "$ROOT/tools/bin2uf2.py" "$B/cuas_lite_rp2040.bin" "$B/cuas_lite_rp2040.uf2"
+ls -l "$B/cuas_lite_rp2040.bin" "$B/cuas_lite_rp2040.uf2"
