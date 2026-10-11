@@ -23,6 +23,21 @@ def lib():
     return Library(PARTS)
 
 
+@pytest.fixture(scope="module")
+def built(lib, tmp_path_factory):
+    """built(path, visual) -> (mjcf text, report, out dir): one build per (assembly, visual) for the whole module (a build is the
+    expensive part of these tests: meshes, wire routing); the tests only read the result."""
+    cache = {}
+
+    def get(path, visual):
+        if (path, visual) not in cache:
+            out = tmp_path_factory.mktemp(f"{path.stem}-{int(visual)}")
+            cache[path, visual] = (*compute(path, PARTS, out, lib, visual=visual), out)
+        return cache[path, visual]
+
+    return get
+
+
 def test_every_visual_is_closed_and_in_budget(lib):
     bad, total = [], 0
     for part in lib.parts.values():
@@ -49,9 +64,9 @@ def test_every_visual_is_closed_and_in_budget(lib):
 
 
 @pytest.mark.parametrize("path", ASSEMBLIES, ids=lambda p: p.stem)
-def test_visuals_do_not_change_physics(path, tmp_path, lib):
-    xml_v, rep_v = compute(path, PARTS, tmp_path / "v", lib, visual=True)
-    xml_p, rep_p = compute(path, PARTS, tmp_path / "p", lib, visual=False)
+def test_visuals_do_not_change_physics(path, built):
+    xml_v, rep_v, _ = built(path, True)
+    xml_p, rep_p, _ = built(path, False)
     assert rep_v["mass"] == rep_p["mass"]
     assert rep_v["instances"] == rep_p["instances"]
     gv = re.findall(r"<geom [^>]*/>", xml_v)
@@ -77,10 +92,10 @@ def test_visuals_do_not_change_physics(path, tmp_path, lib):
 
 
 @pytest.mark.parametrize("path", ASSEMBLIES, ids=lambda p: p.stem)
-def test_every_instance_in_every_assembly_is_drawn(path, tmp_path, lib):
+def test_every_instance_in_every_assembly_is_drawn(path, built, lib):
     """Each onboard instance whose part has a visual (also a part without [geometry], e.g. the turret's Raspberry Pi 5) gets
     visual geoms; the only undrawn onboard instances are those of parts with nothing to draw."""
-    xml, rep = compute(path, PARTS, tmp_path, lib, visual=True)
+    xml, rep, _ = built(path, True)
     undrawn = [
         f"{r['id']} ({r['part']})"
         for r in rep["instances"]
@@ -104,12 +119,10 @@ def test_geometry_less_part_is_drawn_in_the_build(tmp_path, lib):
 
 @needs_kernel
 @pytest.mark.parametrize("path", ASSEMBLIES, ids=lambda p: p.stem)
-def test_visual_build_replays_identically(path, tmp_path, lib):
+def test_visual_build_replays_identically(path, built):
     hashes = []
     for vis in (True, False):
-        out = tmp_path / str(vis)
-        out.mkdir()
-        xml, rep = compute(path, PARTS, out, lib, visual=vis)
+        xml, rep, out = built(path, vis)
         mp = out / "model.xml"  # mesh paths in the MJCF are relative to its directory
         mp.write_text(xml)
         s = napl.Sim.load(mp)
