@@ -121,7 +121,7 @@ class FwMcu:
         assert not status_from_joint, (
             "FwMcu reports its own step counts (an NaplPlant run needs the python twin)"
         )
-        cfg = (C.c_int32 * 20)(*([INT32_MIN] * 20))
+        cfg = (C.c_int32 * 23)(*([INT32_MIN] * 23))  # CFG_COUNT
         cfg[p.CFG_PAN_HOME_OFF] = round(
             home_off_deg[0] * p.CFG_DEFAULTS[p.CFG_PAN_SPR] / 360
         )  # same calibration as the twin's constructor argument

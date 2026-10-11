@@ -64,7 +64,7 @@ HALL_HALF_WIDTH_DEG = 1.0
 FW_RAMP_PER_MS = 4.0  # permille per ms soft start (inrush limit), as the firmware
 DIAG_FAULT_MS = 50
 HOMING_SEARCH_DEG_S = 100.0
-CFG_IMAGE_MAGIC, CFG_IMAGE_VERSION = 0x31434C43, 1
+CFG_IMAGE_MAGIC, CFG_IMAGE_VERSION = 0x31434C43, 2
 FW_REFRESH_S = 0.5
 DEADMAN_LOW_S = 1.0
 AIM_STALE_VFF_S, AIM_STALE_HOLD_S = 0.25, 1.0
@@ -341,10 +341,10 @@ class SimRP2040:
     def _image_crc(self):
         """cfg_crc: CRC-32 of the stored config image (magic "CLC1", version, cfg 1..19 as i32 LE), as the firmware's flash sector."""
         body = struct.pack(
-            "<II19i",
+            "<II22i",
             CFG_IMAGE_MAGIC,
             CFG_IMAGE_VERSION,
-            *(self.flash[k] for k in range(1, 20)),
+            *(self.flash[k] for k in range(1, 23)),
         )
         return zlib.crc32(body) & 0xFFFFFFFF
 
@@ -457,7 +457,7 @@ class SimRP2040:
             return p.INHIBIT
         if not all(a.homed for a in self.ax):
             return p.NOT_HOMED
-        if self.ax[1].pos * 1000 < self.cfg[p.CFG_FIRE_TILT_MIN]:
+        if not self._in_sector():
             return p.RANGE
         if not self._spun():
             return p.NOT_SPUN
@@ -670,9 +670,28 @@ class SimRP2040:
                 self.fw = min(tgt, self.fw + FW_RAMP_PER_MS)
             self.plant.set_flywheel(self.fw)
 
+    def _in_sector(self):
+        """The measured barrel position inside the fire sector (cfg 20, 21 pan; 17, 22 tilt; mdeg): checked at FIRE and every tick until the feed point."""
+        pan, tilt = self.ax[0].pos * 1000, self.ax[1].pos * 1000
+        c = self.cfg
+        return (
+            c[p.CFG_FIRE_PAN_MIN] <= pan <= c[p.CFG_FIRE_PAN_MAX]
+            and c[p.CFG_FIRE_TILT_MIN] <= tilt <= c[p.CFG_FIRE_TILT_MAX]
+        )
+
     def _pusher(self):
         t = self.t
         if self.phase is None:
+            return
+        if self.phase in ("wait", "ext") and not self._in_sector():
+            # the barrel left the sector before the ball was fed: retract, report, ARMED (no flywheel request left)
+            self.pusher_ext, self.balls_left, self.phase = False, 0, None
+            self.fw_req = 0.0
+            self._event(
+                p.EV_SECTOR_ABORT, (self.cur_fire_id << 8) | (self.ball_idx & 0xFF)
+            )
+            if self.state == FIRING:
+                self._to(ARMED, p.R_NONE)
             return
         dwell = self.cfg[p.CFG_PUSHER_DWELL_MS] / 1000.0
         if (

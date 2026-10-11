@@ -192,6 +192,12 @@ static int spun(const fw_t *f) {
     return f->fw_req > 0 && f->fw >= f->fw_req - SPUN_ABS_TOL && MS_SINCE(f, f->fw_req_t) >= (uint32_t)f->cfg[CFG_SPINUP_MS];
 }
 
+/* The measured barrel position inside the fire sector (cfg 20, 21 pan; 17, 22 tilt, mdeg). Checked at FIRE and on every tick of the pusher stroke. */
+static int in_sector(const fw_t *f) {
+    const double pan = f->ax[0].pos * 1000.0, tilt = f->ax[1].pos * 1000.0;
+    return pan >= f->cfg[CFG_FIRE_PAN_MIN] && pan <= f->cfg[CFG_FIRE_PAN_MAX] && tilt >= f->cfg[CFG_FIRE_TILT_MIN] && tilt <= f->cfg[CFG_FIRE_TILT_MAX];
+}
+
 static uint8_t fire_check(const fw_t *f, uint8_t n) {
     if (f->state == ST_FIRING) return RES_BUSY;
     if (f->state != ST_ENGAGING) return RES_BAD_STATE;
@@ -199,7 +205,7 @@ static uint8_t fire_check(const fw_t *f, uint8_t n) {
     if (!rail_on(f)) return RES_INTERLOCK;
     if (!hb_ok(f) || !deadman_ok(f) || inhibit(f)) return RES_INHIBIT;
     if (!f->ax[0].homed || !f->ax[1].homed) return RES_NOT_HOMED;
-    if (f->ax[1].pos * 1000 < f->cfg[CFG_FIRE_TILT_MIN]) return RES_RANGE;
+    if (!in_sector(f)) return RES_RANGE;
     if (!spun(f)) return RES_NOT_SPUN;
     if (f->shots_arm + n > f->shot_cap) return RES_CAP;
     if (f->has_ball && MS_SINCE(f, f->last_ball_ms) < (uint32_t)f->cfg[CFG_MIN_SHOT_INTERVAL_MS]) return RES_CAP;
@@ -464,6 +470,15 @@ static void burst_done(fw_t *f) {
 
 static void pusher(fw_t *f) {
     if (f->phase == 0) return;
+    if ((f->phase == 1 || f->phase == 2) && !in_sector(f)) {  /* the barrel left the fire sector before the ball was fed: retract, report, ARMED */
+        f->pusher_ext = 0;
+        f->balls_left = 0;
+        f->phase = 0;
+        f->fw_req = 0.0;
+        fw_event(f, EV_SECTOR_ABORT, (int32_t)(((uint32_t)f->cur_fire_id << 8) | f->ball_idx));
+        if (f->state == ST_FIRING) to_state(f, ST_ARMED, R_NONE, 0);
+        return;
+    }
     const uint32_t dwell = (uint32_t)f->cfg[CFG_PUSHER_DWELL_MS];
     if (f->phase == 1 && (!f->has_ball || MS_SINCE(f, f->last_ball_ms) >= (uint32_t)f->cfg[CFG_MIN_SHOT_INTERVAL_MS])) {
         f->phase = 2;
