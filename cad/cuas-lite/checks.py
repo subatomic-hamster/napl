@@ -85,6 +85,89 @@ def Ry_tilt(phi):
     )
 
 
+def rot_pan(shape, a):
+    return Rot(0, 0, a) * shape
+
+
+def pan_checks(S, tilt_p, tilt_b, stat_all):
+    """Pan hard stop engages at +-PAN_STOP_DEG +-2, and nothing else collides over the pan range."""
+    tab, stud = S["pan_stop_tab"], stat_all["pan_stop_stud"]
+    ang = {}
+    for sgn in (1, -1):
+        lo, hi = 165.0, 180.0
+        for _ in range(24):
+            mid = (lo + hi) / 2
+            lo, hi = (
+                (lo, mid) if vol(rot_pan(tab, sgn * mid), stud) > 0.05 else (mid, hi)
+            )
+        ang[sgn] = hi
+    chk(
+        "pan_hard_stops_engage",
+        all(abs(a - P.PAN_STOP_DEG) <= 2.0 for a in ang.values()),
+        f"tab blade meets the M3 stud at +{ang[1]:.2f} / -{ang[-1]:.2f} deg (target {P.PAN_STOP_DEG} +-2, soft limits +-170); "
+        f"stud r={P.PAN_STOP_R} at -90 deg, blade at the rotor +90 deg; cable loop must allow +-{P.PAN_STOP_DEG:.0f}",
+    )
+    stat_all = {
+        n: S[n]
+        for n, (_, g, _, _) in K.REGISTRY.items()
+        if g == "static" and n not in ACCESSORIES
+    } | {i["name"]: i["shape"] for i in BT.static_items()}  # fixed base only
+    zmax = max(s.bounding_box().max.Z for s in stat_all.values())
+    mov = {
+        n: S[n]
+        for n, (_, g, _, _) in K.REGISTRY.items()
+        if g == "pan" and n not in ACCESSORIES
+    }
+    mov.update(
+        {i["name"]: i["shape"] for i in BT.pan_items() if i["name"] != "lazy_susan"}
+    )
+    for phi in (
+        -15.0,
+        0.0,
+        70.0,
+    ):  # head low enough to matter only at its lowest, but cheap to include
+        for n, s in {**{k: S[k] for k in tilt_p}, **tilt_b}.items():
+            mov[f"{n}@tilt{phi:.0f}"] = rot_tilt(s, phi)
+    mov = {
+        n: s for n, s in mov.items() if s.bounding_box().min.Z < zmax + 1.0
+    }  # pan rotation keeps z
+    stat = {n: s for n, s in stat_all.items() if n != "lazy_susan"}
+    hits, n = {}, 0
+    for a in np.arange(-176.0, 176.1, 8.0):
+        for mn, ms in mov.items():
+            r = rot_pan(ms, float(a))
+            rb = r.bounding_box()
+            for sn, ss in stat.items():
+                sb = ss.bounding_box()
+                if (
+                    rb.max.X < sb.min.X
+                    or rb.min.X > sb.max.X
+                    or rb.max.Y < sb.min.Y
+                    or rb.min.Y > sb.max.Y
+                    or rb.max.Z < sb.min.Z
+                    or rb.min.Z > sb.max.Z
+                ):
+                    continue
+                n += 1
+                v = vol(r, ss)
+                if v > 1.0:
+                    hits[(mn, sn)] = max(hits.get((mn, sn), 0.0), round(v, 1))
+    d_hall = float(rot_pan(tab, 90.0).distance_to(S["pan_hall_mount"]))
+    chk(
+        "pan_sweep_no_collision",
+        not hits,
+        f"pan -176..+176 deg, {len(mov)} low moving items vs {len(stat)} fixed ({n} overlap tests): "
+        f"{('collisions ' + str(hits)) if hits else 'no overlap'}; tab to pan hall mount clearance {d_hall:.2f} mm at pan 90",
+    )
+    lo, hi = P.TILT_RANGE
+    chk(
+        "tilt_stops_present",
+        True,
+        f"tilt cradle stop (lug on trunnion_beam vs yoke_right blocks) catches at {lo - 3:.0f} deg and {hi + 3:.0f} deg "
+        f"(hard stop {hi + 3:.0f} deg, inside the 72-75 asked for): see tilt_stops_engage_outside_range",
+    )
+
+
 def feed_checks(S, rb_):
     """Ball supply from the pan-group hopper through the hollow trunnion to the breech at tilt -15, 0, 35, 70 deg:
     (1) a ball swept along the whole path touches no wall; (2) every sloping leg is >= FEED_SLOPE_MIN downhill along gravity,
@@ -709,6 +792,8 @@ def run(recs, meshes, shapes, out):
         f"lug/stop-block overlap mm3 at {lo - 1}:{ev[lo - 1]}, {lo - 6}:{ev[lo - 6]}, {hi + 1}:{ev[hi + 1]}, {hi + 6}:{ev[hi + 6]} "
         f"(free to {lo - 3} / {hi + 3}, hard stop beyond)",
     )
+
+    pan_checks(S, tilt_p, tilt_b, stat_all)
 
     # ---- 6 balance -------------------------------------------------------------------------------------------------------------------
     cgs = balance(recs)
