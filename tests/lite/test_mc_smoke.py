@@ -13,8 +13,16 @@ sys.path.insert(0, str(EX))
 mc = pytest.importorskip("mc")
 
 
-def test_mc_smoke_few_seeds(tmp_path):
-    md = tmp_path / "r.md"
+@pytest.fixture(scope="module")
+def root(tmp_path_factory):
+    import scene
+
+    scene.cached_base()  # the turret is composed once (minutes the first time, cached under build/ after); the episodes copy it
+    return tmp_path_factory.mktemp("mc")
+
+
+def test_mc_smoke_few_seeds(root):
+    md = root / "r.md"
     with pytest.raises(SystemExit) as e:
         mc.main(
             [
@@ -30,13 +38,13 @@ def test_mc_smoke_few_seeds(tmp_path):
                 "--workers",
                 "2",
                 "--out",
-                str(tmp_path / "mc"),
+                str(root),
                 "--md",
                 str(md),
             ]
         )
     assert e.value.code == 0, md.read_text() if md.exists() else "no table"
-    res = json.loads((tmp_path / "mc" / "mc.json").read_text())
+    res = json.loads((root / "mc.json").read_text())
     assert [r["cell"] for r in res] == ["balloon/5-10", "quad8/5-10", "person"]
     assert all("error" not in r for r in res), res
     assert sum(r["n_violations"] for r in res) == 0
@@ -49,12 +57,16 @@ def test_mc_smoke_few_seeds(tmp_path):
     )
 
 
-def test_episode_is_deterministic(tmp_path):
+def test_episode_is_deterministic(root):
+    import scene
+
     name, kw, seed = mc.draw("balloon", "5-10", 0)
-    job = lambda d: ("balloon/5-10", name, kw, seed, str(d))
-    for d in ("a", "b"):
-        (tmp_path / d).mkdir()
-    a, b = mc.episode(job(tmp_path / "a")), mc.episode(job(tmp_path / "b"))
+    a, b = (
+        mc.episode(
+            ("balloon/5-10", name, kw, seed, str(root), str(scene.cached_base()))
+        )
+        for _ in range(2)
+    )
     assert "error" not in a, a
     assert a["state_hash"] == b["state_hash"] and a["shot_t"] == b["shot_t"]
 

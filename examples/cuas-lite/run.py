@@ -69,6 +69,8 @@ def run_episode(model, run_dir, sp, seed, early_stop=True, write=True):
     )
     fc = h.app.fc.cfg
     fc.shot_cap, fc.burst, h.app.cfg.wind = sp.shot_cap, sp.burst, sp.wind_est
+    for k, v in sp.fire_cfg.items():
+        setattr(fc, k, v)
     h.hold_deadman = True
     arm_at = float(os.environ.get("CUAS_ARM_AT", sp.arm_at))
     h.script.append((arm_at, lambda s: s.app.post("arm")))
@@ -79,6 +81,7 @@ def run_episode(model, run_dir, sp, seed, early_stop=True, write=True):
         h.world.rows
     )  # the settle steps of Lockstep.__init__ already wrote rows
     seen = dict(person_blocked=0, confirmed=0)
+    why = {}  # control periods (5 ms) spent armed with each fire-control reason (why no ball was fed)
     first_hit = []
 
     def cb(s):
@@ -88,6 +91,9 @@ def run_episode(model, run_dir, sp, seed, early_stop=True, write=True):
         if s.world.k % 4 == 0:
             rows.append(ref.row())
         seen["person_blocked"] += "person" in s.app.dec.reasons
+        if s.app.fc.armed:
+            for r in s.app.dec.reasons:
+                why[r] = why.get(r, 0) + 1
         seen["confirmed"] += any(t.confirmed for t in s.app.tracks)
         if s.hit_log and not first_hit:
             first_hit.append(s.hit_log[0][0])
@@ -118,7 +124,7 @@ def run_episode(model, run_dir, sp, seed, early_stop=True, write=True):
         hits=h.hits, hits_on_targets=hits_on_targets, hit_rate=hits_on_targets / len(shots) if shots else None,
         popped=sorted(h.popped), popped_t={k: round(v, 3) for k, v in h.popped.items()}, n_targets=len(movers),
         violations=ref.violations, n_violations=ref.n_violations, person_raw=ref.person_raw, person_blocked_ticks=seen["person_blocked"],
-        confirmed_ticks=seen["confirmed"], state_hash=nat["state_hash"], app_failed=h.app.failed, mcu=p.STATE_NAMES[tw.state],
+        confirmed_ticks=seen["confirmed"], reasons=dict(sorted(why.items(), key=lambda kv: -kv[1])), miss={str(k): v for k, v in sorted(ref.closest.items())}, state_hash=nat["state_hash"], app_failed=h.app.failed, mcu=p.STATE_NAMES[tw.state],
     )  # fmt: skip
     checks = {}
     if sp.expect.get("shots_before"):

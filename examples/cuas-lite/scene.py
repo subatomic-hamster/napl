@@ -8,15 +8,20 @@ person: kinematic closed-form paths, see sim_io.Mover). Detector classes: balloo
     make("s2_balloon_drift", seed)        # nominal scenario of the table in docs/cuas-lite/spec.md 7.2
     make("mc_quad", seed, R=9.0, speed=5.0, wind=(0.4, -0.2, 0), v0_err=-1.0)    # Monte Carlo single target; keyword overrides below"""
 
+import hashlib
 import math
 import os
+import shutil
+import sys
+import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 from napl.cuas.scene import Environment
 from napl.lite import aim as aimlib
 from napl.lite.fire import Sector
-from napl.lite.sim_io import Balloon, Mover, build_scene
+from napl.lite.sim_io import Balloon, Mover, build_scene, compose_base
 
 SECTOR = Sector(-60, 60, 0, 60)
 G = 9.81
@@ -48,6 +53,9 @@ class Spec:
     shot_cap: int = 5
     burst: int = 1
     fault: str = None  # s7: deadman | detector | estop | key | link
+    fire_cfg: dict = field(
+        default_factory=dict
+    )  # FireCfg overrides (t_fire, t_actuator, aim_tol_deg ...): sensitivity studies
     check_hold: bool = False  # s6: the 1.0 s person hold is asserted
     expect: dict = field(
         default_factory=dict
@@ -140,7 +148,13 @@ def crosser(i, r, speed, z, az_half=35.0, size=0.30, t_start=0.0):
 
 def walker(i, x, y0, y1, speed, t_start, z=0.85):
     return Mover(
-        i, ((x, y0, z), (x, y1, z)), speed, size_m=0.5, kind="person", t_start=t_start
+        i,
+        ((x, y0, z), (x, y1, z)),
+        speed,
+        size_m=0.5,
+        kind="person",
+        t_start=t_start,
+        once=True,
     )
 
 
@@ -292,16 +306,63 @@ SCENARIOS = ["s1_balloon_static", "s2_balloon_drift", "s3_hanging_targets", "s4_
              "s6b_person_beside_balloon"] + [f"s7_fault_{k}" for k in ("deadman", "detector", "estop", "key", "link")]  # fmt: skip
 
 
+def _toml_env():
+    """`napl program` builds the model in the runner process, which does not have the scenario's [program] env: take it from the *.scenario.toml on the command line."""
+    for a in sys.argv:
+        if a.endswith(".scenario.toml") and Path(a).exists():
+            return tomllib.loads(Path(a).read_text()).get("program", {}).get("env", {})
+    return {}
+
+
 def scenario():
-    return os.environ.get("CUAS_SCENARIO", "s1_balloon_static")
+    return os.environ.get("CUAS_SCENARIO") or _toml_env().get(
+        "CUAS_SCENARIO", "s1_balloon_static"
+    )
 
 
 def seed():
-    return int(os.environ.get("CUAS_SEED", 1))
+    return int(os.environ.get("CUAS_SEED") or _toml_env().get("CUAS_SEED", 1))
+
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def cached_base():
+    """The composed turret (sim_io.compose_base; minutes on a busy host), cached under build/cuas-lite-sim-base and rebuilt when the assembly, the parts, the CAD sources or
+    the design code changed (size + mtime of those files). build_scene(..., base=cached_base()) then only edits the XML."""
+    h = hashlib.sha1()
+    for root in (
+        REPO / "assemblies" / "cuas-lite.toml",
+        REPO / "parts",
+        REPO / "cad" / "cuas-lite",
+        REPO / "python" / "napl" / "design",
+    ):
+        for f in sorted([root] if root.is_file() else root.rglob("*")):
+            if f.is_file() and "__pycache__" not in f.parts:
+                st = f.stat()
+                h.update(
+                    f"{f.relative_to(REPO)}|{st.st_size}|{int(st.st_mtime)}\n".encode()
+                )
+    key, d = h.hexdigest(), REPO / "build" / "cuas-lite-sim-base"
+    if not ((d / "stamp").exists() and (d / "stamp").read_text() == key):
+        tmp = d.with_name(
+            d.name + f".tmp{os.getpid()}"
+        )  # same parent: the mesh paths in the MJCF are relative to the directory depth
+        shutil.rmtree(tmp, ignore_errors=True)
+        compose_base(tmp)
+        (tmp / "stamp").write_text(key)
+        shutil.rmtree(d, ignore_errors=True)
+        tmp.rename(d)
+    return d
 
 
 def build(out):
     sp = make(scenario(), seed())
-    return build_scene(out, sp.targets, env=sp.env, seed=seed(), launcher=sp.launcher)[
-        "model"
-    ]
+    return build_scene(
+        out,
+        sp.targets,
+        env=sp.env,
+        seed=seed(),
+        launcher=sp.launcher,
+        base=cached_base(),
+    )["model"]

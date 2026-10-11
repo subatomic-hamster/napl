@@ -117,7 +117,7 @@ class Mover:
     from the closed form below every control period (SetAttr qpos / qvel: logged, replayed, deterministic).
 
     position(t) = route(t) + sum_k amp_k (sin(2 pi t' / T_k + phi_k) - sin phi_k),  t' = max(t - t_start, 0)
-    route = the polyline `route` flown at `speed`, ping-pong at the ends (one point = hover; before t_start it waits at route[0]).
+    route = the polyline `route` flown at `speed`, ping-pong at the ends (or once: `once`; one point = hover; before t_start it waits at route[0]).
     `kind` picks the geometry: balloon (sphere, size_m), quad (flat box size_m x size_m x 0.06), person (capsule 0.5 x 1.7 m, origin at its centre)."""
 
     id: str
@@ -127,6 +127,7 @@ class Mover:
     t_start: float = 0.0
     size_m: float = 0.30
     kind: str = "balloon"  # balloon | quad | person
+    once: bool = False  # fly the route once and stop at its end instead of ping-pong
     cls: str = (
         None  # detector class (balloon -> balloon, quad -> drone, person -> person)
     )
@@ -148,13 +149,14 @@ class Mover:
             seg = np.diff(r, axis=0)
             ln = np.linalg.norm(seg, axis=1)
             tot = ln.sum()
-            m = (self.speed * tt) % (2 * tot)
+            m = self.speed * tt if self.once else (self.speed * tt) % (2 * tot)
             fwd = m <= tot
             d = m if fwd else 2 * tot - m
+            d = min(d, tot)
             i = min(int(np.searchsorted(np.cumsum(ln), d, side="right")), len(ln) - 1)
             u = seg[i] / ln[i]
             pos = r[i] + u * (d - (np.cumsum(ln)[i] - ln[i]))
-            vel = u * self.speed * (1 if fwd else -1)
+            vel = u * self.speed * (1 if fwd else -1) * (not (self.once and m >= tot))
         for a, per, ph in self.waves:
             a, w = np.array(a, float), 2 * math.pi / per
             pos = pos + a * (math.sin(w * tt + ph) - math.sin(ph))
@@ -218,23 +220,58 @@ def _add_mover(wb, t: Mover, r_ball):
         )
 
 
-def build_scene(
-    out, targets=(), mast=1.0, env=None, seed=1, v0=aimlib.V0_NOMINAL, launcher=None
-):
-    """compose() the turret, override the launcher with BALL, add the pendulum / Mover targets. `launcher` overrides launcher config keys
-    (muzzle_velocity, v_std, spread_std, cd ...: the Monte Carlo dispersion). -> manifest dict (model, body_paths ...)."""
-    out = Path(out)
-    scene = compose(
+def compose_base(out, mast=1.0):
+    """The composed turret alone (the slow part of build_scene: tens of seconds), to be reused by build_scene(..., base=out) for many scenes."""
+    return compose(
         out,
         [Vehicle("turret", "cuas-lite", pos=(0.0, 0.0, mast), pedestal=mast)],
-        env or Environment(),
-        seed=seed,
+        Environment(),
     )
+
+
+def build_scene(
+    out,
+    targets=(),
+    mast=1.0,
+    env=None,
+    seed=1,
+    v0=aimlib.V0_NOMINAL,
+    launcher=None,
+    base=None,
+):
+    """compose() the turret, override the launcher with BALL, add the pendulum / Mover targets. `launcher` overrides launcher config keys
+    (muzzle_velocity, v_std, spread_std, cd ...: the Monte Carlo dispersion). `base` = a compose_base() directory: its scene is copied (meshes linked)
+    and given this environment / seed instead of composing again. -> manifest dict (model, body_paths ...)."""
+    out = Path(out)
+    if base is None:
+        scene = compose(
+            out,
+            [Vehicle("turret", "cuas-lite", pos=(0.0, 0.0, mast), pedestal=mast)],
+            env or Environment(),
+            seed=seed,
+        )
+    else:
+        base = Path(base)
+        out.mkdir(parents=True, exist_ok=True)
+        man0 = json.loads((base / "scene.json").read_text())
+        man0.update(model=str(out / "scene.xml"), seed=seed)
+        scene = dict(model=man0["model"], manifest=man0)
     model = Path(scene["model"])
-    root = ET.parse(model).getroot()
+    root = ET.parse(model if base is None else base / "scene.xml").getroot()
+    if (
+        base is not None
+    ):  # mesh paths are relative to the scene directory: make them absolute
+        for m in root.iter("mesh"):
+            m.set("file", str((base / m.get("file")).resolve()))
     txt = root.find("custom/text[@name='napl.devices']")
     devs = json.loads(txt.get("data"))
     man = scene["manifest"]
+    if base is not None:  # what compose() puts in from env / seed
+        e = env or Environment()
+        devs["environments"][0].update(
+            wind=list(e.wind), w20=e.w20, seed=e.seed, origin_alt=e.origin_alt
+        )
+        devs["seed"] = seed
     for g in devs["launchers"]:
         g.update(dict(muzzle_velocity=v0, v_std=aimlib.V0_SIGMA, spread_std=aimlib.SPREAD_SIGMA, pellet_mass=aimlib.BALL["m"], diameter=aimlib.BALL["d"],
                       cd=aimlib.BALL["cd"], max_time=3.0), **(launcher or {}))  # fmt: skip

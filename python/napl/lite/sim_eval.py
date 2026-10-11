@@ -78,9 +78,11 @@ class Referee:
             deadman=0,
             detector_stale=0,
             after_cut=0,
+            hit_person=0,
         )
         self.person_raw = 0
         self.pan_tilt_at_shot = []
+        self.closest = {}  # kernel round no -> dict(d, vec (ball - target, m, B frame), id, t, tvel) at the ball's closest approach (a hit ends it at ~radius + 0.011)
 
     # ---- truth ---------------------------------------------------------------------------------------------------------------------
     def person_in_image(self):
@@ -121,6 +123,19 @@ class Referee:
             v["after_cut"] += any(t0 + lat < t < t1 for t0, t1, lat, _ in self.windows)
         self.n_seen = len(twin.shots)
         v["over_cap"] = max(v["over_cap"], twin.shots_arm - self.cap)
+        v["hit_person"] = sum(
+            n for i, n in h.hits.items() if h.targets[i].klass == "person"
+        )  # a ball that struck a person capsule
+        if h.world.prev_pellets:  # closest approach of every ball in flight to every non-person target (miss diagnostics)
+            tg = [t for t in h._truth(now)["targets"] if t["cls"] != "person"]
+            for rnd, pos in h.world.prev_pellets.items():
+                for t in tg:
+                    vec = pos - h.base - t["pos"]
+                    d = float(np.linalg.norm(vec))
+                    if d < self.closest.get(rnd, dict(d=math.inf))["d"]:
+                        tr = h.targets[t["id"]]
+                        tvel = tr.pv(now)[1] if hasattr(tr, "pv") else None
+                        self.closest[rnd] = dict(d=round(d, 3), vec=[round(float(x), 3) for x in vec], id=t["id"], t=round(now, 3), tvel=None if tvel is None else [round(float(x), 3) for x in tvel])  # fmt: skip
         self.prev_cut = cut
         return False
 
@@ -135,7 +150,7 @@ class Referee:
     def row(self):
         """Cumulative trace columns (one per safety monitor)."""
         v = self.violations
-        return dict(shots=len(self.h.twin.shots), violations=self.n_violations, viol_person=v["person"] + v["hold"], viol_cut=v["after_cut"] + v["estop_key"] + v["watchdog"],
+        return dict(shots=len(self.h.twin.shots), violations=self.n_violations, viol_person=v["person"] + v["hold"] + v["hit_person"], viol_cut=v["after_cut"] + v["estop_key"] + v["watchdog"],
                     person_visible=int(self.vis), popped=len(self.h.popped))  # fmt: skip
 
 
