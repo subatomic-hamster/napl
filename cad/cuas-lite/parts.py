@@ -352,7 +352,9 @@ def pan_motor_mount():
 def pan_hall_mount():
     """Holds the pan hall sensor 3 mm under the rotor-plate magnet; bolted on the stator plate at (-80, 0)."""
     zs = P.Z_ROTOR0 - 3.0
-    p = bxr(-86, -74, -12, 12, 0, 4).fuse(bxr(-85, -75, -5, 5, 0, zs))
+    p = bxr(-86, -74, -12, 12, 0, 4).fuse(
+        bxr(-85.5, -76.6, -5, 5, 0, zs)
+    )  # column stops 0.4 mm short of the 6 in lazy-susan plate edge (x = -76.2)
     tools = [hole("z", P.M3_CLR, -80, sy, -EPS, 4 + EPS) for sy in (-8, 8)]
     tools += [
         bxr(-82.3, -77.7, -1.7, 1.7, zs - 2.6, zs + EPS),
@@ -369,7 +371,9 @@ def front_panel():
     for ya, yb in ((30, 50), (-50, -30)):
         p = p.fuse(bxr(92, x1, ya, yb, zt - 4, zt))
     tools = [
-        hole("x", 22.3, -28, -43, x0 - EPS, x1 + EPS),
+        hole(
+            "x", 22.3, -44, -43, x0 - EPS, x1 + EPS
+        ),  # E-stop out at y=-44: its 35 mm contact block clears the pan motor (|y| < 21)
         hole("x", 19.2, 28, -43, x0 - EPS, x1 + EPS),
         hole("x", 5.2, -6, -68, x0 - EPS, x1 + EPS),
         hole("x", 5.2, 6, -68, x0 - EPS, x1 + EPS),
@@ -670,10 +674,19 @@ def launcher_chassis():
             for sx in (-23.5, 23.5)
             for sz in (-5.5, 5.5)
         ]
-        tools.append(hole("z", dm, 0, yc, zb - 1.0, P.CAGE_Z1 + EPS))  # motor pocket
+        tools.append(  # motor pocket: flat-sided can, 20 (x) x 15.3 (y) + slip
+            bxr(
+                -dm / 2,
+                dm / 2,
+                yc - P.M180_FLAT / 2 - 0.3,
+                yc + P.M180_FLAT / 2 + 0.3,
+                zb - 1.0,
+                P.CAGE_Z1 + EPS,
+            )
+        )
         for z in (11.0, 21.0):  # radial clamp screws from the outer face
             ya, yb = srt(
-                yc + s * (dm / 2 - 2.0), s * (YO + EPS)
+                yc + s * (P.M180_FLAT / 2 - 1.7), s * (YO + EPS)
             )  # starts inside the pocket (no tangent faces)
             tools.append(hole("y", P.M3_CLR, 0, z, ya, yb))
             ya, yb = srt(s * (YO - 6.0), s * (YO + EPS))
@@ -728,6 +741,17 @@ def trunnion_beam():
             "y", P.JOUR_ID, P.X_A, P.Z_A, yr - EPS, rj
         ),  # axial ball bore, runs on past C so the ball can sit at the turn
         seg(CHUTE_C, CHUTE_F, P.CHUTE_R),
+        *[  # 32 mm flywheel motor cans stand up into the foot and the tube underside
+            bxr(  # flat-sided can: 20 (x) x 15.3 (y) envelope + slip each side
+                -P.M180_D / 2 - 0.3,
+                P.M180_D / 2 + 0.3,
+                s * (P.FW_GAP / 2 + P.WHEEL_D / 2) - P.M180_FLAT / 2 - 0.3,
+                s * (P.FW_GAP / 2 + P.WHEEL_D / 2) + P.M180_FLAT / 2 + 0.3,
+                P.CAGE_Z1 - EPS,
+                4.5 + P.M180_LEN + 0.2,
+            )
+            for s in (-1, 1)
+        ],
         hole("y", 8.2, P.X_A, P.Z_A, YO - 11.0, yl + EPS),  # left rod seat
         hole(
             "x", P.M3_CLR, YO + P.BOSS_L / 2, P.Z_A, P.X_A, P.X_A + 20

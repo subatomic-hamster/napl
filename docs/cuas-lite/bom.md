@@ -67,16 +67,15 @@ measure the bolt-hole radius on the delivered bearing and set `LS_BOLT_R` in `ca
 
 ## CAD mismatches found while building the assembly (for the CAD worker)
 
-These four envelope clashes are the only DRC findings left; they are waived in `assemblies/cuas-lite.toml` by `waived--*` closure mates (through `clash_*` ports on the beam, E-stop and hall mount) and are real:
+All four envelope clashes found by the first DRC pass are FIXED in the CAD (p7-lite-cad) and their `waived--*` mates / `clash_*` ports are deleted; the DRC is clean (0 errors) without them:
 
-1. **Trunnion beam against the flywheel motors:** the CAD models the 180 motor 25 mm long, the listing says 32 mm (can 32 mm, 20 x 15.3 mm), so the can runs 1.7 mm (-y) and 4.0 mm (+y) into the beam.
-2. **E-stop against the pan NEMA 17:** the 35 mm contact block (estimated) behind the front-panel hole at y = -28 mm reaches 3.6 mm into the motor body (half-width 21 mm at x 40-81 mm).
-   Move the E-stop and key holes outward (or shorten the block).
-3. **Lazy susan against the pan hall mount:** the 6 in plate edge (x = -76.2 mm) against the sensor pocket (x -85..-75 mm, z up to 24 mm), 1.2 mm.
+1. **Trunnion beam against the flywheel motors:** CAD can length is now 32 mm (flat-sided 20 x 15.3 mm envelope); the beam carries rectangular pockets for the cans, and the beam foot is 1 mm thicker (tilt axis Z_A 52.5 mm above the launcher axis), so every head-frame z of the launcher group moved down 1 mm (chassis seat ports, bboxes updated).
+2. **E-stop against the pan NEMA 17:** E-stop hole moved to y = -44 mm (key stays at y = +28 mm); the 35 mm contact block (estimated) is clear of the 40 mm motor.
+3. **Lazy susan against the pan hall mount:** the mount column stops at x = -76.6 mm (plate edge x = -76.2 mm, 0.4 mm clear); the sensor pocket is unchanged.
 4. The relay was moved (x 78, y -27 mm, turned 90 deg) so that it is clear of the tray rim; no CAD change needed.
 
-Other mismatches (no DRC finding): Jetson devkit 103 x 90.5 x 34.8 mm against the CAD block 100 x 79 x 21 mm; 17HS4401S body 40 mm (listing 40) against CAD 38 mm; lazy-susan mass 218 g against 330 g and its
-opening 117.5 mm against the CAD aperture 92 mm; the hall magnet pocket size is unknown; the key and E-stop hole diameters are catalogue values; the CAD pulley hub z.
+Envelope updates now in the CAD: Jetson devkit 103 x 90.5 x 34.8 mm; 17HS4401S body 40 mm; lazy susan 218 g with the 117.5 mm opening. Still open: the hall magnet pocket size is unknown; the key and E-stop hole diameters
+are catalogue values; the CAD pulley hub z; `LS_BOLT_R` (estimate, measure on the delivered bearing).
 
 ## Not in the totals
 
