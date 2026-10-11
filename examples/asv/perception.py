@@ -183,6 +183,9 @@ class Tracker:
             ):  # first lidar sight of an AIS contact: take the lidar position (our frame), keep the AIS velocity
                 tr.x[:2] = c["c"]
                 tr.P[:2, :2] = np.eye(2) * sig**2
+                tr.P[:2, 2:] = tr.P[2:, :2] = (
+                    0.0  # the position is no longer correlated with the velocity: a stale cross term made the next scan's correction fling the velocity to 28 m/s
+                )
             else:
                 self._correct(tr, H, c["c"], np.eye(2) * sig**2)
             tr.hits += 1

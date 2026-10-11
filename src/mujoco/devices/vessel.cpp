@@ -33,6 +33,38 @@ void sea_current(const Devices& dv, double out[3]) {
   for (int k = 0; k < 3; ++k) out[k] = dv.sea.st.empty() || k == 2 ? 0.0 : dv.sea.st[0].current[k];
 }
 
+std::vector<float> sea_surface_mesh(const Devices& dv, const std::vector<double>& xs, const std::vector<double>& ys) {
+  std::vector<float> out;
+  if (dv.sea.cfg.empty() || xs.size() < 2 || ys.size() < 2) return out;
+  const SeaCfg& c = dv.sea.cfg[0];
+  const SeaState& s = dv.sea.st[0];
+  const std::size_t nx = xs.size(), ny = ys.size();
+  struct Node { float p[3], n[3]; };
+  std::vector<Node> g(nx * ny);
+  for (std::size_t j = 0; j < ny; ++j)
+    for (std::size_t i = 0; i < nx; ++i) {
+      double e = 0, ex = 0, ey = 0;  // elevation and its slopes: d/dx cos(phase) = -k cos(th) sin(phase)
+      for (const WaveCfg& w : c.waves) {
+        const double ph = w.k * (xs[i] * std::cos(w.th) + ys[j] * std::sin(w.th)) - w.w * s.time + w.phi;
+        e += w.a * std::cos(ph);
+        const double ds = -w.a * w.k * std::sin(ph);
+        ex += ds * std::cos(w.th), ey += ds * std::sin(w.th);
+      }
+      ex *= s.wave_scale, ey *= s.wave_scale;
+      const double inv = 1.0 / std::sqrt(1.0 + ex * ex + ey * ey);
+      g[j * nx + i] = {{static_cast<float>(xs[i]), static_cast<float>(ys[j]), static_cast<float>(c.level + s.wave_scale * e)},
+                       {static_cast<float>(-ex * inv), static_cast<float>(-ey * inv), static_cast<float>(inv)}};
+    }
+  out.reserve((nx - 1) * (ny - 1) * 36);
+  auto put = [&](const Node& n) { out.insert(out.end(), {n.p[0], n.p[1], n.p[2], n.n[0], n.n[1], n.n[2]}); };
+  for (std::size_t j = 0; j + 1 < ny; ++j)
+    for (std::size_t i = 0; i + 1 < nx; ++i) {
+      const Node &a = g[j * nx + i], &b = g[j * nx + i + 1], &cc = g[(j + 1) * nx + i + 1], &d = g[(j + 1) * nx + i];
+      put(a), put(b), put(cc), put(a), put(cc), put(d);  // counter-clockwise seen from above
+    }
+  return out;
+}
+
 namespace {
 // Solve S y = b for a 6 x 6 system, Gaussian elimination with partial pivoting (ties keep the lowest row): deterministic.
 void solve6(double S[6][6], double b[6]) {
@@ -109,6 +141,20 @@ void step_vessels(const mjModel* m, mjData* d, Devices& dv) {
       const double nu[6] = {vb[0], vb[1], vb[2], wb[0], wb[1], wb[2]};
       double tau[6];
       for (int i = 0; i < 6; ++i) tau[i] = -fw * (c.dl[i] * nu[i] + c.dq[i] * std::abs(nu[i]) * nu[i]);
+      // Heading frame (schema Vessel.heading_frame): surge / sway / heave damping and added mass about the yaw-only axes (x along the body
+      // x axis projected on the horizontal, z up). A body-frame heave force of a pitched hull has a horizontal part that, with the pitch
+      // and heave of a hull riding waves in phase, averages to a net surge force.
+      const double hn = std::hypot(R[0], R[3]);
+      const bool hf = c.heading_frame && hn > 1e-3;
+      const double Rh[9] = {R[0] / hn, -R[3] / hn, 0, R[3] / hn, R[0] / hn, 0, 0, 0, 1};  // columns: heading, left, up
+      double tauh[3] = {0, 0, 0};
+      if (hf) {
+        const double nh[3] = {Rh[0] * vr[0] + Rh[3] * vr[1], Rh[1] * vr[0] + Rh[4] * vr[1], vr[2]};  // Rh^T v_r
+        for (int i = 0; i < 3; ++i) {
+          tauh[i] = -fw * (c.dl[i] * nh[i] + c.dq[i] * std::abs(nh[i]) * nh[i]);
+          tau[i] = 0;
+        }
+      }
       if (c.has_a) {  // Munk terms of the 3-DOF Coriolis matrix of the added mass: [a_v v r, -a_u u r, (a_u - a_v) u v]
         tau[0] += fw * c.a[1] * nu[1] * nu[5];
         tau[1] += -fw * c.a[0] * nu[0] * nu[5];
@@ -118,6 +164,7 @@ void step_vessels(const mjModel* m, mjData* d, Devices& dv) {
       for (int i = 0; i < 3; ++i) {
         fh[i] = R[3 * i] * tau[0] + R[3 * i + 1] * tau[1] + R[3 * i + 2] * tau[2];  // R tau
         th[i] = R[3 * i] * tau[3] + R[3 * i + 1] * tau[4] + R[3 * i + 2] * tau[5];
+        if (hf) fh[i] += Rh[3 * i] * tauh[0] + Rh[3 * i + 1] * tauh[1] + Rh[3 * i + 2] * tauh[2];
       }
       for (const FinCfg& f : c.fins) {  // skegs: sideways lift + cross-flow drag at the fin centre (schema Vessel.fins)
         double pf[3], r[3], vf[3];
@@ -165,7 +212,7 @@ void step_vessels(const mjModel* m, mjData* d, Devices& dv) {
           }
         }
         double A[6][6] = {}, At[3][3], Ar[3][3];
-        rot_diag(R, c.a, At);
+        rot_diag(hf ? Rh : R, c.a, At);
         rot_diag(R, c.a + 3, Ar);
         for (int i = 0; i < 3; ++i)
           for (int j = 0; j < 3; ++j) A[i][j] = fw * At[i][j], A[3 + i][3 + j] = fw * Ar[i][j];

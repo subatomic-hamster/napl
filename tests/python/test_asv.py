@@ -3,7 +3,9 @@ controller, the GNSS + IMU estimator on synthetic data, the lidar scan conventio
 clean, build, load), and the five scenarios through `napl program` (monitors pass, the replay log reproduces the state hash)."""
 
 import math
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +13,10 @@ import pytest
 from napl import design
 from napl.design import Design
 
+# Every ASV build routes the same ~40 wires (about 4 min of A* each time, cold); wireroute caches routes on disk when this is set, so only the first run on a machine pays
+os.environ.setdefault(
+    "NAPL_ROUTE_CACHE", str(Path(tempfile.gettempdir()) / "napl-route-cache-asv")
+)
 REPO = Path(__file__).resolve().parents[2]
 EX = REPO / "examples"
 sys.path.insert(0, str(EX))
@@ -552,14 +558,159 @@ def test_asv_assembly_builds_with_bidirectional_escs_and_the_sensor_suite(tmp_pa
 
 
 # ------------------------------------------------------------------------------------------------------------------------------------ scenarios
+# A whole scenario takes 1.5 - 7 minutes of wall time (the four-vessel multi_traffic the longest): the full run (all monitors, replay) is tested for head_on, the others
+# run 45 s of their scenario (`t_stop`: through the approach, before the mission ends) and are judged on the monitors that do not need the whole mission, plus the
+# replay hash. The full runs of every scenario are `napl program` and mc.py (examples/asv/README.md; the Monte Carlo covers all six).
+FULL_SCENARIO = "head_on"
+PARTIAL_MONITORS = {
+    "no_collision",
+    "estimate_position",
+    "estimate_heading",
+    "clear_of_fixed_objects",
+}
+
+
 @pytest.mark.parametrize("kind", enc.KINDS)
-def test_scenario_passes_its_monitors_and_replays(kind, tmp_path):
+def test_scenario_passes_its_monitors_and_replays(kind, tmp_path, monkeypatch):
+    import json
+
     from napl import program
 
+    full = kind == FULL_SCENARIO
+    if not full:
+        monkeypatch.setenv("NAPL_PARAMS", json.dumps({"t_stop": 45.0}))
     res, run_dir = program.run(
         EX / "asv" / f"asv-{kind.replace('_', '-')}.scenario.toml", tmp_path / "run"
     )
-    bad = [m["name"] for m in res["monitors"] if not m["pass"]]
+    bad = [
+        m["name"]
+        for m in res["monitors"]
+        if not m["pass"] and (full or m["name"] in PARTIAL_MONITORS)
+    ]
     assert not bad, bad
     assert res["replay"]["available"] and res["replay"]["match"], res["replay"]
     assert any(Path(run_dir).rglob("telemetry.jsonl"))
+
+
+# ------------------------------------------------------------------------------------------------------------------ ASV2: multi-vessel, planner lines, drift
+def test_multi_traffic_has_three_vessels_with_mixed_roles_on_collision_courses():
+    for seed in range(1, 6):
+        s = enc.make("multi_traffic", seed=seed, hs=0.4, jitter=1.0)
+        assert [t.kind for t in s.traffic] == [
+            "crossing_give_way",
+            "head_on",
+            "crossing_stand_on",
+        ]
+        for t in s.traffic:
+            v = t.speed * np.array([math.cos(t.psi), math.sin(t.psi)])
+            cpa, _ = cr.cpa_tcpa((0, 0), (enc.ASV_SPEED, 0), t.pos, v)
+            assert cpa <= 6.0, (seed, t.name, cpa)
+
+
+def test_verdict_all_judges_the_stand_on_vessel_only_where_the_asv_is_not_giving_way():
+    t, own, psi, spd, tgt, tv = tracks(tgt_y=8.0)
+    near = np.hypot(*(tgt - own).T) < 60.0
+    turn = np.where(near, math.radians(25.0), 0.0)  # 25 degrees to port near both
+    v = judge.verdict_all(
+        ["head_on", "crossing_stand_on"],
+        t,
+        own,
+        turn,
+        spd,
+        [tgt, tgt],
+        [tv, tv],
+        0.0,
+        1.5,
+    )
+    assert not v["vessels"][0]["side_ok"]  # a port turn while giving way
+    assert v["vessels"][1][
+        "side_ok"
+    ]  # excluded: the ASV was acting for the head-on vessel
+    assert not v["side_ok"] and not v["colreg_ok"]
+    v = judge.verdict_all(
+        ["head_on", "crossing_stand_on"],
+        t,
+        own,
+        psi,
+        spd,
+        [tgt, tgt],
+        [tv, tv],
+        0.0,
+        1.5,
+    )
+    assert v["colreg_ok"] and v["cpa_m"] == pytest.approx(8.0, abs=0.3)
+
+
+def test_route_steers_at_the_end_waypoint_when_the_look_ahead_would_overshoot_it():
+    r = Route([(0, 0), (100, 0)], speed=1.5)
+    st = r.update((92.0, 12.0))  # 8 m short of the end, 12 m off the leg
+    assert st["psi"] == pytest.approx(math.atan2(-12.0, 8.0), abs=1e-6)
+    far = Route([(0, 0), (100, 0)], speed=1.5).update((20.0, 12.0))
+    assert far["psi"] == pytest.approx(
+        0.0 - math.atan2(12.0, max(Gains().lookahead, Gains().lookahead_k * 12.0))
+    )
+
+
+def test_planner_follows_a_parallel_line_around_a_slow_vessel_and_steer_returns_its_course():
+    from asv.planner import steer
+
+    p = plan_for((45, 0.5), (0.7, 0.0))  # overtaking a slow vessel dead ahead
+    assert p.rule == "overtaking"
+    rt = route_state()
+    c = steer(p, rt, np.array([0.0, 0.0]))
+    assert c < rt["psi"] or p.hold <= 0  # to starboard of the leg course
+    assert steer(None, rt, np.array([0.0, 0.0])) == rt["psi"]
+    assert p.traj[:, 1].min() > -40.0  # the detour stays bounded
+
+
+def test_asv_assemblies_use_the_heading_frame_damping(tmp_path):
+    import json
+
+    design.build(REPO / "assemblies" / "asv.toml", PARTS, tmp_path)
+    xml = next(tmp_path.rglob("*.xml")).read_text()
+    devs = json.loads(
+        xml.split("napl.devices")[1].split("data='", 1)[1].split("'/>", 1)[0]
+    )
+    assert devs["vessels"][0]["heading_frame"] is True
+
+
+def _passive_drift(tmp_path, heading_frame, hs=0.5, seed=1, t_end=70.0):
+    """Mean horizontal drift speed (m/s) of the unpowered ASV hull in waves between 20 s and t_end (no current)."""
+    import json
+    import xml.etree.ElementTree as ET
+
+    import napl
+    from asv.scene import build_spec
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    spec = enc.make("transit", seed=seed, hs=hs, jitter=0.0)
+    m = build_spec(tmp_path, spec, seed=seed)
+    tree = ET.parse(m)
+    txt = tree.getroot().find("custom/text")
+    dd = json.loads(txt.get("data"))
+    for v in dd["vessels"]:
+        v["heading_frame"] = heading_frame
+    dd[
+        "rangefinders"
+    ] = []  # the 1600-ray lidar is most of the cost of a run and not needed here
+    txt.set("data", json.dumps(dd))
+    tree.write(m)
+    sim = napl.Sim.load(str(m))
+    p0 = None
+    while sim.tick * 0.002 < t_end:
+        sim.step(50)
+        t, pos = sim.tick * 0.002, np.array(sim.query("/world/asv_hull", "pos")[0][:2])
+        if t > 20.0 and p0 is None:
+            p0 = (t, pos)
+        last = (t, pos)
+    return float(np.hypot(*(last[1] - p0[1])) / (last[0] - p0[0]))
+
+
+def test_passive_asv_hull_in_waves_drifts_only_with_body_frame_heave_damping(tmp_path):
+    old = _passive_drift(tmp_path / "a", False)
+    new = _passive_drift(tmp_path / "b", True)
+    assert new < 0.02, (old, new)  # the wave drift of a real hull is a few cm/s at most
+    assert old > 0.3, (
+        old,
+        new,
+    )  # the body-frame damping propels the hull (measured 0.55 - 0.88 m/s at Hs 0.3 - 0.8 m, the heading frame 0.00 - 0.002)

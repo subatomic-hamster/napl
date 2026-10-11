@@ -22,7 +22,7 @@ from . import encounters as enc
 
 REPO = Path(__file__).resolve().parents[2]
 SEABED = -3.0
-WATER_RGBA = "0.10 0.30 0.45 0.55"
+WATER_RGBA = "0.02 0.15 0.22 1"  # deep-water colour of the sea surface (the renderer draws the plane named "water" as the Sea's wave mesh)
 
 
 def _fmt(v):

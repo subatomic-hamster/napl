@@ -5,13 +5,16 @@ RPLIDAR S2 lidar, SiK telemetry radio) built from catalogue parts through `napl.
 It navigates from GNSS + IMU + compass only, sees other vessels through its lidar and (simulated) AIS only, and avoids them under COLREG Rules 13-17.
 
 ```
-tools/remote.sh run '.venv/bin/napl program examples/asv/asv-head-on.scenario.toml --runs-dir build/runs'     # one scenario (the other four: see below)
-tools/remote.sh run '.venv/bin/python examples/asv/mc.py --seeds 30 --workers 5 --out build/asv-mc.json'       # Monte Carlo, 30 geometries per scenario
+tools/remote.sh run '.venv/bin/napl program examples/asv/asv-head-on.scenario.toml --runs-dir build/runs'     # one scenario (the other five: see below)
+tools/remote.sh bg mc '.venv/bin/python examples/asv/mc.py --seeds 40 --seed-base 20000 --workers 5 --out build/asv-mc.json'   # Monte Carlo, 40 geometries per scenario
+tools/remote.sh bg ncmc '.venv/bin/python examples/asv/mc.py --noncomplying --kinds crossing_stand_on --seeds 40 --seed-base 20000 --workers 5'   # Rule 17(a)(ii)
 tools/remote.sh run '.venv/bin/python -m pytest tests/python/test_asv.py -q'                                  # the tests
 ```
 
-Everything runs on the build host (hfbox); a scenario takes about 2 minutes of wall time for 2 minutes of simulated time (5 vessels' worth of physics, 125 Hz IMU, a
-10 Hz 1600-ray lidar scan and a 2 Hz planner).
+Everything runs on the build host (hfbox); a full scenario takes 1.5 - 3 minutes of wall time for 2 minutes of simulated time (up to 4 vessels' worth of physics, 125 Hz IMU, a
+10 Hz 1600-ray lidar scan and a 2 Hz planner), the three-traffic one longer. The first build of the ASV assembly routes its cosmetic wire tubes (about 4 minutes of A*
+on one core); the routed paths are cached on disk (`$TMPDIR/napl-wire-cache`, `NAPL_WIRE_CACHE=off` disables it), so later builds and every Monte Carlo worker take under a second.
+`mc.py --fast` runs the same planner / tracker / judge in the synthetic plant of `fastsim.py` (seconds per run, TUNING ONLY: nothing in the results below comes from it).
 
 ## What is here
 
@@ -25,8 +28,8 @@ Everything runs on the build host (hfbox); a scenario takes about 2 minutes of w
 | `colreg.py`, `planner.py` | Rule 13-17 situation classification; sampled-manoeuvre planner with COLREG costs on the tracks and the static lidar points |
 | `traffic.py` | the scripted traffic vessels (keep course, give way, turn to starboard), same autopilot as the ASV, steering on the true state |
 | `judge.py`, `run.py` | judgement from TRUE tracks (collision, closest approach, passing side, manoeuvre per Rule); the program that owns the Sim and writes the artefacts |
-| `asv-*.scenario.toml` | `napl program` scenarios: `patrol`, `head-on`, `crossing-give-way`, `crossing-stand-on`, `overtaking` |
-| `mc.py`, `render_frames.py` | Monte Carlo over seeded geometries and sea states; PNG frames of a finished run (GPU) |
+| `asv-*.scenario.toml` | `napl program` scenarios: `patrol`, `head-on`, `crossing-give-way`, `crossing-stand-on`, `overtaking`, `multi-traffic` (three vessels, mixed roles) |
+| `mc.py`, `fastsim.py`, `render_frames.py` | Monte Carlo over seeded geometries and sea states (Wilson intervals); the fast synthetic-plant harness the planner was tuned in; PNG frames of a finished run (GPU) |
 
 The planner and every estimator read only sensor devices (`/devices/asv_imu`, `asv_mag`, `asv_gnss`, `asv_lidar`) and the AIS channel; the true state is read only to
 write the trace, the telemetry `pose`/`truth` fields and the judgement, and to steer the *traffic* vessels (they are the scenario's script, not the system under test).
@@ -90,16 +93,22 @@ table (quasi-steady lift `cl_alpha |u| w` plus cross-flow drag `cd |w| w`, with 
   shoreline and stay a static point set (the planner's obstacles); the rest feed a GNN constant-velocity Kalman tracker (gate 4 m, confirm after 4 hits, drop after 4 s).
   AIS reports (Class A: 10 s, or 3.3 s while turning; 1 s latency; 2 % loss; fed by the *traffic vessel's own* noisy GNSS) are fused into the same tracks; an AIS contact
   the lidar has not seen yet sits in AIS's frame (our GNSS error plus the other's), so it is matched with a wide gate and snapped to the lidar position at the first return.
-  A contact is "moving" above 0.35 m/s. The planner never sees a ground-truth position of a vessel or an obstacle.
+  A contact is "moving" above 0.35 m/s. The planner never sees a ground-truth position of a vessel or an obstacle. Returns of small fixed objects within 8 m are remembered for 1 s (`run.py`, `STATIC_MEM_*`; see the honesty notes).
 - **COLREG** (`colreg.py`, `planner.py`): contacts with risk of collision (closest point of approach below 20 m within 60 s, at most 250 m) are classified once their track is
   4 s old and the situation keeps that class until finally past and clear (Rule 13(d)). Roles: head-on, crossing with the contact on the starboard side, overtaking: **give way**
   (early, substantial action to starboard, no turn to port; head-on passes port-to-port; a crossing avoids passing ahead of the other vessel); crossing with the contact on the port
-  side and being overtaken: **stand on** (keep course and speed, costs 40 per unit of deviation) until the contact's closest point stays under 7 m with 8 s to go (Rule 17(a)(ii)),
-  and then act without turning to port for a vessel on the port side (17(c)); within 4 s the stand-on vessel must act (17(b), `emergency` in the telemetry).
-  The planner rolls out 4 speed fractions x 15 course offsets (7-80 degrees each way, relative to the leg direction) x 3 hold times over 60 s with a kinematic boat model and scores
-  progress along the leg, clearance to static points (6 m wanted), the closest point of approach to each track (12 m wanted, 9 m when overtaking), the Rule costs and a
-  commitment margin. It re-plans at 2 Hz.
-  The thresholds (the 15 degree head-on cone, 12 m, 7 m / 8 s, ...) are tuning choices; the Rules give none. They are listed in the file headers and `judge.py`.
+  side and being overtaken: **stand on** (keep course and speed, costs 40 per unit of deviation) until the contact's closest point stays under 7 m with 13 s to go (Rule 17(a)(ii)),
+  and then act without turning to port for a vessel on the port side (17(c)); within 6.5 s the stand-on vessel must act (17(b), `emergency` in the telemetry).
+  The planner rolls out, over 75 s with a kinematic boat model, 4 speed fractions x two families of manoeuvres: **15 course offsets** (7-80 degrees each way, relative to the leg direction) held
+  for 8 / 16 / 28 s, and **9 parallel lines** (4 m to port ... 24 m to starboard of the leg) followed for 20 / 40 / 75 s (a pass of a slow vessel takes longer than any heading hold, and a heading held long enough
+  to clear it ends tens of metres off the route; a parallel line costs exactly its offset), each followed by the return to the leg. It scores progress along the leg, the widest excursion
+  from the leg, clearance to static points (6 m wanted), the closest point of approach to each track (12 m wanted, 9 m when overtaking; a closest point more than 35 s away counts less,
+  down to a quarter at 65 s: the constant-velocity prediction of a vessel that will still act), the Rule costs and a commitment margin (kept only while a fixed object is near or a
+  contact is still to be passed). It re-plans at 2 Hz. Details that came out of the Monte Carlo and matter for the Rules: the situation is judged on the mission course while no manoeuvre is
+  in force (a boat still settling on its heading would otherwise hide a collision course); a give-way duty is never shed by a re-read of the class (a head-on vessel that has turned to starboard is on our port bow, i.e.
+  "crossing", but the situation stays head-on until we are past); the stand-on vessel acts under 17(a)(ii) only once the trigger (the other vessel's closest point under 7 m with 13 s to go) has held for 1 s, and then
+  for 6 s.
+  The thresholds (the 15 degree head-on cone, 12 m, 7 m / 13 s, ...) are tuning choices; the Rules give none. They are listed in the file headers and `judge.py`.
 
 COLREG text the code follows (International Regulations for Preventing Collisions at Sea 1972; as reproduced at https://ialacolreg.com/en/colreg/rule-13 ... rule-17, which cite the U.S. Coast Guard
 International Navigation Rules): Rule 13(a) "any vessel overtaking any other shall keep out of the way of the vessel being overtaken", 13(b) overtaking = approaching from more than 22.5 degrees abaft the
@@ -122,37 +131,63 @@ and the same telemetry channels. The ASV starts at the origin heading East; the 
 | `asv-crossing-give-way` | Rule 15/16: traffic from the starboard side, keeps course and speed | >= 5 m, passes astern of it, no turn to port, mission complete |
 | `asv-crossing-stand-on` | Rule 15/17: traffic from the port side, turns 45 degrees to starboard at 50 m | >= 5 m, heading within 15 degrees of the route and at least 70 % of the speed it made before (5 s smoothed) while it gives way |
 | `asv-overtaking` | Rule 13: slower traffic (0.6-0.9 m/s) on the route, keeps course | >= 5 m, ASV ahead of it at the end, mission complete |
+| `asv-multi-traffic` | three vessels one after the other, action windows overlapping: crossing from port (gives way: the ASV stands on), crossing from starboard (keeps course: the ASV gives way and passes astern), reciprocal course (turns to starboard: the ASV turns to starboard, port-to-port) | each vessel by its own Rule (`judge.verdict_all`), >= 5 m to every one, mission complete |
+
+Parameters: `seed`, `hs`, `jitter`, `ais`, `traffic_complies`, `visual`, and `t_stop` (end the run early, used by the tests; 0 = the whole scenario).
+
+### How the Rules are judged (`judge.py`, on the TRUE tracks, never the ASV's estimates)
+
+A run succeeds when the mission completes (true position within 8 m of the end waypoint), nothing is hit (centre distance to a vessel under 1.2 m, or to a fixed object under 0.75 m,
+counts as a collision) and the Rule judgement holds. The Rules give no numbers, so these are mine, and each is argued from the Rule text:
+- **closest approach >= 5 m** (four hull lengths of a 1.2 m craft): Rule 8(c) "a large alteration ... passing at a safe distance"; 8(d) "the effectiveness of the action shall be carefully checked until the other vessel is finally past and clear".
+- **head-on (Rule 14(a))**: "each shall alter her course to starboard so that each shall pass on the port side of the other": at the closest point the other vessel is on our port side, and (Rule 16/8(b): "large enough to be readily apparent") we never head more than 10 degrees to port of the route course while it is within 60 m before the closest point.
+- **crossing, ASV gives way (Rule 15/16)**: "avoid crossing ahead of the other vessel": at the closest point we are in the stern half of the other vessel's track; the same 10 degree rule (a turn to port for a vessel on the starboard bow is what the Rules discourage).
+- **crossing, ASV stands on (Rule 17(a)(i))**: "keep her course and speed": inside 60 m before the closest point we stay within 15 degrees of the route and above 70 % of the speed made before (5 s smoothed, because a 1.2 m hull in 0.8 m waves surges instantaneously to near zero and back). With a vessel that does NOT give way, 17(a)(ii) / (b) allow and then require action, so the test is only "no collision" (see the non-complying results).
+- **overtaking (Rule 13(a))**: "shall keep out of the way": the ASV is ahead of the other vessel at the end.
+- **several vessels (Rule 2(b), 8)**: the stand-on vessel is judged only on the samples where the ASV is not itself giving way to another vessel inside 120 m (Rule 16 gives way "early"): a vessel that must give way to one vessel cannot also keep its course for another.
+A criterion that was wrong would be argued here rather than relaxed: none has been changed to make a number better since the first Monte Carlo, except that the stand-on speed test now uses the 5 s smoothed speed against what the boat made before the encounter (the instantaneous 70 % of the nominal speed failed runs that took no action but surged).
 
 All scenarios also monitor the estimate (position error under 8 m, heading error under 15 degrees). The distances are judged on the TRUE tracks (columns of `trace.csv`), the replay log
 (`replay.naplog`) reproduces the final state hash (`napl-replay`), and a repeated run ends on the same hash.
 
-## Results (Monte Carlo, `mc.py`: 30 seeded runs per scenario, seeds 5000-5029, jitter 1, Hs uniform 0.2-0.8 m, AIS on, wave direction within +-60 degrees of the bow)
+## Results (Monte Carlo, `mc.py`: 40 seeded runs per scenario, seeds 50000-50039, jitter 1, Hs uniform 0.2-0.8 m, AIS on, wave direction within +-60 degrees of the bow)
 
 Each run draws the crossing angle, speeds, lateral offsets, meeting point and sea direction from its seed. Success = mission complete (true position within 8 m of the end waypoint), no
-collision, and the Rule judgement of `judge.py` (closest approach >= 5 m and the manoeuvre of the Rule). 95 % Wilson intervals in brackets.
+collision, and the Rule judgement of `judge.py` (closest approach >= 5 m and the manoeuvre of the Rule). 95 % Wilson intervals in brackets. Command, per scenario or all at once:
+`python examples/asv/mc.py --seeds 40 --seed-base 50000 --workers 8 --out runs/asv-mc.json` (the kernel, not `--fast`).
 
 | scenario | success | Rule-compliant | collisions | closest approach min / p10 / median (m) | truth cross-track error rms, median / p90 (m) |
 |---|---|---|---|---|---|
-| patrol | 100 % (30/30; 89-100) | 100 % | 0 | 1.2 / 2.4 / 3.7 (to a float on the leg, centre to centre, 6 m wanted) | 4.2 / 5.7 |
-| head-on | 90 % (27/30; 74-97) | 90 % | 0 | 6.7 / 15.6 / 17.9 | 5.8 / 10.0 |
-| crossing, give way | 80 % (24/30; 63-90) | 80 % | 0 | 10.9 / 11.8 / 13.0 | 7.1 / 13.6 |
-| crossing, stand on | 77 % (23/30; 59-88) | 77 % | 0 | 4.9 / 7.5 / 12.8 | 1.4 / 3.0 |
-| overtaking | 73 % (22/30; 56-86) | 93 % (28/30) | 0 | 3.5 / 7.3 / 9.7 | 7.9 / 10.1 |
+| patrol | 100 % (40/40; 91-100) | 100 % | 0 | 2.7 / 3.2 / 3.9 (to a float on the leg, centre to centre, 6 m wanted) | 3.1 / 3.8 |
+| head-on | 100 % (40/40; 91-100) | 100 % | 0 | 17.2 / 19.3 / 22.5 | 8.1 / 11.4 |
+| crossing, give way | 98 % (39/40; 87-100) | 98 % | 0 | 10.4 / 12.0 / 13.4 | 8.5 / 10.1 |
+| crossing, stand on | 100 % (40/40; 91-100) | 100 % | 0 | 8.5 / 10.2 / 13.5 | 1.1 / 3.3 |
+| overtaking | 100 % (40/40; 91-100) | 100 % | 0 | 8.7 / 8.9 / 9.6 | 7.7 / 9.0 |
+| three vessels, mixed roles (`multi_traffic`) | 100 % (40/40; 91-100) | 100 % | 0 | 5.8 / 7.4 / 10.8 (smallest over the three) | 10.8 / 16.1 |
+| stand-on, give-way vessel does NOT comply (`--noncomplying`, 40 seeds) | 92 % (37/40; 80-97) | 92 % | 0 | 4.3 / 5.1 / 6.1 | 4.7 / 7.3 |
+
+The last row is the Rule 17(a)(ii) / (b) test: the traffic keeps its course, and the criterion asked for is "no collision" (100 %, 40/40, Wilson 91-100 %); the judge's own 5 m closest-approach test
+fails 3 of the 40 (4.3, 4.4 and 5.0 m). Widest excursion from the route (p90 of the per-run maximum): patrol 8.5 m, head-on 18 m, give way 17 m, stand-on 5 m, overtaking 14 m, three vessels 26 m, non-complying stand-on 18 m.
+
+How these numbers came about (read this before trusting them):
+- **They are not blind.** Three seed blocks were flown before this one; each used up its block. 20000-20039 gave 40/40 in head-on, give-way, stand-on and overtaking, 40/40 in the three-vessel scenario, 39/40 in patrol with
+  ONE collision (seed 20011: the hull centre passed 0.69 m from a float, under the 0.75 m collision line; the lidar plane misses a 1 m drum on many revolutions of a pitching hull, and the planner kept only the last scan). I added a short memory of
+  lidar returns of fixed objects, which was a change to the system under test after seeing its test result. The first version (3 s, every return) regressed 30000-30039 to stand-on 17/40 and patrol 25/40 (it smeared quay walls and held the planner on stale hazards, and a
+  float that was always in view kept a manoeuvre committed); the second (1 s, small objects only) was 35/40 on stand-on on 40000-40039, where the memory-off planner gave 38/40 (and patrol 38/40 with a float collision, 39/40 and none with the memory); the third (only
+  within 8 m, which is where the float collisions happen) is the final one and was flown here, on 50000-50039, once. Nothing was retuned after seeing these numbers. The 8 m range itself was chosen on the failures of the 40000 block, so only 50000+ is clean for it.
+- With 40 runs, 40/40 only says the true rate is above 91 % (95 % Wilson); a rate of 95 % is not excluded for any row, and the run-to-run spread between seed blocks is of that size (stand-on: 40/40, 17/40 regressed, 35/40, 38/40, 40/40 across blocks and planner versions).
+- Patrol is the scenario with a hard 100 % target and a fixed-object collision criterion. Without the memory it had a float collision in each of the two blocks it was flown on (20000 and 40000, one run in 40 each); with the final planner it had none in 40 (50000). One patrol run on 40000 (seed 40010, Hs 0.22 m) ends 8.5 m short of the last waypoint with and without the memory, so the 100 % on 50000 should not be read as a rate of 100 %.
 
 Reading it honestly:
-- No run collided. Failures are Rule failures with large clearances (a turn to port above 10 degrees in the approach window, passing ahead of the other vessel, a stand-on vessel that
-  changed course by more than 15 degrees or slowed) and, for overtaking, runs that kept so far off the other vessel that the time ran out (mission not complete in 7 of the 8
-  failures; 2 of the 8 also passed within 5 m).
-- Cross-track error is large where the planner deliberately leaves the route (head-on 10 m p90): it is an avoidance offset, not tracking error. The GNSS bias alone is about 3.7 m.
-- **This is tuned on the test seeds.** The numbers come from three Monte Carlo invocations (patrol, head-on and give-way from the second; stand-on from the third; overtaking from the fifth) of the
-  final planner (the planner changes between them only touched the classes they re-ran). The first Monte Carlo of an earlier planner gave 40-57 % success for head-on, give-way and stand-on and 37 % for
-  overtaking; I then read the failure modes and changed: the class is re-read in the first 12 s while no manoeuvre is in force (a young AIS / lidar track's velocity had put an overtaking vessel
-  into "crossing, stand-on"), the stand-on vessel stops pricing the predicted closest point until Rule 17(a)(ii) applies, no return towards the route that heads more than 6 degrees to port of the leg while a
-  head-on or crossing give-way contact is within 60 m and not yet passed, overtaking costs for slowing down, the commitment margin is applied only with something to avoid, and the stand-on judge speed
-  test (above). The improvement is real in the sense that each fix addressed a diagnosed fault, but the seeds are no longer held out; a fresh seed set would give lower numbers.
-- Textbook geometries (seed 1, jitter 0, Hs 0.4 m): the five scenarios pass their monitors and replay to the same state hash (`tests/python/test_asv.py`).
-- Remaining weaknesses: 6 of the 7 stand-on failures changed course by more than 15 degrees (two of them by only 15.1 and 15.6; the likely cause, not traced per run, is the planner acting under
-  Rule 17(a)(ii) when the give-way vessel's turn left the predicted closest point under 7 m with 8 s to go); overtaking takes wide detours and often runs out of time; stand-on with a give-way vessel that does not comply (below).
+- No run collided in 280. The single failure is a Rule failure with a large clearance (crossing give way, seed 50034: 12.3 m, a turn to port above 10 degrees or passing ahead, not traced further).
+- Cross-track error is large where the planner deliberately leaves the route (head-on 11 m p90, three vessels 16 m): it is an avoidance offset, not tracking error. The GNSS bias alone is about 3.7 m.
+- **The planner was tuned in two stages.** First on seeds 5000-5199 in the fast simulation (`fastsim.py`: the real planner, tracker and judge in a kinematic plant; tuning only, never a result) and in the kernel on the textbook geometry; an
+  earlier planner gave 40-57 % on head-on, give-way and stand-on and 37 % on overtaking before the faults it showed were fixed (class re-read in the first 12 s, no pricing of the predicted closest point by a stand-on vessel before Rule 17(a)(ii),
+  no return to port of the leg while a give-way contact is not yet passed, a cost for slowing down in overtaking, a parallel-line family of manoeuvres, a commit only with something to avoid, a give-way latch, a persistence of the stand-on trigger). Second on the
+  kernel Monte Carlo blocks listed above. Every block of seeds is used up once it has shaped a decision; 50000-50039 shaped none.
+- Textbook geometries (seed 1, jitter 0, Hs 0.4 m): the scenarios pass their monitors and replay to the same state hash (`tests/python/test_asv.py`: the head-on one in full, the others to 45 s so the suite stays fast; `napl program` runs them whole).
+- Remaining weaknesses: overtaking passes at 8.7-9.6 m (12 m wanted) with 11 m p90 excursions; the non-complying stand-on test passes within 5 m in 3 of 40 (never within 4 m); patrol passes floats at 2.7-3.9 m (6 m wanted, 0.75 m is a collision) and one run of 40 on another block
+  (seed 40010) did not finish in time; the lidar, tracker and planner are tuned against one harbour, one speed and one hull.
 
 ## Telemetry contract (`telemetry.jsonl`, one JSON object per line, every 200 ms of sim time)
 
@@ -185,7 +220,13 @@ tools/remote.sh run --gpu '.venv/bin/python -c "import os,json; os.environ[\"NAP
 tools/remote.sh run --gpu '.venv/bin/python examples/asv/render_frames.py build/runs_asv/head_on --out build/frames --fps 30 --from 40 --to 75 --cam wide'
 ```
 
-Cameras: `chase`, `side`, `top`, `bow`, `wide`. The renderer has no deforming water mesh: the sea is a flat translucent plane, the waves exist in the physics only (the hull heaves and pitches).
+Seeds for the video (all from the 50000 block: passed, calm sea Hs 0.2-0.4 m, wide clearances; flown with `NAPL_PARAMS` `seed`, `hs`, `jitter 1`, `ais true` and `hs` = `mc.hs_for(seed)`, i.e. the Monte Carlo's own draw):
+seed 50025 (Hs 0.31 m) gives head-on (closest approach 26.5 m), crossing give way (18.6 m), crossing stand on (16.2 m) and patrol (2.7 m to a float, a close pass with a small craft; seed 50006 gives 3.4 m); overtaking: seed 50015 (Hs 0.25 m, 11.6 m);
+three vessels: seed 50037 (Hs 0.37 m, 15.2 m). The encounter is at about 40-80 s of sim time (the traffic meets the ASV 70-90 m along the 160 m leg at 1.5 m/s, plus the 8 s settling): render `--from 40 --to 80`
+(`--from 30 --to 125` for the three vessels, the whole run 8-177 s for patrol). These windows are estimates from the geometry, not read from the run's `t_cpa`; check `telemetry.jsonl` before cutting.
+
+Cameras: `chase`, `side`, `top`, `bow`, `wide`. The headless renderer draws the sea as a mesh driven by the physics `Sea` (`sea_surface_mesh`, the same wave model the hull floats on), shaded blue-green with
+a Fresnel sky reflection, a sun specular and distance haze (`water_shade` in `geom.slang`). The solver marks the plane named `water` in a model with a Sea as water (`GeomVisual::kWaterGroup` = group 6, which MuJoCo's 0-5 geom groups never produce; test with `GeomVisual::water()`) and refreshes its mesh from the Sea each frame (`mujoco_solver.cpp`). I did not run or touch the interactive viewer (`src/viewer`, owned by CADUI), so whether it animates the water is untested.
 The C2 map layers: `pose.lat_lon` (own ship), `tracks[].lat_lon` (contacts, coloured by `rule`), `traj` (the chosen path), `mission` (route legs are in `encounters.py`).
 
 ## Honesty notes
@@ -198,17 +239,23 @@ The C2 map layers: `pose.lat_lon` (own ship), `tracks[].lat_lon` (contacts, colo
 - **AIS on a 1.2 m craft is an idealisation:** Class A transponders are for ships; the rates, the 1 s latency and the 2 % loss are the standard's, the vessel size is not. No slot collisions, no reception range limit.
 - **Traffic is scripted and steers on the truth**, with the same autopilot as the ASV; it is the scenario's script, not a second system under test. Its Rule behaviour (turn to starboard, give way) is a script too.
 - **Collision is geometric** (the vessels are `conaffinity 0`): centre distance below 1.2 m to a vessel, or the hull centre within 0.75 m of a fixed object's surface. No contact forces, no damage.
-- **A self-propulsion artefact in waves** (confirmed by an experiment, not fixed): the vessel device's heave damping acts in the body frame, so in a pitching sea it
-  rectifies into a small surge force; a drifting hull in waves gains a little speed. It does not change the passing / not-passing outcomes here but the speed in large waves is a little optimistic.
+- **The wave self-propulsion artefact is fixed (a real modelling error, not a tuning matter).** The vessel device damped surge / sway / heave in the BODY frame: in a pitching
+  hull the heave damping force `-d_heave w_body` has a horizontal component, whose mean over a wave period is `1/2 d_heave a^2 omega k` (a net push, not zero), so an unpowered hull
+  in waves sailed on its own. Measured on this ASV hull, thrusters off, no current, seed 1, 80 s window after 20 s: mean drift speed **0.55 m/s at Hs 0.3 m, 0.88 m/s at 0.5 m,
+  0.87 m/s at 0.8 m (against the waves, toward -x)**; with the new `Vessel.heading_frame = true` (damping and added mass in the yaw-only frame: x along the body x axis projected on the
+  horizontal plane, z vertical; `docs/models.md`) it is **0.0001, 0.0020, 0.0016 m/s**. The powered boat's speed in waves was therefore optimistic in the first stage's runs (an inference from the passive measurement: the powered case was not re-measured with the old model); that is gone. Tests: `vessel.passive_hull_in_waves_drifts_only_with_body_frame_heave_damping` (C++, regular waves, body frame vs heading frame) and
+  `test_passive_asv_hull_in_waves_drifts_only_with_body_frame_heave_damping` (this hull, both frames). The flag is off by default, so no other model changes: `boat-float` still
+  ends on state hash `60e9d2b502df354f` (it does not use the changed path); the two ASV assemblies switch it on, so every ASV scenario hash is new (and so is every other quantity of
+  these runs; the ASV hashes were never pinned, only replay-matched).
 - **Hull and skegs are strip-theory estimates**, not tank or towing data; the reverse-thrust curve is the forward one mirrored (times 0.787).
 - **Thresholds are choices** (12 m wanted CPA, 6 m from fixed objects, 8 s / 7 m for the stand-on vessel to act, the 15 degree head-on cone); the Rules give none. The judge's pass criteria
   (5 m, 10 degrees, 15 degrees and 70 % of the earlier speed) are mine and stated in `judge.py`; a different set changes the success numbers. The speed test was changed after the first
   Monte Carlo: it used 70 % of the nominal 1.5 m/s on the instantaneous speed, which failed stand-on runs that took no action but surged to 0.1-1.0 m/s in Hs 0.6-0.8 m
-  waves; it now uses the 5 s smoothed speed against the speed made before the encounter. The planner was changed too after the first Monte Carlos (see the results), so the
-  seeds 5000+ are no longer a pure held-out set: this is tuning on the test seeds, and the numbers below are optimistic by that much.
-- **Overtaking is the weakest behaviour:** the ASV takes wide detours (tens of metres off the route) around a slow vessel and in 7 of 30 jittered runs ran out of time; an earlier planner version waited
-  behind the slower vessel at 0.1 m/s.
-- **Stand-on against a vessel that does NOT give way** is weak (measured once, with an earlier planner version, 5 runs, seeds 1, 11-14, `traffic_complies = false`): the ASV keeps its course until the closest
-  point stays under 7 m with 8 s to go (Rule 17(a)(ii)), then turns hard; it never collided but passed at 1.8-6.7 m (2 of 5 at 5 m or more) and turned up to 62 degrees. Not re-measured after the later changes.
-- **The planner was tuned on the textbook geometry (seed 1, Hs 0.4 m) and then on the failures of the Monte Carlo seeds (5000+)**, see the results: the Monte Carlo is not a held-out test.
+  waves; it now uses the 5 s smoothed speed against the speed made before the encounter. The thresholds were not moved after the 50000 block was flown.
+- **Overtaking** was the weakest behaviour (37 % on the first Monte Carlo; wide detours, runs out of time, an early version waited behind the slower vessel at 0.1 m/s). It is now 40/40 on 50000-50039 and 39/40 on 40000-40039 with the final or near-final planner,
+  by a parallel-line family of manoeuvres; it passes at 8.7-9.6 m, not the 12 m the planner asks for.
+- **Stand-on against a vessel that does NOT give way:** the ASV keeps its course until the closest point stays under 7 m with 13 s to go (Rule 17(a)(ii)), then acts. 0 collisions in 40 on 50000-50039 (final planner), and also 0 in 40 on 20000-20039 (planner before the memory; 34/40 passed the 5 m test) and 0 in 40 on 40000-40039 (1 s memory over any range; 38/40 passed the 5 m test): 0 in 120 over three blocks.
+  Closest approach in the worst runs is 3.6-4.9 m, i.e. the 5 m criterion is missed by about a metre in 3 to 6 runs of 40.
+- **The static-object memory is a patch for a sensor limit** (a one-row lidar at 0.5 m height misses a 1 m drum on many revolutions of a pitching hull). Fixed objects are remembered for 1 s within 8 m, only if small (a wall or a vessel is not), in the world frame from the
+  estimated pose (so it inherits the GNSS scatter). It exists because the planner had no other way to see a float that the lidar loses; a 3D or multi-row lidar would make it unnecessary.
 - **Nothing here is a real-ship collision-avoidance system:** the Rules are for ships in sight of one another, at ship scales and speeds; this is a 1.5 m/s craft in a 300 m harbour.

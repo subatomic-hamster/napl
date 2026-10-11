@@ -643,6 +643,7 @@ Devices parse(const std::string& json) {
       six(v->damp_lin(), c.dl, "damp_lin needs 6 finite values >= 0 (or none)");
       six(v->damp_quad(), c.dq, "damp_quad needs 6 finite values >= 0 (or none)");
       for (double x : c.a) c.has_a = c.has_a || x > 0;
+      c.heading_frame = v->heading_frame();
       if (v->fins())
         for (const fb::Fin* f : *v->fins()) {
           FinCfg fin{};

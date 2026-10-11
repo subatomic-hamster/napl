@@ -147,10 +147,49 @@ float4 fsSky(float4 frag : SV_Position) : SV_Target0 {
   return float4(to_srgb(c), 1);
 }
 
+// ---- water -----------------------------------------------------------------------------------------------------------
+// The sea mesh (flags.y): d.color is the deep-water colour. Body colour = deep colour lit by the sky and (a little) the sun, turning
+// turquoise on the wave crests (z above the still water); Schlick Fresnel mixes in the sky reflection (strong at grazing view), the sun
+// leaves a glitter (Blinn lobes), and fine static ripples (sines whose periods divide 10 m, so they tile with camf.xy) break up the mirror.
+float4 water_shade(VsOut i, Draw d) {
+  const float dist = length(i.rel);
+  const float3 V = -i.rel / max(dist, 1e-3);
+  const float2 w = i.rel.xy + sc.camf.xy;
+  const float fade = saturate(1.0 - dist / 160.0);
+  float2 g = float2(0, 0);
+  [unroll] for (int k = 0; k < 4; ++k) {
+    const float2 n = float2(k == 0 ? 3.0 : (k == 1 ? -5.0 : (k == 2 ? 7.0 : 11.0)), k == 0 ? 2.0 : (k == 1 ? 6.0 : (k == 2 ? -4.0 : 3.0)));
+    const float ph = 6.2831853 * dot(n, w) / 10.0 + 1.7 * k;
+    g += normalize(n) * cos(ph) * (0.030 / (1.0 + k));
+  }
+  float3 N = normalize(normalize(i.n) + float3(g.x, g.y, 0.0) * fade);
+  if (dot(N, V) < 0.0) N = reflect(N, V);  // a microfacet facing away at grazing view
+  const float3 L = sc.sun_dir.xyz;
+  const float ndl = saturate(dot(N, L));
+  const float3 deep = to_lin(max(d.color.rgb, float3(0.05, 0.30, 0.38))) * 2.0;  // never darker than a blue-green sea, whatever the scene's plane colour  // the colour is the water's depth tint seen through a metre or two of it, brighter than a painted surface of that colour
+  const float zw = i.rel.z + sc.camf.z;
+  const float3 body_col = lerp(deep, to_lin(float3(0.10, 0.45, 0.42)), 0.55 * smoothstep(-0.1, 0.55, zw));
+  // the water keeps its own blue-green under any sky colour: the ambient is the sky's brightness, not its tint (a dusk sky would turn it brown)
+  const float3 hemi_c = lerp(sc.ground.rgb, sc.sky_mid.rgb, 0.8) * sc.fog.w;
+  const float3 hemi = float3(1, 1, 1) * (0.25 + 0.75 * dot(hemi_c, float3(0.3333, 0.3333, 0.3333)));
+  float3 col = body_col * (hemi * 1.6 + sc.sun_col.rgb * ndl * 0.35);
+  const float nv = saturate(dot(N, V));
+  const float F = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
+  const float3 sky_r = lerp(sky_base(reflect(-V, N)), float3(0.30, 0.50, 0.72), 0.8) * sc.fog.w;  // a blue sky, not the warm horizon band of a dusk preset
+  col = lerp(col, sky_r, 0.6 * F);
+  const float3 H = normalize(L + V);
+  const float nh = saturate(dot(N, H));
+  col += sc.sun_col.rgb * (F + 0.04) * (pow(nh, 900.0) * 1.8 + pow(nh, 120.0) * 0.12) * ndl;
+  const float haze = 1.0 - exp(-dist * sc.fog.x * 1.2);  // melts into the horizon like the ground, keeping some of its own colour
+  col = lerp(col, lerp(sc.sky_hor.rgb, float3(0.03, 0.14, 0.20) * sc.fog.w * 3.0 + body_col * 1.5, 0.75), saturate(haze) * 0.7);
+  return float4(to_srgb(col), 1);
+}
+
 // ---- lit surfaces ----------------------------------------------------------------------------------------------------
 [shader("fragment")]
 float4 fsMain(VsOut i) : SV_Target0 {
   const Draw d = draws[pc.draw];
+  if (d.flags.y > 0.5) return water_shade(i, d);
   const float3 V = -normalize(i.rel);
   float3 N = normalize(i.n);
   const bool ground = d.flags.x > 0.5;

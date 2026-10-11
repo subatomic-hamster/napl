@@ -522,6 +522,22 @@ void MujocoSolver::restore(std::span<const std::byte> bytes) {
   diverged_ = false;
 }
 
+namespace {
+// Grid lines along one axis of the water mesh: 1.5 m steps over the middle (|u| <= 0.55 half), growing by 25 % per step out to the plane's edge.
+std::vector<double> water_axis(double half) {
+  std::vector<double> u{0.0};
+  const double fine = 0.55 * half;
+  for (double step = 1.5; u.back() < half;) {
+    u.push_back(std::min(u.back() + step, half));
+    if (u.back() > fine) step *= 1.25;
+  }
+  std::vector<double> out;
+  for (auto it = u.rbegin(); it != u.rend(); ++it) out.push_back(-*it);
+  for (std::size_t i = 1; i < u.size(); ++i) out.push_back(u[i]);
+  return out;
+}
+}  // namespace
+
 std::vector<GeomVisual> MujocoSolver::visuals() const {
   std::vector<GeomVisual> out(static_cast<std::size_t>(m_->ngeom));
   for (int g = 0; g < m_->ngeom; ++g) {
@@ -548,6 +564,17 @@ std::vector<GeomVisual> MujocoSolver::visuals() const {
       v.shininess = m_->mat_shininess[mat];
       v.metallic = m_->mat_metallic[mat];
       v.roughness = m_->mat_roughness[mat];
+    }
+    if (v.type == GeomType::plane && dev_ && !dev_->sea.cfg.empty() && m_->geom_bodyid[g] == 0 && m_->geom_size[3 * g] > 0 &&
+        m_->geom_size[3 * g + 1] > 0 && !m_->geom_pos[3 * g] && !m_->geom_pos[3 * g + 1] && !m_->geom_pos[3 * g + 2]) {
+      const char* name = mj_id2name(m_, mjOBJ_GEOM, g);
+      if (name && std::strcmp(name, "water") == 0) {
+        // a plane named "water" at the world origin in a model with a Sea is the sea surface: the wave field sampled now, over the plane's extent
+        v.type = GeomType::mesh;
+        v.group = GeomVisual::kWaterGroup;
+        v.mesh = devs::sea_surface_mesh(*dev_, water_axis(m_->geom_size[3 * g]), water_axis(m_->geom_size[3 * g + 1]));
+        continue;
+      }
     }
     if (v.type != GeomType::mesh) continue;
     // mesh_face / mesh_facenormal index locally from the mesh's vertex / normal address.

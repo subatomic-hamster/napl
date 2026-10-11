@@ -31,6 +31,11 @@ struct GeomVisual {
   // roughness < 0 = unset (then only specular / shininess shade the highlight).
   float specular = 0.5f, shininess = 0.5f, metallic = -1, roughness = -1;
   std::vector<float> mesh;  // mesh only: unrolled triangles, per vertex position xyz then normal xyz (geom frame)
+  // The sea surface (a Sea device's wave field sampled on a grid at the current time): drawn as water (Fresnel sky reflection, sun glitter,
+  // depth tint), never casts a shadow. The vertex count is fixed for a scene, so a renderer overwrites the mesh in place frame by frame.
+  // Marked by group (the solver sets it on the sea mesh), not by a member: GeomVisual keeps its size.
+  static constexpr int kWaterGroup = 6;
+  bool water() const { return group == kWaterGroup; }
 };
 // A cable drawn as a tube through world points (MuJoCo spatial tendon through sites). `length` = the cable's real
 // length (tendon resting length; <= the point path => taut); the renderer sags the slack. pts: xyz triples, world, double.
