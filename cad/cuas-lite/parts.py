@@ -115,6 +115,52 @@ def L2H(p):
     return Pos(-P.X_A, 0, -P.Z_A) * p
 
 
+def seg(p, q, r):
+    """Cylinder of radius r along the segment p-q."""
+    a, b = Vector(*p), Vector(*q)
+    d = b - a
+    return Plane(origin=(a + b) / 2, z_dir=d) * Cylinder(r, d.length)
+
+
+def ballsolid(p, r):
+    return Pos(*p) * Sphere(r)
+
+
+def _halfspace(v, n, big=600.0):
+    """Box filling the half space {(x - v) . n >= 0}."""
+    return Plane(origin=v, z_dir=n) * (Pos(0, 0, big / 2) * Box(big, big, big))
+
+
+def mitre_tube(pts, r):
+    """Round tube of radius r along the polyline pts with mitred joints (no spheres: equal-radius sphere/cylinder faces are
+    tangent and break the booleans)."""
+    v = [Vector(*p) for p in pts]
+    d = [(v[i + 1] - v[i]).normalized() for i in range(len(v) - 1)]
+    out = None
+    for i in range(len(d)):
+        a, b = v[i], v[i + 1]
+        ea = eb = 0.0
+        cuts = []
+        if i > 0:  # joint with the previous leg at a
+            n = (d[i - 1] + d[i]).normalized()
+            ea = (
+                r * math.tan(math.acos(max(-1.0, min(1.0, d[i - 1].dot(d[i])))) / 2)
+                + 0.5
+            )
+            cuts.append(_halfspace(a, -n))
+        if i < len(d) - 1:  # joint with the next leg at b
+            n = (d[i] + d[i + 1]).normalized()
+            eb = (
+                r * math.tan(math.acos(max(-1.0, min(1.0, d[i].dot(d[i + 1])))) / 2)
+                + 0.5
+            )
+            cuts.append(_halfspace(b, n))
+        leg = seg(a - d[i] * ea, b + d[i] * eb, r)
+        leg = leg.cut(*cuts) if cuts else leg
+        out = leg if out is None else out.fuse(leg)
+    return out
+
+
 def gt2_ring(teeth, z0, z1):
     """Cylinder at the tooth OD with GT2-ish grooves cut around it, between z0 and z1 (axis z)."""
     od = P.pulley_od(teeth)
@@ -148,6 +194,18 @@ Y_MP0, MP_T = Y_BELT + 7.0, 4.0  # tilt motor plate inboard face / thickness
 X_S, Y_S = -65.5, -18.0  # servo spline (lever pivot) in L
 Z_SERVO_PLATE = P.CHASSIS_Z0 - 12.0  # top of the servo bracket plate (tabs rest here)
 ZEAR = -64.0  # tray ear / leg screw height
+ELBOW_BOLTS = tuple(
+    (sx, dz) for sx in (-22.0, 22.0) for dz in (-22.0, 22.0)
+)  # feed elbow -> right cheek (x, z - H_T)
+CHUTE_C = (P.X_A, 0.0, P.Z_A)  # ball turns 90 degrees here (on the tilt axis), L frame
+CHUTE_F = (
+    P.X_F,
+    0.0,
+    0.0,
+)  # ball rests here in the bore in front of the piston, L frame
+BEAM_BOLTS = tuple(
+    (sx, sy) for sx in (-26.0, 26.0) for sy in (-42.0, 42.0)
+)  # trunnion beam -> cage top (L x, y)
 
 
 # ======================================================================================================================================
@@ -390,14 +448,23 @@ def cable_collar():
 def _yoke(side):
     """side +1 left (tilt drive + hall pocket), -1 right (idler + tilt stops); built at +y and mirrored for the right."""
     y0, y1 = Y_C0, Y_C1
-    zb, zt, ha = P.Z_ROTOR1, P.H_T + 25, P.H_T
+    zb, zt, ha = P.Z_ROTOR1, P.H_T + 32, P.H_T
     p = prism(
         [(-42, y0, zb), (42, y0, zb), (38, y0, zt), (-38, y0, zt)], (0, P.CHEEK_T, 0)
     ).fuse(bxr(-42, 42, y0 - 7, y1 + 7, zb, zb + 8))
-    tools = [
-        hole("y", 14.0, 0, ha, y0 - EPS, y1 + EPS),
-        hole("y", P.B608_OD + 0.2, 0, ha, y1 - P.B608_W - 0.2, y1 + EPS),
-    ]
+    if side > 0:
+        tools = [
+            hole("y", 14.0, 0, ha, y0 - EPS, y1 + EPS),
+            hole("y", P.B608_OD + 0.2, 0, ha, y1 - P.B608_W - 0.2, y1 + EPS),
+        ]
+    else:  # hollow trunnion (OD 35) passes through; 6807 bearing seat on the outer face; 4 inserts for the feed elbow
+        tools = [
+            hole("y", P.TUBE_OD + 5.0, 0, ha, y0 - EPS, y1 + EPS),
+            hole("y", P.B6807_OD + 0.2, 0, ha, y1 - P.B6807_W - 0.2, y1 + EPS),
+        ] + [
+            hole("y", P.M3_INSERT_D, sx, ha + dz, y1 - P.M3_INSERT_DEPTH, y1 + EPS)
+            for sx, dz in ELBOW_BOLTS
+        ]
     for sx in YOKE_SCREW_X:
         for yy in YOKE_SCREW_Y:
             tools += [
@@ -497,31 +564,32 @@ def launcher_chassis():
         P.CHASSIS_Z0,
         P.CHASSIS_Z1,
     ).fuse(bxr(-xc, xc, -YO, YO, P.CAGE_Z0, P.CAGE_Z1))
-    for s in (-1, 1):  # trunnion bosses
-        p = p.fuse(
-            Pos(P.X_A, s * (YO + P.BOSS_L / 2), P.Z_A)
-            * Rot(90, 0, 0)
-            * Cylinder(P.BOSS_D / 2, P.BOSS_L)
-        )
+    rs = (
+        P.JOUR_ID / 2 + P.CHUTE_WALL
+    )  # chute sleeve behind the cage rear face is part of the chassis (the beam's ends at x = -xc)
     p = p.fuse(
-        bxr(P.X_A + 6, P.X_A + 27, -YO - 4.0, -YO - 1.0, P.Z_A - 4, P.Z_A + 4)
-    )  # stop lug on the right boss
+        seg(CHUTE_C, CHUTE_F, rs)
+        & bxr(P.CHASSIS_X0, -xc, -rs - 1, rs + 1, P.CHASSIS_Z0, 90)
+    )
     tools = [
         bore_x(P.CHASSIS_X0 + 4, xc + EPS, R),
-        hole("z", P.BARREL_ID + 2.4, P.X_F, 0, 0, P.CHASSIS_Z1 + EPS),
+        seg(
+            CHUTE_C, CHUTE_F, P.CHUTE_R
+        ),  # ball chute from the trunnion beam down to the breech
     ]
-    for sx in (-1, 1):
-        for sy in (-1, 1):  # hopper flange inserts (top), barrel inserts (front)
-            tools.append(
-                hole(
-                    "z",
-                    P.M3_INSERT_D,
-                    P.X_F + sx * 12.7,
-                    sy * 12.7,
-                    P.CHASSIS_Z1 - P.M3_INSERT_DEPTH,
-                    P.CHASSIS_Z1 + EPS,
-                )
+    for sx, sy in BEAM_BOLTS:  # trunnion beam inserts (cage top)
+        tools.append(
+            hole(
+                "z",
+                P.M3_INSERT_D,
+                sx,
+                sy,
+                P.CAGE_Z1 - P.M3_INSERT_DEPTH,
+                P.CAGE_Z1 + EPS,
             )
+        )
+    for sx in (-1, 1):
+        for sy in (-1, 1):  # barrel inserts (front)
             tools.append(
                 hole(
                     "x",
@@ -580,22 +648,83 @@ def launcher_chassis():
             tools.append(hole("y", P.M3_CLR, 0, z, ya, yb))
             ya, yb = srt(s * (YO - 6.0), s * (YO + EPS))
             tools.append(hole("y", P.M3_INSERT_D, 0, z, ya, yb))
-        ya, yb = srt(s * (YO - 11.0), s * (YO + P.BOSS_L + EPS))
-        tools.append(hole("y", 8.2, P.X_A, P.Z_A, ya, yb))  # rod seat
-        yb_c = s * (YO + P.BOSS_L / 2)
-        tools.append(
-            hole("x", P.M3_CLR, yb_c, P.Z_A, P.X_A, P.X_A + 9)
-        )  # rod set screw + nut slot (open upward)
-        tools.append(
-            bxr(
-                P.X_A + 5.0,
-                P.X_A + 7.6,
-                yb_c - 2.9,
-                yb_c + 2.9,
-                P.Z_A - 3.2,
-                P.Z_A + 12,
-            )
-        )
+    return L2H(p.cut(*tools))
+
+
+def trunnion_beam():
+    """Tilt axis member on top of the cage: hollow right half (ball passes along the axis, 90 degree turn at C into the chute),
+    solid left half with the rod seat; carries the chute sleeve above the cage and the right tilt-stop lug. Bolted to the cage."""
+    xc = P.CAGE_X / 2
+    rj = P.JOUR_ID / 2
+    ro = rj + P.CHUTE_WALL
+    yr, yl = -(Y_C1 - 0.5), YO + P.BOSS_L
+    p = (
+        Pos(P.X_A, (yr + yl) / 2, P.Z_A)
+        * Rot(90, 0, 0)
+        * Cylinder(P.TUBE_OD / 2, yl - yr)
+    )
+    p = p.fuse(
+        bxr(
+            -30,
+            max(30.0, P.X_A + 17.0),
+            -49,
+            49,
+            P.CAGE_Z1,
+            P.CAGE_Z1 + P.BEAM_FOOT_T + 1.0,
+        ),  # foot
+        seg(
+            CHUTE_C, CHUTE_F, ro
+        ),  # chute sleeve (the part inside the cage/chassis is removed below)
+        bxr(
+            P.X_A + 6, P.X_A + 27, -YO - 4.0, -YO - 1.0, P.Z_A - 4, P.Z_A + 4
+        ),  # stop lug
+    )
+    blocks = bxr(
+        P.CHASSIS_X0,
+        -xc + 1,
+        -P.CHASSIS_W / 2,
+        P.CHASSIS_W / 2,
+        P.CHASSIS_Z0,
+        P.CHASSIS_Z1,
+    ).fuse(
+        bxr(-xc, xc, -YO, YO, P.CAGE_Z0, P.CAGE_Z1),
+        bxr(
+            P.CHASSIS_X0 - 10, -xc, -60, 60, -40, 120
+        ),  # chassis owns everything behind the cage rear face
+    )
+    p = p.cut(blocks)
+    tools = [
+        hole(
+            "y", P.JOUR_ID, P.X_A, P.Z_A, yr - EPS, rj
+        ),  # axial ball bore, runs on past C so the ball can sit at the turn
+        seg(CHUTE_C, CHUTE_F, P.CHUTE_R),
+        hole("y", 8.2, P.X_A, P.Z_A, YO - 11.0, yl + EPS),  # left rod seat
+        hole(
+            "x", P.M3_CLR, YO + P.BOSS_L / 2, P.Z_A, P.X_A, P.X_A + 20
+        ),  # rod set screw
+        bxr(  # nut slot, open upward
+            P.X_A + 5.0,
+            P.X_A + 7.6,
+            YO + P.BOSS_L / 2 - 2.9,
+            YO + P.BOSS_L / 2 + 2.9,
+            P.Z_A - 3.2,
+            P.Z_A + P.TUBE_OD / 2 + 1.0,
+        ),
+    ]
+    for sx, sy in BEAM_BOLTS:
+        tools += [
+            hole(
+                "z", P.M3_CLR, sx, sy, P.CAGE_Z1 - EPS, P.CAGE_Z1 + P.BEAM_FOOT_T + 2.0
+            ),
+            hole(
+                "z",
+                P.M3_HEAD_D,
+                sx,
+                sy,
+                P.CAGE_Z1 + 1.8,
+                P.CAGE_Z1 + P.BEAM_FOOT_T + 2.0,
+            ),
+        ]
     return L2H(p.cut(*tools))
 
 
@@ -671,13 +800,52 @@ def hopper():
     tools = [inner] + [
         hole("z", P.M3_CLR, *polar(18, 45 + 90 * k), -EPS, 4 + EPS) for k in range(4)
     ]
-    return L2H(Pos(P.X_F, 0, P.CHASSIS_Z1) * outer.cut(*tools))
+    return Pos(0, -P.ELBOW_YH, elbow_dims()[2]) * outer.cut(*tools)
+
+
+def elbow_dims():
+    """Pan-side feed path key points (B frame): slope end s0 on the tilt axis side, slope start s1 under the hopper, flange plane zf."""
+    ha = P.H_T
+    s0 = (0.0, -P.ELBOW_YS, ha)
+    s1 = (
+        0.0,
+        -P.ELBOW_YH,
+        ha + (P.ELBOW_YH - P.ELBOW_YS) * math.tan(math.radians(P.ELBOW_SLOPE)),
+    )
+    return s0, s1, s1[2] + 20.0
+
+
+def feed_elbow():
+    """Pan-group feed elbow (B frame): bolts to the right cheek outer face (4 x M3), holds the hopper flange, sends balls down a
+    sloping duct and along the tilt axis through a spigot that sits inside the rotating hollow trunnion."""
+    ha = P.H_T
+    s0, s1, zf = elbow_dims()
+    ri, ro = P.DUCT_ID / 2, P.DUCT_ID / 2 + 2.0
+    yp = -(Y_C1 + 4.0)  # plate outer face
+    top = (0.0, s1[1], zf)
+    pt = (0.0, yp, ha)
+    tip = (0.0, -P.SPIG_TIP_Y, ha)
+    p = mitre_tube([top, s1, s0, pt], ro).fuse(
+        Pos(0, s1[1], zf - 4.0) * Cylinder(26.0, 8.0),  # hopper flange pad
+        bxr(-36, 36, yp, -Y_C1, ha - 34, ha + 30),  # plate on the cheek
+        seg((0.0, yp + 2.0, ha), tip, P.SPIG_OD / 2),  # spigot
+    )
+    tools = [
+        mitre_tube([(0.0, s1[1], zf + EPS), s1, s0, (0.0, yp + 2.0, ha)], ri),
+        seg((0.0, yp + 1.0, ha), (0.0, -P.SPIG_TIP_Y + EPS, ha), P.SPIG_ID / 2),
+    ]
+    for k in range(4):
+        x, y = polar(18, 45 + 90 * k)
+        tools.append(hole("z", P.M3_INSERT_D, x, s1[1] + y, zf - 6.0, zf + EPS))
+    for sx, dz in ELBOW_BOLTS:
+        tools.append(hole("y", P.M3_CLR, sx, ha + dz, yp - EPS, -Y_C1 + EPS))
+    return p.cut(*tools)
 
 
 def hopper_lid():
     Rt, w = HOPPER["R_top"], HOPPER["wall"]
     rn, Hs, _, _ = _hopper_dims()
-    top = P.CHASSIS_Z1 + HOPPER["Hn"] + HOPPER["Hc"] + Hs  # hopper rim (L)
+    top = elbow_dims()[2] + HOPPER["Hn"] + HOPPER["Hc"] + Hs  # hopper rim (B)
     p = Pos(0, 0, 1.5) * Cylinder(Rt + w, 3)
     ring = (Pos(0, 0, -2.0) * Cylinder(Rt - 0.5, 4)).cut(
         Pos(0, 0, -2.0) * Cylinder(Rt - 2.9, 4.2)
@@ -685,7 +853,7 @@ def hopper_lid():
     tab = bxr(
         Rt, Rt + w + 12, -8, 8, 0, 3
     )  # finger tab, in plane (prints flat, plug ring up)
-    return L2H(Pos(P.X_F, 0, top) * p.fuse(ring, tab))
+    return Pos(0, -P.ELBOW_YH, top) * p.fuse(ring, tab)
 
 
 def piston():
@@ -895,8 +1063,10 @@ REGISTRY = {
     "launcher_chassis": (launcher_chassis, "tilt", 1, "PETG"),
     "barrel_half_a": (barrel_half_a, "tilt", 1, "PETG"),
     "barrel_half_b": (barrel_half_b, "tilt", 1, "PETG"),
-    "hopper": (hopper, "tilt", 1, "PLA"),
-    "hopper_lid": (hopper_lid, "tilt", 1, "PLA"),
+    "trunnion_beam": (trunnion_beam, "tilt", 1, "PETG"),
+    "feed_elbow": (feed_elbow, "pan", 1, "PETG"),
+    "hopper": (hopper, "pan", 1, "PLA"),
+    "hopper_lid": (hopper_lid, "pan", 1, "PLA"),
     "piston": (piston, "tilt", 1, "PETG"),
     "servo_bracket": (servo_bracket, "tilt", 1, "PETG"),
     "pusher_arm": (pusher_arm, "tilt", 1, "PETG"),

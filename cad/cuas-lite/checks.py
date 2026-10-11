@@ -20,6 +20,7 @@ ACCESSORIES = {
     "camera_shim",
 }  # drawn at the origin, not placed on the assembly
 RES = {}
+FEED = {}  # per-tilt feed path numbers, filled by feed_checks and reported in the interface
 
 
 def chk(name, ok, detail=""):
@@ -74,6 +75,142 @@ def reach(s, axis, p, sign, lim=40.0, step=0.05):
 
 def rot_tilt(shape, phi):
     return Pos(0, 0, P.H_T) * Rot(0, -phi, 0) * shape
+
+
+def Ry_tilt(phi):
+    """Rotation matrix of rot_tilt (head frame H -> B orientation) for nose-up tilt phi (deg)."""
+    a = math.radians(-phi)
+    return np.array(
+        [[math.cos(a), 0, math.sin(a)], [0, 1, 0], [-math.sin(a), 0, math.cos(a)]]
+    )
+
+
+def feed_checks(S, rb_):
+    """Ball supply from the pan-group hopper through the hollow trunnion to the breech at tilt -15, 0, 35, 70 deg:
+    (1) a ball swept along the whole path touches no wall; (2) every sloping leg is >= FEED_SLOPE_MIN downhill along gravity,
+    the only level leg is the trunnion axis run, which the balls above push through (margin vs rolling resistance)."""
+    ha = P.H_T
+    s0, s1, zf = (np.array(v) for v in K.elbow_dims())
+    top = np.array([0.0, s1[1], zf + K.HOPPER["Hn"]])
+    C = np.array([0.0, 0.0, ha])
+    Fh = np.array([P.X_F - X_A, 0.0, -Z_A])
+    pan = [
+        (n, S[n], S[n].bounding_box()) for n in ("feed_elbow", "hopper", "yoke_right")
+    ]
+    res, worst_all, npos, where = {}, 0.0, 0, None
+    for phi in (-15.0, 0.0, 35.0, 70.0):
+        F = C + Ry_tilt(phi) @ Fh
+        head = []
+        for n in (
+            "launcher_chassis",
+            "trunnion_beam",
+            "barrel_half_a",
+            "barrel_half_b",
+            "piston",
+        ):
+            t = rot_tilt(S[n], phi)
+            head.append((n, t, t.bounding_box()))
+        legs = [
+            ("vertical", top, s1),
+            ("slope", s1, s0),
+            ("level", s0, C),
+            ("chute", C, F),
+        ]
+        worst, info = 0.0, {}
+        for name, p, q in legs:
+            d = q - p
+            ln = float(np.linalg.norm(d))
+            info[name] = dict(len=ln, deg=math.degrees(math.asin(-d[2] / ln)))
+            for t in np.linspace(0.0, 1.0, int(ln // 3) + 2):
+                pt = p + t * d
+                ball = Pos(*pt) * Sphere(rb_)
+                bb = ball.bounding_box()
+                npos += 1
+                for sn, s, sb_ in pan + head:
+                    if (
+                        bb.max.X < sb_.min.X
+                        or bb.min.X > sb_.max.X
+                        or bb.max.Y < sb_.min.Y
+                        or bb.min.Y > sb_.max.Y
+                        or bb.max.Z < sb_.min.Z
+                        or bb.min.Z > sb_.max.Z
+                    ):
+                        continue
+                    w = vol(ball, s)
+                    if w > worst:
+                        worst = w
+                        if w > worst_all:
+                            where = (phi, name, round(float(t), 2), sn)
+        res[phi] = dict(worst=worst, **info)
+        worst_all = max(worst_all, worst)
+        if (
+            phi == 0.0
+        ):  # wall present all round the path (a missing wall would pass the sweep above)
+            wall_max, open_at = 0.0, None
+            for name, p, q in legs:
+                d = (q - p) / np.linalg.norm(q - p)
+                a = np.cross(d, [1.0, 0, 0] if abs(d[0]) < 0.9 else [0, 1.0, 0])
+                a /= np.linalg.norm(a)
+                b = np.cross(d, a)
+                # not within a ball diameter of the turn at C, nor in the merge of the chute with the bore (open by design)
+                t0, t1 = {"level": (0.05, 0.75), "chute": (0.18, 0.3)}.get(
+                    name, (0.1, 0.9)
+                )
+                for t in np.linspace(t0, t1, 8):
+                    pt = p + t * (q - p)
+                    for k in range(8):
+                        u = (
+                            math.cos(k * math.pi / 4) * a
+                            + math.sin(k * math.pi / 4) * b
+                        )
+                        hit = None
+                        for r in np.arange(rb_, 25.0, 0.5):
+                            x = pt + r * u
+                            if any(
+                                sb_.min.X <= x[0] <= sb_.max.X
+                                and sb_.min.Y <= x[1] <= sb_.max.Y
+                                and sb_.min.Z <= x[2] <= sb_.max.Z
+                                and s.is_inside(tuple(x))
+                                for _, s, sb_ in pan + head
+                            ):
+                                hit = r
+                                break
+                        if hit is None:
+                            open_at = open_at or (name, round(float(t), 1), k)
+                        else:
+                            wall_max = max(wall_max, hit)
+            lim_w = P.JOUR_ID / 2 + 2.5
+            chk(
+                "ball_path_enclosed",
+                open_at is None and wall_max <= lim_w,
+                f"wall within {wall_max:.1f} mm of the path centre all round hopper neck, elbow, spigot, trunnion, chute (limit {lim_w:.1f}); "
+                + (f"OPEN at {open_at}" if open_at else "no open side"),
+            )
+    chk(
+        "ball_path_clear_all_tilts",
+        worst_all < 0.5,
+        f"ball dia {P.BALL_D} swept hopper neck -> elbow -> spigot -> hollow trunnion -> chute -> breech at tilt -15/0/35/70 "
+        f"({npos} positions): max overlap {worst_all:.2f} mm3"
+        + (f" at {where}" if worst_all >= 0.5 else ""),
+    )
+    sl = {
+        k: min(r[leg]["deg"] for leg in ("vertical", "slope", "chute"))
+        for k, r in res.items()
+    }
+    lvl = max(abs(r["level"]["deg"]) for r in res.values())
+    n_s = int(res[0.0]["slope"]["len"] // P.BALL_D)
+    n_l = math.ceil(res[0.0]["level"]["len"] / P.BALL_D)
+    margin = n_s * math.sin(math.radians(P.ELBOW_SLOPE)) / (n_l * P.ROLL_MU)
+    chk(
+        "feed_gravity_slope_all_tilts",
+        min(sl.values()) >= P.FEED_SLOPE_MIN and lvl < 0.1 and margin >= 2.0,
+        "chute downhill angle (min over the sloping legs) "
+        + ", ".join(f"{int(k)}deg: {res[k]['chute']['deg']:.0f}" for k in res)
+        + f"; pan slope {P.ELBOW_SLOPE:.0f} deg + vertical neck; level run on the tilt axis {res[0.0]['level']['len']:.0f} mm = {n_l} balls, "
+        f"pushed by {n_s} balls on the slope: margin {margin:.1f}x at rolling resistance {P.ROLL_MU} [est, bench test]; "
+        f"bore {-15:+d}..{70:+d} deg: ball rests against the piston face when nose-up, rolls to the wheel nip at -15",
+    )
+    FEED.update(res)
 
 
 def run(recs, meshes, shapes, out):
@@ -205,21 +342,35 @@ def run(recs, meshes, shapes, out):
     )
 
     yl, yr = S["yoke_left"], S["yoke_right"]
-    ch = S["launcher_chassis"]
+    ch, bm, el = S["launcher_chassis"], S["trunnion_beam"], S["feed_elbow"]
     hb = P.H_T
-    ok = True
-    for s, y in ((1, K.Y_C1 - 3), (-1, -(K.Y_C1 - 3))):
-        yk = yl if s > 0 else yr
-        ok &= void(yk, 0, y, hb)  # 608 seat
-        ok &= (
-            abs(extent(yk, 0, (0, s * (K.Y_C0 + 1), hb), 10)[0] - 14.0) < 0.3
-        )  # lip bore
-        ok &= hv(ch, X_A, s * (K.YO + 3.5), Z_A)  # rod seat in boss on the same axis
+    ok = (
+        void(yl, 0, K.Y_C1 - 3, hb)
+        and abs(extent(yl, 0, (0, K.Y_C0 + 1, hb), 10)[0] - 14.0) < 0.3
+    )  # left: 608 seat + lip bore
+    ok &= hv(bm, X_A, K.YO + 3.5, Z_A)  # left rod seat in the beam, same line
     seat_ok = extent(yl, 0, (0, K.Y_C1 - 3, hb), 20)
+    seat_r = extent(yr, 0, (0, -(K.Y_C1 - 3), hb), 30)
+    thru_r = extent(yr, 0, (0, -(K.Y_C0 + 1), hb), 30)
+    yb = -(
+        K.Y_C1 - 3
+    )  # right: hollow trunnion tube centred in the 6807 seat and through hole
+    tube_bore = 2 * reach(bm, 2, (0, yb, 0), +1, 30)  # H frame: axis at the origin
+    ring = (not void(bm, 0, yb, 17.2)) and void(bm, 0, yb, 17.8)  # OD 35
+    ok &= (
+        abs(seat_r[0] - (P.B6807_OD + 0.2)) < 0.3
+        and abs(thru_r[0] - (P.TUBE_OD + 5.0)) < 0.3
+    )
+    ok &= abs(tube_bore - P.JOUR_ID) < 0.3 and ring
+    spig = 2 * reach(el, 2, (0, yb, hb), +1, 30)  # elbow spigot bore (B frame)
+    gap = P.JOUR_ID / 2 - P.SPIG_OD / 2
+    ok &= abs(spig - P.SPIG_ID) < 0.3 and 0.2 <= gap <= 0.8 and void(el, 0, yb, hb)
+    ok &= not void(el, 0, yb, hb + P.SPIG_ID / 2 + 0.9)  # spigot wall present
     chk(
         "tilt_axis_bearing_seats_coaxial",
         ok and abs(seat_ok[0] - (P.B608_OD + 0.2)) < 0.3,
-        f"608 seat dia {seat_ok[0]:.2f} (bearing {P.B608_OD}+0.2) at z={hb} in both cheeks; rod seats in both bosses on the same line",
+        f"left 608 seat {seat_ok[0]:.2f}; right 6807 seat {seat_r[0]:.2f} + {thru_r[0]:.1f} through hole; hollow trunnion bore {tube_bore:.1f} "
+        f"OD {P.TUBE_OD}; fixed spigot bore {spig:.1f} OD {P.SPIG_OD:.1f} (running gap {gap:.2f}/side); left rod seat in the beam: all on z={hb}",
     )
     boss_gap = K.Y_C0 - (K.YO + P.BOSS_L)
     chk(
@@ -327,18 +478,35 @@ def run(recs, meshes, shapes, out):
         f"bore dia {dia:.2f} (ball {P.BALL_D} + {P.BALL_CLEAR}); cage, barrel halves share the axis",
     )
     hp = S["hopper"]
-    ok = all(
-        void(hp, sx * 12.7 + P.X_F - X_A, sy * 12.7, P.CHASSIS_Z1 + 2 - Z_A)
-        and void(ch, sx * 12.7 + P.X_F - X_A, sy * 12.7, P.CHASSIS_Z1 - 3 - Z_A)
-        for sx in (-1, 1)
-        for sy in (-1, 1)
-    )
-    port = extent(ch, 0, (P.X_F - X_A, 0, P.CHASSIS_Z1 - 3 - Z_A), 20)[0]
-    neck = extent(hp, 0, (P.X_F - X_A, 0, P.CHASSIS_Z1 + 10 - Z_A), 20)[0]
+    _, s1, zf = K.elbow_dims()
+    ok = True
+    for k in range(4):
+        px, py = K.polar(18, 45 + 90 * k)
+        ok &= void(hp, px, s1[1] + py, zf + 2) and void(el, px, s1[1] + py, zf - 3)
+    duct = extent(el, 0, (0, s1[1], zf - 10), 20)[0]
+    neck = extent(hp, 0, (0, s1[1], zf + 10), 20)[0]
     chk(
-        "hopper_neck_to_feed_port",
-        ok and abs(port - neck) < 0.3 and neck > P.BALL_D + 2,
-        f"flange screws line up; neck bore {neck:.1f} = feed port {port:.1f} (> ball {P.BALL_D})",
+        "hopper_neck_to_feed_elbow",
+        ok and abs(duct - neck) < 0.3 and neck > P.BALL_D + 2,
+        f"4 x M3 flange screws line up; neck bore {neck:.1f} = elbow duct {duct:.1f} (> ball {P.BALL_D}); hopper axis at y={s1[1]:.0f}, flange z={zf:.1f} (B frame, pan group)",
+    )
+    ok = all(
+        void(el, sx, -(K.Y_C1 + 2), hb + dz) and void(yr, sx, -(K.Y_C1 - 2), hb + dz)
+        for sx, dz in K.ELBOW_BOLTS
+    )
+    chk(
+        "feed_elbow_to_cheek_screws",
+        ok,
+        f"{len(K.ELBOW_BOLTS)} x M3 through the elbow plate into right-cheek inserts around the 6807 seat",
+    )
+    ok = all(
+        hv(ch, sx, sy, P.CAGE_Z1 - 3) and hv(bm, sx, sy, P.CAGE_Z1 + 1.5)
+        for sx, sy in K.BEAM_BOLTS
+    )
+    chk(
+        "trunnion_beam_to_cage_screws",
+        ok,
+        f"{len(K.BEAM_BOLTS)} x M3 through the beam foot into cage-top inserts (beam bolts on after the motors are in)",
     )
     cap = K.hopper_capacity()
     chk(
@@ -414,7 +582,7 @@ def run(recs, meshes, shapes, out):
             "barrel_half_b",
             "servo_bracket",
             "camera_mount",
-            "hopper",
+            "trunnion_beam",
         ):
             v = vol(i["shape"], S[pn])
             if v > 1.0 and not (n.startswith("fw_wheel") and False):
@@ -443,18 +611,12 @@ def run(recs, meshes, shapes, out):
             if abs(x) < 1e9:
                 worst = max(worst, vol(ball, s))
         n += 1
-    for z in np.arange(
-        P.CHASSIS_Z1 + 22 + 40, 0, -4.0
-    ):  # drop through the hopper neck and feed port
-        ball = K.L2H(Pos(P.X_F, 0, float(z)) * Sphere(rb_))
-        for s in (S["hopper"], S["launcher_chassis"]):
-            worst = max(worst, vol(ball, s))
-        n += 1
     chk(
         "ball_path_clear",
         worst < 0.5,
-        f"ball dia {P.BALL_D} swept through hopper neck, feed port, cage bore and barrel ({n} positions): max overlap {worst:.2f} mm3",
+        f"ball dia {P.BALL_D} swept along the bore and barrel ({n} positions): max overlap {worst:.2f} mm3",
     )
+    feed_checks(S, rb_)
     pist = S["piston"]
     worst = max(
         vol(Pos(dx, 0, 0) * pist, s)
@@ -496,9 +658,8 @@ def run(recs, meshes, shapes, out):
     stat_all = {**stat_p, **stat_b}
     exclude = {
         ("rod_left", "bearing_left"),
-        ("rod_right", "bearing_right"),
+        ("trunnion_beam", "bearing_right"),  # tube is the bearing inner race
         ("rod_left", "yoke_left"),
-        ("rod_right", "yoke_right"),
         ("rod_left", "tilt_motor_mount"),
         ("tilt_pulley_80t", "tilt_motor_pulley"),
         ("tilt_hub", "bearing_left"),
@@ -540,7 +701,7 @@ def run(recs, meshes, shapes, out):
     lo, hi = P.TILT_RANGE
     ev = {}
     for phi in (lo - 1, lo - 6, hi + 1, hi + 6):
-        ev[phi] = round(vol(rot_tilt(S["launcher_chassis"], phi), yr), 1)
+        ev[phi] = round(vol(rot_tilt(S["trunnion_beam"], phi), yr), 1)
     ok = ev[lo - 1] < 1 and ev[hi + 1] < 1 and ev[lo - 6] > 1 and ev[hi + 6] > 1
     chk(
         "tilt_stops_engage_outside_range",
@@ -551,15 +712,24 @@ def run(recs, meshes, shapes, out):
 
     # ---- 6 balance -------------------------------------------------------------------------------------------------------------------
     cgs = balance(recs)
-    ok = all(v["radial_mm"] <= P.BALANCE_LIMIT for v in cgs.values())
+    ok = all(v["torque_nm"] <= P.TILT_STATIC_BUDGET_NM for v in cgs.values())
     chk(
-        "head_cg_within_15mm_of_tilt_axis",
+        "head_static_torque_within_spec_budget",
         ok,
-        "; ".join(
+        f"spec 6.3 allows {P.TILT_STATIC_BUDGET_NM:.3f} N*m static unbalance at the tilt joint (1.2 kg head at 15 mm); "
+        + "; ".join(
             f"{k}: CG ({v['x']:.1f}, {v['z']:.1f}) mm from the axis, mass {v['mass_g']:.0f} g, |r|={v['radial_mm']:.1f}, "
             f"static torque {v['torque_nm']:.3f} N*m"
             for k, v in cgs.items()
         ),
+    )
+    ms = mass_split(recs)
+    chk(
+        "pan_tilt_mass_split",
+        True,
+        f"tilt group {ms['tilt_group_g']:.0f} g (hopper no longer on it); pan group (cheeks, hopper, elbow, motor) {ms['pan_group_g']:.0f} g "
+        f"+ {ms['balls_g']:.0f} g balls; pan-axis inertia hopper empty/full at tilt 0: {ms['Iz_pan_empty_kgm2']:.4f}/{ms['Iz_pan_full_kgm2']:.4f} kg*m2 "
+        f"(spec 6.3 assumed 7.4e-3 for the whole 1.5 kg head)",
     )
     cam = dict(y=0.0)
     bd, bw, bh = P.BRIO
@@ -573,7 +743,8 @@ def run(recs, meshes, shapes, out):
 
 
 def balance(recs):
-    """CG of the tilting head in H (x, z relative to the axis), with a full and an empty hopper."""
+    """CG of the tilting head in H (x, z relative to the axis); the hopper is on the pan group, so only the balls queued in the
+    chute (4 along C -> F, worst case) vary."""
     items = []
     for n, (_, g, cnt, _) in K.REGISTRY.items():
         if g == "tilt" and n not in ACCESSORIES:
@@ -583,10 +754,10 @@ def balance(recs):
         if i["shape"] is not None:
             c = i["shape"].center()
             items.append((i["mass"], [c.X, c.Y, c.Z]))
-    bx, by, bz = BT.balls_cg_L()
-    full = items + [(P.HOPPER_BALLS * P.BALL_M, [bx - X_A, by, bz - Z_A])]
+    cF = np.array([P.X_F - X_A, 0.0, -Z_A])
+    full = items + [(P.BALL_M, list(cF * t)) for t in (0.0, 1 / 3, 2 / 3, 1.0)]
     out = {}
-    for name, it in (("hopper_full", full), ("hopper_empty", items)):
+    for name, it in (("chute_loaded", full), ("chute_empty", items)):
         m = sum(a for a, _ in it)
         x = sum(a * c[0] for a, c in it) / m
         z = sum(a * c[2] for a, c in it) / m
@@ -598,6 +769,59 @@ def balance(recs):
             torque_nm=m * 1e-3 * 9.81 * math.hypot(x, z) * 1e-3,
         )
     return out
+
+
+def mass_split(recs, phi=0.0):
+    """Mass of the tilt group and the pan group, and the inertia about the pan axis of everything that rotates with pan
+    (head at tilt phi), with and without the 40 hopper balls. Bought items are point masses."""
+    ha = P.H_T
+    R = Ry_tilt(phi)
+    rows = {"tilt": [], "pan": []}
+    for n, (_, g, cnt, _) in K.REGISTRY.items():
+        if n in ACCESSORIES or g == "static":
+            continue
+        r = recs[n]
+        com, I = np.array(r["com_mm"]), np.array(r["inertia_kgm2_about_com"])
+        if g == "tilt":
+            com, I = np.array([0, 0, ha]) + R @ com, R @ I @ R.T
+        rows[g].append((r["filament_g"] * 1e-3, com * 1e-3, I))
+    for i in BT.head_items():
+        c = i["shape"].center()
+        rows["tilt"].append(
+            (
+                i["mass"] * 1e-3,
+                (np.array([0, 0, ha]) + R @ np.array([c.X, c.Y, c.Z])) * 1e-3,
+                np.zeros((3, 3)),
+            )
+        )
+    for i in BT.pan_items():
+        c = i["shape"].center()
+        m = i["mass"] * (
+            0.5 if i["name"] == "lazy_susan" else 1.0
+        )  # one ring is static
+        rows["pan"].append(
+            (m * 1e-3, np.array([c.X, c.Y, c.Z]) * 1e-3, np.zeros((3, 3)))
+        )
+    bx, by, bz = BT.balls_cg_B()
+    balls = (
+        P.HOPPER_BALLS * P.BALL_M * 1e-3,
+        np.array([bx, by, bz]) * 1e-3,
+        np.zeros((3, 3)),
+    )
+
+    def iz(rs):
+        return sum(r[2][2, 2] + r[0] * (r[1][0] ** 2 + r[1][1] ** 2) for r in rs)
+
+    allr = rows["tilt"] + rows["pan"]
+    return dict(
+        tilt_group_g=sum(r[0] for r in rows["tilt"]) * 1e3,
+        pan_group_g=sum(r[0] for r in rows["pan"]) * 1e3,
+        balls_g=balls[0] * 1e3,
+        Iz_pan_empty_kgm2=iz(allr),
+        Iz_pan_full_kgm2=iz(allr + [balls]),
+        tilt_deg=phi,
+        note="pan_group = printed pan parts incl. hopper+elbow+lid, tilt motor+pulley, bearings, half the lazy susan; inertia about B z of pan+tilt groups, bought items as point masses",
+    )
 
 
 def interface(recs):
@@ -690,14 +914,58 @@ def interface(recs):
                 ring2_z_mm=[P.Z_LS0 + 4.5, P.Z_ROTOR0],
                 note="confirm hole pattern at purchase",
             ),
-            bearings_608=[
-                dict(frame="B", pos_mm=[0, s * (K.Y_C1 - 3.5), P.H_T], axis=[0, 1, 0])
-                for s in (-1, 1)
-            ],
-            rods_8mm=[
-                dict(frame="H", y_range_mm=[39, K.Y_P0]),
-                dict(frame="H", y_range_mm=[-39, -(K.Y_C1 + 4)]),
-            ],
+            bearing_608_left=dict(
+                frame="B", pos_mm=[0, K.Y_C1 - 3.5, P.H_T], axis=[0, 1, 0]
+            ),
+            bearing_6807_right=dict(
+                frame="B",
+                pos_mm=[0, -(K.Y_C1 - P.B6807_W / 2), P.H_T],
+                axis=[0, 1, 0],
+                od_id_w_mm=[P.B6807_OD, P.B6807_ID, P.B6807_W],
+                note="inner race on the 35 mm hollow trunnion tube of trunnion_beam; seat in the right cheek outer face",
+            ),
+            rod_8mm_left=dict(frame="H", y_range_mm=[39, K.Y_P0]),
+            ball_feed=dict(
+                note="hopper + elbow are PAN group (frame B, do not tilt); balls enter the head along the tilt axis through the hollow right trunnion, "
+                "turn 90 deg at C (H origin) and roll down a straight chute to F, the rest point in front of the piston",
+                hopper=dict(
+                    frame="B",
+                    axis_B_mm=[0, -P.ELBOW_YH, K.elbow_dims()[2]],
+                    flange_bolts="4 x M3 on r=18 (45 deg + k*90), into elbow inserts",
+                    neck_bore_mm=P.DUCT_ID,
+                    balls=P.HOPPER_BALLS,
+                    top_rim_z_B_mm=K.elbow_dims()[2]
+                    + K.HOPPER["Hn"]
+                    + K.HOPPER["Hc"]
+                    + K._hopper_dims()[1],
+                ),
+                feed_elbow=dict(
+                    frame="B",
+                    plate_on="yoke_right outer face y=%.1f" % -K.Y_C1,
+                    bolts_x_dz_mm=[list(b) for b in K.ELBOW_BOLTS],
+                    slope_deg=P.ELBOW_SLOPE,
+                    slope_start_B_mm=list(K.elbow_dims()[1]),
+                    slope_end_B_mm=list(K.elbow_dims()[0]),
+                    spigot_tip_B_mm=[0, -P.SPIG_TIP_Y, P.H_T],
+                    spigot_od_id_mm=[P.SPIG_OD, P.SPIG_ID],
+                ),
+                trunnion_beam=dict(
+                    frame="H",
+                    elbow_point_C_H_mm=[0, 0, 0],
+                    rest_point_F_H_mm=[P.X_F - X_A, 0, -Z_A],
+                    chute_bore_mm=2 * P.CHUTE_R,
+                    trunnion_bore_mm=P.JOUR_ID,
+                    bolts_to_cage_L_xy_mm=[list(b) for b in K.BEAM_BOLTS],
+                ),
+                per_tilt_deg={
+                    str(int(k)): dict(
+                        chute_downhill_deg=round(v["chute"]["deg"], 1),
+                        level_run_mm=round(v["level"]["len"], 1),
+                        max_ball_overlap_mm3=round(v["worst"], 2),
+                    )
+                    for k, v in FEED.items()
+                },
+            ),
             pusher_servo=dict(
                 frame="H",
                 spline_L_mm=[K.X_S, K.Y_S, K.Z_SERVO_PLATE + 9.2],
@@ -727,5 +995,6 @@ def interface(recs):
             note="base_leg is drawn at centre (+88, +75); other instances rotate about their own centre by yaw_deg then translate. cable_clip x6 and camera_shim x2 are accessories drawn at the origin.",
         ),
         head_balance=balance(recs),
+        mass_split={f"tilt_{int(p)}": mass_split(recs, p) for p in (0.0, 70.0)},
         placement_of_part_meshes="every napl/<part>.stl is already in its group frame (B for static+pan, H for tilt): place at the group's frame origin, identity rotation",
     )
