@@ -242,6 +242,9 @@ def base_stator_plate():
         ]
     for sy in (-40, 40):  # front panel ears
         tools.append(hole("z", P.M3_INSERT_D, 96, sy, -T - EPS, -T + P.M3_INSERT_DEPTH))
+    tools.append(  # pan hard-stop stud insert (top)
+        hole("z", P.M3_INSERT_D, 0, -P.PAN_STOP_R, -P.M3_INSERT_DEPTH, EPS)
+    )
     return p.cut(*tools)
 
 
@@ -401,6 +404,33 @@ def pan_rotor_plate():
         for sx in YOKE_SCREW_X:
             for yy in YOKE_SCREW_Y:
                 tools.append(hole("z", P.M3_INSERT_D, sx, sy * yy, z1 - 6.0, z1 + EPS))
+    for sx in PAN_TAB_X:  # pan hard-stop tab inserts, from the underside
+        tools.append(hole("z", P.M3_INSERT_D, sx, PAN_TAB_Y, z0 - EPS, z0 + 6.0))
+    return p.cut(*tools)
+
+
+PAN_TAB_X, PAN_TAB_Y = (
+    (-7.0, 7.0),
+    84.0,
+)  # tab screws on the rotor underside (rotor frame +90 deg)
+
+
+def pan_stop_tab():
+    """Pan hard-stop tab (B frame, +y side under the rotor edge): thin plate screwed up into the rotor (csk M3, stays above the
+    pan hall mount's top as it sweeps past 180 deg) with a vertical blade at r = PAN_STOP_R that meets the stator stud."""
+    z0 = P.Z_ROTOR0
+    zp = z0 - 2.7
+    r, w = P.PAN_STOP_R, P.PAN_STOP_TAB_W
+    p = bxr(-12, 12, 80, 92, zp, z0).fuse(
+        bxr(-w / 2, w / 2, r - 2.25, r + 2.25, 3.0, zp + 1.0)
+    )
+    tools = []
+    for sx in PAN_TAB_X:
+        tools += [
+            hole("z", P.M3_CLR, sx, PAN_TAB_Y, zp - EPS, z0 + EPS),
+            Pos(sx, PAN_TAB_Y, zp + 0.85 - EPS / 2)
+            * Cone(P.M3_CSK_D / 2, P.M3_CLR / 2, 1.7 + EPS),
+        ]
     return p.cut(*tools)
 
 
@@ -1055,6 +1085,7 @@ REGISTRY = {
     "pan_rotor_plate": (pan_rotor_plate, "pan", 1, "PETG"),
     "pan_pulley_100t": (pan_pulley_100t, "pan", 1, "PETG"),
     "cable_collar": (cable_collar, "pan", 1, "PLA"),
+    "pan_stop_tab": (pan_stop_tab, "pan", 1, "PETG"),
     "yoke_left": (yoke_left, "pan", 1, "PETG"),
     "yoke_right": (yoke_right, "pan", 1, "PETG"),
     "tilt_motor_mount": (tilt_motor_mount, "pan", 1, "PETG"),

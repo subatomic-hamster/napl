@@ -208,3 +208,12 @@ TILT_STATIC_BUDGET_NM = (
     1.2 * 9.81 * 0.015
 )  # spec 6.3 static unbalance torque allowance at the tilt joint
 TILT_RANGE = (-15.0, 70.0)
+
+# ---- pan hard stop (spec 2.3): printed tab under the rotor edge (+90 deg) hits an M3 stud in the stator (-90 deg) at ~+-178 deg ----
+PAN_STOP_R = 89.75  # radius of the stud axis and the tab blade centre
+PAN_STOP_STUD_D, PAN_STOP_STUD_H = (
+    3.0,
+    14.0,
+)  # M3 threaded stud in a heat-set insert, height above the stator top
+PAN_STOP_TAB_W = 3.6  # tangential width of the tab blade
+PAN_STOP_DEG = 178.0  # target engagement angle, +-2

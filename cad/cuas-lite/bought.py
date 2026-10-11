@@ -147,4 +147,9 @@ def static_items():
             * Box(P.N17_FACE, P.N17_FACE, P.N17_LEN),
         ),
         dict(name="pan_motor_pulley", mass=8.0, shape=_cyl_z(16.0, 1.0, 15.0, c, 0)),
+        dict(  # M3 threaded stud, the pan hard stop
+            name="pan_stop_stud",
+            mass=1.0,
+            shape=_cyl_z(P.PAN_STOP_STUD_D, 0.0, P.PAN_STOP_STUD_H, 0.0, -P.PAN_STOP_R),
+        ),
     ]

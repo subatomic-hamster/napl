@@ -9,8 +9,16 @@ the 25 ksteps/s step-rate cap, hall homing, flywheel lag, pusher timing, E-stop 
 The link is the MCU's end: `mcu_read(t) -> bytes`, `mcu_write(data, t)` (LoopbackLink in-process, PtyMcu over a pty). Time is whatever clock the harness
 passes to step(): sim time in lockstep (the 300 ms watchdog counts sim time), wall time in HIL.
 
+Aligned with the firmware (firmware/cuas-lite-rp2040/src, divergence table in its README), which is what runs on the turret:
+  - spun = applied duty >= requested for >= spinup_ms since the request; the applied duty ramps up 4 permille/ms and drops at once (no rotor lag);
+  - a burst ended by a lost flywheel refresh / dead-man / inhibit goes to ARMED (ENGAGING needs a flywheel request);
+  - the planner brakes its P term to sqrt(2*amax*err) (a trapezoid), so a fast move does not overshoot the target;
+  - lost steps raise the TMC2209 DIAG pin (joint more than 4 full steps from the command); FAULT_DRIVER_DIAG follows after 50 ms of DIAG; no resync;
+  - homing works from any start: SEEK_POS at 100 deg/s for the negative half-range + 10 deg, then SEEK_NEG for the full range + 20 deg, any hall hit
+    goes through CLEAR (out the negative edge) to the slow APPROACH, so the edge that sets home is always the rising edge met moving positive;
+  - STATUS every 10 ms from the first one (no catch-up burst); cfg_crc = CRC-32 of the 88-byte config image; home offsets default to 0
+    (a hall window of +-1 deg is centred on q_hall: home_off_deg=(-1, -1) puts home-frame 0 at its centre, as a calibrated unit).
 Deviations from a literal reading of the spec, for the firmware worker to know (all marked "twin" in the code):
-  - "flywheel applied >= requested" is modelled as applied >= 90 % of requested (a first-order lag never reaches 100 %) for >= spinup_ms since the request;
   - key-off / E-stop / watchdog / new session cut the flywheel PWM to 0 in the same tick (a coasting rotor is not modelled);
   - ACK(ARM, ok).info carries the active shot cap, ACK(HOME, ok).info the axis mask;
   - heartbeats before the first HELLO are ignored; every command but HELLO is answered BAD_STATE before the first HELLO.
@@ -18,6 +26,7 @@ Deviations from a literal reading of the spec, for the firmware worker to know (
 
 import math
 import os
+import struct
 import zlib
 from collections import deque
 
@@ -52,8 +61,10 @@ STATUS_PERIOD = 0.010
 HOMING_TIMEOUT_S = 15.0
 BACKOFF_DEG = 3.0
 HALL_HALF_WIDTH_DEG = 1.0
-FW_TAU = 0.25
-SPUN_FRACTION = 0.9
+FW_RAMP_PER_MS = 4.0  # permille per ms soft start (inrush limit), as the firmware
+DIAG_FAULT_MS = 50
+HOMING_SEARCH_DEG_S = 100.0
+CFG_IMAGE_MAGIC, CFG_IMAGE_VERSION = 0x31434C43, 1
 FW_REFRESH_S = 0.5
 DEADMAN_LOW_S = 1.0
 AIM_STALE_VFF_S, AIM_STALE_HOLD_S = 0.25, 1.0
@@ -111,8 +122,14 @@ class Axis:
         self.homed = False
         self.offset = 0.0  # joint = sign * pos + offset
         self.sign = 1.0
-        self.homing = None  # None | "clear" | "approach" | "backoff"
+        self.homing = (
+            None  # None | "seek_pos" | "seek_neg" | "clear" | "approach" | "backoff"
+        )
         self.homing_t0 = 0.0
+        self.marked = False
+        self.mark = (
+            0.0  # where the seek started / where the hall released while backing out
+        )
         self.hall = False
         self.prev_hall = False
         self.cmd_joint = None  # last joint angle written to the plant
@@ -128,15 +145,17 @@ class SimRP2040:
         q_hall=(0.0, 0.0),
         step_loss=True,
         cfg_invalid=False,
-        home_off_deg=(-1.0, -1.0),
+        home_off_deg=(0.0, 0.0),
         status_from_joint=False,
     ):
         self.status_from_joint = status_from_joint
         self.plant, self.link, self.uid = plant, link, uid
         self.q_hall, self.step_loss = q_hall, step_loss
+        self.diag_pin, self.diag_ms = False, 0
+        self.faults_reported = 0
         self.cfg = dict(p.CFG_DEFAULTS)
-        # twin: the hall window is 2 deg wide centred on q_hall; the edge the approach sees is half a window short of the centre, so the default home
-        # offset puts home-frame 0 at the window centre (the firmware calibrates cfg 7, 8 the same way)
+        # twin: the hall window is 2 deg wide centred on q_hall; the edge the approach sees is half a window short of the centre, so a home offset of
+        # -1 deg puts home-frame 0 at the window centre (cfg 7, 8 are calibrated that way on a real unit; the default is 0, as the firmware's)
         for k, d in (
             (p.CFG_PAN_HOME_OFF, home_off_deg[0]),
             (p.CFG_TILT_HOME_OFF, home_off_deg[1]),
@@ -196,6 +215,9 @@ class SimRP2040:
         self.refusals = []  # (t, cmd_id, result)
         self.transitions = []  # (t, state, reason)
         if self.fault_bits:
+            self.faults_reported = (
+                self.fault_bits
+            )  # the cfg-invalid fault is reported by the state, not by an EVENT
             self._to(FAULT, p.R_FAULT, quiet=True)
 
     # ---- helpers -----------------------------------------------------------------------------------------------------------------------
@@ -286,6 +308,9 @@ class SimRP2040:
     def _steppers(self, on):
         if on != self.steppers_enabled:
             self.steppers_enabled = on
+            if on:  # twin: the steppers hold wherever the joint is; home-frame position 0 is that angle until homed
+                for a, qi in zip(self.ax, self.plant.joint_deg()):
+                    a.offset = qi - a.sign * a.pos
             self.plant.set_torque(on)
             if not on:
                 for a in self.ax:
@@ -313,9 +338,19 @@ class SimRP2040:
         {p.HEARTBEAT: self._heartbeat, p.AIM: self._aim, p.HOME: self._home, p.FLYWHEEL: self._flywheel_cmd, p.FIRE: self._fire, p.ARM: self._arm,
          p.CFG_SET: self._cfg_set, p.CFG_GET: self._cfg_get, p.CFG_SAVE: self._cfg_save, p.CLEAR_FAULT: self._clear_fault, p.BOOTSEL: self._bootsel}[f.id](f, m)  # fmt: skip
 
+    def _image_crc(self):
+        """cfg_crc: CRC-32 of the stored config image (magic "CLC1", version, cfg 1..19 as i32 LE), as the firmware's flash sector."""
+        body = struct.pack(
+            "<II19i",
+            CFG_IMAGE_MAGIC,
+            CFG_IMAGE_VERSION,
+            *(self.flash[k] for k in range(1, 20)),
+        )
+        return zlib.crc32(body) & 0xFFFFFFFF
+
     def _hello(self, f, h: Hello):
         res = p.hello_result(h)
-        crc = zlib.crc32(repr(sorted(self.flash.items())).encode()) & 0xFFFFFFFF
+        crc = self._image_crc()
         if res:
             self.version_bad = True
         else:
@@ -371,9 +406,10 @@ class SimRP2040:
             if m.axis_mask >> i & 1:
                 a.homed, a.homing, a.homing_t0 = (
                     False,
-                    "clear" if a.hall else "approach",
+                    "clear" if a.hall else "seek_pos",
                     self.t,
                 )
+                a.marked, a.mark = False, a.pos
         self._ack(f, p.OK, m.axis_mask & 3)
 
     def _flywheel_cmd(self, f, m: Flywheel):
@@ -434,7 +470,7 @@ class SimRP2040:
     def _spun(self):
         return (
             self.fw_req > 0
-            and self.fw >= SPUN_FRACTION * self.fw_req
+            and self.fw >= self.fw_req
             and (self.t - self.fw_req_t) * 1000 >= self.cfg[p.CFG_SPINUP_MS]
         )
 
@@ -505,7 +541,7 @@ class SimRP2040:
             return self._ack(f, p.BAD_STATE)
         if self.estop_open:
             return self._ack(f, p.INTERLOCK)
-        self.fault_bits = 0
+        self.fault_bits = self.faults_reported = self.diag_ms = 0
         if self.state == FAULT:
             self._to(SAFE, p.R_DISARM)
         self._ack(f, p.OK)
@@ -543,6 +579,10 @@ class SimRP2040:
         self._axes()
         if self.hello_done and self.t >= self.next_status:
             self.next_status += STATUS_PERIOD
+            if (
+                self.t >= self.next_status
+            ):  # late (the link was down): no catch-up burst
+                self.next_status = self.t + STATUS_PERIOD
             self._send(self._status())
 
     def _inputs(self):
@@ -580,6 +620,17 @@ class SimRP2040:
                 self.wd_tripped = True
                 self._event(p.EV_WATCHDOG, int((self.t - self.last_hb_t) * 1000))
                 self._to(SAFE, p.R_WATCHDOG)
+        if self.diag_pin and self.steppers_enabled:
+            self.diag_ms = min(self.diag_ms + 1, 255)
+            if self.diag_ms > DIAG_FAULT_MS:
+                self.fault_bits |= p.FAULT_DRIVER_DIAG
+        else:
+            self.diag_ms = 0
+        fresh = self.fault_bits & ~self.faults_reported
+        for b in range(6):
+            if fresh >> b & 1:
+                self._event(p.EV_FAULT, b)
+        self.faults_reported |= fresh
         if self.fault_bits and self.state != FAULT:
             self._to(FAULT, p.R_FAULT)
         if (self.state == SAFE and self.hello_done and not self.version_bad and not self.fault_bits and not self.estop_open and self.hb_run >= 20
@@ -613,9 +664,10 @@ class SimRP2040:
     def _flywheel(self):
         tgt = self.fw_req if self.rail_on and self.armed_state else 0.0
         if self.fw != tgt:
-            self.fw += (tgt - self.fw) * (1 - math.exp(-SUB / FW_TAU))
-            if abs(self.fw - tgt) < 5.0:
+            if self.fw > tgt:  # spin-down is immediate: the gate is switched off
                 self.fw = tgt
+            else:
+                self.fw = min(tgt, self.fw + FW_RAMP_PER_MS)
             self.plant.set_flywheel(self.fw)
 
     def _pusher(self):
@@ -661,8 +713,8 @@ class SimRP2040:
             return
         if self.shots_arm >= self.shot_cap:
             self._to(IDLE, p.R_SHOT_CAP)
-        else:
-            self._to(ENGAGING, p.R_NONE)
+        else:  # ENGAGING needs a flywheel request (spec 3.1): a burst ended by a lost refresh / dead-man / inhibit goes to ARMED
+            self._to(ENGAGING if self.fw_req > 0 else ARMED, p.R_NONE)
 
     # ---- axes --------------------------------------------------------------------------------------------------------------------------
     def _axes(self):
@@ -701,7 +753,12 @@ class SimRP2040:
             if self.state == SAFE:  # watchdog hold: targets frozen where they were
                 tgt, vff = a.pos, 0.0
             vmax = min(vmax, vcap)
-            v_cmd = max(-vmax, min(vmax, vff + KP * (tgt - a.pos)))
+            err = (
+                tgt - a.pos
+            )  # P term braked to the stopping distance v^2/(2*amax) (a trapezoid: no overshoot on a fast move)
+            brake = math.sqrt(2 * amax * abs(err))
+            vp = max(-brake, min(brake, KP * err))
+            v_cmd = max(-vmax, min(vmax, vff + vp))
             room_hi, room_lo = (
                 max(0.0, hi - a.pos),
                 max(0.0, a.pos - lo),
@@ -733,15 +790,39 @@ class SimRP2040:
     def _homing(self, i, a, q, vcap):
         spd = self.spd(i)
         v = min(self.cfg[p.CFG_HOMING_SPEED] / 10.0, vcap)
-        if self.t - a.homing_t0 > HOMING_TIMEOUT_S:
-            a.homing = None
-            self.fault_bits |= p.FAULT_HOMING_TIMEOUT
-            return self._event(p.EV_FAULT, 0)
-        if a.homing == "clear":  # on the sensor: back out on the negative side first
+        vs = min(HOMING_SEARCH_DEG_S, vcap)
+        lo, hi = (
+            self.cfg[k] / 1000.0
+            for k in ((p.CFG_PAN_MIN, p.CFG_PAN_MAX), (p.CFG_TILT_MIN, p.CFG_TILT_MAX))[
+                i
+            ]
+        )
+        timeout = self.t - a.homing_t0 > HOMING_TIMEOUT_S
+        if (
+            a.homing == "seek_pos"
+        ):  # negative half-range + 10 deg: a start on the negative side must meet the sensor within it
+            a.pos += vs * SUB
+            a.v = vs
+            if a.hall:
+                a.homing, a.marked = "clear", False
+            elif a.pos - a.mark > -lo + 10.0:
+                a.homing, a.mark = "seek_neg", a.pos
+        elif (
+            a.homing == "seek_neg"
+        ):  # the start was on the positive side: sweep down through the whole range
+            a.pos -= vs * SUB
+            a.v = -vs
+            if a.hall:
+                a.homing, a.marked = "clear", False
+            elif a.mark - a.pos > (hi - lo) + 20.0:
+                timeout = True  # nothing found: sensor or magnet missing
+        elif a.homing == "clear":  # on the sensor: back out on the negative side first
             a.pos -= v * SUB
             a.v = -v
-            if a.sign * (q - self.q_hall[i]) < -(
-                HALL_HALF_WIDTH_DEG + 2.0
+            if not a.hall and not a.marked:
+                a.marked, a.mark = True, a.pos
+            if (
+                a.marked and a.pos <= a.mark - 2.0
             ):  # 2 deg clear of the window's negative edge
                 a.homing = "approach"
         elif a.homing == "approach":
@@ -759,12 +840,16 @@ class SimRP2040:
                 a.pos, a.v, a.homing, a.homed = a.target, 0.0, None, True
                 a.t_aim = None
                 self._event(p.EV_HOMED, 1 << i)
+        if timeout and a.homing:
+            a.homing, a.v = None, 0.0
+            self.fault_bits |= p.FAULT_HOMING_TIMEOUT
 
     def _write_plant(self):
         """Once per call: joint goals = sign * pos + offset, and the step-loss check against where the joint actually is."""
         if self.t is None:
             return
         q = self.plant.joint_deg()
+        self.diag_pin = False
         for i, a in enumerate(self.ax):
             if not self.steppers_enabled:
                 a.cmd_joint = None
@@ -773,11 +858,10 @@ class SimRP2040:
                 full = (
                     4 * 16 * 360.0 / a.spr
                 )  # 4 full motor steps in output degrees (pan 1.44, tilt 1.8)
-                if abs(q[i] - a.cmd_joint) > full:
-                    a.pos = (q[i] - a.offset) / a.sign
-                    a.homed, a.v = False, 0.0
-                    self.fault_bits |= p.FAULT_DRIVER_DIAG
-                    self._event(p.EV_FAULT, 1)
+                if (
+                    abs(q[i] - a.cmd_joint) > full
+                ):  # compared with the PREVIOUS call's goal (5 ms to follow); the TMC2209 raises DIAG
+                    self.diag_pin = True
             a.cmd_joint = a.sign * a.pos + a.offset
         if self.steppers_enabled:
             self.plant.set_joint_goal(self.ax[0].cmd_joint, self.ax[1].cmd_joint)

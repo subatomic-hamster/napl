@@ -20,13 +20,18 @@ def make_mcu(plant, link, **kw):
         from fwmcu import FwMcu
 
         return FwMcu(plant, link, **kw)
+    kw.setdefault(
+        "home_off_deg", (-1.0, -1.0)
+    )  # a calibrated unit: home-frame 0 at the hall window centre (the twin's own default is 0, the firmware's)
     return SimRP2040(plant, link, **kw)
 
 
 class Rig:
-    def __init__(self, **twin_kw):
+    def __init__(self, start=(0.0, 0.0), **twin_kw):
         self.clock = ManualClock()
-        self.plant = KinematicPlant()
+        self.plant = KinematicPlant(
+            *start
+        )  # joint angles at power-up (the steppers know nothing about them until homed)
         self.link = LoopbackLink(self.clock)
         self.twin = make_mcu(self.plant, self.link, **twin_kw)
         self.gim = SerialGimbal(self.link, self.clock, session=7)
