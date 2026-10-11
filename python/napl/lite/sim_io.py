@@ -1,10 +1,10 @@
 """Sim-side I/O implementations (spec section 4): clocks, the napl plant behind SimRP2040, SimCamera, TruthDetector, the scene builder for the
 placeholder turret + hanging targets, and the lockstep harness.
 
-PLACEHOLDER SCENE. Turret kinematics come from the existing assemblies/turret.toml (2 x XL430 servos as pan / tilt, the pellet launcher device,
-the Pi camera pose device) because the cuas-lite assembly (cad / parts workers) does not exist yet. build_scene() overrides the launcher's ballistic
-constants with BALL (22.2 mm, 1.86 g, Cd 0.47, v0 30 m/s, sigma 1.5 m/s, spread 10 mrad) and adds targets as MJCF pendulums (ball joint, no code
-moves them: deterministic kernel physics). When the real assembly exists, build_scene() keeps the same names: /devices/turret_pan, _tilt, _gun, _cam.
+SCENE. The turret is assemblies/cuas-lite.toml (CAD meshes, NEMA 17 + TMC2209 stepper-as-servo pan / tilt, the foam launcher at the muzzle, the Brio
+camera pose device); names /devices/turret_pan, _tilt, _gun, _cam. build_scene() overrides the launcher's ballistic constants with BALL (22.2 mm,
+1.86 g, Cd 0.47, v0 30 m/s, sigma 1.5 m/s, spread 10 mrad) and adds targets as MJCF pendulums (ball joint, no code moves them: deterministic kernel
+physics). measure_geometry() re-measures the head geometry off the built scene (h_t 202 mm, muzzle 130 / -51.5 mm, Brio 122 / -10 mm).
 
     sc = build_scene(out_dir, [Balloon("b1", (8, 0, 2.0))])
     run = Lockstep(sc, run_dir, targets=[...])    # World + SimRP2040 + SimCamera + TruthDetector + App
@@ -129,7 +129,7 @@ def build_scene(out, targets=(), mast=1.0, env=None, seed=1, v0=aimlib.V0_NOMINA
     out = Path(out)
     scene = compose(
         out,
-        [Vehicle("turret", "turret", pos=(0.0, 0.0, mast), pedestal=mast)],
+        [Vehicle("turret", "cuas-lite", pos=(0.0, 0.0, mast), pedestal=mast)],
         env or Environment(),
         seed=seed,
     )
@@ -182,7 +182,7 @@ def build_scene(out, targets=(), mast=1.0, env=None, seed=1, v0=aimlib.V0_NOMINA
 
 
 def measure_geometry(world, plant, settle=120):
-    """Head geometry of the placeholder turret by posing it: muzzle and camera at tilt 0 and 0.3 rad give the tilt pivot (spec 5.1 frame B: origin on
+    """Head geometry of the turret by posing it: muzzle and camera at tilt 0 and 0.3 rad give the tilt pivot (spec 5.1 frame B: origin on
     the pan axis at the vehicle position, pan 0 = +x). Leaves the head at (0, 0)."""
     base = np.array(world.man["vehicles"]["turret"]["pos"], float)
     plant.set_torque(True)
@@ -406,8 +406,9 @@ class Lockstep:
         self.clock = SimClock(w)
         self.plant = NaplPlant(w)
         self.link = LoopbackLink(self.clock)
-        # step_loss off: the placeholder joints are XL430 servos with a position-loop lag at speed, not steppers; with the real stepper part (and its
-        # pull-in torque curve) the spec's lost-steps model (4 full steps) applies and is the default of SimRP2040
+        # step_loss off: the kernel joint is a stepper-as-servo position loop (DC-equivalent motor, no pull-in torque curve, no step loss), so the
+        # spec's lost-steps model (4 full steps, the default of SimRP2040) has no plant behind it here; pid_scale of the assembly is tuned so that a
+        # 40 deg move at 100-240 deg/s is tracked within 0.05 deg with 0.03 deg overshoot
         self.twin = SimRP2040(
             self.plant,
             self.link,
@@ -424,7 +425,7 @@ class Lockstep:
         cfg = app_cfg or AppCfg()
         if (
             app_cfg is None
-        ):  # the placeholder XL430 joints lag a 240 deg/s command by several degrees; slow slews keep the lag under ~1 deg
+        ):  # slow slews: kept from the XL430 placeholder (lag under ~1 deg); the stepper-servo tracks 240 deg/s within 0.05 deg but the scenarios were tuned on these
             cfg.fire.vmax, cfg.fire.amax = (100.0, 70.0), (600.0, 500.0)
         cfg.auto_home = True
         self.app = App(

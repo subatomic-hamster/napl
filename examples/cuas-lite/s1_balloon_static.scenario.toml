@@ -1,6 +1,6 @@
 # napl program examples/cuas-lite/s1_balloon_static.scenario.toml --runs-dir <dir>
-# cuas-lite lockstep scenario (spec 7.2, balloons): the real app + SimRP2040 twin + TruthDetector on the napl kernel (PLACEHOLDER turret:
-# assemblies/turret.toml with a BALL launcher, see python/napl/lite/sim_io.py). Session arm at t = 8 s. CPU only, deterministic.
+# cuas-lite lockstep scenario (spec 7.2, balloons): the real app + SimRP2040 twin + TruthDetector on the napl kernel (turret:
+# assemblies/cuas-lite.toml with a BALL launcher, see python/napl/lite/sim_io.py). Session arm at t = 8 s. CPU only, deterministic.
 # Entry points: scene.py (build), run.py (harness). Monitors read trace.csv columns of napl.cuas.world; the lite safety checks are in lite.json
 # (run.py exits 1 if one fails).
 name = "cuas-lite-s1"

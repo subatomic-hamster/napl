@@ -52,7 +52,8 @@ def test_geometry_was_measured_off_the_scene(runs):
         0.05 < g.h_t < 0.6
         and 0.05 < g.l_m < 0.6
         and abs(g.d_b) < 0.2
-        and 0.0 < g.d_c < 0.3
+        and abs(g.d_c)
+        < 0.3  # cuas-lite: the Brio sits 10 mm below the tilt axis (the placeholder camera was above it)
     ), g
 
 
