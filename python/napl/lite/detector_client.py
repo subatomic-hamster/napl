@@ -212,6 +212,12 @@ class SocketDetector:
             line, self.buf = self.buf.split(b"\n", 1)
             try:
                 m = json.loads(line)
+                if (
+                    "error" in m
+                ):  # the detector could not serve it: stale, not "nothing seen" (fail closed)
+                    if self.waiting and int(m["seq"]) >= self.waiting[0]:
+                        self.waiting = None
+                    continue
                 best = DetResult(int(m["seq"]), float(m.get("t_infer_ms", 0.0)),
                                  [Det(d["cls"], float(d["conf"]), tuple(float(x) for x in d["xyxy"])) for d in m.get("dets", [])], self.clock.now())  # fmt: skip
             except (ValueError, KeyError, TypeError):

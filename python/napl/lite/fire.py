@@ -6,7 +6,7 @@
     d.inhibit, d.aim, d.flywheel, d.fire, d.reasons          # FIRE_INHIBIT for the heartbeat, AIM, FLYWHEEL duty, FIRE n, why not
 
 Authorization (Q9, resolved): the default is SESSION ARM, once ARMED every confirmed in-sector track is engageable; with `cfg.per_track_auth` the
-operator must `authorize(track_id)` first (valid 10 s, 3 rounds). Everything else holds in both modes: person block (a person at conf >= 0.25 anywhere
+operator must `authorize(track_id)` first (valid 10 s, 3 rounds). Everything else holds in both modes: person block (a person at conf >= 0.15 anywhere
 in the last 1.0 s, a stale detector or camera, a target box overlapping a person box), geofence (target AND commanded barrel inside the sector,
 el_min >= 0), dead-man fresh (< 0.5 s), pointing error <= min(0.5 deg, 0.25 x the target's angular radius), per-arm shot cap and timeout, key on /
 E-stop released / homed (from STATUS). Default-deny: FIRE_INHIBIT is in every heartbeat except while a FIRE this module decided is in flight.
@@ -91,7 +91,7 @@ class FireCfg:
     arm_timeout_s: int = 60
     burst: int = 1
     min_conf: float = 0.5
-    person_conf: float = 0.25
+    person_conf: float = 0.15  # = the detector's own person threshold (cuas-lite-detector README): no person det is ignored
     person_hold_s: float = 1.0
     det_stale_s: float = 0.25
     deadman_s: float = 0.5

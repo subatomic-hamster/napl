@@ -100,6 +100,36 @@ def test_fixed_standin_reports_a_person(tmp_path):
         assert [(d.cls, d.conf) for d in r.dets] == [("person", 0.9), ("balloon", 0.8)]
 
 
+def test_detector_error_reply_is_stale_not_empty():
+    """cuas-lite-detector answers a request it cannot serve with `"error"` and no dets: that must read as a stale detector (fail closed), never
+    as a valid "nothing seen" reply."""
+    import socket
+
+    class Clock:
+        t = 0.0
+
+        def now(self):
+            return self.t
+
+    clock = Clock()
+    det = SocketDetector(clock, "/nonexistent")
+    a, b = socket.socketpair()
+    a.setblocking(False)
+    det.sock, det.last_reply_t, det.waiting = a, 0.0, (5, 0.0)
+    clock.t = 0.3
+    b.sendall(
+        b'{"seq": 5, "t_infer_ms": -1, "dets": [], "error": "slot size mismatch"}\n'
+    )
+    time.sleep(0.01)
+    assert det.poll() is None and det.waiting is None
+    assert det.stale_s == pytest.approx(0.3)  # not refreshed by the error reply
+    b.sendall(b'{"seq": 6, "t_infer_ms": 9, "dets": []}\n')
+    time.sleep(0.01)
+    assert det.poll().seq == 6 and det.stale_s == 0.0
+    a.close()
+    b.close()
+
+
 def test_web_ui_token_commands_sse_and_mjpeg():
     from apprig import AppRig
     from napl.lite.web import serve
