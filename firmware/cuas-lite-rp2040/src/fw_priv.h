@@ -11,6 +11,7 @@
 #define HALL_HALF_WIDTH_DEG 1.0
 #define BACKOFF_DEG 3.0
 #define HOMING_TIMEOUT_MS 15000
+#define HOMING_SEARCH_DEG_S 100.0   /* seek speed before the sensor is known; the final approach runs at homing_speed (cfg 19) */
 
 void fw_event(fw_t *f, uint8_t code, int32_t arg);
 #define MS_SINCE(f, t) ((uint32_t)((f)->now - (t)))

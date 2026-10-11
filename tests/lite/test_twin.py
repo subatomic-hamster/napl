@@ -49,6 +49,49 @@ def test_homing_sets_flags_and_zero():
     assert [t for t, s, why in r.twin.transitions if why == p.R_LINK_UP]
 
 
+@pytest.mark.parametrize(
+    "start,worst_s",
+    [
+        ((100.0, 40.0), 8.0),
+        ((-120.0, -10.0), 6.0),
+        ((0.0, 0.0), 3.0),
+        ((160.0, 65.0), 12.0),
+    ],
+)
+def test_homing_from_any_start(start, worst_s):
+    """Bidirectional search: a start on the positive side of the hall (pan 100, tilt 40) is found by the reverse sweep, and the final approach is always
+    from the negative side, so the zero is the same wherever the turret was."""
+    r = Rig(start=start)
+    r.run(1.3)
+    assert r.st.state == p.IDLE
+    r.gim.home()
+    t = 0.0
+    while t < worst_s and not (
+        r.st.flag1(p.F1_PAN_HOMED) and r.st.flag1(p.F1_TILT_HOMED)
+    ):
+        r.run(0.1)
+        t += 0.1
+    assert r.st.flag1(p.F1_PAN_HOMED) and r.st.flag1(p.F1_TILT_HOMED), (
+        t,
+        r.st.fault_bits,
+    )
+    r.run(0.2)
+    assert r.st.fault_bits == 0
+    r.gim.aim(0, 5.0)
+    r.run(2.0)
+    assert (
+        abs(r.plant.q[0]) < 0.25 and abs(r.plant.q[1] - 5.0) < 0.25
+    )  # home-frame 0 is the window centre, whatever the start (the hall edge is seen once per 5 ms rig step: 0.1 deg at the 20 deg/s approach)
+
+
+def test_homing_without_a_sensor_times_out_in_the_fault():
+    r = Rig(start=(100.0, 40.0), q_hall=(1e6, 1e6))
+    r.run(1.3)
+    r.gim.home()
+    r.run(16.0)
+    assert r.twin.state == p.FAULT and r.twin.fault_bits & p.FAULT_HOMING_TIMEOUT
+
+
 def test_arm_preconditions():
     r = Rig().up(homed=False)
     r.arm()

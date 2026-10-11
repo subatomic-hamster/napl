@@ -409,7 +409,11 @@ class Lockstep:
         # step_loss off: the placeholder joints are XL430 servos with a position-loop lag at speed, not steppers; with the real stepper part (and its
         # pull-in torque curve) the spec's lost-steps model (4 full steps) applies and is the default of SimRP2040
         self.twin = SimRP2040(
-            self.plant, self.link, step_loss=False, status_from_joint=True
+            self.plant,
+            self.link,
+            step_loss=False,
+            status_from_joint=True,
+            home_off_deg=(-1.0, -1.0),
         )
         self.geom = measure_geometry(w, self.plant)
         self.twin.step(w.t)

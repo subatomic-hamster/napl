@@ -197,6 +197,29 @@ State-change reasons: 1 boot, 2 watchdog, 3 estop, 4 key_off, 5 disarm, 6 arm_ti
 | 18 | wd_ms | ms (clamped <= 300) | 300 |
 | 19 | homing_speed | 0.1 deg/s | 200 |
 
+### 2.3 Homing and the stepper drivers (firmware behaviour, v1.1)
+
+**Homing works from any start position** (`HOME`, IDLE only). The final approach is always from the negative side, at `homing_speed`, so the edge that sets home is
+always the rising edge met moving positive and the zero is the same wherever the axis started:
+
+1. Hall already active: **CLEAR**: back out in the negative direction at `homing_speed` until the sensor releases, plus 2 deg more, then step 4.
+2. Hall inactive: **SEEK_POS** at the search speed (100 deg/s, capped by the 25 ksteps/s limit) for the negative half-range + 10 deg (pan 180 deg, tilt 25 deg). A start on
+   the negative side must meet the window within it.
+3. No sensor yet: the start was on the positive side. **SEEK_NEG** at the search speed for the full range + 20 deg (pan 360 deg, tilt 105 deg) until the sensor turns up;
+   none: `homing_timeout`. Any hit during 2 or 3 goes to CLEAR (through the window, out its negative edge).
+4. **APPROACH** at `homing_speed` (positive); on the hall rising edge the position is set to `home_off` (cfg 7, 8) and the axis **BACKs OFF** 3 deg, then `HOMED`.
+
+Worst case at the defaults (pan, start at the +170 deg soft limit): 1.8 s + 3.5 s + about 0.7 s = about 6 s, inside the 15 s `homing_timeout` (tilt about 2 s). Note for the
+mechanics: SEEK_POS moves up to 180 deg (pan) / 25 deg (tilt) *positive* from an unknown start, which can pass the positive soft limit; the cable loop and stops must allow it
+(or park the turret on the negative side before power-up). The twin (`SimRP2040`) implements the same procedure.
+
+**Stepper drivers.** Two TMC2209 on two separate single-wire UARTs at 115200 baud (pan: UART1, GP20 TX / GP21 RX; tilt: UART0, GP0 TX / GP1 RX), each TX through 1 kohm to the
+driver's PDN_UART node. The strap MS1 = MS2 = VIO (16 microsteps) gives *both* drivers UART address 3, so they cannot share a wire; a dead link still runs the axis at 16
+microsteps with the VREF-pot current. Both DIAG outputs are wired-OR to GP22 (active high) and feed `driver_diag` (high for more than 50 ms). The firmware writes at boot:
+GCONF `0x1C0` (UART control, microsteps from MRES, current from IHOLD_IRUN), CHOPCONF `0x14000053` (16 microsteps, interpolated to 256), IHOLD_IRUN (IRUN 21 = 1.2 A RMS,
+IHOLD 10 = 0.6 A, IHOLDDELAY 6), TPOWERDOWN 20, and reads CHOPCONF and IHOLD_IRUN back. **Chopper mode: stealthChop below TPWMTHRS = 234 (3,200 steps/s: 72 deg/s pan,
+90 deg/s tilt), spreadCycle above it**, where the torque is needed (6.3). A DEBUG frame (id 0x86) after the first `HELLO` reports the read-back (`tmc pan=0 tilt=0`, 0 = ok).
+
 ## 3. Safety and fire-control state machine
 
 ### 3.1 States and transitions (the MCU implements all six; the app mirrors the MCU `state` and adds its own sub-states)
@@ -342,9 +365,9 @@ Implements section 2 byte for byte (same `protocol.py` encode/decode module as t
 |---|---|
 | step generator + planner | same 1 kHz velocity/accel-limited servo (2.1 `AIM` semantics), in Python, integrated in 5 ms control periods with 1 ms sub-steps; position quantised to microsteps (`steps_per_rev`) |
 | step-rate limit -> joint velocity | max step rate 25 ksteps/s caps `vmax`: `v_joint_max = 25000 / steps_per_rev * 360 deg/s` (pan 562 deg/s). The planner position `q_cmd` (rad) is written each control period as `goal_position` on the joint's servo device with `goal_speed = 0` (no second profile) |
-| motor torque / step loss | the joint device's torque limit is the pull-in torque at that speed (stepper part; section 6.4). If `|q_joint - q_cmd|` exceeds 4 full motor steps (pan 1.44 deg, tilt 1.8 deg) the twin declares lost steps: re-syncs `q_cmd := q_joint`, clears that axis' homed flag and raises `driver_diag` (optional fidelity, default on) |
-| hall homing sensor | `hall = |q_joint - q_hall| < 1.0 deg` (hysteresis-free window 2 deg wide), `q_hall` = 0 deg for both axes by default, a parameter of the assembly (the CAD magnet position); homing is the firmware routine: approach the sensor from the negative side at `homing_speed`, on the edge set position to `home_off`, back off 3 deg |
-| flywheel | `duty_permille` ramps with first-order lag `tau = 0.25 s` [est]; the launcher device's `muzzle_velocity` is set to `v0 = k_v * rotor_speed` (calibrated so that duty 800 gives 30 m/s nominal) at each FIRE |
+| motor torque / step loss | the joint device's torque limit is the pull-in torque at that speed (stepper part; section 6.4). If `|q_joint - q_cmd|` (against the command of the previous control period) exceeds 4 full motor steps (pan 1.44 deg, tilt 1.8 deg) the twin raises the TMC2209 DIAG pin, as the driver would; `driver_diag` follows after 50 ms of DIAG and the FAULT state clears the homed flags. No position resync (the firmware has no encoder) (optional fidelity, default on) |
+| hall homing sensor | `hall = |q_joint - q_hall| < 1.0 deg` (hysteresis-free window 2 deg wide), `q_hall` = 0 deg for both axes by default, a parameter of the assembly (the CAD magnet position); homing is the firmware routine of 2.3: bidirectional search from any start, final approach from the negative side at `homing_speed`, on the edge set position to `home_off`, back off 3 deg. `home_off` defaults to 0 as in the firmware; the lockstep harness passes -1 deg (the half window) so that home-frame 0 is the window centre of a calibrated unit |
+| flywheel | the applied duty ramps up 4 permille/ms (inrush limit, 0 to 800 in 200 ms) and drops at once, as the firmware; "spun" = applied duty >= requested for `spinup_ms` since the request (no tach in v1). The launcher device's `muzzle_velocity` is set to `v0 = k_v * rotor_speed` (calibrated so that duty 800 gives 30 m/s nominal) at each FIRE |
 | pusher | `FIRE` -> timed sequence 120 ms + 120 ms per ball; `fire` attr = 1.0 on the launcher at the extend-complete instant (the kernel spawns one ball per `fire`); ball interval floor `min_shot_interval_ms` |
 | E-stop / key | the harness exposes `world_inputs.estop`, `world_inputs.key` (scenario `[[faults]]`-style schedule); the twin reads them as GPIO. Rail cut = flywheel and pusher stop immediately and no further `fire` is written |
 | heartbeat watchdog | counted in sim time on the 5 ms grid (trip detected within 5 ms of 300 ms) |
@@ -513,10 +536,15 @@ Mass budget: pan group 0.96 kg + tilt group 0.45 kg + balls 0.07 kg (CAD f66ad96
 
 ### 6.6 Electrical and pins (proposal; `firmware/cuas-lite-rp2040/include/pins.h` is the single source)
 
-Pico GPIO: pan STEP/DIR/EN = GP2/3/4; tilt STEP/DIR/EN = GP5/6/7; pan/tilt hall (active low, internal pull-up) = GP8/9; E-stop sense (1 = circuit closed) / key sense (1 = on) =
-GP10/11; flywheel PWM for both gate drivers = GP12 (PWM6A, 20 kHz); pusher servo PWM 50 Hz = GP13; flywheel tach (optional, unused in v1) = GP14; red/green LED, buzzer = GP15/16/17; debug UART = GP0/1.
+Pico GPIO (as built; `include/pins.h` is the single source): tilt TMC2209 UART0 TX/RX = GP0/GP1; pan STEP/DIR/EN = GP2/3/4; tilt STEP/DIR/EN = GP5/6/7; pan/tilt hall (active low,
+internal pull-up) = GP8/9; E-stop sense (1 = circuit closed) / key sense (1 = on) = GP10/11 (internal pull-down: a broken wire reads "pressed"); flywheel PWM for both gate
+drivers = GP12 (PWM6A, 20 kHz); flywheel tach (optional, unused in v1) = GP13; **pusher servo PWM 50 Hz = GP14** (PWM7A: GP12 and GP13 are the two channels of one PWM slice, so
+a 50 Hz servo on GP13 would have forced the flywheel to 50 Hz); red/green LED, buzzer = GP15/16/17; pan TMC2209 UART1 TX/RX = GP20/GP21; **TMC2209 DIAG (both, wired-OR) =
+GP22**. The earlier "debug UART = GP0/1" is gone (DEBUG frames replace it).
 
-TMC2209 in standalone STEP/DIR mode (microstep pins strapped for 16, interpolation to 256 by the chip: parts file `microstep_pin_modes`); VREF set for 1.2 A RMS.
+TMC2209 in STEP/DIR mode with UART configuration (section 2.3): microstep pins strapped for 16 (MS1 = MS2 = VIO, interpolation to 256 by the chip: parts file `microstep_pin_modes`),
+which sets UART address 3 on both drivers, hence **two UARTs, one per driver**; current set by IHOLD_IRUN to 1.2 A RMS (the VREF pot is ignored once GCONF I_scale_analog = 0);
+stealthChop below 72 deg/s (pan), spreadCycle above; DIAG on GP22.
 Rails: XT60 in; 10 A fuse; main rail (12 V brick or 3S/4S, 11.1-16.8 V, within the TMC2209 29 V limit (**[src]**)) -> TMC2209 VMOT and a buck to the Jetson (the bare module accepts 5-20 V,
 **[src]** part file; the dev kit's own input range is unverified, Q14) and a 5 V buck for the Pico; **weapon rail = main rail through key switch + NC E-stop** -> two flywheel MOSFETs and the
 pusher servo's 5 V buck. Supply sag from the flywheel stall current must not reset the Jetson: separate bucks, common ground at one point.

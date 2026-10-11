@@ -50,7 +50,7 @@ Both are optional: napl's default build and `tools/check_licenses.py` do not tou
 
 The SDK's own UF2 step needs picotool, which needs libusb headers (not on hfbox); `tools/bin2uf2.py` converts the SDK's `.bin` instead (family 0xE48BFF56).
 
-Size of the release build (arm-none-eabi-size -A): flash 49,556 bytes (`.bin`, includes boot2 256 B; 99,328 bytes as UF2, 194 blocks); RAM static
+Size of the release build (arm-none-eabi-size -A): flash 50,012 bytes (`.bin`, includes boot2 256 B; 100,352 bytes as UF2, 196 blocks); RAM static
 about 9.8 kB of 264 kB (`.data` 4,976 + `.bss` 4,632 + vector table 192; heap 2 kB and stack 2 kB reserved by the linker script).
 
 ## Flashing
@@ -129,34 +129,30 @@ CHOPCONF and IHOLD_IRUN are read back and checked. Keep VM at 12 V or more (spec
 
 ## Behaviour notes: where the C core differs from `sim_mcu.py`
 
-The C core was written against the spec and `sim_mcu.py`; `pytest --fw-core` runs `test_twin.py` and `test_gates.py` (58 tests: handshake, SAFE/IDLE, homing, ARM,
-watchdog, FIRE gates, dedup, caps, planner, config, faults, plus the whole app against the C core) unchanged but for one wait (below). Every difference:
+The C core is what runs on the turret, so the twin (`python/napl/lite/sim_mcu.py`) was brought into line with it (v1.1): rows 1-7 and 12 below were differences in v1.0 and are now
+**aligned**; `tests/lite` (175 tests) pass identically against the twin and against the C core (`pytest --fw-core`). What still differs:
 
 | # | twin | firmware | resolution |
 |---|---|---|---|
-| 1 | spun = applied >= 90 % of requested (first-order lag never reaches 100 %) | applied >= requested; "applied" is the PWM duty the firmware ramps (4 permille/ms up, immediate down), no rotor feedback | spec text; FIRE still needs `spinup_ms` since the request |
-| 2 | a burst aborted by lost flywheel refresh leaves ENGAGING with no flywheel request | goes to ARMED | spec 3.1 (ENGAGING needs a request) |
-| 3 | `v_cmd = clamp(vff + kp*err)`: a 150 deg move at 562 deg/s overshoots by about 20 deg and returns | P term limited to `sqrt(2*amax*err)` (trapezoid), vff on top; overshoot < 0.5 deg | task text ("trapezoid"); measured in `test_fw_core.py` |
-| 4 | lost steps: immediate `driver_diag` fault and position resync, judged on joint angle | DIAG pin high for > 50 ms (spec 2.2); the fault clears the homed flags; no position resync (no encoder) | spec. `test_twin.py::test_lost_steps...` waits 0.1 s instead of 0.05 s (the one edit to an existing test body) |
-| 5 | after a late HELLO the STATUS schedule catches up one frame per millisecond (reading of `_tick`) | 10 ms cadence from the first STATUS | spec rate 100 Hz |
-| 6 | homing "clear" phase ends 3 deg past the window centre by joint angle | ends 2 deg after the hall releases (the only thing a digital sensor tells) | same end state in the rig (-4 deg) |
-| 7 | `cfg_crc` = zlib.crc32 of a python repr | CRC-32 of the stored flash image | unobservable except as an identity of the saved config |
+| 1-7 | aligned in v1.1: spun = applied duty >= requested (4 permille/ms ramp up, immediate down); a burst aborted by a lost refresh goes to ARMED; planner P term braked to `sqrt(2*amax*err)`; lost steps raise a DIAG pin, `driver_diag` after 50 ms, no resync; STATUS every 10 ms with no catch-up; homing CLEAR judged on the hall pin (ends 2 deg after release); `cfg_crc` = CRC-32 of the 88-byte flash image | the same | the twin follows the firmware where the firmware follows the spec |
+| 7b | `home_off_deg` constructor default 0 (as cfg 7/8 default 0); the test rig and `Lockstep` pass -1 deg (a calibrated unit) | cfg 7/8 default 0; `FwMcu` passes -1 deg in a flash image | same calibration in both |
 | 8 | `CFG_SET` unchecked beyond wd/spr/hard cap | also: pusher pulse 500-2500 us, dir mask 0-3, homing speed 1-3000, times 0-60000 ms, hard timeout 0-65535 s (`BAD_ARG`); changing a steps/rev clears that axis' homed flag | safety additions, spec silent |
 | 9 | E-stop released / key on take effect at once | must be stable 10 ms; E-stop open / key off act at once | contact bounce on the inputs |
 | 10 | no DEBUG frames | one DEBUG frame (`tmc pan=.. tilt=..`) after the first HELLO | bench aid; `gimbal.py` ignores id 0x86 |
 | 11 | no rx overflow | `fault_bits` b5 `usb_overflow` when the 512-byte rx queue overflows (a flood without delimiters) | spec fault list |
-| 12 | `EVENT FAULT` only for homing timeout and driver_diag | one `EVENT FAULT` per newly set fault bit (hall_stuck, cfg_invalid at boot is quiet as in the twin) | spec: "4 FAULT (bit index)" |
+| 12 | aligned: one `EVENT FAULT` per newly set fault bit (cfg_invalid at boot is quiet) | the same | spec: "4 FAULT (bit index)" |
 | 13 | no `shot_counter_inconsistent` check | `shots_arm > shot_cap` while armed sets b3 | spec fault list |
 
 Unchanged semantics worth knowing (identical in both, spec-conformant): a `fire_id` stays remembered even when refused, so a retry needs a new id; every command
 but `HELLO` before the first `HELLO` gets ACK `BAD_STATE` (heartbeats too); the first `0x00` on the wire is a resync byte (a cold decoder drops the partial frame
 before it, so the first real frame needs a leading `0x00`, which `SerialGimbal` sends).
 
-**Spec ambiguities and a limitation, flagged:** (a) homing assumes the axis starts on the *negative* side of the hall window or on it (spec 4.2: "approach from the
-negative side"); from the positive side the approach never meets the edge and the 15 s `homing_timeout` fault fires. A search that crosses 340 deg of pan at the default
-20 deg/s needs 17 s, longer than the timeout, so the spec as written cannot support it: park the pan on the negative side before powering up, or raise
-`homing_speed` (cfg 19) and extend the timeout. (b) CFG 7/8 default 0 ("calibrate") in the firmware; the twin's constructor defaults to -1 deg, which `fwmcu.py`
-passes as a config image, as the rig expects. (c) The spec's `driver_diag` has no clearing rule beyond `CLEAR_FAULT`; a DIAG pin that stays high re-raises it.
+**Homing (v1.1): from any start position.** SEEK_POS at 100 deg/s for the negative half-range + 10 deg (pan 180 deg); no sensor: SEEK_NEG for the full range + 20 deg (pan
+360 deg); any hit goes through CLEAR (out the window's negative edge) to the slow APPROACH at `homing_speed`, so the final approach is always from the negative side. Worst
+case, pan from +170 deg: about 1.8 + 3.5 + 0.7 = 6 s of the 15 s timeout (so the search speed 100 deg/s stays, the timeout is unchanged). Tested from positive, negative and
+in-window starts (`test_twin.py::test_homing_from_any_start`, both implementations) and with no sensor (`test_homing_without_a_sensor_times_out_in_the_fault`). Caveat:
+SEEK_POS can drive up to 180 deg (pan) positive from an unknown start, past the +170 deg soft limit; the cable loop and stops must allow it, or park the turret on the
+negative side before power-up. (b) CFG 7/8 default 0 ("calibrate") in both. (c) The spec's `driver_diag` has no clearing rule beyond `CLEAR_FAULT`; a DIAG pin that stays high re-raises it.
 
 ## Tests (host)
 
@@ -165,7 +161,7 @@ passes as a config image, as the rig expects. (c) The spec's `driver_diag` has n
   `napl.lite.protocol`, the gate matrix (13 violated preconditions, each must get no ball and the expected ACK code), the watchdog (still up 290 ms after the last heartbeat;
   trips at 300-301 ms; no re-arm), homing from the window and from 40 deg before it, homing timeout, planner vmax/amax/step-rate measured on the emitted microstep
   stream (not on the core's own bookkeeping), soft limits, config store, corrupt/blank flash, BOOTSEL, hall_stuck, rx overflow.
-- `--fw-core`: `test_twin.py` + `test_gates.py` against the C core: 58 passed. A mutation check (inhibit gate removed, tilt-minimum removed, watchdog +100 ms in a scratch copy)
+- `--fw-core`: `test_twin.py` + `test_gates.py` against the C core: 63 passed; the whole `tests/lite` (175 tests) passes against the twin and against the C core, same set. A mutation check (inhibit gate removed, tilt-minimum removed, watchdog +100 ms in a scratch copy)
   fails 3 of the gate/watchdog tests, so the tests can fail.
 
 ## UNTESTED (hardware only) and how to test on the bench
@@ -181,7 +177,7 @@ Make the bench safe first: weapon rail unpowered (key off or fuse out), flywheel
 | TMC2209 UART config, echo handling, CRC, read-back | wrong wiring/address/echo | read the DEBUG frame after HELLO: `tmc pan=0 tilt=0`; measure motor phase current (RMS meter or scope with a probe) at IRUN: 1.2 A; hold 0.6 A; confirm 16 microsteps (full revolution = 16,000 pan steps, 200 x 16 x 5) |
 | stealthChop / spreadCycle switch (TPWMTHRS 234) | noise or lost torque at the transition | sweep speed 20-240 deg/s; listen and check no stall |
 | DIAG fault | pin position, polarity | stall a motor by hand (low speed): `fault_bits` b1 within ~50 ms and state FAULT |
-| hall homing, A3144 polarity, magnet position, 15 s timeout | direction, edge, home offset | `HOME` each axis from the negative side; STATUS flags b2/b3 set; calibrate cfg 7/8 (`pan_home_off`, `tilt_home_off`) so home is the window centre; `CFG_SAVE` |
+| hall homing, A3144 polarity, magnet position, 15 s timeout | direction, edge, home offset | `HOME` each axis from the negative side, from the positive side and with the magnet under the sensor (all three must end at the same zero within 0.1 deg); STATUS flags b2/b3 set; calibrate cfg 7/8 (`pan_home_off`, `tilt_home_off`) so home is the window centre; `CFG_SAVE` |
 | E-stop and key sense | polarity, noise, pull-downs | with the weapon rail live: E-stop pressed -> SAFE within 5 ms (EVENT 3 and `estop_pressed` in STATUS), homed flags cleared; key off -> SAFE (reason 4); unplug the sense wire: reads pressed |
 | flywheel PWM, ramp, gate pull-downs | frequency, inrush, off at reset | scope GP12: 20 kHz, duty = FLYWHEEL permille; ramp 0 to 80 % in 200 ms; the gates read 0 V with the Pico in reset |
 | servo pulse and timing | travel, dwell | measure 1100/1900 us (cfg 12/13); fire one ball with no balls loaded: extend 120 ms, retract 120 ms, `EVENT 2` after the retract |
