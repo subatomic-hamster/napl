@@ -17,8 +17,8 @@ wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale = "
 shape = "mesh"
 mesh = "meshes/cuas-lite/barrel_half_b.stl"
 material = "petg"
-bbox_min = [0.033, -0.025, -0.058]
-bbox_max = [0.143, 0.0, -0.008]
+bbox_min = [0.02, -0.025, -0.0765]
+bbox_max = [0.13, 0.0, -0.0265]
 
 [[ports]]
 name = "origin"

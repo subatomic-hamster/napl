@@ -76,7 +76,7 @@ pose_rationale = "Leads leave the bottom edge of the body; the 2.54 mm lead pitc
 pins = [
   { number = 1, name = "G", kind = "signal", dir = "in", v_max = 20.0, v_min = 2.35, note = "gate" },
   { number = 2, name = "D", kind = "power", dir = "io", v_max = 30.0, i_max = 62.0, note = "drain; also the metal tab" },
-  { number = 3, name = "S", kind = "power", dir = "io", i_max = 62.0, note = "source" },
+  { number = 3, name = "S", kind = "ground", note = "source (low-side switch: the return rail)" },
 ]
 
 [visual]

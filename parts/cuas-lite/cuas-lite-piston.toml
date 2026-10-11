@@ -18,8 +18,8 @@ wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale = "
 shape = "mesh"
 mesh = "meshes/cuas-lite/piston.stl"
 material = "petg"
-bbox_min = [-0.1135, -0.0111, -0.0441]
-bbox_max = [-0.0655, 0.0111, -0.0219]
+bbox_min = [-0.1265, -0.0111, -0.0626]
+bbox_max = [-0.0785, 0.0111, -0.0404]
 
 [[ports]]
 name = "origin"

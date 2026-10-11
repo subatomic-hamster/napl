@@ -17,8 +17,8 @@ wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale = "
 shape = "mesh"
 mesh = "meshes/cuas-lite/camera_mount.stl"
 material = "pla"
-bbox_min = [0.102, -0.055, -0.009]
-bbox_max = [0.146, 0.055, 0.006]
+bbox_min = [0.089, -0.055, -0.0275]
+bbox_max = [0.133, 0.055, -0.0125]
 
 [[ports]]
 name = "origin"

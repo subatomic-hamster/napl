@@ -110,19 +110,19 @@ name = "seat_tilt_motor"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.0, 0.097, 0.131839]
+pos = [0.0, 0.097, 0.153839]
 axis = [0.0, -1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Tilt NEMA 17 flange face centre (manifest mounts.tilt_motor pos_mm = (0, 97.0, 131.839)), shaft along -y, body towards +y."
+derivation = "Tilt NEMA 17 flange face centre (manifest mounts.tilt_motor pos_mm = (0, 97.0, 153.839)), shaft along -y, body towards +y."
 
 [[ports]]
 name = "seat_tilt_motor_pulley"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.0, 0.094, 0.131839]
+pos = [0.0, 0.094, 0.153839]
 axis = [0.0, -1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
@@ -134,36 +134,72 @@ name = "seat_bearing_left"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.0, 0.061, 0.18]
+pos = [0.0, 0.061, 0.202]
 axis = [0.0, 1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Left 608 (manifest mounts.bearings_608: centre (0, 64.5, 180), axis y; bought.py: y Y_C1 - 7 .. Y_C1 = 61..68 mm). The bearing part frame is its underside, axis along +y."
+derivation = "Left 608 (manifest mounts.bearings_608: centre (0, 64.5, 202), axis y; bought.py: y Y_C1 - 7 .. Y_C1 = 61..68 mm). The bearing part frame is its underside, axis along +y."
 
 [[ports]]
 name = "seat_bearing_right"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.0, -0.068, 0.18]
+pos = [0.0, -0.068, 0.202]
 axis = [0.0, 1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Right 608 (centre (0, -64.5, 180), y -68..-61 mm): underside at y = -68, axis along +y."
+derivation = "Right 6807ZZ (manifest mounts.bearing_6807_right: centre (0, -64.5, 202), 47 x 35 x 7 mm, y -68..-61 mm): underside at y = -68, axis along +y."
+
+[[ports]]
+name = "seat_hopper"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+fidelity = "derived"
+derivation = "hopper is modelled in frame B (pan group since CAD 987985b; manifest ball_feed.hopper frame B): identity pose."
+
+[[ports]]
+name = "seat_hopper_lid"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+fidelity = "derived"
+derivation = "hopper_lid is modelled in frame B (pan group): identity pose."
+
+[[ports]]
+name = "seat_feed_elbow"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+fidelity = "derived"
+derivation = "feed_elbow is modelled in frame B (pan group; manifest ball_feed.feed_elbow frame B, plate on the right cheek outer face y = -68): identity pose."
 
 [[ports]]
 name = "seat_hall_tilt"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.0, 0.06575, 0.193]
+pos = [0.0, 0.06575, 0.215]
 axis = [0.0, 1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Tilt hall sensor (manifest mounts.tilt_hall sensor_B_mm = (0, 68, 193), fixed to yoke_left): a 4.5 mm A3144 body centred on y = 68, its marked face towards +y (the magnet in the hub)."
+derivation = "Tilt hall sensor (manifest mounts.tilt_hall sensor_B_mm = (0, 68, 215), fixed to yoke_left): a 4.5 mm A3144 body centred on y = 68, its marked face towards +y (the magnet in the hub)."
 
 [[ports]]
 name = "seat_magnet_pan"

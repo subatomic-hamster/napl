@@ -17,8 +17,8 @@ wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale = "
 shape = "mesh"
 mesh = "meshes/cuas-lite/tilt_motor_mount.stl"
 material = "petg"
-bbox_min = [-0.038, 0.068, 0.099839]
-bbox_max = [0.038, 0.097, 0.192]
+bbox_min = [-0.038, 0.068, 0.121839]
+bbox_max = [0.038, 0.097, 0.214]
 
 [[ports]]
 name = "origin"

@@ -18,7 +18,7 @@ shape = "mesh"
 mesh = "meshes/cuas-lite/yoke_right.stl"
 material = "petg"
 bbox_min = [-0.042, -0.075, 0.035]
-bbox_max = [0.042, -0.051, 0.212]
+bbox_max = [0.042, -0.051, 0.234]
 
 [[ports]]
 name = "origin"

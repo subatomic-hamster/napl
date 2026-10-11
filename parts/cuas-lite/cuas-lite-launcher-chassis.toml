@@ -5,12 +5,12 @@ vendor = "napl cuas-lite (own design)"
 part_number = "launcher_chassis"
 url = "cad/cuas-lite/parts.py"
 
-# Printed from cad/cuas-lite/parts.py (184.08 g, supports: minor). The mesh is the CAD's napl mesh (m), already in the head frame H: origin on the tilt axis (frame B (0, 0, 180 mm)), x along the barrel,
+# Printed from cad/cuas-lite/parts.py (184.08 g, supports: minor). The mesh is the CAD's napl mesh (m), already in the head frame H: origin on the tilt axis (frame B (0, 0, 202 mm)), x along the barrel,
 # y left, z up at tilt = 0. The part frame IS H.
 # `hinge` is the b-side of the tilt joint (axis -y = manifest interface.frames.tilt_joint axis_H; the mate with yoke_left.tilt_axis carries reverse = true: positive tilt raises the muzzle).
 # Every other part that tilts (and every bought part of the head) is seated on this chassis by a `seat_*` port. A seat port's pose is the child's part-frame pose in H (manifest `interface`: frames, mounts,
-# barrel, flywheels, camera); mating the child's `origin` port (axis -z, ref x) reproduces it exactly. The hopper seats (`seat_hopper`, `seat_hopper_lid`) are the ones the CAD is about to move to the pan group:
-# change the mate in assemblies/cuas-lite.toml (hopper--chassis, hopper_lid--chassis) to the rotor plate's seats when it does.
+# barrel, flywheels, camera); mating the child's `origin` port (axis -z, ref x) reproduces it exactly. The hopper, hopper_lid and feed_elbow are PAN-group parts since CAD 987985b (seats on the rotor plate); the tilt group carries the
+# trunnion_beam (hollow 35 mm tube through the right cheek) instead.
 
 [params]
 infill_fraction = { value = 0.2, unit = "1", fidelity = "estimated", rationale = "Print setting: spec 6.4, cad/cuas-lite/params.py." }
@@ -22,8 +22,8 @@ wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale = "
 shape = "mesh"
 mesh = "meshes/cuas-lite/launcher_chassis.stl"
 material = "petg"
-bbox_min = [-0.12, -0.057, -0.05]
-bbox_max = [0.033, 0.057, 0.008]
+bbox_min = [-0.133, -0.05, -0.0685]
+bbox_max = [0.02, 0.05, -0.0194609]
 
 [[ports]]
 name = "hinge"
@@ -86,7 +86,7 @@ fidelity = "derived"
 derivation = "barrel_half_b is modelled in H: identity pose."
 
 [[ports]]
-name = "seat_hopper"
+name = "seat_trunnion_beam"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
@@ -95,19 +95,7 @@ axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "hopper is modelled in H: identity pose (the CAD is moving it to the pan group, see the header)."
-
-[[ports]]
-name = "seat_hopper_lid"
-kind = "mech"
-type = "frame.origin"
-gender = "neutral"
-pos = [0.0, 0.0, 0.0]
-axis = [0.0, 0.0, 1.0]
-ref = [1.0, 0.0, 0.0]
-symmetry = 1
-fidelity = "derived"
-derivation = "hopper_lid is modelled in H: identity pose (see the header)."
+derivation = "trunnion_beam is modelled in H (manifest interface.frames.tilt_joint children): identity pose."
 
 [[ports]]
 name = "seat_piston"
@@ -186,19 +174,19 @@ name = "seat_fw_motor_pos_y"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [-0.002, 0.0271, -0.0285]
+pos = [-0.015, 0.0271, -0.047]
 axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Flywheel motor mounting face (manifest flywheels: centre_H (-2, 0, -33), y = +27.10 mm, axes +-z_H; bought.py: the motor body starts 4.5 mm above the wheel centre in L), shaft pointing down (-z_H) into the wheel."
+derivation = "Flywheel motor mounting face (manifest flywheels: centre_H (-15, 0, -51.5), y = +27.10 mm, axes +-z_H; bought.py: the motor body starts 4.5 mm above the wheel centre in L), shaft pointing down (-z_H) into the wheel."
 
 [[ports]]
 name = "seat_fw_motor_neg_y"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [-0.002, -0.0271, -0.0285]
+pos = [-0.015, -0.0271, -0.047]
 axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
@@ -210,19 +198,19 @@ name = "seat_fw_wheel_pos_y"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [-0.002, 0.0271, -0.033]
+pos = [-0.015, 0.0271, -0.0515]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Flywheel centre (manifest flywheels.centre_H (-2, 0, -33), wheels at y = +-27.10 mm, axes z_H)."
+derivation = "Flywheel centre (manifest flywheels.centre_H (-15, 0, -51.5), wheels at y = +-27.10 mm, axes z_H)."
 
 [[ports]]
 name = "seat_fw_wheel_neg_y"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [-0.002, -0.0271, -0.033]
+pos = [-0.015, -0.0271, -0.0515]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
@@ -234,24 +222,24 @@ name = "seat_servo"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [-0.0675, -0.018, -0.0528]
+pos = [-0.0805, -0.018, -0.0713]
 axis = [0.0, 0.0, 1.0]
 ref = [0.0, 1.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Pusher servo output spline (manifest mounts.pusher_servo spline_H_mm = (-67.5, -18, -52.8), axis +z_H); the servo body's long axis (22.7 mm in the CAD) lies along y, so the part x axis points along +y_H."
+derivation = "Pusher servo output spline (manifest mounts.pusher_servo spline_H_mm = (-80.5, -18, -71.3), axis +z_H); the servo body's long axis (22.7 mm in the CAD) lies along y, so the part x axis points along +y_H."
 
 [[ports]]
 name = "seat_brio"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.12975, 0.0, -0.005]
+pos = [0.11675, 0.0, -0.0235]
 axis = [0.0, 0.0, 1.0]
 ref = [0.0, -1.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Brio underside centre: manifest mounts.brio box_centre_mm (129.75, 0, 8.5) minus half the 27 mm height. The Brio part's lens axis is its +y and its long (102 mm) side its x, so the part x axis points along -y_H and y along +x_H (lens along +x_H, image up +z_H, as manifest camera)."
+derivation = "Brio underside centre: manifest mounts.brio box_centre_mm (116.75, 0, -10) minus half the 27 mm height. The Brio part's lens axis is its +y and its long (102 mm) side its x, so the part x axis points along -y_H and y along +x_H (lens along +x_H, image up +z_H, as manifest camera)."
 
 [[ports]]
 name = "seat_rod_left"
@@ -264,18 +252,6 @@ ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
 derivation = "Left 8 mm axle piece (manifest mounts.rods_8mm: y_H 39..76.5 mm, centre 57.75 mm), along y."
-
-[[ports]]
-name = "seat_rod_right"
-kind = "mech"
-type = "frame.origin"
-gender = "neutral"
-pos = [0.0, -0.0555, 0.0]
-axis = [0.0, 1.0, 0.0]
-ref = [1.0, 0.0, 0.0]
-symmetry = 1
-fidelity = "derived"
-derivation = "Right 8 mm axle piece (y_H -39..-72 mm, centre -55.5 mm), along y."
 
 [[ports]]
 name = "seat_magnet_tilt"
@@ -294,9 +270,9 @@ name = "seat_launcher"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.143, 0.0, -0.033]
+pos = [0.13, 0.0, -0.0515]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 fidelity = "derived"
-derivation = "Muzzle (manifest barrel.muzzle_H_mm = (143, 0, -33)), barrel along +x_H."
+derivation = "Muzzle (manifest barrel.muzzle_H_mm = (130, 0, -51.5)), barrel along +x_H."
