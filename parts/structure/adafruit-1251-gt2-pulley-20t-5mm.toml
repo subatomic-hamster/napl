@@ -15,6 +15,7 @@ tooth_tip_diameter = { value = 12.2e-3, unit = "m", src = "S1", fidelity = "data
 belt_width_max  = { value = 6e-3, unit = "m", src = "S1", fidelity = "datasheet" }
 mass            = { value = 0.006, unit = "kg", src = "S1", fidelity = "datasheet" }
 belt_pitch      = { value = 2e-3, unit = "m", src = "S2", fidelity = "datasheet" }
+price_usd       = { value = 7.95, unit = "USD", src = "S3", fidelity = "datasheet" }   # quantity 1-9, 2026-10-11; page marks the item 'No longer stocked'
 
 [params.pitch_diameter]
 value = 12.73e-3
@@ -35,6 +36,17 @@ length = 0.016
 note = "5 mm bore, 'two set screws can be used to attach it firmly to any 5mm diameter shaft' (S1); '5mm inner diameter on both ends'."
 
 [[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame as a port (flange-side end of the bore axis), for seating the part by the pose of its frame."
+
+[[ports]]
 name = "belt"
 kind = "mech"
 type = "belt.gt2.6"
@@ -53,6 +65,13 @@ url = "https://www.adafruit.com/product/1251"
 title = "Adafruit product 1251: Aluminum GT2 Timing Pulley - 6mm Belt - 20 Tooth - 5mm Bore"
 accessed = "2026-10-07"
 quote = "This pulley has 20 teeth, and a 5mm inner bore. Two set screws can be used to attach it firmly to any 5mm diameter shaft such as one of our stepper motors. ... Measures 0.63\" (16mm) long and 0.63\" (16mm) outer edge diameter. Diameter of geared section is 0.48\" (12.2mm) - measurement taken from top of tooth to top of tooth on opposite side| 5mm inner diameter on both ends| 6 grams"
+
+[[sources]]
+id = "S3"
+url = "https://www.adafruit.com/product/1251"
+title = "Adafruit product 1251, price block (re-read 2026-10-11)"
+accessed = "2026-10-11"
+quote = "$7.95 (quantity 1-9); $7.16 (10-99); $6.36 (100+); No longer stocked"
 
 [[sources]]
 id = "S2"

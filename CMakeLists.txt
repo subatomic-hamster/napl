@@ -177,16 +177,13 @@ gtest_discover_tests(napl_tests PROPERTIES LABELS cpu)
 # GPU tests: their own executable and ctest label, so `ctest --preset dev` (cpu) never touches a GPU.
 # Run them with `ctest --preset gpu` (see CMakePresets.json); pick the driver with VK_DRIVER_FILES.
 add_executable(napl_render_tests tests/cpp/test_render.cpp)
-target_link_libraries(napl_render_tests PRIVATE napl_render napl_mujoco mujoco lodepng GTest::gtest_main)
-target_compile_definitions(napl_render_tests PRIVATE
-  NAPL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
-  NAPL_RENDER_OUT_DIR="${CMAKE_BINARY_DIR}/render-out")
+target_link_libraries(napl_render_tests PRIVATE napl_render napl_mujoco mujoco GTest::gtest_main)
+target_compile_definitions(napl_render_tests PRIVATE NAPL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 if(WIN32)
   add_custom_command(TARGET napl_render_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:mujoco> $<TARGET_FILE_DIR:napl_render_tests>)
 endif()
-# The goldens were made on llvmpipe: those tests run on it (deterministic; a CPU renderer is otherwise refused);
-# render_gpu.* run on the default device (the GPU) with a tolerance.
+# render.* run on llvmpipe (deterministic; a CPU renderer is otherwise refused); render_gpu.* run on the default device (the GPU) with a tolerance.
 gtest_discover_tests(napl_render_tests TEST_FILTER render.* PROPERTIES LABELS gpu
   ENVIRONMENT "NAPL_RENDER_ALLOW_CPU=1;NAPL_VK_DEVICE=llvmpipe")
 gtest_discover_tests(napl_render_tests TEST_FILTER render_gpu.* PROPERTIES LABELS gpu)
@@ -207,6 +204,12 @@ endif()
 # (pyproject.toml) and shares this build tree, so the dependency sources/objects exist exactly once.
 option(NAPL_PYTHON "Build the _napl Python extension" OFF)
 if(NAPL_PYTHON)
+  # scikit-build-core passes its temporary isolated-build interpreter, which is gone after `pip install`; the next
+  # plain `cmake --build` regenerate would then fail on it ("Cannot run the interpreter"). Search again instead.
+  if(DEFINED CACHE{Python_EXECUTABLE} AND NOT EXISTS "${Python_EXECUTABLE}")
+    unset(Python_EXECUTABLE CACHE)
+    unset(_Python_EXECUTABLE CACHE)
+  endif()
   find_package(Python 3.12 REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
   FetchContent_MakeAvailable(nanobind)
   # The flatc JSON Schema (MCP tool input schemas) is embedded in the module as `_napl.schema_json`.

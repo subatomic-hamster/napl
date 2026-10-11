@@ -4,8 +4,8 @@ Branch p6-mjx. Plan: `docs/gpu-physics-plan.md` sections 6 and 7. Everything ran
 at the same time: **load average 20 to 30 during every CPU number and the G0a runs**. Treat splits as relative and absolute rates as lower bounds
 for the CPU. The GPU may also have been shared with GPUREN. No physics or C++ was changed (the branch carries INFRA's cherry-picked thread-cap commit b9a00f9 only).
 
-**Status: INCOMPLETE.** hfbox went down before three items finished: the accuracy rerun with a non-contact trajectory, the deterministic-flag
-runs, and the optional cProfile pass. They are marked below. The gate verdict does not depend on them (E2 fails by 10x).
+**Status: complete except the optional cProfile pass.** A host OOM killed hfbox mid-run (GTT spill); accuracy, asv f64 and determinism were rerun afterwards
+(`gpu4.sh`, JAX PREALLOCATE=false, MEM_FRACTION=0.5, N <= 4096; amdgpu GTT stayed below 121 MB). Not run: x500v2 f64 N=16384, cProfile pass.
 
 ## Verdict
 
@@ -15,8 +15,8 @@ runs, and the optional cProfile pass. They are marked below. The gate verdict do
 |---|---|
 | E1 JAX-ROCm sees RX 9070 XT, MJX scan runs, no NaN | pass, first attempt |
 | E2 MJX at N >= 4096 >= 5x 16-thread CPU MuJoCo | **fail**: x500v2 0.10x (f32), 0.15x (f64); asv 0.82x (f32). Even the plan's 2x bar fails |
-| E3 f32 within 1 % of travelled distance, 5 s | borderline, see accuracy (0.33 % and 1.14 %, both including a floor impact, both flawed tests) |
-| E4 bitwise repeats | **fail** with default flags (3 different hashes in one process) |
+| E3 f32 within 1 % of travelled distance, 5 s | **mixed**: f32 vs MuJoCo f64 max error 2.10 % (asym 0.002, fail) and 0.82 % (asym 0.0005, pass). MJX f64 shows the same error (2.09 %, 0.82 %), so it is MJX-vs-MuJoCo, not float32; f32 vs MJX f64 is only 0.11 % / 0.09 % |
+| E4 bitwise repeats | **fail** with default flags (different hash in every run); **pass** with either deterministic flag (identical hash in 3 in-process and 2 process repeats), slowdown not measured |
 | G0a p >= 25 % for at least one showcase | pass for skydio native (31 %) and asv (95 %); hopper 10 %, lander 15 % |
 
 ## G0a: where the wall time goes (CPU, `napl program` with the Sim API timers)
@@ -82,7 +82,7 @@ MJX (RX 9070 XT, JAX 0.11.1, flag above), best of 3 reps (1 rep for entries mark
 | asv | f32 | 4096* | 42 s | 542,000 | 0.26 GB |
 | asv | f32 | 16384* | 69 s | 557,000 | 0.78 GB |
 
-(x500v2 f64 N=16384 and asv f64 not run. A first, less loaded x500v2 f32 run gave 469 and 35,100 env-steps/s at N=1 and 256.)
+(asv f64 N=4096*: compile 9 s, 248,000 env-steps/s, 0.52 GB, ratio 0.37x of CPU-16T. x500v2 f64 N=16384 not run. A first, less loaded x500v2 f32 run gave 469 and 35,100 env-steps/s at N=1 and 256.)
 x500v2 saturates at about 32k to 48k env-steps/s from N=256 on (linear in N, so the GPU is already full: about 87 box/cylinder-vs-plane collision geoms per env). f64 is not slower than f32 here, so the card is not ALU bound.
 
 CPU, same bare MJCF, 256 rollouts x 1000 steps, best of 2:
@@ -99,20 +99,24 @@ Ratio MJX / CPU-16T (physics only): x500v2 f32 N=4096 **0.10x**, N=16384 0.105x,
 ## G0b step 3 continued: numerical sanity (5 s, constant controls, x500v2)
 
 Method: `tools/mjx_bench.py acc`. Same start, constant per-motor thrust, MuJoCo f64 reference vs MJX f32 and f64, position sampled every 10 steps.
-**Flawed run, as measured:** the control pattern tumbled the vehicle, it fell 20 m and hit the floor at about 2.3 s (displacement 20.2 m), so the numbers include a contact impact. The corrected non-contact test (`--asym 0.002`) was not run.
+Controls: 1.05 x hover thrust per motor plus `asym` x [1,-1,0.7,-0.7] x hover; start z = 20 m, small initial velocity; the vehicle climbs and tilts, **no floor contact**
+(displacement 23 m). Final run, `gpu4.sh`:
 
 | asym | travelled | MJX f32 vs MuJoCo f64 (max / % travelled) | MJX f64 vs MuJoCo f64 | MJX f32 vs MJX f64 | first error > 1 cm |
 |---|---|---|---|---|---|
-| 0.1 | 21.5 m | 0.071 m / **0.33 %** | 0.063 m / 0.29 % | 0.0099 m / 0.046 % | 2.33 s (floor impact) |
-| 0.01 | 25.4 m | 0.290 m / **1.14 %** | 0.204 m / 0.80 % | 0.117 m / 0.46 % | 2.91 s |
+| 0.002 | 28.1 m | 0.590 m / **2.10 %** | 0.586 m / 2.09 % | 0.032 m / 0.11 % | 2.81 s |
+| 0.0005 | 27.6 m | 0.228 m / **0.82 %** | 0.226 m / 0.82 % | 0.024 m / 0.09 % | 2.93 s |
 
-Reading: after the floor impact, MJX differs from MuJoCo even in f64 (0.29 to 0.80 %), so most of the error is MJX's contact/solver differing from MuJoCo, not float32. The f32-only error (f32 vs MJX f64) is 0.05 to 0.46 %. E3 is therefore unresolved, not cleanly passed: no non-contact result exists.
+Reading: float32 itself costs only about 0.1 % of travelled distance. The larger error is the same in MJX f64, i.e. MJX differs from MuJoCo f64 on this smooth, contact-free trajectory
+(cause not investigated; candidates are rotor-hinge/gyroscopic or integrator handling and solver defaults). Against the plan's literal E3 test (f32 vs MuJoCo f64 < 1 %) the result is
+a fail at asym 0.002 and a pass at 0.0005, so E3 is not met in general. Earlier tests (asym 0.1 and 0.01) tumbled the vehicle into the floor at about 2.3 s and are not used.
 
-## E4 determinism (N=256, x500v2, f32)
+## E4 determinism (x500v2, f32, SHA-256 of final qpos, 3 repeats per process, 2 processes per setting, N=16)
 
-- Default flags: 3 repeats in one process gave 3 different hashes (517d65bc…, d19953fa…, 9e5bcf44…); 3 separate processes also differed. **Not bitwise reproducible.**
-- `--xla_gpu_exclude_nondeterministic_ops=true`: the child process did not finish within 1500 s (hang or extreme slowdown, N=256 normally compiles in about 40 s). Not measured.
-- `--xla_gpu_deterministic_ops=true`: not run (box went down). Retry script: `/workspace/wt/napl-mjx-bench/gpu3.sh` (DET loop at N=16, 900 s timeouts).
+- Default flags: every repeat differs (processes 1 and 2: 6 different hashes). **Not bitwise reproducible**, also seen at N=256.
+- `--xla_gpu_exclude_nondeterministic_ops=true`: all 6 repeats give hash b37b28a58031b633. **Bitwise repeatable.**
+- `--xla_gpu_deterministic_ops=true`: the same hash b37b28a58031b633 in all 6 repeats (so the flag is accepted and gives the same result).
+- Caveat: at N=256 the exclude-nondeterministic child did not finish in 1500 s once (box heavily loaded, GTT spill that day), so the slowdown at larger N is unmeasured. This is one GPU, one driver, one binary only.
 
 ## Commands (all from the worktree synced to /workspace/wt/napl-video/src; Python = the MJX venv unless noted)
 
