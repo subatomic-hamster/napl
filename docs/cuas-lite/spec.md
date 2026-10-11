@@ -488,7 +488,7 @@ allowance at the operating speeds [est], to be replaced by the curve at purchase
   J = 0.0099 (hopper empty) to 0.0109 (full) kg*m^2 [der, bought items as point masses]. At 2000 deg/s^2 (34.9 rad/s^2): T_out = 0.380 N*m; at the motor = 0.380 / 5 / 0.9
   (belt efficiency [est]) = **0.085 N*m**. Rotor inertia (not published, ~5.7e-6 kg*m^2 [est]) adds ~0.001 N*m. Total ~0.086 N*m = 24 % of holding, 48 % of the 50 % allowance. OK, ~2x margin.
 - **Tilt.** The tilt group is 453 g (hopper moved to the pan group). Its CG hangs 34 mm below the tilt axis, so the balance check is a static torque budget, not a
-  CG radius: budget 0.177 N*m output (= the original 1.2 kg x 15 mm), CAD measures **0.151-0.153 N*m** over the tilt range (~15 % margin) -> 0.042 N*m at the motor
+  CG radius: budget 0.177 N*m output (= the original 1.2 kg x 15 mm), CAD measures **0.154-0.156 N*m** over the tilt range (d165505; ~12 % margin) -> 0.043 N*m at the motor
   (/4/0.9). Dynamic at 1500 deg/s^2: <= 0.056 N*m at the motor (the 1.2 kg / 7.7e-3 kg*m^2 bound; the real 453 g group is lighter). Total <= 0.098 N*m = 27 % of holding
   (54 % of the allowance). Thin static margin: any head addition (bigger wheels, sensors) must re-run `head_static_torque_within_spec_budget`; a ~300 g ballast
   above the axis is the fallback, or a gas-spring/rubber-band counterbalance.

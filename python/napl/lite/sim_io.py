@@ -4,7 +4,7 @@ placeholder turret + hanging targets, and the lockstep harness.
 SCENE. The turret is assemblies/cuas-lite.toml (CAD meshes, NEMA 17 + TMC2209 stepper-as-servo pan / tilt, the foam launcher at the muzzle, the Brio
 camera pose device); names /devices/turret_pan, _tilt, _gun, _cam. build_scene() overrides the launcher's ballistic constants with BALL (22.2 mm,
 1.86 g, Cd 0.47, v0 30 m/s, sigma 1.5 m/s, spread 10 mrad) and adds targets as MJCF pendulums (ball joint, no code moves them: deterministic kernel
-physics). measure_geometry() re-measures the head geometry off the built scene (h_t 202 mm, muzzle 130 / -51.5 mm, Brio 122 / -10 mm).
+physics). measure_geometry() re-measures the head geometry off the built scene (h_t 202 mm, muzzle 130 / -52.5 mm, Brio 122 / -11 mm).
 
     sc = build_scene(out_dir, [Balloon("b1", (8, 0, 2.0))])
     run = Lockstep(sc, run_dir, targets=[...])    # World + SimRP2040 + SimCamera + TruthDetector + App
