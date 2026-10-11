@@ -124,7 +124,7 @@ def xvfb_png(out, script, expect, settle, fbdir, steps=()):
             for req in steps:
                 print("step", b(json.dumps(req))[:160])
             time.sleep(settle)  # model reload + a few frames
-            shot.append(design_shot.xwd_rgba(Path(fbdir) / "Xvfb_screen0"))
+            shot.append(design_shot.grab(fbdir))
         finally:
             sim.close_viewer()  # also when the grab raised: otherwise show() never returns
 

@@ -15,6 +15,8 @@
 #include <functional>
 #include <future>
 #include <map>
+#include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -117,11 +119,11 @@ void vk_check(VkResult r) {
   if (r != VK_SUCCESS) throw std::runtime_error("ImGui Vulkan backend error (VkResult " + std::to_string(r) + ")");
 }
 struct ImGuiBackends {
-  ImGuiBackends(GLFWwindow* win, const WindowRenderer::Handles& h) : fmt(h.color_format) {
+  ImGuiBackends(GLFWwindow* win, const WindowRenderer::Handles& h) : fmt(h.color_format), glfw(win != nullptr) {  // win null: off-screen, no platform backend
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;  // no imgui.ini in the working directory
-    ImGui_ImplGlfw_InitForVulkan(win, true);
+    if (win) ImGui_ImplGlfw_InitForVulkan(win, true);
     ImGui_ImplVulkan_InitInfo ii = {};
     ii.ApiVersion = VK_API_VERSION_1_3;
     ii.Instance = h.instance;
@@ -129,7 +131,9 @@ struct ImGuiBackends {
     ii.Device = h.device;
     ii.QueueFamily = h.queue_family;
     ii.Queue = h.queue;
-    ii.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
+    // One sampled-image descriptor per font atlas plus one per registered texture (library thumbnails, HUD images). radv
+    // enforces the pool size (VK_ERROR_FRAGMENTED_POOL on the 9th texture); llvmpipe never did.
+    ii.DescriptorPoolSize = 4096;
     ii.MinImageCount = 2;
     ii.ImageCount = 3;
     ii.UseDynamicRendering = true;
@@ -141,11 +145,18 @@ struct ImGuiBackends {
   }
   ~ImGuiBackends() {
     ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
+    if (glfw) ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
   }
   VkFormat fmt;
+  bool glfw;
 };
+
+// The newest off-screen frame (see viewer_latest_frame in viewer.h).
+std::mutex g_frame_mu;
+std::vector<std::uint8_t> g_frame;
+int g_frame_w = 0, g_frame_h = 0;
+std::uint64_t g_frame_seq = 0;
 
 // ---- scene tree --------------------------------------------------------------------------------------------------------
 struct Node {
@@ -225,32 +236,43 @@ class Viewer {
   }
 
   void run() {
-    GlfwInit glfw;
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GlfwWindow window(opts_.width, opts_.height);
-    if (!glfwVulkanSupported()) throw std::runtime_error("no Vulkan loader found (GLFW could not load libvulkan)");
+    // Off-screen (opts_.offscreen or NAPL_OFFSCREEN=1): no GLFW, no window, no swapchain, no X server; every frame is read
+    // back to RGBA (viewer_latest_frame). ImGui gets its display size / delta time from here instead of the GLFW backend.
+    const char* off_env = std::getenv("NAPL_OFFSCREEN");
+    const bool off = opts_.offscreen || (off_env && *off_env && std::string(off_env) != "0");
+    std::optional<GlfwInit> glfw;
+    std::optional<GlfwWindow> window;
     WindowRenderer::Surface surf;
-    std::uint32_t n = 0;
-    const char** exts = glfwGetRequiredInstanceExtensions(&n);
-    if (!exts) throw std::runtime_error("this window system cannot present Vulkan images (" + g_glfw_error + ")");
-    surf.instance_extensions.assign(exts, exts + n);
-    surf.create = [&](VkInstance inst) {
-      VkSurfaceKHR s = nullptr;
-      const VkResult r = glfwCreateWindowSurface(inst, window.w, nullptr, &s);
-      if (r != VK_SUCCESS)
-        throw std::runtime_error("cannot create a Vulkan surface for the window (VkResult " + std::to_string(r) + "): " + g_glfw_error);
-      return s;
-    };
+    if (off) {
+      surf.offscreen = true;
+    } else {
+      glfw.emplace();
+      glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+      window.emplace(opts_.width, opts_.height);
+      if (!glfwVulkanSupported()) throw std::runtime_error("no Vulkan loader found (GLFW could not load libvulkan)");
+      std::uint32_t n = 0;
+      const char** exts = glfwGetRequiredInstanceExtensions(&n);
+      if (!exts) throw std::runtime_error("this window system cannot present Vulkan images (" + g_glfw_error + ")");
+      surf.instance_extensions.assign(exts, exts + n);
+      surf.create = [&](VkInstance inst) {
+        VkSurfaceKHR s = nullptr;
+        const VkResult r = glfwCreateWindowSurface(inst, window->w, nullptr, &s);
+        if (r != VK_SUCCESS)
+          throw std::runtime_error("cannot create a Vulkan surface for the window (VkResult " + std::to_string(r) + "): " + g_glfw_error);
+        return s;
+      };
+    }
     WindowRenderer renderer(surf);
+    if (off) std::fprintf(stderr, "napl-view: off-screen %dx%d on %s\n", opts_.width, opts_.height, renderer.device_name().c_str());
     if (opts_.design_api) {  // the build view looks like a studio; NAPL_RENDER_STYLE still overrides
       RenderStyle st = default_render_style();
       st.sky = RenderStyle::Sky::studio;
       set_default_render_style(st);
     }
-    ImGuiBackends gui(window.w, renderer.handles());
+    ImGuiBackends gui(window ? window->w : nullptr, renderer.handles());
     theme::init();
     if (opts_.clean) {  // a recording / HUD view: no pointer drawn over the picture
-      glfwSetInputMode(window.w, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+      if (window) glfwSetInputMode(window->w, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
       ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     }
     libui::Thumbs thumbs;
@@ -261,10 +283,13 @@ class Viewer {
       dreq("cats", design::request("library.categories"), true);
       dreq("search", [this] { return search_req(); }, true);  // the first page of the library (an empty query lists everything)
     }
-    for (int n_frame = 0; !glfwWindowShouldClose(window.w) && !(opts_.frames > 0 && n_frame >= opts_.frames) &&
+    using Clock = std::chrono::steady_clock;
+    auto last = Clock::now();
+    std::vector<std::uint8_t> shot;
+    for (int n_frame = 0; !(window && glfwWindowShouldClose(window->w)) && !(opts_.frames > 0 && n_frame >= opts_.frames) &&
                           !(opts_.stop && opts_.stop->load());
          ++n_frame) {
-      glfwPollEvents();
+      if (window) glfwPollEvents();
       for (const ScriptCmd& c : script_) {
         if (c.frame != n_frame) continue;
         if (c.action == "select") select(c.args[0]);
@@ -278,18 +303,41 @@ class Viewer {
       poll();
 
       ImGui_ImplVulkan_NewFrame();
-      ImGui_ImplGlfw_NewFrame();
+      if (window) {
+        ImGui_ImplGlfw_NewFrame();
+      } else {
+        ImGuiIO& io = ImGui::GetIO();
+        const auto now = Clock::now();
+        io.DisplaySize = ImVec2(static_cast<float>(opts_.width), static_cast<float>(opts_.height));
+        io.DisplayFramebufferScale = ImVec2(1, 1);
+        io.DeltaTime = std::max(1e-4f, std::chrono::duration<float>(now - last).count());
+        last = now;
+        // The pointer sits where Xvfb parks it (the screen centre): popups that open at the pointer land where they did there.
+        if (n_frame == 0) io.AddMousePosEvent(opts_.width / 2.f, opts_.height / 2.f);
+      }
       ImGui::NewFrame();
       ui();
       ImGui::Render();
 
-      int fw = 0, fh = 0;
-      glfwGetFramebufferSize(window.w, &fw, &fh);
+      int fw = opts_.width, fh = opts_.height;
+      if (window) glfwGetFramebufferSize(window->w, &fw, &fh);
       renderer.set_tubes(cur_.tubes);
       const bool drawn = renderer.frame(shown_poses(), view_cam_, fw, fh, [](VkCommandBuffer cb) {
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
-      });
-      if (!drawn) glfwWaitEventsTimeout(0.05);  // minimised or swapchain rebuilding: do not spin
+      }, window ? nullptr : &shot);
+      if (!window) {
+        {
+          std::lock_guard<std::mutex> lk(g_frame_mu);
+          g_frame.swap(shot);
+          g_frame_w = fw;
+          g_frame_h = fh;
+          ++g_frame_seq;
+        }
+        // ponytail: fixed 60 fps cap (what FIFO vsync gives a window); no free-running GPU loop. Make it an option if a tool wants more.
+        std::this_thread::sleep_until(last + std::chrono::microseconds(16667));
+      } else if (!drawn) {
+        glfwWaitEventsTimeout(0.05);  // minimised or swapchain rebuilding: do not spin
+      }
     }
     draining_ = true;  // edits still queued or running finish (and their model reloads are issued) before we return
     while (dfut_.valid() || !dq_.empty()) {
@@ -3038,6 +3086,14 @@ class Viewer {
 }  // namespace
 
 void run_viewer(Host& host, const ViewerOptions& opts) { Viewer(host, opts).run(); }
+
+std::uint64_t viewer_latest_frame(std::vector<std::uint8_t>* rgba, int* width, int* height) {
+  std::lock_guard<std::mutex> lk(g_frame_mu);
+  if (rgba) *rgba = g_frame;
+  if (width) *width = g_frame_w;
+  if (height) *height = g_frame_h;
+  return g_frame_seq;
+}
 
 std::vector<ScriptCmd> parse_script(const std::string& script) {
   std::vector<ScriptCmd> out;

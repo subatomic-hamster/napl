@@ -18,6 +18,10 @@ class WindowRenderer {
   struct Surface {
     std::vector<const char*> instance_extensions;                // e.g. VK_KHR_surface + the platform surface extension
     std::function<VkSurfaceKHR(VkInstance)> create;              // throws std::runtime_error with the reason on failure
+    // true: no window system at all (extensions / create are ignored, no swapchain). frame() renders into an off-screen
+    // RGBA8 image and returns it through its `rgba` argument. The device is the best one (discrete > integrated > cpu,
+    // NAPL_VK_DEVICE=<name substring> overrides), not the first one that can present.
+    bool offscreen = false;
   };
   // What an ImGui Vulkan backend needs.
   struct Handles {
@@ -45,9 +49,10 @@ class WindowRenderer {
   // Draws the scene, then overlay(command_buffer) inside a second rendering pass on the same colour target, and
   // presents. (width, height) = the window's framebuffer size; 0 = minimised. Returns false if nothing was presented
   // (minimised, or the swapchain was out of date and is rebuilt on the next call). Throws std::invalid_argument for
-  // a pose count that differs from the scene or a bad camera.
+  // a pose count that differs from the scene or a bad camera. Off-screen (Surface::offscreen): renders exactly
+  // (width, height), always "presents", and fills *rgba (width*height*4 bytes, required).
   bool frame(std::span<const GeomPose> poses, const Camera& cam, int width, int height,
-             const std::function<void(VkCommandBuffer)>& overlay);
+             const std::function<void(VkCommandBuffer)>& overlay, std::vector<std::uint8_t>* rgba = nullptr);
 
  private:
   std::unique_ptr<Renderer::Impl> p_;

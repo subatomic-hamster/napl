@@ -47,7 +47,15 @@ struct ViewerOptions {
   bool clean = false;  // SIMULATE with no panes, top bar or status bar: the 3D view fills the window (HUD / recording)
   int width = 1280, height = 720;
   const std::atomic<bool>* stop = nullptr;  // optional: another thread sets it to close the viewer
+  // No window, no X server, no swapchain: width x height frames (scene + ImGui) render into an off-screen image on the best
+  // Vulkan device (discrete > integrated > cpu; NAPL_VK_DEVICE=<name substring> overrides), capped at 60 fps, and are read
+  // back to RGBA (viewer_latest_frame). NAPL_OFFSCREEN=1 in the environment turns it on without code changes.
+  bool offscreen = false;
 };
+
+// Off-screen mode: copies the newest frame into *rgba (width*height*4, row 0 = top) and returns its sequence number
+// (counts frames since the process started; 0 = none yet). Safe from any thread while run_viewer runs.
+std::uint64_t viewer_latest_frame(std::vector<std::uint8_t>* rgba, int* width, int* height);
 
 // Throws std::runtime_error with a plain-language reason: no display, no Vulkan loader or device, window creation
 // failed. Returns when the window is closed, `frames` frames were drawn, or *stop is set; commands still in flight

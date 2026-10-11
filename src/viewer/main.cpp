@@ -1,4 +1,4 @@
-// napl-view <model> [--frames N] [--script "FRAME ACTION ARGS; ..."] [--log OUT] [--root DIR] [--design REPORT.json]
+// napl-view <model> [--frames N] [--script "FRAME ACTION ARGS; ..."] [--log OUT] [--root DIR] [--design REPORT.json] [--offscreen WxH]
 // A model with <name>.report.json beside it (from `napl design build`) also gets the Design window (--design: other path).
 // Opens the model (MJCF/URDF) in the viewer. --frames N: leave after N frames; --script: UI-equivalent commands issued at
 // given frames (see viewer/viewer.h); --log: write the session's replay log on exit (napl-replay reproduces it).
@@ -16,7 +16,7 @@
 
 namespace {
 int usage() {
-  std::fprintf(stderr, "usage: napl-view <model> [--frames N] [--script \"FRAME ACTION ARGS; ...\"] [--log OUT] [--root DIR] [--design REPORT.json]\n");
+  std::fprintf(stderr, "usage: napl-view <model> [--frames N] [--script \"FRAME ACTION ARGS; ...\"] [--log OUT] [--root DIR] [--design REPORT.json] [--offscreen WxH]\n");
   return 2;
 }
 }  // namespace
@@ -35,6 +35,10 @@ int main(int argc, char** argv) {
     else if (a == "--log") log_path = v;
     else if (a == "--root") root = v;
     else if (a == "--design") opts.design_report = v;
+    else if (a == "--offscreen") {  // WxH: no window / X server; frames render on the best Vulkan device (see ViewerOptions::offscreen)
+      opts.offscreen = true;
+      if (std::sscanf(v.c_str(), "%dx%d", &opts.width, &opts.height) != 2 || opts.width < 1 || opts.height < 1) return usage();
+    }
     else return usage();
   }
   if (opts.design_report.empty()) {  // <name>.xml next to <name>.report.json = built by `napl design build`

@@ -198,6 +198,41 @@ TEST(viewer_smoke, no_display_is_a_clear_error_not_a_crash) {
   EXPECT_NE(o.text.find("DISPLAY"), std::string::npos) << o.text;
 }
 
+// Off-screen viewer: no display needed (run with DISPLAY unset to prove it); needs a Vulkan device.
+TEST(viewer_offscreen, frames_are_read_back_and_the_sim_hash_matches_a_viewerless_run) {
+  Host h(pendulum(), session());
+  ViewerOptions o;
+  o.frames = 120;  // the script's last command is at frame 80
+  o.script = kScriptDet;
+  o.width = 320;
+  o.height = 200;
+  o.offscreen = true;
+  run_viewer(h, o);
+  const Outcome live = finish(h);
+  std::vector<std::uint8_t> px;
+  int w = 0, hh = 0;
+  const std::uint64_t seq = viewer_latest_frame(&px, &w, &hh);
+  EXPECT_GE(seq, 120u);
+  ASSERT_EQ(w, 320);
+  ASSERT_EQ(hh, 200);
+  ASSERT_EQ(px.size(), 320u * 200u * 4u);
+  std::size_t distinct = 0;  // sky + floor + pendulum + the panels: far from a single colour
+  for (std::size_t i = 4; i < px.size() && distinct < 64; i += 4) distinct += std::memcmp(&px[i], &px[0], 4) != 0;
+  EXPECT_GE(distinct, 64u) << "the frame is blank";
+  EXPECT_EQ(px[3], 255);  // opaque
+  EXPECT_EQ(live.hash, without_viewer(kScriptDet).hash);
+}
+
+TEST(viewer_offscreen, napl_view_cli_runs_without_a_display_and_names_its_device) {
+  const Out v = shell(std::string("env -u DISPLAY -u WAYLAND_DISPLAY ") + NAPL_VIEW_EXE + " " + kModel + " --frames 20 --offscreen 320x200");
+  std::cout << "[ viewer ] off-screen CLI: " << v.text;
+  EXPECT_EQ(v.code, 0) << v.text;
+  EXPECT_NE(v.text.find("napl-view: off-screen 320x200 on "), std::string::npos) << v.text;
+  EXPECT_FALSE(field(v.text, "state_hash").empty());
+  const Out bad = shell(std::string(NAPL_VIEW_EXE) + " " + kModel + " --offscreen 0x0");
+  EXPECT_EQ(bad.code, 2) << bad.text;
+}
+
 TEST(viewer_smoke, bad_model_bad_script_and_usage_exit_cleanly) {
   const std::string exe = NAPL_VIEW_EXE;
   Out o = shell(exe + " /no/such/model.xml --frames 1");
@@ -340,7 +375,7 @@ TEST(viewer_design, scripted_edits_become_ordered_requests_and_a_new_rev_reloads
   for (const std::string& r : seen) {
     const design::Json j = design::Parser(r).parse();
     const std::string t = j.s("tool");  // the window's own housekeeping (library browser, event poll, selection mirror) is not an edit
-    if (t != "rev" && t != "ui_poll" && t != "select" && t.rfind("library.", 0) != 0) tools.push_back(j.s("tool") + (j.at("replace_last").num != 0 ? "+replace_last" : ""));
+    if (t != "rev" && t != "ui_poll" && t != "select" && t != "flatten.state" && t.rfind("library.", 0) != 0) tools.push_back(j.s("tool") + (j.at("replace_last").num != 0 ? "+replace_last" : ""));
   }
   const std::vector<std::string> want = {"state", "design_edit", "design_edit", "design_edit+replace_last", "design_undo", "state"};
   EXPECT_EQ(tools, want);
