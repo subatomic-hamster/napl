@@ -1,0 +1,42 @@
+# napl program examples/cuas-lite/s5_mix.scenario.toml --runs-dir <dir>
+# cuas-lite lockstep scenario (spec 7.2): two balloons (hung at 6 m, wind-drifting at 9 m) and a 4 m/s quad crossing at 12 m; the nearest-first engagement order
+# (popped_t in lite.json) and the per-arm shot cap of 5 are what is reported / monitored. Session arm at t = 8 s.
+name = "cuas-lite-s5"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py"]
+env = { CUAS_SCENARIO = "s5_mix", CUAS_SEED = "1" }
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_launcher_refusal"
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "shots_within_session_cap"     # the cap (5) binds: three targets, five balls per arm
+column = "rounds"
+op = "always"
+hi = 5
+
+[[monitors]]
+name = "projectiles_stay_in_range_box"
+column = "pellet_range_m"
+op = "always"
+hi = 400
+
+[[monitors]]
+name = "no_safety_violation"
+column = "violations"
+op = "always"
+hi = 0

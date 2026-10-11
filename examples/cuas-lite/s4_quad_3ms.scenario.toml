@@ -1,0 +1,42 @@
+# napl program examples/cuas-lite/s4_quad_3ms.scenario.toml --runs-dir <dir>
+# cuas-lite lockstep scenario (spec 7.2): one small quad (0.30 m, kinematic Mover, class drone) crossing at ~9 m between +-35 deg azimuth at 3 m/s with an altitude
+# wobble. Session arm at t = 8 s. Hit rate is reported (lite.json), the monitors are the safety rules.
+name = "cuas-lite-s4-3ms"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py"]
+env = { CUAS_SCENARIO = "s4_quad_3ms", CUAS_SEED = "1" }
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_launcher_refusal"
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "shots_within_session_cap"
+column = "rounds"
+op = "always"
+hi = 5
+
+[[monitors]]
+name = "projectiles_stay_in_range_box"
+column = "pellet_range_m"
+op = "always"
+hi = 400
+
+[[monitors]]
+name = "no_safety_violation"
+column = "violations"
+op = "always"
+hi = 0

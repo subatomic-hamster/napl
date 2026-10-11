@@ -1,0 +1,42 @@
+# napl program examples/cuas-lite/s7_fault_detector.scenario.toml --runs-dir <dir>
+# cuas-lite SAFETY scenario (spec 3.2 row 1): three hung balloons, ARM at t = 8 s, and at the first moment a pusher cycle is in progress the detector stops answering for
+# 2 s (stale after 0.25 s -> FIRE_INHIBIT in every heartbeat). No ball may be fed later than 0.35 s after the outage began and before it ends; the engagement may resume after.
+name = "cuas-lite-s7-detector"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py"]
+env = { CUAS_SCENARIO = "s7_fault_detector", CUAS_SEED = "1" }
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_launcher_refusal"
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "projectiles_stay_in_range_box"
+column = "pellet_range_m"
+op = "always"
+hi = 400
+
+[[monitors]]
+name = "no_ball_after_the_cut"
+column = "viol_cut"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_safety_violation"
+column = "violations"
+op = "always"
+hi = 0

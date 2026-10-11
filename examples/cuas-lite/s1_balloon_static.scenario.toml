@@ -36,3 +36,9 @@ name = "projectiles_stay_in_range_box"
 column = "pellet_range_m"
 op = "always"
 hi = 400
+
+[[monitors]]
+name = "no_safety_violation"          # Referee (ground truth, python/napl/lite/sim_eval.py): person / sector / armed / cap / dead-man / stale detector / watchdog / E-stop / key
+column = "violations"
+op = "always"
+hi = 0

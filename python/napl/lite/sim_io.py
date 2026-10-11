@@ -111,6 +111,57 @@ class Balloon:
         return self.cls or self.kind
 
 
+@dataclass
+class Mover:
+    """A kinematic target (balloon drifting with the wind, small quad, walking person): a free-joint body with gravcomp whose pose the harness sets
+    from the closed form below every control period (SetAttr qpos / qvel: logged, replayed, deterministic).
+
+    position(t) = route(t) + sum_k amp_k (sin(2 pi t' / T_k + phi_k) - sin phi_k),  t' = max(t - t_start, 0)
+    route = the polyline `route` flown at `speed`, ping-pong at the ends (one point = hover; before t_start it waits at route[0]).
+    `kind` picks the geometry: balloon (sphere, size_m), quad (flat box size_m x size_m x 0.06), person (capsule 0.5 x 1.7 m, origin at its centre)."""
+
+    id: str
+    route: tuple
+    speed: float = 0.0
+    waves: tuple = ()  # ((ax, ay, az), period_s, phase_rad)
+    t_start: float = 0.0
+    size_m: float = 0.30
+    kind: str = "balloon"  # balloon | quad | person
+    cls: str = (
+        None  # detector class (balloon -> balloon, quad -> drone, person -> person)
+    )
+
+    @property
+    def klass(self):
+        return self.cls or {"quad": "drone"}.get(self.kind, self.kind)
+
+    @property
+    def box_m(self):  # (w, h) the stand-in detector projects
+        return (0.5, 1.7) if self.kind == "person" else (self.size_m, self.size_m)
+
+    def pv(self, t):
+        """-> (position, velocity) at sim time t."""
+        r = np.array(self.route, float).reshape(-1, 3)
+        tt = max(t - self.t_start, 0.0)
+        pos, vel = r[0].copy(), np.zeros(3)
+        if len(r) > 1 and self.speed > 0 and t >= self.t_start:
+            seg = np.diff(r, axis=0)
+            ln = np.linalg.norm(seg, axis=1)
+            tot = ln.sum()
+            m = (self.speed * tt) % (2 * tot)
+            fwd = m <= tot
+            d = m if fwd else 2 * tot - m
+            i = min(int(np.searchsorted(np.cumsum(ln), d, side="right")), len(ln) - 1)
+            u = seg[i] / ln[i]
+            pos = r[i] + u * (d - (np.cumsum(ln)[i] - ln[i]))
+            vel = u * self.speed * (1 if fwd else -1)
+        for a, per, ph in self.waves:
+            a, w = np.array(a, float), 2 * math.pi / per
+            pos = pos + a * (math.sin(w * tt + ph) - math.sin(ph))
+            vel = vel + a * w * math.cos(w * tt + ph) * (t >= self.t_start)
+        return pos, vel
+
+
 def _pend_pose(t: Balloon):
     a, az = math.radians(t.swing_deg), math.radians(t.swing_az)
     u = np.array([math.cos(az), math.sin(az), 0.0])
@@ -124,8 +175,54 @@ def _pend_pose(t: Balloon):
     return center, q
 
 
-def build_scene(out, targets=(), mast=1.0, env=None, seed=1, v0=aimlib.V0_NOMINAL):
-    """compose() the turret, override the launcher with BALL, add the pendulum targets. -> manifest dict (model, body_paths ...)."""
+def _add_mover(wb, t: Mover, r_ball):
+    p0, _ = t.pv(0.0)
+    b = ET.SubElement(
+        wb, "body", name=t.id, pos=" ".join(f"{x:.9g}" for x in p0), gravcomp="1"
+    )
+    ET.SubElement(b, "joint", name=f"{t.id}_j", type="free")
+    g = dict(
+        name=f"{t.id}_g", contype="0", conaffinity="0", group="2"
+    )  # inflated by the ball radius, as the pendulum targets (spec 4.2)
+    if t.kind == "person":
+        ET.SubElement(
+            b,
+            "geom",
+            type="capsule",
+            fromto="0 0 -0.6 0 0 0.6",
+            size=f"{0.25 + r_ball:.9g}",
+            mass="70",
+            rgba="0.2 0.4 0.9 1",
+            **g,
+        )
+    elif t.kind == "quad":
+        h = t.size_m / 2 + r_ball
+        ET.SubElement(
+            b,
+            "geom",
+            type="box",
+            size=f"{h:.9g} {h:.9g} {0.03 + r_ball:.9g}",
+            mass="0.5",
+            rgba="0.2 0.2 0.2 1",
+            **g,
+        )
+    else:
+        ET.SubElement(
+            b,
+            "geom",
+            type="sphere",
+            size=f"{t.size_m / 2 + r_ball:.9g}",
+            mass="0.003",
+            rgba="0.9 0.2 0.2 1",
+            **g,
+        )
+
+
+def build_scene(
+    out, targets=(), mast=1.0, env=None, seed=1, v0=aimlib.V0_NOMINAL, launcher=None
+):
+    """compose() the turret, override the launcher with BALL, add the pendulum / Mover targets. `launcher` overrides launcher config keys
+    (muzzle_velocity, v_std, spread_std, cd ...: the Monte Carlo dispersion). -> manifest dict (model, body_paths ...)."""
     out = Path(out)
     scene = compose(
         out,
@@ -139,13 +236,16 @@ def build_scene(out, targets=(), mast=1.0, env=None, seed=1, v0=aimlib.V0_NOMINA
     devs = json.loads(txt.get("data"))
     man = scene["manifest"]
     for g in devs["launchers"]:
-        g.update(muzzle_velocity=v0, v_std=aimlib.V0_SIGMA, spread_std=aimlib.SPREAD_SIGMA, pellet_mass=aimlib.BALL["m"], diameter=aimlib.BALL["d"],
-                 cd=aimlib.BALL["cd"], max_time=3.0)  # fmt: skip
+        g.update(dict(muzzle_velocity=v0, v_std=aimlib.V0_SIGMA, spread_std=aimlib.SPREAD_SIGMA, pellet_mass=aimlib.BALL["m"], diameter=aimlib.BALL["d"],
+                      cd=aimlib.BALL["cd"], max_time=3.0), **(launcher or {}))  # fmt: skip
         man["device_cfg"][g["name"]] = g
     txt.set("data", json.dumps(devs, sort_keys=True, separators=(",", ":")))
     wb = root.find("worldbody")
     r_ball = aimlib.BALL_RADIUS
     for t in targets:
+        if isinstance(t, Mover):
+            _add_mover(wb, t, r_ball)
+            continue
         c, q = _pend_pose(t)
         b = ET.SubElement(
             wb,
@@ -220,7 +320,16 @@ class SimCamera:
     """Samples the World every 1/60 s of sim time (at the next control tick), delivers each frame `latency` s later with t_cap = the sample time.
     rgb is None; meta carries the ground-truth snapshot `truth_fn(t)` returns (camera pose + targets in B) for the TruthDetector."""
 
-    def __init__(self, clock, truth_fn, intrinsics=BRIO, fps=60.0, latency=0.030):
+    def __init__(
+        self,
+        clock,
+        truth_fn,
+        intrinsics=BRIO,
+        fps=60.0,
+        latency=0.030,
+        jitter=0.0,
+        seed=0,
+    ):
         self.clock, self.truth_fn, self.intrinsics, self.period, self.latency = (
             clock,
             truth_fn,
@@ -231,6 +340,11 @@ class SimCamera:
         self.next_t = 0.0
         self.q = deque()
         self.seq = 0
+        self.jitter, self.due = (
+            jitter,
+            0.0,
+        )  # per-frame latency sigma (s); frames stay in order (a late frame holds the later ones)
+        self.rng = np.random.default_rng(seed + 7919)
 
     def read(self, timeout=0.1):
         now = self.clock.now()
@@ -238,9 +352,13 @@ class SimCamera:
             self.next_t += self.period
             self.seq += 1
             k = self.intrinsics
+            lat = self.latency + (
+                self.rng.normal(0, self.jitter) if self.jitter else 0.0
+            )
+            self.due = max(self.due, now + max(lat, 0.005))
             self.q.append(
                 (
-                    now + self.latency,
+                    self.due,
                     Frame(self.seq, now, k.w, k.h, None, self.truth_fn(now)),
                 )
             )
@@ -267,6 +385,10 @@ class TruthDetector:
         drop=0.0,
         outages=(),
         noise=True,
+        jitter=0.0,
+        px_sigma=1.5,
+        miss_scale=1.0,
+        person_miss=0.0,
     ):
         self.clock, self.k, self.latency, self.drop, self.outages, self.noise = (
             clock,
@@ -276,6 +398,15 @@ class TruthDetector:
             list(outages),
             noise,
         )
+        self.jitter, self.due = (
+            jitter,
+            0.0,
+        )  # reply latency sigma (s), replies stay in order
+        self.px_sigma, self.miss_scale, self.person_miss = (
+            px_sigma,
+            miss_scale,
+            person_miss,
+        )  # person_miss: stress only (spec default: persons are not missed)
         self.rng = np.random.default_rng(seed)
         self.cam = PoseCamera(
             None,
@@ -301,9 +432,11 @@ class TruthDetector:
         now = self.clock.now()
         if any(a <= now < b for a, b in self.outages) or self.rng.random() < self.drop:
             return
+        lat = self.latency + (self.rng.normal(0, self.jitter) if self.jitter else 0.0)
+        self.due = max(self.due, now + max(lat, 0.002))
         self.q.append(
             (
-                now + self.latency,
+                self.due,
                 DetResult(
                     frame.seq,
                     self.latency * 1000,
@@ -341,12 +474,28 @@ class TruthDetector:
             u, v, z = pr
             w_m, h_m = t.get("w", t["size"]), t.get("h", t["size"])
             w, h = k.fx * w_m / z, k.fy * h_m / z
-            if not (0 <= u < k.w and 0 <= v < k.h):
+            person = t["cls"] == "person"
+            if person:  # a person is reported as soon as any part of the box is in the image (a real detector sees a half body)
+                if not (
+                    u + w / 2 > 0
+                    and u - w / 2 < k.w
+                    and v + h / 2 > 0
+                    and v - h / 2 < k.h
+                ):
+                    continue
+            elif not (0 <= u < k.w and 0 <= v < k.h):
                 continue
             if n:
-                if t["cls"] != "person" and rng.random() < 0.02 + 0.03 * (z / 5.0):
+                if person and self.person_miss and rng.random() < self.person_miss:
                     continue
-                u, v = u + rng.normal(0, 1.5), v + rng.normal(0, 1.5)
+                if not person and rng.random() < self.miss_scale * (
+                    0.02 + 0.03 * (z / 5.0)
+                ):
+                    continue
+                u, v = (
+                    u + rng.normal(0, self.px_sigma),
+                    v + rng.normal(0, self.px_sigma),
+                )
                 s = 1 + rng.normal(0, 0.04)
                 w, h = w * s, h * s
                 conf = float(
@@ -360,9 +509,10 @@ class TruthDetector:
                 )
             else:
                 conf = 0.9
-            dets.append(
-                Det(t["cls"], conf, (u - w / 2, v - h / 2, u + w / 2, v + h / 2))
-            )
+            x0, y0, x1, y1 = u - w / 2, v - h / 2, u + w / 2, v + h / 2
+            if person:
+                x0, y0, x1, y1 = max(x0, 0.0), max(y0, 0.0), min(x1, k.w), min(y1, k.h)
+            dets.append(Det(t["cls"], conf, (x0, y0, x1, y1)))
         if n and rng.random() < 0.01:
             u, v, s = (
                 rng.uniform(50, k.w - 50),
@@ -394,6 +544,7 @@ class Lockstep:
         seed=0,
         detector_kw=None,
         drop_link=None,
+        camera_kw=None,
     ):
         from ..cuas.world import World
         from .app import App, AppCfg
@@ -401,7 +552,9 @@ class Lockstep:
         from .sim_mcu import LoopbackLink, SimRP2040
 
         self.targets = {t.id: t for t in targets}
+        self.movers = [t for t in targets if isinstance(t, Mover)]
         self.world = w = World(manifest["model"], run_dir, seed=seed or 1, ctl_ticks=5)
+        self._drive(w.t)
         self.base = np.array(w.man["vehicles"]["turret"]["pos"], float)
         self.clock = SimClock(w)
         self.plant = NaplPlant(w)
@@ -418,7 +571,7 @@ class Lockstep:
         )
         self.geom = measure_geometry(w, self.plant)
         self.twin.step(w.t)
-        self.camera = SimCamera(self.clock, self._truth)
+        self.camera = SimCamera(self.clock, self._truth, seed=seed, **(camera_kw or {}))
         self.camera.next_t = w.t
         self.detector = TruthDetector(self.clock, seed=seed, **(detector_kw or {}))
         self.gimbal = SerialGimbal(self.link, self.clock, session=0x5EED0000 + seed)
@@ -442,13 +595,28 @@ class Lockstep:
         self._next_dm = 0.0
         self.popped = {}
         self.fire_log = []  # (t, n_pulses) from the plant
+        self.hits = {}  # target id -> balls that struck it
+        self.hit_log = []  # (t, id, speed, round)
+        self._ev_seen = 0
+
+    def _drive(self, t):
+        """Place every Mover at its closed-form pose for sim time t (free-joint qpos + qvel: logged SetAttr, replayed)."""
+        w = self.world
+        for m in self.movers:
+            pos, vel = m.pv(t)
+            j = f"{w.body_path[w.man['body_names'].index(m.id)]}/{m.id}_j"
+            w.sim.set(j, "qpos", [*pos, 1.0, 0.0, 0.0, 0.0])
+            w.sim.set(j, "qvel", [*vel, 0.0, 0.0, 0.0])
 
     def _truth(self, t):
         w, q = self.world, self.world.sim.query
         tg = []
         for tr in self.targets.values():
             p = q(w.body_path[w.man["body_names"].index(tr.id)], "pos")[0] - self.base
-            tg.append(dict(id=tr.id, cls=tr.klass, pos=p, size=tr.size_m))
+            d = dict(id=tr.id, cls=tr.klass, pos=p, size=tr.size_m)
+            if isinstance(tr, Mover):
+                d["w"], d["h"] = tr.box_m
+            tg.append(d)
         return dict(
             cam_pos=q(w.cam_path, "pos")[0] - self.base,
             cam_fwd=q(w.cam_path, "fwd")[0],
@@ -459,7 +627,6 @@ class Lockstep:
     def run(self, seconds, until=None):
         w, app = self.world, self.app
         n = int(round(seconds / w.dtc))
-        seen = 0
         for _ in range(n):
             now = w.t
             while self.script and self.script[0][0] <= now:
@@ -467,19 +634,27 @@ class Lockstep:
             if self.hold_deadman and now >= self._next_dm:
                 app.deadman()
                 self._next_dm = now + 0.2
+            if self.movers:
+                self._drive(now)
             self.twin.step(now)
             app.tick(now)
             w.step(1)
-            for ev in w.events[seen:]:
+            for ev in w.events[self._ev_seen :]:
                 if ev.get("type") == "hit":
                     name = ev["body"].rsplit("/", 1)[-1]
                     tr = self.targets.get(name)
+                    if tr:
+                        self.hits[name] = self.hits.get(name, 0) + 1
+                        self.hit_log.append((ev["t"], name, ev["speed"], ev["round"]))
                     if (
-                        tr and name not in self.popped and ev["speed"] >= 8.0
-                    ):  # balloon: any hit at >= 8 m/s pops it (spec 7.3)
+                        tr
+                        and tr.klass != "person"
+                        and name not in self.popped
+                        and ev["speed"] >= 8.0
+                    ):  # balloon: any hit at >= 8 m/s pops it (spec 7.3); a quad / hanging target is taken as killed the same way
                         self.popped[name] = w.t
                         self.detector.popped.add(name)
-            seen = len(w.events)
+            self._ev_seen = len(w.events)
             if until and until(self):
                 break
         return self

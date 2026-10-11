@@ -1,0 +1,42 @@
+# napl program examples/cuas-lite/s7_fault_link.scenario.toml --runs-dir <dir>
+# cuas-lite SAFETY scenario (spec 3.1, 3.2 row 8): three hung balloons, ARM at t = 8 s, and at the first moment a pusher cycle is in progress the USB link drops for 0.5 s
+# (comms_drop semantics: LoopbackLink.drop). The MCU watchdog must trip (SAFE within 0.31 s), no ball after that, and no automatic re-arm when the link returns.
+name = "cuas-lite-s7-link"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/run.py"]
+env = { CUAS_SCENARIO = "s7_fault_link", CUAS_SEED = "1" }
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_launcher_refusal"
+column = "fires_unauthorized"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "projectiles_stay_in_range_box"
+column = "pellet_range_m"
+op = "always"
+hi = 400
+
+[[monitors]]
+name = "no_ball_after_the_cut"
+column = "viol_cut"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_safety_violation"
+column = "violations"
+op = "always"
+hi = 0
