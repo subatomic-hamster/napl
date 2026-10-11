@@ -6,7 +6,10 @@
     final = st.stop()                        # {"tick": n, "state_hash": "<hex>"} of the bridge's World; kills both processes
 
 tests/python/test_px4_flight.py launches through this same Stack (after stop(): st.rc = the bridge's exit code).
-Env: NAPL_PX4_DIR (PX4 checkout, default the hfbox path), NAPL_PX4_INSTANCE (default 0), NAPL_BRIDGE_EXE, NAPL_REPLAY_EXE.
+Env: NAPL_PX4_DIR (PX4 checkout, default the hfbox path), NAPL_PX4_INSTANCE (default 0), NAPL_BRIDGE_EXE, NAPL_REPLAY_EXE,
+NAPL_PX4_SPEED (default 1 = real time; the bridge paces sim time at this factor, PX4 follows the HIL clock in lockstep. Measured on
+12 Skydio seeds x goal/follow at 1/2/4/8: success within the Wilson intervals, but whole-MC wall only 1084 -> 977 -> 906 -> 824 s,
+because PX4 boot, the planner and the replay are wall-bound; measured on a loaded host, so the default stays 1).
 Everything binds 127.0.0.1-reachable ports 4560+N (tcp) and 14540+N / 14550+N / 18570+N (udp); never 5177-5194, 8000, 8010, 8093.
 """
 
@@ -118,7 +121,7 @@ class Stack:
         run_dir,
         model=None,
         instance=None,
-        speed=1.0,
+        speed=None,
         connect_timeout=120,
         params=None,
         ctl=False,
@@ -136,7 +139,9 @@ class Stack:
             Path(cfg),
             Path(run_dir),
             model,
-            speed,
+            float(os.environ.get("NAPL_PX4_SPEED", 1.0))
+            if speed is None
+            else speed,  # NAPL_PX4_SPEED: bridge pacing, sim s per wall s (lockstep, PX4 follows HIL time); 1 = real time, 0 = as fast as possible
             connect_timeout,
         )
         off = (

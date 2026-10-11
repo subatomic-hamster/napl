@@ -30,7 +30,12 @@ REPO = Path(__file__).resolve().parents[2]
 PARTS = REPO / "parts"
 X500 = REPO / "assemblies" / "x500v2.toml"
 HOVER = REPO / "examples" / "x500" / "hover.py"
-N = int(os.environ.get("NAPL_PX4_INSTANCE", "0"))
+
+
+def _n():  # the instance conftest._px4_instance claimed for this test
+    return int(os.environ.get("NAPL_PX4_INSTANCE", "0"))
+
+
 SKIP = px4.skip_reason()
 needs_px4 = pytest.mark.skipif(SKIP is not None, reason=SKIP or "")
 
@@ -200,7 +205,7 @@ class HoverThrust(threading.Thread):
         while not self.stop_.wait(2.0):
             try:
                 o = subprocess.run(
-                    [str(exe), "--instance", str(N), "hover_thrust_estimate"],
+                    [str(exe), "--instance", str(_n()), "hover_thrust_estimate"],
                     capture_output=True,
                     text=True,
                     timeout=10,

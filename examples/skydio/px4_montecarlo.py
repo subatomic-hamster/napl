@@ -164,8 +164,8 @@ def main():
     instances = Queue()
     for i in range(a.workers):
         instances.put(
-            5 + i
-        )  # instances 0-9 only: PX4's rcS points the offboard link of every instance above 9 at udp 14549 (not 14540 + n)
+            int(os.environ.get("NAPL_PX4_INSTANCE", 5)) + i
+        )  # first instance NAPL_PX4_INSTANCE (default 5); instances 0-9 only: PX4's rcS points the offboard link of every instance above 9 at udp 14549 (not 14540 + n)
     jobs = [
         (m, s, root, instances)
         for m in missions

@@ -1,4 +1,4 @@
-"""Monte Carlo over forest seeds: python examples/skydio/montecarlo.py [--mission goal|follow|both] [--seeds 24] [--first 100] [--workers 5] [--out build/skydio_mc]
+"""Monte Carlo over forest seeds: python examples/skydio/montecarlo.py [--mission goal|follow|both] [--seeds 24] [--first 100] [--workers N] [--out build/skydio_mc]
 
 Every seed is a different forest (tree / pole / boulder placement, wall doorway, arch, goal), a different wind-turbulence draw and a different
 sensor-noise draw. One process per run (a Sim is not shared). Writes <out>.json (every run's summary) and <out>.md (the table the README quotes).
@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
+from napl.params import default_workers
 
 HERE = Path(__file__).parent
 
@@ -119,7 +120,12 @@ def main():
     ap.add_argument("--mission", default="both")
     ap.add_argument("--seeds", type=int, default=24)
     ap.add_argument("--first", type=int, default=100)
-    ap.add_argument("--workers", type=int, default=5)
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=default_workers(1.5),
+        help="default: every core, bounded by free memory",
+    )
     ap.add_argument("--out", default="build/skydio_mc")
     ap.add_argument(
         "--thin",
