@@ -3,6 +3,7 @@
 Frames: SI metres, z up. Rings / profiles are counter-clockwise seen from outside."""
 
 import math
+import os
 import struct
 
 import numpy as np
@@ -311,10 +312,12 @@ def write_stl(path, m: Mesh) -> None:
         len(m.f), dtype=[("n", "<f4", 3), ("v", "<f4", (3, 3)), ("a", "<u2")]
     )
     rec["n"], rec["v"] = nrm, np.stack([a, b, c], 1)
-    with open(path, "wb") as fh:
+    tmp = f"{path}.{os.getpid()}.tmp"  # atomic: parallel builders sharing a mesh cache never see a partial file
+    with open(tmp, "wb") as fh:
         fh.write(b"napl visual".ljust(80, b"\0"))
         fh.write(struct.pack("<I", len(m.f)))
         fh.write(rec.tobytes())
+    os.replace(tmp, path)
 
 
 def check_closed(m: Mesh) -> str | None:

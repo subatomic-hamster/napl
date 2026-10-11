@@ -9,6 +9,7 @@ Never physics: the builder emits these as zero-density, non-colliding geoms and 
 import hashlib
 import json
 import math
+import os
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -347,7 +348,11 @@ def pieces(part, cache_dir, root) -> list:
                 if m.tri_count():
                     write_stl(cache / f"{h}_{slot}.stl", m)
                     names.append(slot)
-            index.write_text(json.dumps(names))
+            tmp = index.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(names))
+            os.replace(
+                tmp, index
+            )  # atomic: a parallel reader never sees an empty index
         pos, R = _frame(e)
         if (
             "pos" not in e
