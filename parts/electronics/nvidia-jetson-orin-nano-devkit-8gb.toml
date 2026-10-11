@@ -65,6 +65,43 @@ v_max = { value = 20.0, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 3.5, unit = "A", src = "S1", fidelity = "datasheet" }
 note = "9-20 V DC, centre pin positive; the kit ships a 19 V supply (S1, S4)."
 
+# Pin-wire groupings (a pin wire end `jetson.J7.1` is folded into the port that lists the pin).
+[[ports]]
+name = "header_5v_a"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "source"
+pins = ["J12.2", "J12.6"]
+v_max = { value = 5.0, unit = "V", fidelity = "estimated", rationale = "Nominal 5 V of the 40-pin header's 5V0 pins (the pin table names them 5V0); the permitted load per pin is stated in the pin table notes (1 A each)." }
+note = "Header 5V0 (pin 2) with ground (pin 6): the Pico's VSYS."
+
+[[ports]]
+name = "header_5v_b"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "source"
+pins = ["J12.4", "J12.9"]
+v_max = { value = 5.0, unit = "V", fidelity = "estimated", rationale = "As header_5v_a." }
+note = "Header 5V0 (pin 4) with ground (pin 9): the two hall sensors."
+
+[[ports]]
+name = "usb_j7"
+kind = "signal"
+type = "usb"
+gender = "female"
+pins = ["J7.1", "J7.2", "J7.3", "J7.4"]
+note = "USB-A socket J7 (the USB 2.0 contact set: VBUS, D-, D+, GND)."
+
+[[ports]]
+name = "usb_j6"
+kind = "signal"
+type = "usb"
+gender = "female"
+pins = ["J6.1", "J6.2", "J6.3", "J6.4"]
+note = "USB-A socket J6 (the USB 2.0 contact set: VBUS, D-, D+, GND)."
+
 # ---- 40-pin expansion header J12 (S1 Table 3-3). Pin names are the module pin names of the specification's Figure 3-1; a trailing * in the table marks an active-low signal and is dropped here.
 # alt: a0 = default usage, a1 = the table's alternate functionality. All signals are 3.3 V; pins 3, 5, 27 and 28 are open-drain I2C lines with pull-ups on the carrier (2.2 kohm for 3 / 5, 1.5 kohm for 27 / 28),
 # the other signals pass TI TXB0108 level translators with weak output drivers (i_max is the table's pin drive: 2 mA open-drain, 20 uA elsewhere). Power pins carry 1 A each.

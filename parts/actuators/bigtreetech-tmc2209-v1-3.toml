@@ -66,6 +66,31 @@ level_min = { value = 3.0, unit = "V", src = "S4", fidelity = "datasheet" }
 level_max = { value = 5.5, unit = "V", src = "S4", fidelity = "datasheet" }
 note = "EN, STEP and DIR; MS1 / MS2 select the microstep mode (pins 2 and 3), PDN_UART the single-wire UART (pin 4)."
 
+# Pin-wire groupings of the other pins (a pin wire end `<inst>.CTL.4` is folded into the port that lists the pin). Signal-kind at port level; the pin kinds (VIO power, GND ground) apply in the pin rules.
+[[ports]]
+name = "uart"
+kind = "signal"
+type = "wire-lead"
+gender = "neutral"
+pins = ["CTL.4"]
+note = "PDN_UART: the driver's single-wire UART (TX through a series resistor of about 1 kohm, RX direct)."
+
+[[ports]]
+name = "strap"
+kind = "signal"
+type = "wire-lead"
+gender = "neutral"
+pins = ["CTL.2", "CTL.3"]
+note = "MS1 / MS2: both tied to VIO selects 16 microsteps and UART address 3."
+
+[[ports]]
+name = "vio"
+kind = "signal"
+type = "wire-lead"
+gender = "neutral"
+pins = ["PWR.7", "PWR.8"]
+note = "VIO logic supply (3.0-5.5 V) with its ground."
+
 # ---- Connectors (pin level): the 16 holes of the StepStick footprint, two rows of eight on a 0.1 in grid, as on the Pololu A4988 carrier (S3). CTL = the control row (EN ... DIR), PWR = the motor / supply row (VM ... GND).
 [[connectors]]
 id = "CTL"

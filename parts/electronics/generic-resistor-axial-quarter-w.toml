@@ -20,12 +20,12 @@ width       = { value = 0.0024, unit = "m", fidelity = "estimated", rationale = 
 height      = { value = 0.0024, unit = "m", fidelity = "estimated", rationale = "Typical body diameter." }
 price_usd   = { value = 0.05, unit = "USD", fidelity = "estimated", rationale = "About 0.05 USD each in a 1/4 W assortment kit or a 100-pack from a hobby vendor (https://www.adafruit.com/product/2784 is the 1/4 W 5 % 10 k pack class); the listing was not fetched." }
 
+# All four ports are signal-kind at port level (a resistor draws no modelled supply current: the pull-ups and dividers carry microamps to milliamps): the pin kinds of UP / DN still apply in the pin rules.
 [[ports]]
 name = "rail"
-kind = "power"
+kind = "signal"
 type = "wire-lead"
 gender = "neutral"
-role = "sink"
 pins = ["UP.1"]
 note = "Rail-side lead of a pull-up or of the top resistor of a divider."
 
@@ -47,12 +47,27 @@ note = "Signal-side lead of a pull-down or divider-bottom resistor."
 
 [[ports]]
 name = "gnd"
-kind = "power"
+kind = "signal"
 type = "wire-lead"
 gender = "neutral"
-role = "sink"
 pins = ["DN.2"]
 note = "Ground-side lead of a pull-down or divider-bottom resistor."
+
+[[ports]]
+name = "ser_a"
+kind = "signal"
+type = "wire-lead"
+gender = "neutral"
+pins = ["SS.1"]
+note = "First lead of a series resistor in a signal line."
+
+[[ports]]
+name = "ser_b"
+kind = "signal"
+type = "wire-lead"
+gender = "neutral"
+pins = ["SS.2"]
+note = "Second lead of a series resistor in a signal line."
 
 [[connectors]]
 id = "UP"

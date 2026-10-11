@@ -20,6 +20,7 @@ input_voltage_min   = { value = 3.0, unit = "V", src = "S1", fidelity = "datashe
 input_voltage_max   = { value = 40.0, unit = "V", src = "S1", fidelity = "datasheet" }
 output_voltage_min  = { value = 1.23, unit = "V", src = "S1", fidelity = "datasheet" }
 output_voltage_max  = { value = 37.0, unit = "V", src = "S1", fidelity = "datasheet" }
+v_out_nominal       = { value = 5.0, unit = "V", fidelity = "estimated", rationale = "The setpoint the builder dials in with the trimmer (the 5 V logic / weapon rail of cuas-lite); the module itself ships at an arbitrary setting. The vout port's rating for the design rules is this value, not the 37 V upper end of the adjustment range (output_voltage_max)." }
 output_current_max  = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }   # 'Max Output Current: 3A'; other listings advise <= 2.5 A continuous and a heat sink above 2 A
 switching_frequency = { value = 150000, unit = "Hz", src = "S1", fidelity = "datasheet" }
 efficiency_max      = { value = 0.93, unit = "1", src = "S1", fidelity = "datasheet" }   # 'up to ~93 %'
@@ -49,9 +50,8 @@ type = "solder-pad"
 gender = "neutral"
 role = "source"
 pins = ["IO.3", "IO.4"]
-v_max = { value = 37.0, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 3.0, unit = "A", src = "S1", fidelity = "datasheet" }
-note = "Output set by the trimmer; 5.0 V for the cuas-lite logic rail."
+note = "Output set by the trimmer; 5.0 V for the cuas-lite rail (the design rules take the voltage from the v_out_nominal param, 5 V; the adjustable range reaches 37 V)."
 
 # Pin level: four solder pads. The listing names no pad labels; IN+ / IN- / OUT+ / OUT- is the common silkscreen of this module (estimated). Pads are drawn along the board length.
 [[connectors]]
