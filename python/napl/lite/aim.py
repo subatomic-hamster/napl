@@ -33,10 +33,13 @@ CLASS_SIZE_M = {
     "target": 0.30,
     "drone": 0.30,
 }  # [est] spec 5.3; a 0.55 m sim quad is configured per scenario
-T_ACTUATOR, T_FIRE = (
-    0.060,
-    0.150,
-)  # s [est] planner + step lag; FIRE command -> ball leaves
+# Lead time added to the frame age when the target is extrapolated (see FireCfg.t_actuator / t_fire). MEASURED in the lockstep twin (examples/cuas-lite/latency.py):
+# FIRE decision -> ball fed 0.122 s (pusher extend 120 ms + a tick), barrel lag behind the commanded AIM about 0.10 s. The sum is NOT the right lead: the AIM is re-solved at
+# every decision and carries a feed-forward, so the barrel is already moving to where the target will be when the ball leaves, and adding the 0.22 s led the ball 0.15-0.3 m
+# ahead of a 1 m/s target (quad3: 0 kills in 295 balls). A sweep of the total over drift / hanging / quad3, 12 episodes per kind and band (docs/cuas-lite/sim_results.md),
+# put the hit-rate optimum at 0.0-0.05 s (quad3 kills/episode 0.71 at 0.0, 0.67 at 0.03 and 0.05, 0.33 at 0.105, 0.00 at 0.227; -0.10: 0.21). Fitted residual 0.02 s.
+# BENCH: re-measure the FIRE -> ball-leaves time (bench_validation.md 3.4, high-fps video) and re-run the sweep with `mc.py --fire-cfg` on the real numbers.
+T_ACTUATOR, T_FIRE = (0.020, 0.0)  # s
 CONFIRM = 5  # consecutive detector replies
 MIN_CONF = 0.5
 

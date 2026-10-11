@@ -125,7 +125,9 @@ distance respected: the target is clipped so that `v^2/(2*amax)` fits before the
 `BAD_STATE`) in SAFE and FAULT.
 
 `FIRE` semantics. Accepted only in state ENGAGING with `flywheel applied >= requested` for >= `spinup_ms` (cfg 16), `hb_ok`, `DEADMAN_OK`, not
-`FIRE_INHIBIT`, both axes homed, `tilt >= fire_tilt_min`, `shots_arm + n <= shot_cap_active`, time since the last ball >= `min_shot_interval_ms`.
+`FIRE_INHIBIT`, both axes homed, the measured position inside the fire sector (pan cfg 20..21, tilt cfg 17..22; else ACK RANGE), `shots_arm + n <= shot_cap_active`, time since the last ball >= `min_shot_interval_ms`.
+During the pusher stroke (FIRE to the feed point) the position is re-checked every planner tick and the dead-man / `FIRE_INHIBIT` / rail again at the feed instant: any failure aborts the
+rest of the burst (a sector failure: `EVENT 9`, state ARMED). A burst of n feeds n balls as long as every gate stays true.
 `fire_id` is remembered (last 8): a retransmitted `FIRE` with a known id returns the old result and shoots nothing. One ball = pusher servo to
 `pusher_ext_us`, dwell `pusher_dwell_ms`, back to `pusher_ret_us`, dwell, then the next ball; `EVENT 2` is sent when the retract completes.
 
@@ -171,7 +173,7 @@ boot: defaults loaded), b3 shot_counter_inconsistent (internal assertion `shots_
 > 5 deg away), b5 usb_overflow. Faults latch; `CLEAR_FAULT` only in SAFE with the E-stop released.
 
 `EVENT` codes (arg): 1 STATE_CHANGE (`new_state | reason<<8`), 2 SHOT (`fire_id<<8 | ball index`), 3 HOMED (axis mask), 4 FAULT (bit index),
-5 WATCHDOG (ms since last valid heartbeat), 6 ESTOP_EDGE (new `estop_pressed`), 7 KEY_EDGE (new `key_on`), 8 BAD_FRAMES (count since last).
+5 WATCHDOG (ms since last valid heartbeat), 6 ESTOP_EDGE (new `estop_pressed`), 7 KEY_EDGE (new `key_on`), 8 BAD_FRAMES (count since last), 9 SECTOR_ABORT (`fire_id<<8 | ball index`; the barrel left the fire sector during the pusher stroke, nothing was fed).
 State-change reasons: 1 boot, 2 watchdog, 3 estop, 4 key_off, 5 disarm, 6 arm_timeout, 7 shot_cap, 8 fault, 9 operator_arm, 10 link_up,
 11 new_session.
 
@@ -196,6 +198,14 @@ State-change reasons: 1 boot, 2 watchdog, 3 estop, 4 key_off, 5 disarm, 6 arm_ti
 | 17 | fire_tilt_min_mdeg | mdeg | 0 (never fire below level) |
 | 18 | wd_ms | ms (clamped <= 300) | 300 |
 | 19 | homing_speed | 0.1 deg/s | 200 |
+| 20, 21 | fire_pan_min, fire_pan_max | mdeg: the fire sector in azimuth at the feed window (with 17 and 22 the geofence the MCU enforces on its own) | -170000, +170000 |
+| 22 | fire_tilt_max | mdeg (the lower bound is key 17) | +70000 |
+
+The **fire sector** (keys 17, 20, 21, 22) is the second, independent layer of safety rule 4: the app writes the operator's sector to them (`CFG_SET` in SAFE/IDLE, then `CFG_GET`
+to read it back; `ARM` is refused in the app until they match). The MCU then (a) refuses `FIRE` with ACK RANGE when its measured position (the planner position, no encoder) is
+outside the sector, and (b) checks the position on every 1 ms planner tick for the whole pusher stroke, from the FIRE until the feed point: if it leaves the sector the stroke is
+aborted (pusher retracts, no ball is fed), `EVENT 9 SECTOR_ABORT` is sent and the state becomes ARMED with no flywheel request. The flash image is version 2 (22 keys, 100 bytes);
+a version-1 image is refused (`cfg_invalid`).
 
 ### 2.3 Homing and the stepper drivers (firmware behaviour, v1.1)
 
@@ -261,7 +271,7 @@ Fire (a `FIRE` command that the MCU executes) requires ALL; the app sends `FIRE`
 | 1 | no person in frame | any `person` det with conf >= 0.15 (the detector's own person threshold) anywhere in the last 1.0 s, or detector stale (> 250 ms with no valid reply; a reply carrying an `error` key is not valid), or detector socket down -> `FIRE_INHIBIT` in every heartbeat and no `FIRE`; the target box must not overlap a person box | refuses `FIRE` while the received `FIRE_INHIBIT` is set (ACK 3) | - |
 | 2 | operator ARMED this session | UI ARM (explicit button, shows key/E-stop state); app state ARMED/ENGAGING requires MCU `state >= 2` | `ARM` preconditions; `FIRE` only in ENGAGING; new `HELLO.session` -> SAFE | - |
 | 3 | confirmed drone/balloon/target track | tracker `confirmed` = >= 5 consecutive detector replies, class in {drone, balloon, target}, conf >= 0.5. Default mode (user, 2026-10-11) = **session arm**: once ARMED, every confirmed in-sector track is engageable with no per-track click; optional stricter mode = operator `authorize` of each track id for N rounds, valid 10 s (UI toggle) | - | - |
-| 4 | aim point inside the geofence sector | sector = `{az_min, az_max, el_min, el_max}` deg in the home frame (+ optional `r_max`), set in the UI, persisted in `~/.config/cuas-lite/sector.toml`; both the target position and the commanded barrel direction must lie in it; el_min >= 0 deg | `pan/tilt` soft limits (cfg 3-6) clip `AIM`; `fire_tilt_min` refuses fire below level (ACK 5) | mechanical stops at the limits |
+| 4 | aim point inside the geofence sector | sector = `{az_min, az_max, el_min, el_max}` deg in the home frame (+ optional `r_max`), set in the UI, persisted in `~/.config/cuas-lite/sector.toml`; both the target position and the barrel direction must lie in it; el_min >= 0 deg. **While ARMED / ENGAGING / FIRING every `AIM` target is clamped to the sector shrunk by the braking distance `v^2 / (2 amax)` at the current slew rate plus 0.5 deg** (no feed-forward on a clamped axis), so the head cannot slew out between the FIRE decision and the ball being fed (the Monte Carlo found the barrel up to 4 deg outside when this was only checked at the decision). A burst in flight is cancelled with an immediate `FIRE_INHIBIT` if the barrel leaves the sector or the dead-man lapses. `ARM` is refused until the MCU reports the same sector (cfg 17, 20-22) | **independent of the app**: the sector is cfg 17, 20, 21, 22 (2.2); `FIRE` is refused (ACK 5 RANGE) when the measured position is outside, and the position is checked every planner tick through the pusher stroke: leaving it aborts the stroke, `EVENT 9`, ARMED. Soft limits (cfg 3-6) clip `AIM` | mechanical stops at the limits |
 | 5 | per-arm shot cap and arm timeout not exceeded | counts `EVENT 2`, stops at the UI cap (default 5) and timeout (default 60 s), then disarms | counts actual pusher cycles; clamps cap/timeout to cfg 10/11; leaves ARMED at cap/timeout | - |
 | 6 | web dead-man fresh | UI posts `/api/deadman` every 200 ms while the operator holds the "hold to fire" control; app sets `DEADMAN_OK` iff last post < 500 ms | refuses `FIRE` without `DEADMAN_OK`; spins down flywheel if low > 1 s | - |
 | 7 | arm key on and E-stop released | shows both, treats as not-armed | reads both; key off or E-stop open -> SAFE immediately | **key switch and NC E-stop in series in the 12 V "weapon rail" feeding both flywheel MOSFET drains and the pusher servo supply; open = no power, with the RP2040 off, hung or hostile**. A second contact of each (or a divider across the rail) feeds RP2040 GPIO |

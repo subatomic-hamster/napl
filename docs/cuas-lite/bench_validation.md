@@ -113,8 +113,12 @@ Hopper loaded with 50 balls. The tilt is set to each of -15, 0, 35 and 70 deg (t
 barrier. At each angle fire the whole hopper (50 balls: 20 singles, then 10 bursts of 3), reloading between angles. Record the jams, double-feeds, misfeeds and the
 `EVENT 2` (SHOT) count against the balls that actually left. Measure the FIRE-to-ball-leaves time on video (the pusher extend dwell, cfg 14).
 **Pass:** 0 jams, 0 double-feeds in 50 balls at every angle, SHOT events equal balls fired (shot counter honest), FIRE-to-muzzle <= 170 ms [est] (spec: 120 ms + 30 ms).
-**Fail:** any jam at 0-35 deg; a jam at -15 or 70 deg only is a limit: tighten the soft limit (cfg 3-6) and record it. **Feed back:** `T_FIRE` in `aim.py` = the measured delay,
-`PUSHER_DWELL_MS` (cfg 14) and `min_shot_interval_ms` (cfg 15), the soft limits of the tilt, and the fire-tilt-min (cfg 17) if the low angle is unreliable.
+**Fail:** any jam at 0-35 deg; a jam at -15 or 70 deg only is a limit: tighten the soft limit (cfg 3-6) and record it. **Feed back:** the measured delay
+replaces the twin's (`PUSHER_DWELL_MS`, cfg 14, and the 0.122 s FIRE-to-feed that `examples/cuas-lite/latency.py` measures in the sim). **Bench calibration of the lead:** the app defaults are
+`T_ACTUATOR = 0.02 s`, `T_FIRE = 0` in `aim.py`, fitted in the sim where FIRE-to-ball is 0.122 s (not simply set to it: the AIM is re-solved continuously with feed-forward, and summing the
+pusher delay and the head lag led the ball 0.15-0.3 m ahead of a 1 m/s target). On the bench, re-run the sweep with the measured numbers: fire at a target on a pendulum or a rail at
+a known speed (0.5-1.5 m/s) with `mc.py --fire-cfg '{"t_fire": ..., "t_actuator": ...}'` in the sim and a few lead offsets on the hardware, and keep the total that centres the impacts.
+Also `PUSHER_DWELL_MS` (cfg 14) and `min_shot_interval_ms` (cfg 15), the soft limits of the tilt, and the fire-tilt-min (cfg 17) if the low angle is unreliable.
 
 ## 4. Camera: calibration and boresight
 

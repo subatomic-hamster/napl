@@ -30,13 +30,15 @@ enum { F1_ESTOP = 1, F1_KEY = 2, F1_PAN_HOMED = 4, F1_TILT_HOMED = 8, F1_PAN_HAL
 enum { F2_PAN_MOVING = 1, F2_TILT_MOVING = 2, F2_STEPPERS_EN = 4, F2_PUSHER_EXT = 8, F2_INHIBIT = 16, F2_DEADMAN = 32, F2_PAN_LIMIT = 64, F2_TILT_LIMIT = 128 };
 enum { HB_DEADMAN_OK = 1, HB_FIRE_INHIBIT = 2 };
 enum { FAULT_HOMING_TIMEOUT = 1, FAULT_DRIVER_DIAG = 2, FAULT_CFG_INVALID = 4, FAULT_SHOT_COUNTER = 8, FAULT_HALL_STUCK = 16, FAULT_USB_OVERFLOW = 32 };
-enum { EV_STATE_CHANGE = 1, EV_SHOT, EV_HOMED, EV_FAULT, EV_WATCHDOG, EV_ESTOP_EDGE, EV_KEY_EDGE, EV_BAD_FRAMES };
+enum { EV_STATE_CHANGE = 1, EV_SHOT, EV_HOMED, EV_FAULT, EV_WATCHDOG, EV_ESTOP_EDGE, EV_KEY_EDGE, EV_BAD_FRAMES, EV_SECTOR_ABORT /* 9: arg = fire_id << 8 | ball index; the pusher stroke was aborted, the barrel left the fire sector */ };
 enum { R_NONE, R_BOOT, R_WATCHDOG, R_ESTOP, R_KEY_OFF, R_DISARM, R_ARM_TIMEOUT, R_SHOT_CAP, R_FAULT, R_OPERATOR_ARM, R_LINK_UP, R_NEW_SESSION };
 enum { RES_OK, RES_BAD_STATE, RES_INTERLOCK, RES_INHIBIT, RES_CAP, RES_RANGE, RES_BUSY, RES_UNKNOWN_CMD, RES_BAD_ARG, RES_NOT_HOMED, RES_NOT_SPUN };
 /* config keys, 1..19 (spec section 2.2) */
 enum { CFG_PAN_SPR = 1, CFG_TILT_SPR, CFG_PAN_MIN, CFG_PAN_MAX, CFG_TILT_MIN, CFG_TILT_MAX, CFG_PAN_HOME_OFF, CFG_TILT_HOME_OFF, CFG_DIR_INVERT,
        CFG_HARD_SHOT_CAP, CFG_HARD_ARM_TIMEOUT, CFG_PUSHER_EXT_US, CFG_PUSHER_RET_US, CFG_PUSHER_DWELL_MS, CFG_MIN_SHOT_INTERVAL_MS, CFG_SPINUP_MS,
-       CFG_FIRE_TILT_MIN, CFG_WD_MS, CFG_HOMING_SPEED, CFG_COUNT /* = 20: array size, index 0 unused */ };
+       CFG_FIRE_TILT_MIN, CFG_WD_MS, CFG_HOMING_SPEED,
+       CFG_FIRE_PAN_MIN, CFG_FIRE_PAN_MAX, CFG_FIRE_TILT_MAX, /* 20-22: with 17 (fire_tilt_min) the fire sector at the feed window, mdeg */
+       CFG_COUNT /* = 23: array size, index 0 unused */ };
 
 /* trace kinds for the optional fw_hal_t.trace hook (tests; NULL on the Pico) */
 enum { TR_TRANSITION = 1, TR_EVENT, TR_SHOT, TR_REFUSAL };
@@ -59,7 +61,7 @@ typedef struct {
 int fw_decoder_byte(fw_decoder_t *d, uint8_t b, fw_frame_t *f);
 
 /* ---- config (config.c) ------------------------------------------------------------------------------------------------------------------ */
-#define FW_CFG_IMAGE_SIZE 88                                                        /* magic u32, version u32, 19 x i32, crc32 */
+#define FW_CFG_IMAGE_SIZE 100                                                       /* magic u32, version u32, 22 x i32, crc32 */
 void fw_cfg_defaults(int32_t cfg[CFG_COUNT]);
 void fw_cfg_pack(const int32_t cfg[CFG_COUNT], uint8_t img[FW_CFG_IMAGE_SIZE]);
 /* 0 = loaded, 1 = blank (all 0xFF / n == 0), -1 = invalid (bad magic / CRC) */

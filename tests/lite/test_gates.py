@@ -5,6 +5,7 @@ import pytest
 from apprig import AppRig, balloon, person
 from napl.lite import protocol as p
 from napl.lite.aim import ClassTracker
+from napl.lite.app import AppCfg
 from napl.lite.fire import FireCfg, Sector
 from napl.lite.io import Det
 from napl.lite.sim_io import BRIO
@@ -180,9 +181,82 @@ def test_barrel_outside_sector_never_fires():
     r.app.fc.sector = Sector(
         -60, 60, 0.0, 3.0
     )  # target (5 deg) outside -> no target; and any barrel solution is above 3 deg
+    r.run(
+        1.0
+    )  # the app writes the new sector to the MCU (ARM is refused until it reads back)
+    assert r.app.sector_synced()
     r.arm()
     r.run(6.0)
     assert_no_fire(r)
+    assert r.app.fc.armed or "arm refused" not in (r.app.last_refusal or "")
+
+
+def test_arm_is_refused_until_the_mcu_holds_the_sector():
+    r = AppRig().ready()
+    r.app.fc.sector = Sector(-30, 30, 0, 45)
+    r.arm()  # the sector on the MCU is still the old one
+    assert not r.app.fc.armed and "sector" in r.app.last_refusal
+    r.run(1.0)
+    assert r.app.sector_synced()
+    assert [
+        r.twin.cfg[k]
+        for k in (
+            p.CFG_FIRE_PAN_MIN,
+            p.CFG_FIRE_PAN_MAX,
+            p.CFG_FIRE_TILT_MIN,
+            p.CFG_FIRE_TILT_MAX,
+        )
+    ] == [-30000, 30000, 0, 45000]
+    r.arm()
+    assert r.app.fc.armed
+
+
+def test_burst_of_three_feeds_three_balls_of_one_fire():
+    cfg = AppCfg()
+    cfg.fire.burst = 3
+    r = AppRig(cfg=cfg).ready()
+    assert r.engage_until_shot(10.0) >= 1
+    r.run(2.0)
+    first = r.twin.shots[0][1]
+    assert [(f, i) for _, f, i in r.twin.shots[:3]] == [
+        (first, 0),
+        (first, 1),
+        (first, 2),
+    ]
+
+
+def test_burst_stops_at_the_next_ball_when_a_person_appears():
+    cfg = AppCfg()
+    cfg.fire.burst = 3
+    r = AppRig(cfg=cfg).ready()
+    r.arm()
+    while r.clock.t < 30.0 and not r.shots:
+        r.run(0.005)
+    assert r.shots == 1
+    r.targets.append(person(pos=(6.0, -0.5, 0.9)))  # in the frame, beside the balloon
+    r.run(2.0)
+    assert r.shots == 1, r.twin.shots
+
+
+def test_fence_clamps_the_aim_inside_the_sector_with_a_braking_margin():
+    from napl.lite.fire import FireControl, View
+
+    fc = FireControl(FireCfg(), None, Sector(-60, 60, 0, 60))
+    fc.armed = True
+    fc.rate = (
+        120.0,
+        0.0,
+    )  # slewing at 120 deg/s: braking 120^2 / 4000 = 3.6 deg (+ one period of acceleration) + 0.5 deg
+    v = View(0.0, None, True, 0.0, 0.0, [], 0.0, [], 0.0, 0.0, 0.0, 0.0)
+    pan, tilt, vp, vt = fc.fence((70.0, 30.0, 40.0, 5.0), v)
+    assert 55.0 < pan < 56.4 and tilt == 30.0 and vp == 0.0 and vt == 5.0
+    fc.armed = False
+    assert fc.fence((70.0, 30.0, 40.0, 5.0), v) == (
+        70.0,
+        30.0,
+        40.0,
+        5.0,
+    )  # the operator may aim anywhere while disarmed
 
 
 def test_deadman_not_held_never_fires():
@@ -332,8 +406,7 @@ def test_version_mismatch_sends_no_heartbeats():
 
 
 def test_manual_range_overrides_size_ranging():
-    r = AppRig().ready()
-    r.arm()
+    r = AppRig().ready()  # not armed: the head must stay put while the range is overridden (an armed head chases the 12 m solution out of view)
     r.run(2.0)
     t = next(t for t in r.app.tracks if t.confirmed)
     size_range = t.range_m
