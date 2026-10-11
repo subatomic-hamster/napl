@@ -24,6 +24,11 @@ arm = ["dynamixel-sdk==4.1.0"]
 # basicmicro (Basicmicro official RoboClaw library, PyPI METADATA "License :: OSI Approved :: MIT License", LICENSE = MIT; dep: pyserial, BSD-3-Clause).
 # Only for the library client tests / example of the RoboClaw pty (tests/python/test_roboclaw.py, examples/rover/); the port needs no library.
 rover = ["basicmicro==2.0.10"]
+# build123d 0.13.0 (METADATA "License: Apache-2.0") for cad/cuas-lite/ only (parametric printed-part CAD, run on the build host, never imported by napl).
+# Its wheels: cadquery-ocp-novtk 8.0.1.1.0 (bindings, Apache-2.0) bundling Open CASCADE (OCCT) as shared libraries: LGPL-2.1 + OCCT exception
+# (https://dev.opencascade.org/doc/overview/html/occt_public_license.html), dynamically linked, not modified, not shipped by napl.
+# trimesh 5.1.1 MIT. Other transitive deps are MIT/BSD/Apache/ISC/PSF (certifi MPL-2.0). tools/check_licenses.py scans build/_deps only: stays green.
+cad = ["build123d==0.13.0", "trimesh==5.1.1"]
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
