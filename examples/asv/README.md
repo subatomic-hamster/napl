@@ -226,7 +226,7 @@ three vessels: seed 50037 (Hs 0.37 m, 15.2 m). The encounter is at about 40-80 s
 (`--from 30 --to 125` for the three vessels, the whole run 8-177 s for patrol). These windows are estimates from the geometry, not read from the run's `t_cpa`; check `telemetry.jsonl` before cutting.
 
 Cameras: `chase`, `side`, `top`, `bow`, `wide`. The headless renderer draws the sea as a mesh driven by the physics `Sea` (`sea_surface_mesh`, the same wave model the hull floats on), shaded blue-green with
-a Fresnel sky reflection, a sun specular and distance haze (`water_shade` in `geom.slang`). The solver marks the plane named `water` in a model with a Sea as `GeomVisual.water` and refreshes its mesh from the Sea each frame (`mujoco_solver.cpp`). I did not run or touch the interactive viewer (`src/viewer`, owned by CADUI), so whether it animates the water is untested.
+a Fresnel sky reflection, a sun specular and distance haze (`water_shade` in `geom.slang`). The solver marks the plane named `water` in a model with a Sea as water (`GeomVisual::kWaterGroup` = group 6, which MuJoCo's 0-5 geom groups never produce; test with `GeomVisual::water()`) and refreshes its mesh from the Sea each frame (`mujoco_solver.cpp`). I did not run or touch the interactive viewer (`src/viewer`, owned by CADUI), so whether it animates the water is untested.
 The C2 map layers: `pose.lat_lon` (own ship), `tracks[].lat_lon` (contacts, coloured by `rule`), `traj` (the chosen path), `mission` (route legs are in `encounters.py`).
 
 ## Honesty notes
