@@ -47,7 +47,12 @@ from asv.traffic import TrafficVessel
 DT = 0.002  # s, simulation step
 IMU_TICKS = 4  # the estimator consumes IMU / magnetometer samples at 125 Hz (the devices run at 250 / 50 Hz)
 CTRL_TICKS = 20  # 40 ms control period (25 Hz)
-STATIC_MEM_S = 1.0  # s, how long a lidar return of a fixed object is remembered (world frame, estimated pose): 3 s smeared walls with the GNSS scatter and held the planner on a stale hazard
+STATIC_MEM_S = float(
+    os.environ.get("NAPL_ASV_STATIC_MEM_S", 1.0)
+)  # s (0 = off, for A/B runs), how long a lidar return of a fixed object is remembered (world frame, estimated pose): 3 s smeared walls with the GNSS scatter and held the planner on a stale hazard
+STATIC_MEM_RANGE = float(
+    os.environ.get("NAPL_ASV_STATIC_MEM_RANGE", 8.0)
+)  # m: only returns this close are remembered (the collisions with a float happen inside 5 m; farther out the memory only moved the stand-on vessel's approach)
 STATIC_MEM_CELLS = 14  # a remembered object has at most this many 0.5 m cells within 3 m of each of its cells (a 1 m drum: about 5)
 PLAN_EVERY = 12  # control periods between plans (0.48 s)
 ROW_EVERY = 3  # trace row every 120 ms
@@ -177,6 +182,7 @@ def fly(kind, p, run_dir, model=None, telemetry=True, gains=None):
                 cells = np.unique(np.round(np.concatenate(old) / 0.5), axis=0) * 0.5
                 for tr in mv or []:
                     cells = cells[np.hypot(*(cells - tr.pos).T) > 3.0 + 0.5 * tr.ext]
+                cells = cells[np.hypot(*(cells - est["pos"]).T) < STATIC_MEM_RANGE]
                 if 1 < len(cells) <= 1500:
                     dxy = cells[:, None, :] - cells[None, :, :]
                     n_near = (np.hypot(dxy[..., 0], dxy[..., 1]) < 3.0).sum(1)
