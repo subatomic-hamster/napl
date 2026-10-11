@@ -1,4 +1,4 @@
-"""Scene of the cuas-lite lockstep scenarios (placeholder turret from assemblies/turret.toml until the cuas-lite assembly exists; see
+"""Scene of the cuas-lite lockstep scenarios (the turret is assemblies/cuas-lite.toml; see
 python/napl/lite/sim_io.py). `napl program` calls build(outdir) -> MJCF path; run.py imports TARGETS / SECTOR from here.
 
 Scenario format: a `*.scenario.toml` with [model] script = "scene.py", [interfaces.native], [program] cmd = ["python", "{dir}/run.py"], and monitors on the

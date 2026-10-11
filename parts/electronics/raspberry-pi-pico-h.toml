@@ -32,6 +32,12 @@ operating_temp_min = { value = 253.15, unit = "K", src = "S1", fidelity = "datas
 operating_temp_max = { value = 358.15, unit = "K", src = "S1", fidelity = "datasheet" }   # 85 degC including self-heating
 price_usd       = { value = 5.0, unit = "USD", src = "S3", fidelity = "datasheet" }   # Pico H, Adafruit, 2026-10-11 (the headerless Pico starts at 4 USD, S4)
 
+# Envelope (collision, wire clearance): 51 x 21 mm board, 12.6 mm drawing height (header pin tips), underside at z = 0.
+[[geometry.shapes]]
+shape = "box"
+size = [0.0255, 0.0105, 0.0063]
+pos = [0.0, 0.0, 0.0063]
+
 [[ports]]
 name = "base"
 kind = "mech"
@@ -61,6 +67,24 @@ pins = ["J.39", "J.38"]
 v_max = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
 v_min = { value = 1.8, unit = "V", src = "S1", fidelity = "datasheet" }
 note = "VSYS (pin 39) with a ground (pin 38): the supply when USB is not used."
+
+# Port-level groupings of the header pins for pin wiring (a pin wire end `pico.J.<n>` is folded into the port that lists the pin). They are signal-kind at port level: nothing here is a modelled supply
+# (the 3V3 pin feeds pull-ups and logic inputs, milliamps); the pin kinds (power on 36, ground on 3 / 8 / ...) still apply in the pin rules.
+[[ports]]
+name = "gpio"
+kind = "signal"
+type = "wire-lead"
+gender = "neutral"
+pins = ["J.1", "J.2", "J.4", "J.5", "J.6", "J.7", "J.9", "J.10", "J.11", "J.12", "J.14", "J.15", "J.16", "J.17", "J.19", "J.20", "J.21", "J.22", "J.24", "J.25", "J.26", "J.27", "J.29", "J.31", "J.32", "J.34", "J.3", "J.8", "J.13", "J.18", "J.23", "J.28", "J.33"]
+note = "GPIO pins and the ground pins of the header, for single-conductor pin wires."
+
+[[ports]]
+name = "rail_3v3"
+kind = "signal"
+type = "wire-lead"
+gender = "neutral"
+pins = ["J.36"]
+note = "3V3(OUT), pin 36: the logic rail for pull-ups and the driver VIO (recommended load at most v3v3_out_max)."
 
 # ---- J: the 40 castellated / through-hole pins (S1 Figure 2 and Section 2.1; the function table is the RP2040 data sheet Table 2, S2). Positions are exact (0.1 in pitch, rows 0.7 in apart); the
 # numbering follows the datasheet's Figure 4 (pin 1 at the USB end of the y = -8.89 mm row).

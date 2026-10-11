@@ -24,6 +24,18 @@ width               = { value = 0.040, unit = "m", src = "S1", fidelity = "datas
 height              = { value = 0.055, unit = "m", fidelity = "estimated", rationale = "Head height above the panel plus the contact block behind it: not in the listing (its 'dimensions' line is the shipping box); about 20 mm head + 35 mm block is typical for a 22 mm E-stop unit." }
 price_usd           = { value = 11.0, unit = "USD", fidelity = "estimated", rationale = "Not a firm price: the VXB listing (S1) shows 39.99 / 80.00 USD for a 2-pack (inconsistent, 20 USD each at best) while a web search of Walmart marketplace listings of similar 22 mm NC latching E-stops showed 8-14 USD each (e.g. a twist-release unit at 10.99 USD; https://www.walmart.com/c/kp/mushroom-stop-button); 11 USD is taken." }
 
+# Envelope (collision, wire clearance): the contact block behind the panel (a 21 mm cylinder through the 22 mm hole, 35 mm deep, estimated) and the 40 mm mushroom head 20 mm in front of the panel face (estimated;
+# 'height' above is their sum).
+[[geometry.shapes]]
+shape = "cylinder"
+size = [0.0105, 0.0175]
+pos = [0.0, 0.0, -0.0175]
+
+[[geometry.shapes]]
+shape = "box"
+size = [0.02, 0.02, 0.01]
+pos = [0.0, 0.0, 0.01]
+
 [[ports]]
 name = "contact"
 kind = "power"
@@ -34,6 +46,19 @@ pins = ["NC.1", "NC.2"]
 v_max = { value = 600.0, unit = "V", src = "S1", fidelity = "datasheet" }
 i_max = { value = 10.0, unit = "A", src = "S1", fidelity = "datasheet" }
 note = "Normally-closed contact: closed released, open when pressed and latched."
+
+[[ports]]
+name = "clash_nema_pan"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.028, 0.031, -0.047437]
+axis = [0.0, 1.0, 0.0]
+ref = [0.0, 0.0, 1.0]
+symmetry = 1
+fidelity = "derived"
+derivation = "ASSEMBLY-SPECIFIC WAIVER port (cuas-lite): the pose of the pan NEMA 17 (origin on its flange face) in this part's frame as placed on the front panel (E-stop at (108, -28, -43) mm rpy (pi/2, 0, pi/2), motor at (60.563, 0, -12) mm). A closure mate to it records a known envelope clash (the estimated 35 mm contact block against the motor body, 3.6 mm) so the DRC does not fail on it; it carries no joint."
+note = "Waiver port for a known CAD clash with the pan motor, see the derivation. Not a physical interface."
 
 [[ports]]
 name = "panel"

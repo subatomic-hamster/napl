@@ -31,6 +31,12 @@ width             = { value = 0.0100, unit = "m", fidelity = "estimated", ration
 height            = { value = 0.0045, unit = "m", fidelity = "estimated", rationale = "TO-220AB body thickness about 4.5 mm (package standard)." }
 price_usd         = { value = 2.25, unit = "USD", src = "S2", fidelity = "datasheet" }   # Adafruit, quantity 1-9, 2026-10-11 (page said out of stock; 10-99: 2.03)
 
+# Envelope (collision, wire clearance): the TO-220AB body, 15.6 x 10 x 4.5 mm lying on its mounting face (z = 0), tab towards +y, leads towards -y.
+[[geometry.shapes]]
+shape = "box"
+size = [0.0078, 0.005, 0.00225]
+pos = [0.0, 0.0, 0.00225]
+
 [[ports]]
 name = "switch"
 kind = "power"
@@ -70,7 +76,7 @@ pose_rationale = "Leads leave the bottom edge of the body; the 2.54 mm lead pitc
 pins = [
   { number = 1, name = "G", kind = "signal", dir = "in", v_max = 20.0, v_min = 2.35, note = "gate" },
   { number = 2, name = "D", kind = "power", dir = "io", v_max = 30.0, i_max = 62.0, note = "drain; also the metal tab" },
-  { number = 3, name = "S", kind = "power", dir = "io", i_max = 62.0, note = "source" },
+  { number = 3, name = "S", kind = "ground", note = "source (low-side switch: the return rail)" },
 ]
 
 [visual]

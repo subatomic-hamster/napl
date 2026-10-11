@@ -30,6 +30,12 @@ r_terminal         = { value = 3.19, unit = "ohm", fidelity = "derived", derivat
 ke_equiv           = { value = 1.452e-3, unit = "V*s/rad", fidelity = "derived", derivation = "Back-EMF constant from the no-load point: (6 V - 0.45 A * 3.19 ohm) / 3141.6 rad/s = 4.564 V / 3141.6 rad/s = 1.452e-3 V*s/rad (= torque constant in N*m/A for an ideal DC motor), which is 6574 rpm/V; the plain 30000 rpm / 6 V reading is 5000 rpm/V. With the 24000 rpm figure the constant would be 1.82e-3." }
 kt_equiv           = { value = 1.452e-3, unit = "N*m/A", fidelity = "derived", derivation = "Equal to ke_equiv in SI units for an ideal DC motor. Stall torque would be 1.452e-3 * 1.88 A = 2.7 mN*m at 6 V (the listing gives none)." }
 
+# Envelope (collision, wire clearance): the 20 x 15.3 mm can, z in [-0.032, 0] (shaft not included).
+[[geometry.shapes]]
+shape = "box"
+size = [0.01, 0.00765, 0.016]
+pos = [0.0, 0.0, -0.016]
+
 [[ports]]
 name = "mount"
 kind = "mech"
@@ -40,6 +46,17 @@ axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 2
 note = "Front face of the can; the listing gives no mounting-hole pattern (180 motors are held in a printed cradle or clamp)."
+
+[[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame as a port (shaft-end face centre, +z the shaft), for seating the part by the pose of its frame."
 
 [[ports]]
 name = "shaft"
