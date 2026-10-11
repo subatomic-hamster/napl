@@ -17,8 +17,8 @@ wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale = "
 shape = "mesh"
 mesh = "meshes/cuas-lite/wheel_cover_neg_y.stl"
 material = "petg"
-bbox_min = [-0.0418, -0.0499, -0.0598]
-bbox_max = [0.0118, -0.0471, -0.0432]
+bbox_min = [-0.0418, -0.0499, -0.0608]
+bbox_max = [0.0118, -0.0471, -0.0442]
 
 [[ports]]
 name = "origin"

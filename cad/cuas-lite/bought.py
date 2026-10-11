@@ -31,7 +31,10 @@ def head_items():
             dict(
                 name=f"fw_motor_{'p' if s > 0 else 'n'}y",
                 mass=P.M180_MASS,
-                shape=K.L2H(_cyl_z(P.M180_D, 4.5, 4.5 + P.M180_LEN, 0, s * yw)),
+                shape=K.L2H(
+                    Pos(0, s * yw, 4.5 + P.M180_LEN / 2)
+                    * Box(P.M180_D, P.M180_FLAT, P.M180_LEN)
+                ),  # flat-sided can envelope (part toml box 20 x 15.3 x 32)
             )
         )
         items.append(

@@ -5,7 +5,7 @@ vendor = "napl cuas-lite (own design)"
 part_number = "pan_hall_mount"
 url = "cad/cuas-lite/parts.py"
 
-# Printed from cad/cuas-lite/parts.py (2.16 g, supports: none). The mesh is the CAD's napl mesh (m), already in its group frame (B static/pan, head frame H tilt): the part frame IS that frame.
+# Printed from cad/cuas-lite/parts.py (2.07 g, supports: none). The mesh is the CAD's napl mesh (m), already in its group frame (B static/pan, head frame H tilt): the part frame IS that frame.
 
 [params]
 infill_fraction = { value = 0.2, unit = "1", fidelity = "estimated", rationale = "Print setting: spec 6.4, cad/cuas-lite/params.py." }
@@ -30,17 +30,3 @@ axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 note = "The part frame as a port: the stator's seat port mates here."
-
-# ASSEMBLY-SPECIFIC WAIVER port (cuas-lite): a closure mate to it records a known CAD clash (the 6 in lazy-susan plate edge at x = -76.2 mm against this mount's sensor pocket, x -85..-75 mm, z up to 24 mm,
-# 1.2 mm) so the DRC does not fail on it. It carries no joint and is not a physical interface. Pose = the lazy susan in frame B (seat_lazy_susan of the rotor plate: z = 18 mm, axis +z).
-[[ports]]
-name = "clash_lazy_susan"
-kind = "mech"
-type = "frame.origin"
-gender = "neutral"
-pos = [0.0, 0.0, 0.018]
-axis = [0.0, 0.0, 1.0]
-ref = [1.0, 0.0, 0.0]
-symmetry = 1
-fidelity = "derived"
-derivation = "Equal to the rotor plate's seat_lazy_susan pose in frame B at pan = 0."

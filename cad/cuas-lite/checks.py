@@ -89,6 +89,63 @@ def rot_pan(shape, a):
     return Rot(0, 0, a) * shape
 
 
+def base_envelope_checks(S):
+    """Real bought-part envelopes (part tomls / bom.md) against the printed base: Jetson devkit, 40 mm pan NEMA 17, E-stop
+    contact block, lazy-susan plate edge vs the hall mount."""
+    from build123d import Box, Cylinder
+
+    zf = -85.0 + 3.0 + P.STANDOFF_H  # standoff tops
+    jx, jy, jz = P.JETSON_BOARD
+    jet = Pos(-34.0, 0, zf + jz / 2) * Box(jx, jy, jz)
+    estop = (
+        Pos(104.0 - 17.5, -44.0, -43.0) * Rot(0, 90, 0) * Cylinder(11.0, 35.0)
+    )  # 35 mm block [est]
+    motor = next(i["shape"] for i in BT.static_items() if i["name"] == "pan_motor")
+    stat = {
+        n: S[n]
+        for n, (_, g, _, _) in K.REGISTRY.items()
+        if g == "static" and n not in ACCESSORIES
+    }
+    bad = {}
+    for nm, sh, skip in (
+        ("jetson", jet, ()),
+        ("estop_block", estop, ("front_panel",)),
+        ("pan_nema17", motor, ("pan_motor_mount", "base_stator_plate")),
+    ):
+        for sn, ss in stat.items():
+            v = 0.0 if sn in skip else vol(sh, ss)
+            if v > 1.0:
+                bad[f"{nm}x{sn}"] = round(v, 1)
+    v = vol(estop, motor)
+    if v > 1.0:
+        bad["estop_blockxpan_nema17"] = round(v, 1)
+    jb = jet.bounding_box()
+    inside = (
+        jb.min.X >= -87.0
+        and jb.max.X <= 87.0
+        and abs(jb.min.Y) <= 52.0
+        and jb.max.Y <= 52.0
+        and jb.max.Z <= -8.0 - 5.0
+    )
+    chk(
+        "base_real_envelopes_clear",
+        not bad and inside,
+        f"Jetson {jx}x{jy}x{jz} on the standoffs (top z {jb.max.Z:.1f}, {-8.0 - jb.max.Z:.1f} mm under the stator), 40 mm pan NEMA 17, "
+        f"E-stop block at y=-44 vs printed base parts and each other: {bad or 'no overlap'}",
+    )
+    ls = next(i["shape"] for i in BT.pan_items() if i["name"] == "lazy_susan")
+    hall = S["pan_hall_mount"]
+    plate = Pos(-76.2 + 5.0, 0, P.Z_LS0 + 4.5) * Box(
+        10.0, 152.4, 9.0
+    )  # square 6 in plate, edge at x = -76.2
+    chk(
+        "hall_mount_clears_lazy_susan",
+        vol(hall, ls) < 0.1 and vol(hall, plate) < 0.1,
+        f"hall column stops at x=-76.6, plate edge x=-76.2: overlap {vol(hall, ls):.2f} (ring) / {vol(hall, plate):.2f} (square plate) mm3; "
+        f"opening {P.LS_APERTURE} mm, {P.LS_MASS:.0f} g",
+    )
+
+
 def pan_checks(S, tilt_p, tilt_b, stat_all):
     """Pan hard stop engages at +-PAN_STOP_DEG +-2, and nothing else collides over the pan range."""
     tab, stud = S["pan_stop_tab"], stat_all["pan_stop_stud"]
@@ -794,6 +851,7 @@ def run(recs, meshes, shapes, out):
     )
 
     pan_checks(S, tilt_p, tilt_b, stat_all)
+    base_envelope_checks(S)
 
     # ---- 6 balance -------------------------------------------------------------------------------------------------------------------
     cgs = balance(recs)

@@ -18,8 +18,8 @@ wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale = "
 shape = "mesh"
 mesh = "meshes/cuas-lite/pusher_arm.stl"
 material = "petg"
-bbox_min = [-0.0879977, -0.0254948, -0.0751]
-bbox_max = [-0.0730023, 0.0154253, -0.0721]
+bbox_min = [-0.0879977, -0.0254948, -0.0761]
+bbox_max = [-0.0730023, 0.0154253, -0.0731]
 
 [[ports]]
 name = "origin"

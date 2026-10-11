@@ -96,11 +96,11 @@ SLOT_TRAVEL = 4.0  # belt tension adjustment +-4 mm [spec 6.1]
 # ---- NEMA 17 (parts/actuators/soyo-sy42sth38-1684a-nema17.toml) ------------------------------------------------------------------
 N17_FACE, N17_BOLT, N17_PILOT = 42.3, 31.0, 22.0
 N17_LEN, N17_SHAFT_D, N17_SHAFT_LEN, N17_BOSS_H = (
-    38.0,
+    40.0,
     5.0,
     24.0,
     2.0,
-)  # length/shaft len/boss [est typical]
+)  # body length 40 [17HS4401S part toml] / shaft len/boss [est typical]
 N17_MASS = 285.0
 
 # ---- bearings ----------------------------------------------------------------------------------------------------------------------
@@ -109,17 +109,18 @@ B608_MASS = 12.0
 LS_OD = 152.4  # 6 in lazy susan
 LS_BOLT_R = 63.5  # bolt circle radius, 4 holes per ring, rings offset 45 deg [est: confirm at purchase]
 LS_H = 9.0  # bearing height [est]
-LS_APERTURE = 92.0  # clear bore [est]
-LS_MASS = 330.0
+LS_APERTURE = 117.5  # clear opening [RF Parts unit, bom.md]
+LS_MASS = 218.0  # [RF Parts unit, bom.md]
 
 # ---- 180-size flywheel motors + wheels ----------------------------------------------------------------------------------------
+M180_FLAT = 15.3  # can across the flats [part toml]
 M180_D, M180_LEN, M180_SHAFT_D, M180_SHAFT_LEN, M180_MASS = (
-    20.4,
-    25.0,
+    20.0,
+    32.0,
     2.0,
     8.0,
     18.0,
-)  # [est typical 180-size]
+)  # can length 32 [part toml / listing]; rest [est typical 180-size]
 WHEEL_D, WHEEL_W, WHEEL_MASS = 35.0, 7.0, 6.0  # bought silicone wheels [est]
 
 # ---- other bought items ------------------------------------------------------------------------------------------------------------
@@ -128,7 +129,7 @@ BRIO_MASS = 65.0
 SERVO = dict(
     body=(12.2, 22.7, 22.7), tab_hole_dy=27.5, spline_from_end=6.0, mass=9.0
 )  # SG90 class [est, not fetched]
-JETSON_BOARD = (100.0, 79.0, 21.0)  # retailer-listed envelope [spec 10]
+JETSON_BOARD = (103.0, 90.5, 34.8)  # devkit envelope incl. heatsink [part toml]
 JETSON_HOLES = (86.0, 58.0)  # [est] confirm against NVIDIA drawing
 PICO = (
     51.0,
@@ -174,7 +175,7 @@ B6807_OD, B6807_ID, B6807_W, B6807_MASS = (
 )  # 6807ZZ [est dims/mass]
 assert JOUR_ID + 5.0 <= TUBE_OD, "ball too large for the 35 mm trunnion tube"
 CHUTE_WALL = 1.6
-BEAM_FOOT_T = 3.0
+BEAM_FOOT_T = 4.0  # +1 so the 32 mm flywheel motor tops (z 36.5) clear the ball bore under the hollow trunnion
 FEED_SLOPE_MIN = (
     15.0  # deg downhill along gravity required over the sloping feed path at every tilt
 )

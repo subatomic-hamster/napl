@@ -12,7 +12,6 @@
 # E-stop or a broken wire de-energises the coil and cuts the weapon rail whatever the Pico does. The Pico (USB from the Jetson, 5 V from the header) reads the key / E-stop nodes through 33k/10k dividers.
 # CABLE LOOP: the flex loop that carries the pan-group leads (tilt motor, tilt hall, Brio USB, flywheel / servo leads) through the turntable opening is sized for +-178 deg pan, not the +-170 deg software range:
 # the pan hard stop (printed rotor tab + one M3 stud in the stator, CAD 8fa7ecc) engages at +-177.9 deg and the homing search can drive to it. The joint range here (+-170 deg) is the software limit.
-# WAIVED CLASHES: four `waived--*` closure mates (below, before the wiring) record known envelope clashes between the CAD and bought-part envelopes (see docs/cuas-lite/bom.md, CAD mismatches).
 # NOT WIRED (no library part yet, no kernel effect): status LEDs and buzzer (GP15-17), TMC DIAG (GP22: the BTT module's header has no DIAG pin), tach (GP13, unused by the firmware), the Jetson's
 # own USB-A / network / DisplayPort, the belts (closed GT2 loops) and the cable clips / camera shims of the CAD.
 
@@ -174,12 +173,12 @@ group = "electronics"
 pos = [-0.098, 0.0, -0.070]
 rpy = [-1.5707963267948966, 0.0, 1.5707963267948966]
 
-# ---- front panel: E-stop (y -28 mm) and arm key (y +28 mm), both z -43 mm, heads towards +x ---------------------------------------------------------------------------------------
+# ---- front panel: E-stop (y -44 mm) and arm key (y +28 mm), both z -43 mm, heads towards +x ---------------------------------------------------------------------------------------
 [[instances]]
 id = "estop"
 part = "generic-estop-22mm-nc"
 group = "panel"
-pos = [0.108, -0.028, -0.043]
+pos = [0.108, -0.044, -0.043]
 rpy = [1.5707963267948966, 0.0, 1.5707963267948966]
 
 [[instances]]
@@ -713,35 +712,6 @@ closure = true
 name = "pan_hall_mount--stator"
 a = "stator.seat_pan_hall_mount"
 b = "pan_hall_mount.origin"
-
-# ---- KNOWN CLASHES, WAIVED (closure mates through assembly-specific `clash_*` ports; no joint, no physical interface). Each is a real mismatch between the CAD and a bought-part envelope, listed in
-# docs/cuas-lite/bom.md "CAD mismatches" for the CAD worker. They are NOT fixes.
-#   beam / fw motors : CAD models the 180 motor 25 mm long, the listing says 32 mm (can runs 1.7 / 4.0 mm into the trunnion beam).
-#   estop / nema_pan : the estimated 35 mm E-stop contact block against the pan motor body, 3.6 mm (E-stop hole at y = -28 mm, motor half-width 21 mm).
-#   lazy_susan / pan_hall_mount : LS plate edge x = -76.2 mm vs the mount's pocket (x -85..-75 mm), 1.2 mm.
-[[mates]]
-name = "waived--beam--fw_motor_pos"
-a = "beam.clash_fw_motor_pos_y"
-b = "fw_motor_pos.origin"
-closure = true
-
-[[mates]]
-name = "waived--beam--fw_motor_neg"
-a = "beam.clash_fw_motor_neg_y"
-b = "fw_motor_neg.origin"
-closure = true
-
-[[mates]]
-name = "waived--estop--nema_pan"
-a = "estop.clash_nema_pan"
-b = "nema_pan.origin"
-closure = true
-
-[[mates]]
-name = "waived--pan_hall_mount--lazy_susan"
-a = "pan_hall_mount.clash_lazy_susan"
-b = "lazy_susan.origin"
-closure = true
 
 [[mates]]
 name = "tilt_motor_mount--yoke_l"
