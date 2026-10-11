@@ -22,6 +22,12 @@ width               = { value = 0.020, unit = "m", fidelity = "estimated", ratio
 height              = { value = 0.015, unit = "m", fidelity = "estimated", rationale = "As length." }
 price_usd           = { value = 3.0, unit = "USD", fidelity = "estimated", rationale = "The retrieved Amazon page text carried no price (it was a 1.4 MB page and only its first 100 kB was read). Such 2-packs of inline blade holders with 12 AWG leads sell for roughly 6-9 USD per pack in listings seen in a web search; 3 USD per holder is taken." }
 
+# Envelope (collision, wire clearance): the 45 x 20 x 15 mm body centred on the frame origin (estimated size, see length).
+[[geometry.shapes]]
+shape = "box"
+size = [0.0225, 0.01, 0.0075]
+pos = [0.0, 0.0, 0.0]
+
 [[ports]]
 name = "line"
 kind = "power"

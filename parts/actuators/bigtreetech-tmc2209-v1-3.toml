@@ -27,6 +27,13 @@ current_formula    = { value = "I_RMS = 325 mV / (R_SENSE + 20 mohm) * 1/sqrt(2)
 i_rms_per_vref     = { value = 0.7071, unit = "A/V", fidelity = "derived", derivation = "With R_SENSE = 110 mohm: 325 mV / 130 mohm = 2.5 A; times 1/sqrt(2) times VREF/2.5 V gives I_RMS = VREF / sqrt(2) = 0.7071 A per volt (the same derivation as parts/actuators/trinamic-tmc2209.toml). A 1.7 A motor at 70-80 % current wants VREF about 1.7-1.9 V." }
 price_usd          = { value = 7.89, unit = "USD", src = "S1", fidelity = "datasheet" }   # sale price on 2026-10-11 (regular 9.99 USD)
 
+# Envelope (collision, wire clearance): the 20.32 x 15.24 mm module, from the underside of the 1.6 mm board (z = -1.6 mm, the frame origin is on the top face) to 12 mm above the board's underside
+# (IC + heat sink, drawing height, estimated).
+[[geometry.shapes]]
+shape = "box"
+size = [0.01016, 0.00762, 0.006]
+pos = [0.0, 0.0, 0.0044]
+
 [[ports]]
 name = "motor_out"
 kind = "power"

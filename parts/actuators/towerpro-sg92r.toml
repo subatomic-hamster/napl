@@ -50,6 +50,17 @@ symmetry = 1
 note = "Micro-servo spline; tooth count not published on the retrieved page, opaque family tag."
 
 [[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame as a port (output-axis point on the horn-seat face), for seating the part by the pose of its frame."
+
+[[ports]]
 name = "power_in"
 pins = ["SRV.1", "SRV.2"]
 kind = "power"

@@ -23,6 +23,12 @@ width               = { value = 0.0162, unit = "m", fidelity = "estimated", rati
 height              = { value = 0.0153, unit = "m", src = "S1", fidelity = "datasheet" }   # depth behind the flange; the key and bezel above it are not counted
 price_usd           = { value = 3.94, unit = "USD", src = "S1", fidelity = "datasheet" }   # quantity 1, Digi-Key, 2026-10-11 (10: 3.398)
 
+# Envelope (collision, wire clearance): the 16.2 mm bezel / body from 15.3 mm behind the flange (S1) to 5 mm in front of it (key + bezel, estimated).
+[[geometry.shapes]]
+shape = "box"
+size = [0.0081, 0.0081, 0.01015]
+pos = [0.0, 0.0, -0.00515]
+
 [[ports]]
 name = "contact"
 kind = "power"

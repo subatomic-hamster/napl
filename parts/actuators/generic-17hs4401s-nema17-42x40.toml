@@ -30,7 +30,15 @@ temp_rise_max      = { value = 80, unit = "K", src = "S1", fidelity = "datasheet
 lead_length        = { value = 1.0, unit = "m", src = "S1", fidelity = "datasheet" }   # 'Number of Wire: 4 (100cm Length)'; the same sheet's intro text says a 50 cm cable with a Harwin plug is supplied
 price_eur          = { value = 7.05, unit = "EUR", src = "S2", fidelity = "datasheet" }   # incl. VAT, 2026-10-11
 price_usd          = { value = 8.11, unit = "USD", fidelity = "derived", derivation = "7.05 EUR (S2, HANPOSE 17HS4401S, VAT included) x an assumed 1.15 USD/EUR = 8.11 USD; exchange rate assumed, not looked up. A US listing of the same class (StepperOnline / Amazon) was not retrievable (bot-blocked)." }
+kv_equivalent = { value = 53.38, unit = "rpm/V", fidelity = "derived", derivation = "Equivalent brushed-DC speed constant of the stepper used as a position-servo plant in the simulator: kv = 60 / (2 pi Ke) with Ke = kt_equiv_phase = 0.1789 V*s/rad -> 53.38 rpm/V. The simulator treats the stepper as a DC motor with this constant, the 1.5 ohm winding resistance and a current limit of sqrt(2) x 1.7 A = 2.40 A, which reproduces the 0.43 N*m holding torque as the torque ceiling; the stepper's speed-torque roll-off and step loss are not modelled by the kernel (the SimRP2040 twin models lost steps)." }
+current_limit_equivalent = { value = 2.404, unit = "A", fidelity = "derived", derivation = "sqrt(2) x 1.7 A (both phases at rated current, as the holding torque is quoted) = 2.404 A; T = kt_equiv_phase x 2.404 A = 0.43 N*m." }
 kt_equiv_phase = { value = 0.1789, unit = "N*m/A", fidelity = "derived", derivation = "Torque constant per phase from the holding torque with both phases at rated current: T_hold = sqrt(2)*Kt*I  =>  Kt = 0.43 N*m / (1.4142 * 1.7 A) = 0.1789 N*m/A; equals the back-EMF constant Ke (V*s/rad) per phase of an ideal motor. The holding torque of a 2-phase stepper is quoted with both phases on (the usual convention)." }
+
+# Envelope (collision, wire clearance): the 42.3 mm square body, z in [-0.040, 0] (shaft not included).
+[[geometry.shapes]]
+shape = "box"
+size = [0.02115, 0.02115, 0.02]
+pos = [0.0, 0.0, -0.02]
 
 [[ports]]
 name = "face"
@@ -47,13 +55,26 @@ note = "NEMA 17 flange; pattern, M3 thread and hole depth taken from the SOYO SY
 [[ports]]
 name = "shaft"
 kind = "mech"
-type = "shaft.5d"
+type = "shaft.5"
 gender = "male"
 pos = [0.0, 0.0, 0.0]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
-note = "5 mm shaft (S1); the D-flat is shown by the sellers' photos (S2: '5 mm D-shaft')."
+note = "5 mm shaft (S1); the D-flat is shown by the sellers' photos (S2: '5 mm D-shaft'). Type shaft.5 (not shaft.5d) so that it mates the bore.5 of the GT2 pulleys."
+
+# Whole-part frame port: the instance frame itself as a port, for assemblies that seat the part by the pose of its frame (axis -z so that
+# mating it to a seat port puts the part frame ON the seat port frame).
+[[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame (flange-face centre, +z the shaft)."
 
 [[ports]]
 name = "phases"

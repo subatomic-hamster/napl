@@ -32,6 +32,12 @@ operating_temp_min = { value = 253.15, unit = "K", src = "S1", fidelity = "datas
 operating_temp_max = { value = 358.15, unit = "K", src = "S1", fidelity = "datasheet" }   # 85 degC including self-heating
 price_usd       = { value = 5.0, unit = "USD", src = "S3", fidelity = "datasheet" }   # Pico H, Adafruit, 2026-10-11 (the headerless Pico starts at 4 USD, S4)
 
+# Envelope (collision, wire clearance): 51 x 21 mm board, 12.6 mm drawing height (header pin tips), underside at z = 0.
+[[geometry.shapes]]
+shape = "box"
+size = [0.0255, 0.0105, 0.0063]
+pos = [0.0, 0.0, 0.0063]
+
 [[ports]]
 name = "base"
 kind = "mech"

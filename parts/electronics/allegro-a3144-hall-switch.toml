@@ -51,6 +51,17 @@ pins = ["H.3", "H.2"]
 level_max = { value = 24.0, unit = "V", src = "S1", fidelity = "datasheet" }   # output leakage specified at 24 V
 note = "Open-collector output: low when a south pole faces the branded face (operate point), high otherwise."
 
+[[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame as a port, for seating the part by the pose of its frame."
+
 # Pin order: the data sheet's pin drawing numbers the three leads 1, 2, 3 and labels them SUPPLY, GROUND, OUTPUT.
 [[connectors]]
 id = "H"

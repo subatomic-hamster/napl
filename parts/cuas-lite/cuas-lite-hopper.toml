@@ -1,0 +1,33 @@
+id = "cuas-lite-hopper"
+name = "cuas-lite hopper (3D printed PLA, group tilt)"
+category = "frame.printed"
+vendor = "napl cuas-lite (own design)"
+part_number = "hopper"
+url = "cad/cuas-lite/parts.py"
+
+# Printed from cad/cuas-lite/parts.py (61.27 g, supports: none). The mesh is the CAD's napl mesh (m), already in its group frame (head frame H for the tilt group): the part frame IS that frame.
+# The CAD is moving the hopper from the tilt group to the pan group (feed through the tilt trunnion): the placement is one mate (hopper--chassis in assemblies/cuas-lite.toml); the mesh will be replaced then.
+
+[params]
+infill_fraction = { value = 0.2, unit = "1", fidelity = "estimated", rationale = "Print setting: spec 6.4, cad/cuas-lite/params.py." }
+layer_height    = { value = 0.0002, unit = "m", fidelity = "estimated", rationale = "Print setting: spec 6.4, cad/cuas-lite/params.py." }
+nozzle_diameter = { value = 0.0004, unit = "m", fidelity = "estimated", rationale = "Print setting: spec 6.4, cad/cuas-lite/params.py." }
+wall_count      = { value = 2, unit = "1", fidelity = "estimated", rationale = "Print setting: spec 6.4, cad/cuas-lite/params.py." }
+
+[geometry]
+shape = "mesh"
+mesh = "meshes/cuas-lite/hopper.stl"
+material = "pla"
+bbox_min = [-0.0964, -0.0444, -0.011]
+bbox_max = [-0.0076, 0.0444, 0.127524]
+
+[[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame as a port: the chassis's (later the rotor plate's) seat port mates here."

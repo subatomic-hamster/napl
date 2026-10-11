@@ -26,6 +26,12 @@ efficiency_max      = { value = 0.93, unit = "1", src = "S1", fidelity = "datash
 price_php           = { value = 109.0, unit = "PHP", src = "S1", fidelity = "datasheet" }   # 2026-10-11
 price_usd           = { value = 1.90, unit = "USD", fidelity = "derived", derivation = "109 PHP (S1) / an assumed 57.5 PHP per USD = 1.90 USD; the exchange rate is assumed, not looked up. Other listings of the same module showed 1.50 USD and 2.90 EUR in a web search (not fetched)." }
 
+# Envelope (collision, wire clearance): 43.2 x 21 x 14 mm, underside at z = 0.
+[[geometry.shapes]]
+shape = "box"
+size = [0.0216, 0.0105, 0.007]
+pos = [0.0, 0.0, 0.007]
+
 [[ports]]
 name = "vin"
 kind = "power"

@@ -28,6 +28,17 @@ symmetry = 360
 length = 0.007
 note = "8 mm bore (S1)."
 
+[[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame as a port, for seating the part by the pose of its frame."
+
 [visual]
 src = "V1"
 note = "Metal ring with two flat shields (product photo); drawn as a generic box."

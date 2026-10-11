@@ -36,6 +36,17 @@ length = 0.016
 note = "5 mm bore, 'two set screws can be used to attach it firmly to any 5mm diameter shaft' (S1); '5mm inner diameter on both ends'."
 
 [[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "The part frame as a port (flange-side end of the bore axis), for seating the part by the pose of its frame."
+
+[[ports]]
 name = "belt"
 kind = "mech"
 type = "belt.gt2.6"
