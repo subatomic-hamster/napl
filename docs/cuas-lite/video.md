@@ -55,6 +55,13 @@ tools/remote.sh run --gpu "../webvenv/bin/python tools/record_cuas_lite.py encod
 
 GPU rules (shared host): every viewer / encode job under `--gpu`, one at a time; `cat /sys/class/drm/card1/device/mem_info_gtt_used` stayed at 0.34 GB before and after the sim and encode jobs (limit 4 GB).
 
+## Measured (hfbox, draft on the merged safety fix)
+
+- `run` x6: 5-86 s each; `verify`+`sim`: s2-s4 about 1-1.5 min, s5/s6 3-4 min, s7 1 min; `web` 1 min (167 frames); `encode` 2-3 min (1280x828@20, AV1 webm via gst-va, about 375 s long, 64 MB).
+- Build capture (`record_turret.py build ... --open`, `oplog.json` built once and reused; `oplog` caches the sheet card centres in `<oplog>.cards.json`): about 10.5 min wall, the first `Backend.state` (72 wires routed) is about 6 min of it. Use `--timeout 2800`. The build segment depends only on the assembly, so it is not redone after a behaviour fix.
+- GTT stayed 0.34 GB throughout (limit 4 GB).
+- Known cosmetic bug: in the build segment the parts still carry selection outlines (the `select []` after each reveal does not clear them in the viewer).
+
 ## After a fix that changes behaviour
 
 The frames are of the run, so a change of `fire.py` / `aim.py` / `app.py` / the scenes changes the hashes: `git merge napl-v1`, rerun step 0 (hashes are printed by `run` and again on the result card), then 1, 3, 4; the build / wiring segments only depend on the assembly (rerun 2 if it changed).
