@@ -321,7 +321,7 @@ class Viewer {
 
       int fw = opts_.width, fh = opts_.height;
       if (window) glfwGetFramebufferSize(window->w, &fw, &fh);
-      renderer.set_tubes(cur_.tubes);
+      renderer.set_tubes(shown_tubes());
       const bool drawn = renderer.frame(shown_poses(), view_cam_, fw, fh, [](VkCommandBuffer cb) {
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
       }, window ? nullptr : &shot);
@@ -1922,24 +1922,54 @@ class Viewer {
   // The poses handed to the renderer: the simulation's, except that geoms of instances hidden in the browser are collapsed to a point
   // (zero rotation = zero area). A geom belongs to the smallest instance box that contains its origin (the visuals carry no body
   // link); geoms in no box (floor, loose sim geoms) stay. Approximate by design, exact for parts that do not overlap.
+  // The instance a point belongs to: the smallest box that contains it; else (a mesh origin a few mm off its part's box, e.g. a propeller
+  // hub 5 mm above the 4 mm thick prop box) the nearest box within `slack` metres; else "" (floor, loose geoms).
+  std::string owner_at(const double* p, double slack) const {
+    std::string own;
+    double best = 1e300;
+    for (const auto& [id, s] : scene_) {
+      bool in = true;
+      double vol = 1;
+      for (int k = 0; k < 3; ++k) {
+        in = in && p[k] >= s.lo[k] - 1e-4 && p[k] <= s.hi[k] + 1e-4;
+        vol *= s.hi[k] - s.lo[k] + 2e-4;
+      }
+      if (in && vol < best) best = vol, own = id;
+    }
+    if (!own.empty()) return own;
+    double dmin = slack;
+    for (const auto& [id, s] : scene_) {
+      double d2 = 0;
+      for (int k = 0; k < 3; ++k) {
+        const double e = std::max({s.lo[k] - p[k], p[k] - s.hi[k], 0.0});
+        d2 += e * e;
+      }
+      if (d2 <= dmin * dmin) dmin = std::sqrt(d2), own = id;
+    }
+    return own;
+  }
+
+  // The cables handed to the renderer: those with an end on a hidden instance are dropped (a cable's ends sit on its connectors).
+  std::span<const TubeVisual> shown_tubes() {
+    if (hidden_.empty()) return cur_.tubes;
+    shown_tubes_.clear();
+    for (const TubeVisual& t : cur_.tubes) {
+      if (t.pts.size() >= 6) {
+        const std::size_t n = t.pts.size();
+        if (hidden_.count(owner_at(&t.pts[0], 0.10)) || hidden_.count(owner_at(&t.pts[n - 3], 0.10))) continue;
+      }
+      shown_tubes_.push_back(t);
+    }
+    return shown_tubes_;
+  }
+
   const std::vector<GeomPose>& shown_poses() {
     if (hidden_.empty()) return cur_.poses;
     const std::string key = dstate_.rev + "/" + std::to_string(frame_scene_) + "/" + std::to_string(cur_.poses.size());
     if (key != geom_owner_key_) {
       geom_owner_key_ = key;
       geom_owner_.assign(cur_.poses.size(), "");
-      for (std::size_t g = 0; g < cur_.poses.size(); ++g) {
-        double best = 1e300;
-        for (const auto& [id, s] : scene_) {
-          bool in = true;
-          double vol = 1;
-          for (int k = 0; k < 3; ++k) {
-            in = in && cur_.poses[g].pos[k] >= s.lo[k] - 1e-4 && cur_.poses[g].pos[k] <= s.hi[k] + 1e-4;
-            vol *= s.hi[k] - s.lo[k] + 2e-4;
-          }
-          if (in && vol < best) best = vol, geom_owner_[g] = id;
-        }
-      }
+      for (std::size_t g = 0; g < cur_.poses.size(); ++g) geom_owner_[g] = owner_at(cur_.poses[g].pos, 0.03);
     }
     hidden_poses_ = cur_.poses;
     for (std::size_t g = 0; g < hidden_poses_.size() && g < geom_owner_.size(); ++g)
@@ -3057,6 +3087,7 @@ class Viewer {
   std::string geom_owner_key_;
   std::vector<std::string> geom_owner_;
   std::vector<GeomPose> hidden_poses_;
+  std::vector<TubeVisual> shown_tubes_;
   Anim anim_;
   Ghost ghost_;
   bool ghost_in_vp_ = false, was_dragging_ = false;
