@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 from .library import DesignError
+from .runops import Runs
 from .thumbjob import ThumbJob
 from .uiops import UI_TOOLS, UiOps
 from .wire2d import Flatten
@@ -48,6 +49,8 @@ class Backend(UiOps):
         self.log = []  # [(request dict, reply dict)] of every request, for tests and replay of a UI session
         self._cache = None  # (design, rev, state)
         self.flat = Flatten()  # the 2D wiring mode (wire2d.py): the flatten.* tools
+        self.runs = Runs(self)  # run.* (runops.py)
+        self.sim = None  # the host=True Sim the window shows: set by whoever calls Sim.show(design=this); `run.start full` runs in it
         # UI state + the events the window should show (mode switch, typing, ghost flight, guide flash ...): every ui.* /
         # library.* / gizmo.* op appends one, the window drains them with `ui_poll`. With no window attached they just pile up
         # (capped), the ops themselves never depend on a window.
@@ -127,6 +130,10 @@ class Backend(UiOps):
             return {"ok": True, "result": {"events": ev}}
         if tool in UI_TOOLS:
             return self._ui_tool(tool, a)
+        if (tool or "").startswith(
+            "run."
+        ):  # the Test / Run button (runs user code: not an MCP tool, see runops.py)
+            return self.runs.handle(tool, a)
         d = self._design()
         if (tool or "").startswith("flatten."):
             return self.flat.handle(self, d, tool, a)
@@ -287,6 +294,9 @@ def view(design, out=None, **show_kw):
     st = backend.state(design)
     if st["xml"] is None:
         raise DesignError(f"the design does not build: {st['build_error']}")
-    sim = Sim.load(st["xml"])
+    sim = Sim.load(
+        st["xml"], host=True
+    )  # a Host Sim: the window shows it while `run.start full` drives it from another thread
+    backend.sim = sim
     sim.show(design=backend, **show_kw)
     return sim, backend

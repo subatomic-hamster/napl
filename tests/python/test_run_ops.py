@@ -1,0 +1,209 @@
+"""The viewer's Test / Run button: run.* ops on a Backend (no window needed). Bench: the component's device model on a short
+bench (Skydio motor / ESC, SO-101 servo, battery, IMU) + the tests tied to the open file. Full: the Skydio scenario runs LIVE in a
+host=True Sim (the one a window would show) at rate 0 for speed: pass, replay hash = `napl program`'s (examples/skydio/README.md);
+stopping mid-run kills the program's process group. Needs the built kernel + build/napl-replay (hfbox, tools/remote.sh run --nolock)."""
+
+import json
+import os
+import time
+from pathlib import Path
+
+import napl
+import pytest
+from napl.design import Design
+from napl.design.viewer import Backend
+
+REPO = Path(__file__).resolve().parents[2]
+EX = REPO / "examples" / "skydio"
+needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
+HASH = {
+    "goal": "efb57e183637ae9d",
+    "follow": "164b5cc71536dfec",
+}  # examples/skydio/README.md
+
+
+def ask(b, tool, args=None):
+    r = json.loads(b(json.dumps({"tool": tool, "args": args or {}})))
+    assert r["ok"], r
+    return r["result"]
+
+
+def finish(b, rid, timeout=120):
+    out, t0 = "", time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        r = ask(b, "run.poll", {"run_id": rid})
+        out += r["out"]
+        if r["state"] != "running":
+            return r, out
+        time.sleep(0.2)
+    raise AssertionError(f"run still going after {timeout} s:\n{out[-2000:]}")
+
+
+@pytest.fixture
+def skydio(tmp_path):
+    return Backend(
+        lambda d=Design.open(REPO / "assemblies" / "skydio.toml"): d, tmp_path / "out"
+    )
+
+
+@needs_kernel
+def test_targets_list_scenarios_and_components_with_models_first(skydio):
+    t = ask(skydio, "run.targets")
+    assert "examples/skydio/follow.scenario.toml" in t["scenarios"]
+    kinds = [c["kind"] for c in t["components"]]
+    assert kinds[0] and kinds == sorted(
+        kinds, key=lambda k: not k
+    )  # modelled components first
+    assert next(c["kind"] for c in t["components"] if c["id"] == "esc1") == "esc"
+
+
+@needs_kernel
+@pytest.mark.parametrize("comp,keys", [
+    ("esc1", ["esc1.max_thrust_N", "esc1.max_bus_current_A", "esc1.supply_sag_V"]),
+    ("mot1", ["esc1.max_rpm"]),
+    ("bat", ["battery.sag_V", "battery.v_idle"]),
+    ("icm", ["imu.gyro[x].noise", "imu.accel[z].noise"]),
+])  # fmt: skip
+def test_bench_skydio_components(skydio, comp, keys):
+    rid = ask(skydio, "run.start", {"mode": "bench", "component": comp})["run_id"]
+    r, out = finish(skydio, rid)
+    assert r["state"] == "done" and r["result"]["pass"], out
+    m = r["result"]["metrics"]
+    assert all(k in m for k in keys), (keys, list(m))
+    if (
+        comp == "esc1"
+    ):  # 2216 / 10 inch: ~1 kgf at full throttle, ~15-25 A from the pack, which sags a little but stays up
+        assert 5 < m["esc1.max_thrust_N"] < 30 and 5 < m["esc1.max_bus_current_A"] < 40
+        assert 0 < m["esc1.supply_sag_V"] < 4
+        assert (
+            0.3 * m["esc1.max_thrust_N"]
+            < m["esc1.thrust_50_N"]
+            < 0.7 * m["esc1.max_thrust_N"]
+        )
+        assert (
+            "thrust N" in out and "PASS" in out
+        )  # the table reached the terminal stream
+    if comp == "icm":
+        assert 0 < m["imu.gyro[x].noise"] < 0.1 and 0 < m["imu.accel[z].noise"] < 1
+
+
+@needs_kernel
+def test_bench_servo_step_response():
+    b = Backend(
+        lambda d=Design.open(REPO / "assemblies" / "so101.toml"): d,
+        Path(os.environ.get("TMPDIR", "/tmp")) / "napl-run-servo",
+    )
+    rid = ask(b, "run.start", {"mode": "bench", "component": "servo5"})[
+        "run_id"
+    ]  # wrist: nearly unloaded
+    r, out = finish(b, rid)
+    m = r["result"]["metrics"]
+    assert r["state"] == "done" and r["result"]["pass"], out
+    assert (
+        0 < m["servo5.rise_s"] < 0.5
+        and 0 <= m["servo5.overshoot_pct"] < 50
+        and m["servo5.peak_current_A"] > 0.05
+    ), m
+    assert abs(m["servo5.steady_error_rad"]) < 0.02 and "rise" in out
+
+
+@needs_kernel
+def test_component_without_device_model_runs_only_the_tests(skydio):
+    inst = next(
+        c["id"] for c in ask(skydio, "run.targets")["components"] if not c["kind"]
+    )
+    rid = ask(
+        skydio,
+        "run.start",
+        {"mode": "bench", "component": inst, "files": ["python/napl/attach.py"]},
+    )["run_id"]
+    r, out = finish(skydio, rid, timeout=600)
+    assert "no device model" in out and r["result"]["metrics"] == {}
+    assert r["result"]["tests"] == [
+        "tests/python/test_attach.py"
+    ]  # test_<name>.py of the open file
+    assert r["result"]["tests_pass"] and r["result"]["pass"] and "passed" in out, out[
+        -800:
+    ]
+
+
+def test_paths_are_confined(skydio):
+    for bad in ("../x.scenario.toml", "/etc/passwd"):
+        r = json.loads(
+            skydio(
+                json.dumps(
+                    {"tool": "run.start", "args": {"mode": "full", "scenario": bad}}
+                )
+            )
+        )
+        assert not r["ok"] and "outside the program root" in r["error"]
+    r = json.loads(
+        skydio(
+            json.dumps(
+                {
+                    "tool": "run.start",
+                    "args": {
+                        "mode": "bench",
+                        "component": "esc1",
+                        "files": ["../../etc/passwd"],
+                    },
+                }
+            )
+        )
+    )
+    assert not r["ok"] and "outside" in r["error"]
+
+
+def live_backend(tmp_path, monkeypatch):
+    monkeypatch.setenv("SKYDIO_CAL", str(tmp_path / "cal"))
+    d = Design.open(REPO / "assemblies" / "skydio.toml")
+    b = Backend(lambda: d, tmp_path / "out")
+    b.sim = napl.Sim.load(
+        b.state(d)["xml"], host=True
+    )  # what napl.design.viewer.view() hands to Sim.show
+    b.run_rate = 0.0  # as fast as possible (the viewer demo runs at rate 1)
+    return b
+
+
+@needs_kernel
+@pytest.mark.parametrize("mission", ["goal", "follow"])
+def test_full_run_live_matches_napl_program_hash(tmp_path, monkeypatch, mission):
+    b = live_backend(tmp_path, monkeypatch)
+    rid = ask(
+        b,
+        "run.start",
+        {"mode": "full", "scenario": f"examples/skydio/{mission}.scenario.toml"},
+    )["run_id"]
+    r, out = finish(b, rid, timeout=900)
+    res = r["result"]
+    assert r["state"] == "done" and res["pass"], (res.get("fail_reasons"), out[-1500:])
+    assert (
+        res["replay"]["match"] and res["sim"]["state_hash"] == HASH[mission]
+    )  # same bits as `napl program`
+    assert "PASS" in out and (Path(res["run_dir"]) / "replay.naplog").exists()
+    assert (
+        b.sim.tick == 0
+    )  # the window's World was loaded back to the design's own model afterwards
+
+
+@needs_kernel
+def test_stop_mid_run_kills_the_program_group(tmp_path, monkeypatch):
+    b = live_backend(tmp_path, monkeypatch)
+    rid = ask(
+        b,
+        "run.start",
+        {"mode": "full", "scenario": "examples/skydio/follow.scenario.toml"},
+    )["run_id"]
+    t0, tick = time.monotonic(), 0
+    while (
+        time.monotonic() - t0 < 120 and tick < 2000
+    ):  # the program is flying (attached: the viewer's clock advances)
+        time.sleep(0.5)
+        tick = b.sim.tick
+    assert tick >= 2000
+    ask(b, "run.stop", {"run_id": rid})
+    r, out = finish(b, rid, timeout=60)
+    assert r["state"] == "stopped" and out.rstrip().endswith("stopped"), out[-500:]
+    pg = r["result"]["program"]["pgid"]
+    with pytest.raises(ProcessLookupError):
+        os.killpg(pg, 0)

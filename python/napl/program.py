@@ -94,12 +94,15 @@ import json
 import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tomllib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
@@ -636,11 +639,55 @@ def _build_model(sc, out: Path):
     return Path(mod.build(out, **kw))
 
 
-def run(scenario, runs_dir="runs") -> tuple:
-    """-> (result dict, run dir). Raises ScenarioError for a bad scenario / missing prerequisites."""
+def _stop_if(sc, other=None):
+    """run_child's stop_if: a live run's stop event ("stopped"), else `other`."""
+    ev = (sc.get("_live") or {}).get("stop")
+    return lambda: "stopped" if ev and ev.is_set() else other and other()
+
+
+def _live_sim(sc, model):
+    """-> (the Sim to run in, the pacing rate) for a live run (the viewer's World, scenario model loaded into it), else (None, None)."""
+    live = sc.get("_live")
+    if not live:
+        return None, None
+    sim = live["sim"]
+    sim.call({"cmd_type": "Pause", "cmd": {}})
+    r = sim.call(
+        {"cmd_type": "LoadModel", "cmd": {"path": str(model)}}
+    )  # confined to the Sim's root: the caller builds under it
+    if not r["ok"]:
+        raise ScenarioError(
+            f"live run: cannot load the scenario model into the viewer's World: {r['message']}"
+        )
+    return sim, float(
+        sc["limits"]["rate"] if live.get("rate") is None else live["rate"]
+    )
+
+
+def _model_dt(model):
+    """Seconds per tick of a built scene: its scene.json `dt`, else the MJCF option timestep (kernel default 0.002)."""
+    sj = Path(model).parent / "scene.json"
+    if sj.exists():
+        return float(json.loads(sj.read_text())["dt"])
+    o = ET.parse(model).getroot().find("option")
+    return float(o.get("timestep")) if o is not None and o.get("timestep") else 0.002
+
+
+def run(scenario, runs_dir="runs", live=None) -> tuple:
+    """-> (result dict, run dir). Raises ScenarioError for a bad scenario / missing prerequisites.
+    `live` = dict(sim=<host=True Sim, e.g. the viewer's>, rate=<sim s per wall s, None = limits.rate, 0 = unpaced>, stop=<Event>,
+    on_dir=<callable(run dir)>): the scenario's model is loaded INTO that Sim and the program drives it (native: over napl.attach;
+    feetech / dynamixel / roboclaw: the ports use it directly), so whoever shows the Sim sees the run as it happens. The Sim's replay
+    log then covers its whole session; the replay check replays all of it. px4 / combo cannot run live."""
     sc = load_scenario(scenario)
     ifs = sc["interfaces"]
     lim, kind = sc["limits"], ("combo" if len(ifs) > 1 else next(iter(ifs)))
+    if live:
+        if kind in ("px4", "combo"):
+            raise ScenarioError(
+                f"live run: the {kind} interface owns its own sim processes and cannot run in the viewer's World"
+            )
+        sc["_live"] = live
     run_dir = (
         Path(runs_dir).resolve() / f"{sc['name']}-{time.strftime('%Y%m%d-%H%M%S')}"
     )  # absolute: programs run in run_dir/cwd and get paths under it (NAPL_MODEL, NAPL_RUN_DIR)
@@ -668,6 +715,8 @@ def run(scenario, runs_dir="runs") -> tuple:
     )
     (run_dir / "program.log").touch()
     log = run_dir / "program.log"
+    if live and live.get("on_dir"):
+        live["on_dir"](run_dir)
     if kind == "combo":
         res["argv"] = argv = [argvs(p["cmd"]) for p in sc["programs"]]
     {"px4": _px4, "combo": _combo, "native": _native}.get(kind, _sim)(
@@ -707,7 +756,8 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
         else {}
     )
     model = _build_model(sc, run_dir / "model")
-    sim = Sim.load(model, host=True)
+    sim, rate = _live_sim(sc, model)
+    sim = sim or Sim.load(model, host=True)
     try:
         for s in sc.get("setup", []):
             for p in s.get("paths") or [s["path"]]:
@@ -763,15 +813,20 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
         env[f"NAPL_SERIAL_{n}"] = p.device_path
     th = threading.Thread(target=sampler, daemon=True)
     try:
-        r = sim.call({"cmd_type": "Run", "cmd": {"rate": float(lim["rate"])}})
+        r = sim.call(
+            {
+                "cmd_type": "Run",
+                "cmd": {"rate": float(lim["rate"] if rate is None else rate)},
+            }
+        )
         if not r["ok"]:
             raise ScenarioError(r["message"])
         th.start()
         sim_s = lim.get("sim_s")
         F.starts["program"] = sim.tick * dt
         F.start()
-        res["program"] = run_child(argv, env, cwd, log, lim,
-                                   (lambda: "sim_time" if (sim.tick - tick0) * dt > sim_s else None) if sim_s else None)  # fmt: skip
+        res["program"] = run_child(argv, env, cwd, log, lim, _stop_if(sc,
+                                   (lambda: "sim_time" if (sim.tick - tick0) * dt > sim_s else None) if sim_s else None))  # fmt: skip
     finally:
         stop.set()
         th.join()
@@ -813,7 +868,22 @@ def _native(sc, mons, run_dir, cwd, argv, env, log, res):
     and re-runs the replay log through napl-replay to compare the hash. World.finish() writes all three."""
     model = _build_model(sc, run_dir / "model")
     env.update(NAPL_MODEL=str(model), NAPL_RUN_DIR=str(run_dir))
-    res["program"] = run_child(argv, env, cwd, log, sc["limits"])
+    sim, rate = _live_sim(sc, model)
+    srv = tmp = None
+    if sim:  # live: the program's Sim.load(NAPL_MODEL) becomes a proxy for the viewer's World (napl.attach)
+        from .attach import Server
+
+        tmp = tempfile.mkdtemp(
+            prefix="napl-att-"
+        )  # unix socket paths are short; the dir is 0700
+        srv = Server(sim, Path(tmp) / "s", _model_dt(model), rate)
+        env.update(NAPL_ATTACH=str(srv.path), NAPL_ATTACH_MODEL=os.path.realpath(model))
+    try:
+        res["program"] = run_child(argv, env, cwd, log, sc["limits"], _stop_if(sc))
+    finally:
+        if srv:
+            srv.close()
+            shutil.rmtree(tmp, ignore_errors=True)
     done = run_dir / "native.json"
     if not done.exists():  # crashed / killed before World.finish()
         res["sim"], res["replay"] = {}, {"available": False}

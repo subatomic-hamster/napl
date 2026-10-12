@@ -1,6 +1,7 @@
 """napl: thin Python front end over the C++ kernel (`_napl`). No simulation logic lives here."""
 
 import json
+import os
 from os import fspath
 
 import numpy as np
@@ -48,6 +49,14 @@ class Sim:
         work (via call()), and show() can run the viewer beside it."""
         if _napl is None:
             raise _napl_error
+        if os.environ.get("NAPL_ATTACH") and os.path.realpath(path) == os.environ.get(
+            "NAPL_ATTACH_MODEL"
+        ):
+            from .attach import (
+                Remote,
+            )  # live run: the scenario's model is already loaded in the viewer's Sim (napl.attach)
+
+            return cls(Remote(os.environ["NAPL_ATTACH"]))
         return cls(
             (_napl.Host if host else _napl.Sim)(
                 fspath(path),
