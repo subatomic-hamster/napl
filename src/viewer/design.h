@@ -2,6 +2,7 @@
 // What the viewer's Design window shows and sends: a `napl design build` report (<name>.report.json next to the MJCF), and the
 // JSON requests / replies of the editing backend (python/napl/design/viewer.py). Header-only; a deliberately small JSON
 // reader (everything is machine-written by Python's json.dumps) so the viewer needs no JSON dependency.
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -66,8 +67,13 @@ class Parser {
     else if (c < 0x800) {
       o += static_cast<char>(0xC0 | (c >> 6));
       o += static_cast<char>(0x80 | (c & 0x3F));
-    } else {
+    } else if (c < 0x10000) {
       o += static_cast<char>(0xE0 | (c >> 12));
+      o += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+      o += static_cast<char>(0x80 | (c & 0x3F));
+    } else {
+      o += static_cast<char>(0xF0 | (c >> 18));
+      o += static_cast<char>(0x80 | ((c >> 12) & 0x3F));
       o += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
       o += static_cast<char>(0x80 | (c & 0x3F));
     }
@@ -91,8 +97,13 @@ class Parser {
         case 'f': o += '\f'; break;
         case 'u': {
           if (i_ + 4 > t_.size()) fail("short \\u escape");
-          utf8(o, static_cast<unsigned>(std::strtoul(t_.substr(i_, 4).c_str(), nullptr, 16)));  // BMP only (no surrogate pairs)
+          unsigned cp = static_cast<unsigned>(std::strtoul(t_.substr(i_, 4).c_str(), nullptr, 16));
           i_ += 4;
+          if (cp >= 0xD800 && cp < 0xDC00 && t_.compare(i_, 2, "\\u") == 0 && i_ + 6 <= t_.size()) {  // json.dumps writes non-BMP as a pair
+            const unsigned lo = static_cast<unsigned>(std::strtoul(t_.substr(i_ + 2, 4).c_str(), nullptr, 16));
+            if (lo >= 0xDC00 && lo < 0xE000) cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00), i_ += 6;
+          }
+          utf8(o, cp);
           break;
         }
         default: o += c;  // " \ /
@@ -216,8 +227,14 @@ inline std::string quote(const std::string& s) {
   std::string o = "\"";
   for (const char c : s) {
     if (c == '"' || c == '\\') (o += '\\') += c;
-    else if (static_cast<unsigned char>(c) < 0x20) o += ' ';
-    else o += c;
+    else if (c == '\n') o += "\\n";
+    else if (c == '\t') o += "\\t";
+    else if (c == '\r') o += "\\r";
+    else if (static_cast<unsigned char>(c) < 0x20) {  // file text and terminal keystrokes carry control characters
+      char u[8];
+      std::snprintf(u, sizeof u, "\\u%04x", static_cast<unsigned>(c));
+      o += u;
+    } else o += c;
   }
   return o + '"';
 }

@@ -139,7 +139,14 @@ if(NAPL_VIEWER)
     DOWNLOAD_NO_EXTRACT TRUE)
   # The UI font is Roboto-Medium.ttf from Dear ImGui's own misc/fonts (Apache-2.0, ships in the pinned imgui checkout above);
   # CMakeLists.txt embeds it into the viewer as a byte array at configure time. No further dependency.
-  FetchContent_MakeAvailable(glfw imgui stb_image ${_x11_repos})
+  # ImGuiColorTextEdit v1.92.9 (MIT, goossens' rewrite of Balazs Jako's editor, built for Dear ImGui 1.92.9): the PROGRAM page's
+  # code editor (syntax colouring, find / replace, multi-cursor, bracket matching, undo). TextEditor.cpp/.h are compiled, sources
+  # only. Tag v1.92.9 = commit 281be7cdc504ad789afa020dfae61844208addeb, pinned by archive SHA256 (verified 2026-10-12).
+  FetchContent_Declare(imguicolortextedit
+    URL https://github.com/goossens/ImGuiColorTextEdit/archive/281be7cdc504ad789afa020dfae61844208addeb.tar.gz
+    URL_HASH SHA256=9a193778351d6ba7d789639f1ec049fca82ef4c88161133ffe5f14861a022e79
+    SOURCE_SUBDIR napl_sources_only)
+  FetchContent_MakeAvailable(glfw imgui imguicolortextedit stb_image ${_x11_repos})
 endif()
 
 # slangc 2026.19 (Apache-2.0 WITH LLVM-exception): prebuilt, BUILD-TIME TOOL ONLY (never linked or shipped). The release

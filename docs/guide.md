@@ -420,9 +420,19 @@ cards appear and each wire being drawn. `flatten.wire` with a `part` (and `lengt
 `to_pins`) is an explicit lead: it bridges connector families that autowire refuses. When a new wire changes the auto layout the cards
 glide to their new places and the wires fade in once they arrive.
 
-**PROGRAM page.** Shows the design as TOML next to the log; `ui.program {file, scroll}` (a Backend op) shows any source file of the
-repository instead (the turret / swarm programs, a scenario) and scrolls to a fraction of it; `ui.program {}` returns to the design.
-The recorded end-to-end demo (`tools/record_turret.py`, `docs/showcase/turret/README.md`) uses it.
+**PROGRAM page.** A small IDE over the design's program directory (`examples/<name>` for `assemblies/<name>.toml`, else the design's own
+directory; `Backend(program_root=...)` overrides): file explorer (Ctrl+P quick open, `+` new file), tabbed code editors (Python, TOML,
+C/C++, JSON, Markdown; syntax colouring, find / replace Ctrl+F / Ctrl+H, go to line Ctrl+G, comment toggle Ctrl+/, multi-cursor Ctrl+D,
+bracket matching, undo; dirty tabs, Ctrl+S save, Ctrl+W close, Ctrl+Shift+T reopen), find in files (Ctrl+Shift+F), go to definition (F12) and
+rename symbol (F2, every affected file; needs `pip install 'napl[ide]'` = jedi), syntax errors of Python / TOML / JSON as line markers and in
+PROBLEMS, hover tooltips on component ids, `inst.port` references and `/devices/<name>` strings showing the component, port, pin and what each
+pin is wired to, and a line-shell TERMINAL (a pty in the program directory: ANSI colours, history, Ctrl+C / Ctrl+D, tabs). The design TOML
+opens read-only (`design.toml` in the explorer). The ops are `prog.*` / `term.*` in `python/napl/design/progops.py`; like `napl program` they
+run or change user code, so they exist only on the in-process window path and are not MCP tools. `ui.program {file, scroll}` (a Backend
+op) still shows any source file of the repository read-only (the turret / swarm programs, a scenario) and scrolls to a fraction of it;
+`ui.program {}` returns to the design. The recorded end-to-end demo (`tools/record_turret.py`, `docs/showcase/turret/README.md`) uses it.
+`prog.ui {cmd, ...}` scripts the page (open / type / cmd / term / hover / dock) for screenshots and tests. The strip at the top right of the
+editor (`ProgramUi::run_slot`) is where the Run / Test controls live.
 
 ### Build and the mass budget
 
