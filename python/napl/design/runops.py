@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 
 from .library import DesignError
+from .uiops import REPO
 
 SKIP = {
     ".git",
