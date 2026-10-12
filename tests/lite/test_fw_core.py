@@ -190,6 +190,26 @@ def test_fire_refused_under_each_violated_precondition(name):
     no_ball(r)
 
 
+def test_c_core_arm_is_refused_with_no_sector_after_every_boot():
+    r = Rig().up()
+    assert type(r.twin).__name__ == "FwMcu"
+
+    def arm_result():
+        r.arm()
+        return r.acks(p.ARM)[-1].result
+
+    assert arm_result() == p.OK
+    r.reboot_mcu()
+    r.gim.home()
+    r.run(3.0)
+    assert r.st.state == p.IDLE
+    assert (
+        arm_result() == p.NO_SECTOR
+    )  # flash holds the full range; a stored sector is not a written one
+    r.set_sector()
+    assert arm_result() == p.OK
+
+
 def test_watchdog_trips_at_300_ms_not_before():
     r = Rig().up().engage()
     r.fw = 0.8

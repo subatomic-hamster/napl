@@ -61,10 +61,24 @@ class Rig:
     def acks(self, cmd_id):
         return [a for _, a in self.gim.acks if a.cmd_id == cmd_id]
 
+    def reboot_mcu(self):
+        """Power-cycle the MCU and bring the host back: a resync byte (the new MCU's decoder starts unsynced), HELLO, 1.5 s of heartbeats -> IDLE."""
+        self.twin.reboot()
+        self.link.write(b"\0")
+        self.gim.hello()
+        self.run(1.5)
+
+    def set_sector(self, pan=(-170.0, 170.0), tilt=(0.0, 70.0)):
+        """Write the four fire-sector keys (the MCU refuses ARM and FIRE with NO_SECTOR until the host has done this since boot)."""
+        for k, v in zip(p.SECTOR_KEYS, (tilt[0], pan[0], pan[1], tilt[1])):
+            self.gim.set_cfg(k, round(v * 1000))
+        self.run(0.05)
+
     def up(self, homed=True):
         """HELLO, 1.2 s of heartbeats -> IDLE, then home both axes."""
         self.run(1.3)
         assert self.st.state == p.IDLE, p.STATE_NAMES[self.st.state]
+        self.set_sector()
         if homed:
             self.gim.home()
             self.run(3.0)

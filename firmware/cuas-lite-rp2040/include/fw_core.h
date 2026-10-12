@@ -32,7 +32,9 @@ enum { HB_DEADMAN_OK = 1, HB_FIRE_INHIBIT = 2 };
 enum { FAULT_HOMING_TIMEOUT = 1, FAULT_DRIVER_DIAG = 2, FAULT_CFG_INVALID = 4, FAULT_SHOT_COUNTER = 8, FAULT_HALL_STUCK = 16, FAULT_USB_OVERFLOW = 32 };
 enum { EV_STATE_CHANGE = 1, EV_SHOT, EV_HOMED, EV_FAULT, EV_WATCHDOG, EV_ESTOP_EDGE, EV_KEY_EDGE, EV_BAD_FRAMES, EV_SECTOR_ABORT /* 9: arg = fire_id << 8 | ball index; the pusher stroke was aborted, the barrel left the fire sector */ };
 enum { R_NONE, R_BOOT, R_WATCHDOG, R_ESTOP, R_KEY_OFF, R_DISARM, R_ARM_TIMEOUT, R_SHOT_CAP, R_FAULT, R_OPERATOR_ARM, R_LINK_UP, R_NEW_SESSION };
-enum { RES_OK, RES_BAD_STATE, RES_INTERLOCK, RES_INHIBIT, RES_CAP, RES_RANGE, RES_BUSY, RES_UNKNOWN_CMD, RES_BAD_ARG, RES_NOT_HOMED, RES_NOT_SPUN };
+enum { RES_OK, RES_BAD_STATE, RES_INTERLOCK, RES_INHIBIT, RES_CAP, RES_RANGE, RES_BUSY, RES_UNKNOWN_CMD, RES_BAD_ARG, RES_NOT_HOMED, RES_NOT_SPUN, RES_NO_SECTOR /* 11: the fire sector (cfg 17, 20, 21, 22) was not written since boot */ };
+/* bits of fw_t.sector_set: one per sector key written (CFG_SET ok) since boot; SECTOR_ALL = the sector is set */
+enum { SECTOR_17 = 1, SECTOR_20 = 2, SECTOR_21 = 4, SECTOR_22 = 8, SECTOR_ALL = 15 };
 /* config keys, 1..19 (spec section 2.2) */
 enum { CFG_PAN_SPR = 1, CFG_TILT_SPR, CFG_PAN_MIN, CFG_PAN_MAX, CFG_TILT_MIN, CFG_TILT_MAX, CFG_PAN_HOME_OFF, CFG_TILT_HOME_OFF, CFG_DIR_INVERT,
        CFG_HARD_SHOT_CAP, CFG_HARD_ARM_TIMEOUT, CFG_PUSHER_EXT_US, CFG_PUSHER_RET_US, CFG_PUSHER_DWELL_MS, CFG_MIN_SHOT_INTERVAL_MS, CFG_SPINUP_MS,
@@ -156,6 +158,7 @@ typedef struct {
     uint8_t has_bad_event;
     uint8_t diag_ms;                         /* ms the DIAG input has been high */
     uint8_t inputs_init;
+    uint8_t sector_set;                      /* SECTOR_* bits; zeroed at boot only (never by HELLO / session, never from flash) */
     uint16_t faults_reported;
 } fw_t;
 
