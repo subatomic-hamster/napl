@@ -17,7 +17,9 @@ Everything is driven by `tools/record_skydio.py`; it reuses `tools/record_turret
 HUD: mode, speed, altitude, nearest depth return (from the depth image with the ground removed; ray angles approximate), truth clearance (scoring only), follow distance, safe primitives / candidates, map voxels, estimate error, the planned primitive (green) and trail (white) projected into the view, the camera's colour view (a render) and the 160 x 90 depth image the planner sees.
 
 Stand-ins, also said on the closing card: the VIO is a statistical model, the detector is classical on depth with no decoys, the depth image is sub-sampled, the person is a scripted walker, the forest is generated primitives, the colour inset is a render the planner never sees.
-Not in the video: the PX4 SITL scenarios (not run for this video; their README figures are quoted on the result card). Known cosmetic limits: parts hidden in the build segment still show props and wire tubes (the viewer's hide acts on instances), selection outlines flash on a few reveal frames, and in the "side" shots tree trunks sometimes occlude the quad.
+Not in the video: the PX4 SITL scenarios (not run for this video; their README figures are quoted on the result card). Known cosmetic limits: in the "every part hidden" step a ~1 cm yellow block and a dark speck remain (not identified; not a part, the browser shows every instance hidden). The camera director (`Director` in `tools/record_skydio.py`) keeps the quad in line of sight through the generated forest (cylinder / sphere / box ray tests, scene geometry used only to place the camera): the quad is unobstructed in 96 % (goal) and 93 % (follow) of frames, so a few frames still have a trunk across it.
+Viewer fix behind the build segment (`src/viewer/viewer.cpp`): the browser eye hid a geom only when its origin lay inside its instance's box, so propeller hubs 5 mm above the 4 mm thick prop box stayed visible, and cables were never hidden; geoms now fall back to the nearest instance box within 3 cm and cables are dropped when an end sits on a hidden instance. The op log no longer calls `ui.frame` (the viewer's frame event selects what it frames) and turns tooltips off.
+Slow motion: 1.5 s around the closest pass to an obstacle in each run (minimum truth clearance while flying), played at 1/4 speed with a HUD badge.
 
 ## Commands (from the worktree; `export NAPL_REMOTE_DIR=/workspace/wt/napl-skydio UV_CACHE_DIR=/workspace/wt/napl/uv-cache`; `O=$NAPL_REMOTE_DIR/out/skydio`)
 
@@ -40,5 +42,5 @@ tools/remote.sh run --gpu "../vidvenv/bin/python tools/record_skydio.py encode $
 
 ## Measured (hfbox)
 
-1280x828 @ 20 fps, 247.7 s, AV1 webm, 50.9 MB; GTT 0.34 GB at rest, 0.38 GB peak (limit 4 GB); sim frames render about 10 per second.
+1280x828 @ 20 fps, 253.55 s, AV1 webm, 54.1 MB; GTT 0.34 GB at rest, 0.37 GB peak (limit 4 GB); sim frames render about 10 per second.
 After a behaviour change the hashes move: rerun steps 1, 2, 4 (the build segment only depends on the assembly).
