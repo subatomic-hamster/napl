@@ -419,11 +419,70 @@ TEST(viewer_design, every_mode_draws_and_ui_script_verbs_reach_the_backend_witho
   run_viewer(h, o);
   const Outcome out = finish(h);
   const auto count = [&](const std::string& s) { return std::count_if(seen.begin(), seen.end(), [&](const std::string& r) { return r.find(s) != std::string::npos; }); };
-  EXPECT_GE(count("design_text"), 1);                                     // the PROGRAM tab asked for the assembly text
+  EXPECT_GE(count("prog.files"), 1);                                      // the PROGRAM tab listed the program directory
+  EXPECT_GE(count("term.open"), 1);                                       // ... and started its first shell
   EXPECT_GE(count("\"text\":\"motor\""), 1) << "the typed search never reached the backend";
   EXPECT_GE(count("ui_poll"), 1);
   EXPECT_EQ(out.tick, 2u);  // UI state is not a bus command: only the Step ran
   EXPECT_EQ(records(out.log).size(), 1u);
+}
+
+// ---- PROGRAM page: the code editor opens a file through prog.read, typing marks it dirty, save writes the text back ----------------
+TEST(viewer_design, program_page_opens_a_file_types_and_saves_through_the_design_api) {
+  NEED_DISPLAY();
+  std::vector<std::string> seen;
+  std::string written;
+  int polls = 0;
+  Host h(pendulum(), session());
+  ViewerOptions o;
+  o.frames = 240;
+  o.width = 960;
+  o.height = 540;
+  o.design_api = [&](const std::string& req) -> std::string {
+    const design::Json j = design::Parser(req).parse();
+    const std::string tool = j.s("tool");
+    seen.push_back(tool);
+    if (tool == "ui_poll") {
+      ++polls;
+      if (polls == 2) return R"({"ok":true,"result":{"events":[{"cmd":"mode","name":"program"}]}})";
+      if (polls == 5) return R"({"ok":true,"result":{"events":[{"cmd":"prog_open","path":"plan.py","line":0,"col":0}]}})";
+      if (polls == 9) return R"({"ok":true,"result":{"events":[{"cmd":"prog_type","text":"# edited\n"}]}})";
+      if (polls == 12) return R"({"ok":true,"result":{"events":[{"cmd":"prog_cmd","name":"save"},{"cmd":"prog_term","text":"echo hi"}]}})";
+      return R"({"ok":true,"result":{"events":[]}})";
+    }
+    if (tool == "prog.files") return R"({"ok":true,"result":{"root":"/work/prog","files":["plan.py","sub/n.toml"]}})";
+    if (tool == "prog.read") return R"({"ok":true,"result":{"text":"def plan(x):\n    return x + 1\n"}})";
+    if (tool == "prog.write") {
+      written = j.at("args").s("text");
+      return R"({"ok":true,"result":{}})";
+    }
+    if (tool == "prog.check") return R"({"ok":true,"result":{"problems":[]}})";
+    if (tool == "term.open") return R"({"ok":true,"result":{"id":7,"cwd":"/work/prog"}})";
+    if (tool == "term.read") return R"({"ok":true,"result":{"data":"\u001b[32mhi\u001b[0m\r\n","alive":true}})";
+    if (tool == "library.categories") return R"({"ok":true,"result":{"categories":[]}})";
+    if (tool == "library.search") return R"({"ok":true,"result":{"total":0,"parts":[]}})";
+    if (tool == "library.ranges") return R"({"ok":true,"result":{"ranges":{}}})";
+    return R"({"ok":true,"result":{},"state":{"rev":"r0","xml":")" + std::string(kModel) + R"(","build_error":"","path":"","undo":0,"redo":0,
+      "report":{"assembly":"pendulum_demo","mass":{"total":1,"by_group":{}},"instances":[{"id":"arm","part":"demo-rod","group":"frame","body":"pole","mass":1}],
+        "targets":[],"findings":[]},"ports":{"arm":[]}}})";
+  };
+  run_viewer(h, o);
+  finish(h);
+  const auto count = [&](const std::string& s) { return std::count(seen.begin(), seen.end(), s); };
+  EXPECT_GE(count("prog.files"), 1);
+  EXPECT_EQ(count("prog.read"), 1);
+  EXPECT_EQ(count("prog.write"), 1);
+  EXPECT_EQ(written, "# edited\ndef plan(x):\n    return x + 1\n") << "the typed text did not reach prog.write (escapes of newlines?)";
+  EXPECT_GE(count("prog.check"), 1);
+  EXPECT_GE(count("term.read"), 2);   // the shell is polled while the page is open
+  EXPECT_EQ(count("term.write"), 1);  // prog_term typed a line
+  EXPECT_EQ(count("term.kill"), 1);   // the shell dies with the window
+}
+
+TEST(viewer_design, request_json_carries_file_text_and_keystrokes) {  // no window needed
+  EXPECT_EQ(design::quote("a\nb\t\"c\"\x03"), R"("a\nb\t\"c\"\u0003")");
+  const design::Json j = design::Parser(R"({"s":"x\u001b[0m 😀 é"})").parse();
+  EXPECT_EQ(j.s("s"), "x\x1b[0m \xF0\x9F\x98\x80 \xC3\xA9");  // a surrogate pair is one 4-byte code point
 }
 
 // ---- camera.orbit / camera.fly: the backend's "camera_move" events glide the camera (no bus command; wall-clock time) -----------

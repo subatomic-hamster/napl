@@ -15,7 +15,9 @@ napl = "napl.cli:main"
 
 [project.optional-dependencies]
 # pytest-xdist (MIT; dep execnet, MIT): `pytest tests/python -n 12` runs the suite in parallel (px4 tests claim distinct instances, see conftest.py).
-dev = ["pytest==9.1.1", "pytest-xdist==3.8.0"]
+dev = ["pytest==9.1.1", "pytest-xdist==3.8.0", "jedi==0.19.2"]
+# jedi 0.19.2 (MIT; dep parso, MIT): the PROGRAM page's go to definition / rename / hover for python (python/napl/design/progops.py).
+ide = ["jedi==0.19.2"]
 # mavsdk (MAVSDK-Python): BSD-3-Clause. Only for the PX4 SITL flight test (tests/python/test_px4_flight.py).
 px4 = ["mavsdk==4.0.3"]
 # dynamixel-sdk (ROBOTIS DynamixelSDK, PyPI METADATA "License: Apache 2.0", LICENSE.txt = Apache License 2.0; dep: pyserial, BSD-3-Clause).

@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 from .library import DesignError
+from .progops import Prog
 from .runops import Runs
 from .thumbjob import ThumbJob
 from .uiops import UI_TOOLS, UiOps
@@ -38,12 +39,24 @@ def _involved(doc, where) -> list:
 
 class Backend(UiOps):
     """`Backend(lambda: design, out_dir)(request_json) -> reply_json`. `lock`: shared with whoever else touches the Design
-    (the MCP server); `save_to(path)`: how a save is written (default `Design.save`); `max_wall_s`: hover wall-clock cap."""
+    (the MCP server); `save_to(path)`: how a save is written (default `Design.save`); `max_wall_s`: hover wall-clock cap;
+    `program_root`: the directory the PROGRAM page edits (default: see progops.Prog.root)."""
 
-    def __init__(self, get_design, out_dir, lock=None, save_to=None, max_wall_s=600.0):
+    def __init__(
+        self,
+        get_design,
+        out_dir,
+        lock=None,
+        save_to=None,
+        max_wall_s=600.0,
+        program_root=None,
+    ):
         import threading
 
         self.get_design, self.out = get_design, Path(out_dir)
+        self.prog = Prog(
+            self, program_root
+        )  # prog.* / term.*: the PROGRAM page's IDE ops (in-process only, never MCP tools)
         self.lock = lock or threading.RLock()
         self.save_to, self.max_wall_s = save_to, max_wall_s
         self.log = []  # [(request dict, reply dict)] of every request, for tests and replay of a UI session
@@ -134,6 +147,8 @@ class Backend(UiOps):
             "run."
         ):  # the Test / Run button (runs user code: not an MCP tool, see runops.py)
             return self.runs.handle(tool, a)
+        if (tool or "").startswith(("prog.", "term.")):
+            return self.prog.handle(tool, a)
         d = self._design()
         if (tool or "").startswith("flatten."):
             return self.flat.handle(self, d, tool, a)
@@ -298,5 +313,8 @@ def view(design, out=None, **show_kw):
         st["xml"], host=True
     )  # a Host Sim: the window shows it while `run.start full` drives it from another thread
     backend.sim = sim
-    sim.show(design=backend, **show_kw)
+    try:
+        sim.show(design=backend, **show_kw)
+    finally:
+        backend.prog.close()  # the window's shells die with it
     return sim, backend

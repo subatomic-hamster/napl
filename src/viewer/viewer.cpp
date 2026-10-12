@@ -27,6 +27,7 @@
 #include "viewer/build3d.h"
 #include "viewer/design.h"
 #include "viewer/library_ui.h"
+#include "viewer/program_ui.h"
 #include "viewer/theme.h"
 #include "viewer/wire2d.h"
 
@@ -233,6 +234,7 @@ class Viewer {
     for (const ScriptCmd& c : script_)
       if (design_action_args(c.action).first >= 0 && !o.design_api)
         throw std::runtime_error("script: " + c.action + " needs a design editor (Sim.show(design=...) / napl.design.viewer.view)");
+    prog_.send = [this](const std::string& kind, const std::string& json) { dreq(kind, json, true); };  // prog.* / term.* ride the design queue
   }
 
   void run() {
@@ -339,6 +341,7 @@ class Viewer {
         glfwWaitEventsTimeout(0.05);  // minimised or swapchain rebuilding: do not spin
       }
     }
+    prog_.shutdown();  // the PROGRAM page's shells die with the window
     draining_ = true;  // edits still queued or running finish (and their model reloads are issued) before we return
     while (dfut_.valid() || !dq_.empty()) {
       poll();
@@ -607,6 +610,8 @@ class Viewer {
         } else if (!draining_ && now - last_poll_ > std::chrono::milliseconds(300)) {
           last_poll_ = now;
           dq_.push_back({"rev", true, [] { return design::request("rev"); }});
+        } else if (std::string pk, pj; !draining_ && prog_.poll(ImGui::GetTime(), mode_ == Mode::Program, &pk, &pj)) {
+          dq_.push_back({pk, true, [pj] { return pj; }});  // terminal reads: one at a time, only when the queue is idle
         } else {
           return;
         }
@@ -632,6 +637,10 @@ class Viewer {
       j = design::Parser(text).parse();
     } catch (const std::exception& e) {
       dstatus_ = rq.kind + ": " + e.what();
+      return;
+    }
+    if (rq.kind.rfind("prog.", 0) == 0 || rq.kind.rfind("term.", 0) == 0) {  // the PROGRAM page (program_ui.cpp) owns these replies
+      prog_.on_reply(rq.kind, j);
       return;
     }
     if (rq.kind.rfind("flatten.", 0) == 0) {  // the 2D wiring canvas (wire2d.cpp) owns these replies
@@ -717,10 +726,6 @@ class Viewer {
         g.port_pos = {v[0], v[1], v[2]};
         t.list.push_back(std::move(g));
       }
-      return;
-    }
-    if (rq.kind == "text") {
-      program_text_ = res.s("text");
       return;
     }
     if (j.at("state").kind == design::Json::Obj) apply_state(j.at("state"));
@@ -1065,7 +1070,6 @@ class Viewer {
       if (name == mode_name(m)) {
         if (!has_design_ && m != Mode::Simulate && m != Mode::Program) return false;
         mode_ = m;
-        if (m == Mode::Program) dreq("text", design::request("design_text"), true);
         return true;
       }
     return false;
@@ -1264,10 +1268,18 @@ class Viewer {
         break;
       }
       case Mode::Program: {
-        r.group("SOURCE");
-        if (r.button(Icon::Doc, "Design", prog_file_text_.empty(), true, "show the design TOML")) prog_file_text_.clear(), prog_file_name_.clear();
-        r.group("LOG");
-        if (r.button(Icon::Clear, "Clear log", false, true, "empty the session log")) log_.clear();
+        r.group("FILE");
+        if (r.button(Icon::Doc, "Design", false, true, "open the design TOML (read-only)")) prog_.command("design");
+        if (r.button(Icon::Save, "Save", false, !prog_.active_path().empty(), "save the open file (Ctrl+S)")) prog_.command("save");
+        if (r.button(Icon::Copy, "Save all", false, prog_.any_dirty(), "save every modified file (Ctrl+Shift+S)")) prog_.command("save_all");
+        r.group("NAVIGATE");
+        if (r.button(Icon::Search, "Open", false, true, "quick open a file (Ctrl+P)")) prog_.command("quick_open");
+        if (r.button(Icon::Search, "Find", false, !prog_.active_path().empty(), "find / replace in the file (Ctrl+F, Ctrl+H)")) prog_.command("find");
+        if (r.button(Icon::Net, "In files", false, true, "find in files (Ctrl+Shift+F)")) prog_.command("find_in_files");
+        if (r.button(Icon::Select, "Go to line", false, !prog_.active_path().empty(), "go to line (Ctrl+G)")) prog_.command("goto_line");
+        r.group("TERMINAL");
+        if (r.button(Icon::Add, "New", false, true, "open another shell tab")) prog_.command("new_terminal");
+        if (r.button(Icon::Clear, "Clear", false, true, "empty the terminal scrollback (Ctrl+L)")) prog_.command("clear_terminal");
         if (ed) history();
         break;
       }
@@ -1371,7 +1383,8 @@ class Viewer {
     bool hint = false;
     if (msg.empty() && has_design_) {  // keyboard hints of the page, while nothing else needs the space
       hint = true;
-      msg = mode_ == Mode::Build     ? "G MOVE   R ROTATE   F FRAME   1-4 VIEWS   DEL REMOVE   CTRL+Z UNDO"
+      msg = mode_ == Mode::Program   ? "CTRL+P OPEN   CTRL+S SAVE   CTRL+F FIND   CTRL+H REPLACE   CTRL+G LINE   CTRL+SHIFT+F IN FILES   F12 DEFINITION   F2 RENAME"
+            : mode_ == Mode::Build     ? "G MOVE   R ROTATE   F FRAME   1-4 VIEWS   DEL REMOVE   CTRL+Z UNDO"
             : mode_ == Mode::Library ? "CLICK A CARD FOR DETAILS   DRAG ONE INTO THE 3D VIEW"
             : mode_ == Mode::Wiring  ? "DRAG PIN TO PIN   WHEEL ZOOMS   MIDDLE DRAG PANS   DEL REMOVES WIRE"
                                      : "";
@@ -2221,29 +2234,10 @@ class Viewer {
   }
 
   void program_page(float W, float H) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});  // the IDE lays out its own panes edge to edge
     begin_pane("##program", {0, kTop}, {W, H - kTop - kStatus}, true);
-    const bool file = !prog_file_text_.empty();  // ui.program: a source file shown instead of the design TOML
-    const float half = file ? (W - 48) * 0.66f : (W - 48) / 2;
-    theme::caption(file ? ("FILE  " + prog_file_name_).c_str() : "DESIGN  (READ-ONLY TOML)");
-    ImGui::SameLine(half + 40);
-    theme::caption("LOG");
-    ImGui::PushFont(theme::mono(), 14.f);
-    ImGui::BeginChild("##toml", {half, 0});
-    if (file) ImGui::TextUnformatted(prog_file_text_.c_str());
-    else if (program_text_.empty()) ImGui::TextDisabled("%s", opts_.design_api ? "(loading)" : "(no design editor attached)");
-    else ImGui::TextUnformatted(program_text_.c_str());
-    if (prog_scroll_ >= 0) {  // eased scroll to a fraction of the text (ui.program scroll)
-      const float goal = prog_scroll_ * ImGui::GetScrollMaxY(), y = ImGui::GetScrollY();
-      ImGui::SetScrollY(y + (goal - y) * (1.f - std::exp(-3.f * ImGui::GetIO().DeltaTime)));
-      if (std::fabs(goal - y) < 1.f) prog_scroll_ = -1.f;
-    }
-    ImGui::EndChild();
-    ImGui::SameLine(0, 24);
-    ImGui::BeginChild("##log", {0, 0});
-    for (const std::string& l : log_) ImGui::TextUnformatted(l.c_str());
-    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4) ImGui::SetScrollHereY(1.f);
-    ImGui::EndChild();
-    ImGui::PopFont();
+    ImGui::PopStyleVar();
+    prog_.draw(log_, opts_.design_api != nullptr);
     ImGui::End();
   }
   void log_line(const std::string& s) {
@@ -2618,7 +2612,7 @@ class Viewer {
 
   void shortcuts() {
     const ImGuiIO& io = ImGui::GetIO();
-    if (io.WantTextInput || !opts_.design_api) return;
+    if (io.WantTextInput || !opts_.design_api || mode_ == Mode::Program) return;  // (the PROGRAM page's editor owns the keyboard)
     const bool ctrl = io.KeyCtrl;
     if (ctrl) {
       if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) d_undo(io.KeyShift);
@@ -2850,9 +2844,11 @@ class Viewer {
     log_line("ui " + cmd);
     if (cmd == "mode") set_mode(e.s("name"));
     else if (cmd == "program") {  // a source file in the PROGRAM page (text empty = back to the design TOML)
-      prog_file_name_ = e.s("name"), prog_file_text_ = e.s("text");
-      prog_scroll_ = e.at("scroll").kind == design::Json::Num ? static_cast<float>(e.at("scroll").num) : -1.f;
+      prog_.show_external(e.s("name"), e.s("text"), e.at("scroll").kind == design::Json::Num ? static_cast<float>(e.at("scroll").num) : -1.f);
       if (mode_ != Mode::Program) set_mode("program");
+    } else if (cmd.rfind("prog_", 0) == 0) {  // scripted IDE actions (prog.ui)
+      if (mode_ != Mode::Program) set_mode("program");
+      prog_.script(e);
     } else if (cmd == "camera_move") {
       camera_move(e);
     } else if (cmd == "visibility") {
@@ -3096,8 +3092,7 @@ class Viewer {
   std::string confirm_id_;
   bool confirm_open_ = false;
   std::deque<std::string> log_;
-  std::string program_text_, prog_file_text_, prog_file_name_;
-  float prog_scroll_ = -1.f;
+  progui::ProgramUi prog_;  // the PROGRAM page (program_ui.cpp)
   std::vector<Sugg> suggs_;
   bool sugg_swap_ = false, auto_dev_ = true;
   std::vector<Decision> decisions_;
