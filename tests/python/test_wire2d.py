@@ -380,3 +380,62 @@ def test_labels_and_card_widths_leave_no_overlap(tmp_path, asm):
                 default=0,
             )
             assert c["w"] >= need
+
+
+# ---- a part removed while the canvas is open ---------------------------------------------------------------------------------------
+def test_removing_a_part_prunes_its_card_and_wires(pair):
+    d, _, b = pair
+    begin(b)
+    ask(b, "flatten.wire", {"from": PAIR[0], "to": PAIR[1]})
+    assert any(
+        w["to"].startswith("esc2.") for w in ask(b, "flatten.state")["flatten"]["wires"]
+    )
+    rev0 = ask(b, "rev")["result"]["flat_rev"]
+    d.edit([{"op": "remove", "id": "esc2"}])  # any edit path: the canvas is not asked
+    assert ask(b, "rev")["result"]["flat_rev"] > rev0  # the window refetches the state
+    f = ask(b, "flatten.state")["flatten"]
+    assert {c["id"] for c in f["cards"]} == {"pdb", "esc1"}
+    assert not any("esc2" in (w["from"] + w["to"]) for w in f["wires"])
+    assert not any(
+        "esc2" in c["id"] + str(p["connects"]) for c in f["cards"] for p in c["pins"]
+    )
+    for tool, args in (
+        ("flatten.layout", {}),
+        ("flatten.move_card", {"id": "pdb", "x": 9.0, "y": 9.0}),
+        ("flatten.state", {}),
+    ):
+        assert ask(b, tool, args)["ok"], tool
+    d.edit([{"op": "remove", "id": "esc1"}])
+    d.edit([{"op": "remove", "id": "pdb"}])
+    f = ask(b, "flatten.state")["flatten"]
+    assert not f["cards"] and not f["active"]  # nothing left: back to the picker
+
+
+def test_pin_tooltip_lists_the_far_ends(pair):
+    d, _, b = pair
+    begin(b)
+    f = ask(b, "flatten.wire", {"from": PAIR[0], "to": PAIR[1]})["flatten"]
+    pdb = next(c for c in f["cards"] if c["id"] == "pdb")
+    hit = [
+        p for p in pdb["pins"] if any(c["component"] == "esc1" for c in p["connects"])
+    ]
+    assert hit and all(p["port"] == "out1" for p in hit)
+    far = hit[0]["connects"][0]
+    assert far["component"] == "esc1" and far["port"] == "power_in"
+    from napl.design.wire2d import pin_links
+
+    links = pin_links(d, "pdb.out1")
+    assert links and all(e["component"] == "pdb" and e["port"] == "out1" for e in links)
+    assert any(c["component"] == "esc1" for e in links for c in e["connects"])
+    assert pin_links(d, "esc1.nope") == [] and len(pin_links(d, "pdb")) >= len(links)
+
+
+def test_preview_returns_the_cards_and_changes_nothing(pair):
+    d, _, b = pair
+    before, rev0 = Backend.rev_of(d), ask(b, "rev")["result"]["flat_rev"]
+    r = ask(b, "flatten.preview", {"instances": ["pdb", "esc1"], "ports": list(PAIR)})
+    assert r["ok"] and {c["id"] for c in r["result"]["cards"]} == {"pdb", "esc1"}
+    assert all(c["pins"] and c["w"] > 0 for c in r["result"]["cards"])
+    assert not r["flatten"]["active"] and not r["flatten"]["cards"]  # no canvas opened
+    assert ask(b, "rev")["result"]["flat_rev"] == rev0 and Backend.rev_of(d) == before
+    assert not ask(b, "flatten.preview", {"instances": ["nope"]})["ok"]

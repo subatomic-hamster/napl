@@ -16,6 +16,10 @@
 
 namespace wire2d {
 
+// The far end of a wire at a pin: component, its port and (a connector pin) the pin; formatted by wire2d.py (`pin_links`).
+struct Link {
+  std::string component, port, pin;
+};
 // One drawn terminal: a port of the part (conn empty) or one real connector pin (name = "CONN.PIN", label = "num name").
 struct Pin {
   std::string name, kind, type, gender, role, side;  // side: "left" | "right"; kind: power | ground | signal | nc
@@ -23,6 +27,8 @@ struct Pin {
   bool wired = false;
   std::string label, conn, tip, flag;  // flag: "" | "warning" | "error" (the pin DRC rules)
   std::vector<std::string> flag_msgs;
+  std::string port;           // the part's port this terminal belongs to
+  std::vector<Link> connects;  // what its wires lead to (the tooltip)
 };
 // The box around the pins of one connector (side "both" = a two-row header: row 0 on the left edge, row 1 on the right).
 struct ConnBox {
@@ -66,6 +72,9 @@ class Canvas {
   // pin label readable); fit the sheet in the window.
   void begin_selected(const design::State& st, const std::string& selected);
   void zoom_to_pins();
+  void set_side_open(bool open) { side_open_ = open; }
+  // ui.wire_pick: tick exactly these components in the picker (all their power / signal terminals).
+  void pick(const std::vector<std::string>& ids, const design::State& st);
   void fit_view() { fit(); }
   // ui.wire_view: fit the sheet, or zoom to `zoom` (0 = keep) with canvas point (cx, cy) at the middle of the sheet (NaN = keep the
   // current middle; kKeep = 1e30); `seconds` > 0 glides there (eased) instead of jumping: a recorded pan / zoom.
@@ -75,7 +84,10 @@ class Canvas {
   void notify(const std::string& text, bool bad) { toast(text, bad); }
   // Inside the viewer's WIRING pane window (cursor at the pane's top-left, `size` = its content area): the component /
   // terminal picker, or the flattened canvas + side panel. `selected`: the instance selected in the viewer ("" = none).
-  void page(ImVec2 size, const design::State& st, const std::string& selected);
+  // `hidden`: the instances switched off with the eye in the browser: their cards and every wire ending on them are not drawn.
+  void page(ImVec2 size, const design::State& st, const std::string& selected, const std::set<std::string>& hidden);
+  // The zoom of the canvas in percent (shown in the top bar), 0 while the picker is up.
+  int zoom_percent() const { return active_ ? static_cast<int>(zoom_ * 100 + 0.5f) : 0; }
   // The reply (parsed JSON) of a flatten.* request, failed ones included.
   void on_reply(const std::string& tool, const design::Json& reply);
   // From the viewer's rev poll: the backend's canvas revision; a change fetches the state.
@@ -87,8 +99,23 @@ class Canvas {
     std::string card, pin;  // pin drag: where it started
     float dx = 0, dy = 0;   // card drag: grab offset (canvas units)
   };
+  static Card parse_card(const design::Json& c);
   void apply(const design::Json& f);
   void select_ui(const design::State& st, const std::string& selected);
+  void preview_ui(ImVec2 at, ImVec2 size);
+  // One card in screen space: origin (ox, oy) + canvas * zoom, popped to scale `s` (0..1). `bare`: the picker's preview (only the
+  // component name, connector boxes and pin dots).
+  struct CardView {
+    float ox, oy, zoom, s;
+    bool bare;
+    const std::map<std::string, int>* ends;  // conductors ending on each pin ("card.pin"): 2+ get a junction dot
+    const Pin* hover;
+  };
+  void draw_card(ImDrawList* dl, const Card& c, const CardView& v) const;
+  float side_w() const;
+  bool hidden(const std::string& id) const { return hid_ && hid_->count(id) > 0; }
+  bool wire_hidden(const Wire& w) const;
+  std::string pick_args() const;
   void begin_flatten();
   void canvas_ui();
   void side_ui();
@@ -101,7 +128,9 @@ class Canvas {
   std::vector<ImVec2> wire_path(const Wire& w, ImVec2* label_c, bool* has_label) const;
   std::vector<ImVec2> strand_path(const Strand& s) const;  // the same for one conductor (no label)
   std::string strand_kind(const Wire& w, const Strand& s) const;
-  void legend(ImDrawList* dl, ImVec2 org, ImVec2 size, float a) const;
+  // Top-left key of the canvas: two stacked panels (symbols, controls), each folds up with a click on its title. Returns the
+  // screen rectangle both occupy (the mouse over it does not reach the sheet).
+  ImVec4 legend(ImDrawList* dl, ImVec2 org, float a);
 
   Send send_;
   bool active_ = false;            // the backend's flatten mode
@@ -119,15 +148,21 @@ class Canvas {
     float z0 = 1, ox0 = 0, oy0 = 0, z1 = 1, ox1 = 0, oy1 = 0;
   } va_;
   bool fit_pending_ = false;
-  std::string toast_, title_;  // title_: the design's name (title block)
+  std::string toast_;
   bool toast_bad_ = false;
   double toast_t_ = -1e9;
   double layout_t_ = -1e9;         // when the backend last moved the cards: they glide from (x0, y0) to (tx, ty), wires fade in after
   double new_wire_slot_ = 0;       // staggers the draw animations of wires that arrive together
   int tip_mode_ = 0;
   double move_t_ = -1e9;           // last time the mouse moved
+  const std::set<std::string>* hid_ = nullptr;  // the viewer's hidden instances, set by page()
+  bool side_open_ = true;                       // the right panel of the canvas (remembered while the viewer runs)
+  bool legend_open_[2] = {true, true};          // symbols, controls
+  ImVec4 legend_rect_{0, 0, 0, 0};              // x0 y0 x1 y1 of the key as drawn last frame
   // selection (3D mode)
   std::map<std::string, std::set<std::string>> pick_;  // instance -> chosen terminals
+  std::vector<Card> preview_;                          // the picked components as cards (flatten.preview), drawn right of the list
+  std::string preview_sig_, preview_asked_;            // what preview_ shows / was last asked for
   char filter_[64] = "";
   char len_buf_[32] = "";
   int awg_idx_ = 5;

@@ -31,7 +31,12 @@ class MujocoSolver final : public Solver {
   std::uint64_t state_hash() const override;
   std::vector<GeomVisual> visuals() const override;
   std::vector<GeomPose> poses() const override;
-  std::vector<TubeVisual> tubes() const override;
+  std::vector<TubeVisual> tubes() const override { return collect_tubes(nullptr); }
+  std::vector<std::pair<std::string, std::string>> tube_ends() const override {
+    std::vector<std::pair<std::string, std::string>> ends;
+    collect_tubes(&ends);
+    return ends;
+  }
   std::vector<double> raycast(std::span<const double> origin, std::span<const double> directions) const override;
   Result spawn(const std::string& model_path, const std::string& at, std::span<const double> pos,
                std::span<const double> quat) override;
@@ -47,6 +52,8 @@ class MujocoSolver final : public Solver {
   struct Ref { enum Kind { body, joint, actuator, sensor, device } kind; int id; };  // device: id = slot in dev_->slots
   struct Loc { double* p; int n; bool read_only; };
   bool locate(const Ref& r, const std::string& attr, Loc& loc) const;
+  // The cables (tubes()); with `ends`, their end instances too (tube_ends()): the tendon is named "wire:<i>:<c>|<end a>|<end b>".
+  std::vector<TubeVisual> collect_tubes(std::vector<std::pair<std::string, std::string>>* ends) const;
   bool is_servo(int a) const;  // actuator a is a position servo: kp/kv are settable
   void build_index();          // prims_ / index_ / structure_ from the model
   std::shared_ptr<mjSpec> working_spec();  // private compiled copy, synced to the model's parameters; throws

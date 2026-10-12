@@ -836,6 +836,9 @@ class Viewer {
       return;
     }
     design_ = dstate_.report;
+    std::erase_if(hidden_, [&](const std::string& id) {  // a removed part's eye goes with it (a part re-added under that id starts visible)
+      return std::none_of(design_.instances.begin(), design_.instances.end(), [&](const design::Instance& i) { return i.id == id; });
+    });
     if (!has_design_ && mode_ == Mode::Simulate && pending_mode_.empty()) mode_ = Mode::Build;  // an editable design opens on BUILD
     has_design_ = true;
     rebuild_scene();
@@ -1170,6 +1173,18 @@ class Viewer {
       if (modes[i] == mode_) active = static_cast<int>(i);
     const int hit = theme::tabs(labels.data(), static_cast<int>(labels.size()), active);
     if (hit >= 0) set_mode(mode_name(modes[hit]));
+    if (mode_ == Mode::Wiring && flat_.zoom_percent() > 0) {  // the 2D canvas's zoom; a click fits the sheet in the window
+      char z[16];
+      std::snprintf(z, sizeof z, "%d%%", flat_.zoom_percent());
+      ImGui::PushFont(nullptr, theme::kFontSmall);
+      const ImVec2 ts = ImGui::CalcTextSize(z);
+      const float zx = W - 12 - 3 * 28 - 22 - ts.x;
+      ImGui::SetCursorScreenPos({zx - 8, 6});
+      if (ImGui::InvisibleButton("##wirezoom", {ts.x + 16, kApp - 12})) flat_.fit_view();
+      dl->AddText({zx, (kApp - ts.y) / 2}, theme::u32(ImGui::IsItemHovered() ? theme::kText : theme::kDim), z);
+      ImGui::PopFont();
+      ImGui::SetItemTooltip("zoom: click to fit the sheet");
+    }
     if (opts_.design_api) {  // quick access (right): undo / redo / save
       using theme::Icon;
       float x = W - 12 - 3 * 28;
@@ -1360,7 +1375,10 @@ class Viewer {
     std::string left = "NO SELECTION";
     if (!sel_.empty()) {
       left = "SELECTED  " + sel_.back();
-      if (const design::Instance* i = sel_instance()) left += "  " + i->part;
+      if (const design::Instance* i = sel_instance()) {
+        left += "  " + i->part;
+        if (!sel_port_.empty() && sel_port_inst_ == i->id) left += "  ." + sel_port_;  // the pinout picked in the Library tab
+      }
       if (sel_.size() > 1) left += "  +" + std::to_string(sel_.size() - 1);
     } else if (!selected_.empty()) {
       left = "PRIM  " + selected_;
@@ -1391,22 +1409,11 @@ class Viewer {
     std::string msg = !dstatus_.empty() ? dstatus_ : !dstate_.build_error.empty() ? "does not build: " + dstate_.build_error : !status_.empty() ? status_ : dfut_.valid() && !dcur_.quiet ? "working: " + dcur_.kind + " ..." : "";
     if (msg.empty() && !edit_summary_.empty()) msg = edit_summary_;
     const bool bad = !dstatus_.empty() || !status_.empty() || !dstate_.build_error.empty();
-    const float mx = 12 + left_w + 24, avail = x - 12 - mx;
-    bool hint = false;
-    if (msg.empty() && has_design_) {  // keyboard hints of the page, while nothing else needs the space
-      hint = true;
-      msg = mode_ == Mode::Build     ?"G MOVE   R ROTATE   F FRAME   1-4 VIEWS   DEL REMOVE   CTRL+Z UNDO"
-            : mode_ == Mode::Library ? "CLICK A CARD FOR DETAILS   DRAG ONE INTO THE 3D VIEW"
-            : mode_ == Mode::Wiring  ? "DRAG PIN TO PIN   WHEEL ZOOMS   MIDDLE DRAG PANS   DEL REMOVES WIRE"
-                                     : "";
-    }
+    const float mx = 12 + left_w + 24, avail = x - 12 - mx;  // (the controls of each page live in its legend, not here)
     if (!msg.empty() && avail > 40) {
-      if (ImGui::CalcTextSize(msg.c_str()).x > avail) {  // a hint that does not fit whole is left out; a message gets an ellipsis
-        if (hint) msg.clear();
-        else {
-          while (msg.size() > 1 && ImGui::CalcTextSize((msg + "...").c_str()).x > avail) msg.pop_back();
-          msg += "...";
-        }
+      if (ImGui::CalcTextSize(msg.c_str()).x > avail) {  // a message that does not fit gets an ellipsis
+        while (msg.size() > 1 && ImGui::CalcTextSize((msg + "...").c_str()).x > avail) msg.pop_back();
+        msg += "...";
       }
       if (!msg.empty()) dl->AddText({mx, y}, theme::u32(bad ? theme::kWarn : theme::kDim, bad ? 1.f : 0.8f), msg.c_str());
     }
@@ -1429,6 +1436,44 @@ class Viewer {
     if (pane_l_ > 0) browser_pane(ph);
     if (pane_r_ > 0) inspector_pane(W, ph);
     viewport_overlay();
+    controls_legend();
+  }
+
+  // The BUILD controls, top-left of the viewport (the status bar no longer carries key hints); a click on the title folds it up.
+  void controls_legend() {
+    static const char* const rows[][2] = {{"drag", "orbit"},     {"right drag", "pan"},   {"wheel", "zoom"},          {"click", "select"},
+                                          {"G  R", "move, rotate"}, {"F", "frame selection"}, {"1-4", "front side top iso"}, {"Del", "remove"},
+                                          {"Ctrl+Z", "undo (+Shift redo)"}, {"Ctrl+D", "duplicate"}};
+    constexpr float kW = 214, kHead = 26, kRow = 17;
+    const float h = keys_open_ ? kHead + 6 + static_cast<float>(std::size(rows)) * kRow + 4 : kHead;
+    ImGui::SetNextWindowPos({vp_.x + 8, vp_.y + 8});
+    ImGui::SetNextWindowSize({kW, h});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0.03f, 0.04f, 0.055f, 0.88f});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.f);
+    ImGui::Begin("##vpkeys", nullptr, kPane | ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetWindowPos();
+    ImGui::SetCursorScreenPos(p);
+    if (ImGui::InvisibleButton("##keystoggle", {kW, kHead})) keys_open_ = !keys_open_;
+    ImGui::PushFont(nullptr, theme::kFontSmall);
+    const ImU32 dim = theme::u32(theme::kDim);
+    dl->AddText({p.x + 10, p.y + 6}, dim, "CONTROLS");
+    const ImVec2 c{p.x + kW - 14, p.y + kHead / 2};
+    if (keys_open_) dl->AddTriangleFilled({c.x - 4, c.y - 2}, {c.x + 4, c.y - 2}, {c.x, c.y + 3}, dim);
+    else dl->AddTriangleFilled({c.x - 2, c.y - 4}, {c.x - 2, c.y + 4}, {c.x + 3, c.y}, dim);
+    if (keys_open_) {
+      float y = p.y + kHead + 6;
+      for (const auto& r : rows) {
+        dl->AddText({p.x + 10, y}, theme::u32(theme::kText), r[0]);
+        dl->AddText({p.x + 82, y}, dim, r[1]);
+        y += kRow;
+      }
+    }
+    ImGui::PopFont();
+    ImGui::End();
   }
 
   // The left dock: BROWSER (the assembly tree: instances by group, mates, wires, devices, each instance with a visibility eye) and
@@ -1973,16 +2018,14 @@ class Viewer {
     return own;
   }
 
-  // The cables handed to the renderer: those with an end on a hidden instance are dropped (a cable's ends sit on its connectors).
+  // The cables handed to the renderer: those with an end on a hidden instance are dropped. The ends are the instance ids the design
+  // builder put in the tendon's name (Frame::tube_ends), not a guess from the geometry.
   std::span<const TubeVisual> shown_tubes() {
     if (hidden_.empty()) return cur_.tubes;
     shown_tubes_.clear();
-    for (const TubeVisual& t : cur_.tubes) {
-      if (t.pts.size() >= 6) {
-        const std::size_t n = t.pts.size();
-        if (hidden_.count(owner_at(&t.pts[0], 0.10)) || hidden_.count(owner_at(&t.pts[n - 3], 0.10))) continue;
-      }
-      shown_tubes_.push_back(t);
+    for (std::size_t i = 0; i < cur_.tubes.size(); ++i) {
+      const bool ends = i < cur_.tube_ends.size();
+      if (!ends || (!hidden_.count(cur_.tube_ends[i].first) && !hidden_.count(cur_.tube_ends[i].second))) shown_tubes_.push_back(cur_.tubes[i]);
     }
     return shown_tubes_;
   }
@@ -2170,7 +2213,7 @@ class Viewer {
     const ImVec2 pos{lw, kTop}, size{W - lw, H - kTop - kStatus};
     begin_pane("##wire2d", pos, size, true);
     ImGui::SetCursorPos({0, 0});
-    flat_.page(size, dstate_, sel_.empty() ? "" : sel_.back());  // the picker, or the flattened canvas (wire2d.cpp)
+    flat_.page(size, dstate_, sel_.empty() ? "" : sel_.back(), hidden_);  // the picker, or the flattened canvas (wire2d.cpp)
     ImGui::End();
   }
 
@@ -2880,7 +2923,13 @@ class Viewer {
       measure_a_ = e.s("a"), measure_b_ = e.s("b");
       measure_ = measure_a_.empty() ? 0 : measure_b_.empty() ? 2 : 3;
       if (measure_ > 0 && mode_ != Mode::Build) set_mode("build");
+    } else if (cmd == "wire_pick") {
+      std::vector<std::string> ids;
+      for (const design::Json& i : e.at("instances").arr) ids.push_back(i.str);
+      flat_.pick(ids, dstate_);
+      if (mode_ != Mode::Wiring) set_mode("wiring");
     } else if (cmd == "wire_view") {
+      if (!e.s("panel").empty()) flat_.set_side_open(e.s("panel") == "open");
       flat_.view(e.n("zoom", 0), e.at("fit").num != 0, e.n("cx", wire2d::Canvas::kKeep), e.n("cy", wire2d::Canvas::kKeep), e.n("seconds", 0));
     } else if (cmd == "camera") {
       if (!e.s("preset").empty()) camera_preset(e.s("preset"));
@@ -3099,6 +3148,7 @@ class Viewer {
   bool nav_pan_ = false;            // left-drag pans instead of orbiting (view cube panel)
   std::set<std::string> hidden_;    // instances switched off with the eye in the browser
   bool hidden_dirty_ = false;
+  bool keys_open_ = true;           // the BUILD controls legend (top-left of the viewport)
   std::string geom_owner_key_;
   std::vector<std::string> geom_owner_;
   std::vector<GeomPose> hidden_poses_;

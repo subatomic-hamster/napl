@@ -121,12 +121,7 @@ if(NAPL_VIEWER)
     src/viewer/hud.cpp src/viewer/program_ui.cpp src/viewer/run_ui.cpp ${imguicolortextedit_SOURCE_DIR}/TextEditor.cpp ${NAPL_GEN_DIR}/ui_font.cpp)
   target_include_directories(napl_viewer PRIVATE ${stb_image_SOURCE_DIR})
   target_include_directories(napl_viewer SYSTEM PRIVATE ${imguicolortextedit_SOURCE_DIR})  # third party: its warnings are not ours
-  # LOOK's 2D wiring mode (src/viewer/wire2d.cpp, `void wire2d_draw(const Wire2dSlot&)`, see viewer/wire2d_slot.h) is linked in
-  # when the file exists; without it the WIRING tab shows a placeholder.
-  if(EXISTS ${CMAKE_SOURCE_DIR}/src/viewer/wire2d.cpp)
-    target_sources(napl_viewer PRIVATE src/viewer/wire2d.cpp)
-    target_compile_definitions(napl_viewer PRIVATE NAPL_HAS_WIRE2D)
-  endif()
+  target_sources(napl_viewer PRIVATE src/viewer/wire2d.cpp)  # the WIRING page's picker and 2D canvas
   target_link_libraries(napl_viewer PUBLIC napl_render napl_core PRIVATE napl_imgui napl_glfw napl_volk)
   set_target_properties(napl_glfw napl_imgui napl_viewer PROPERTIES POSITION_INDEPENDENT_CODE ON)  # linked into _napl.so
 

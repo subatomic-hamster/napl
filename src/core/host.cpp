@@ -81,6 +81,7 @@ Frame Host::snapshot(bool running, double rate) {
   f.diverged = world_.diverged();
   f.poses = world_.solver().poses();
   f.tubes = world_.solver().tubes();
+  f.tube_ends = world_.solver().tube_ends();
   if (!scene_sent_) {
     f.new_scene = true;
     f.visuals = world_.solver().visuals();

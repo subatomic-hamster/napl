@@ -76,6 +76,9 @@ class Solver {
   virtual std::vector<GeomVisual> visuals() const = 0;
   virtual std::vector<GeomPose> poses() const = 0;
   virtual std::vector<TubeVisual> tubes() const { return {}; }  // cables (visual only, follow their bodies)
+  // The instance ids at the two ends of each cable of tubes(), index-parallel ("" = unknown): the viewer hides a cable by them.
+  // (A separate list, not TubeVisual members: new members there made Sim.tubes() crash in the Python module, cause not found.)
+  virtual std::vector<std::pair<std::string, std::string>> tube_ends() const { return {}; }
   // Ray distances in metres from `origin` (3 doubles) along each direction (3 doubles each, any nonzero length; the
   // solver normalises). -1 = no hit. Deterministic. Nothing is excluded.
   virtual std::vector<double> raycast(std::span<const double> origin, std::span<const double> directions) const = 0;

@@ -224,7 +224,7 @@ def wire_tubes(wires: list, T: dict, sites: dict, geoms=None):
                 total if routed else max(w["length"], total)
             )  # a routed tube is drawn taut: sagging would leave the clear path
             lines.append(
-                f'    <spatial name="wire:{w["index"]}:{c}" width="{d / 2:.6g}" rgba="{rgba}"'  # stiffness / damping default to 0: visual only
+                f'    <spatial name="wire:{w["index"]}:{c}|{ia.id}|{ib.id}" width="{d / 2:.6g}" rgba="{rgba}"'  # stiffness / damping default to 0: visual only
                 f' springlength="{L:.6g} {L:.6g}">'
             )
             lines += [f'      <site site="{nm}"/>' for nm in names]

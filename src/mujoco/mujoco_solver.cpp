@@ -618,7 +618,7 @@ std::vector<GeomPose> MujocoSolver::poses() const {
 
 // Spatial tendons through sites (>= 2 site wraps, visible rgba) are the design builder's wires: the renderer draws them
 // as tubes. Pulleys / geom wraps are not tubes (their wrap points are not kept here).
-std::vector<TubeVisual> MujocoSolver::tubes() const {
+std::vector<TubeVisual> MujocoSolver::collect_tubes(std::vector<std::pair<std::string, std::string>>* ends) const {
   std::vector<TubeVisual> out;
   if (m_->ntendon == 0) return out;
   mj_kinematics(m_, d_);  // site_xpos
@@ -629,6 +629,12 @@ std::vector<TubeVisual> MujocoSolver::tubes() const {
       if (m_->wrap_type[k] == mjWRAP_SITE)
         for (int c = 0; c < 3; ++c) v.pts.push_back(d_->site_xpos[3 * m_->wrap_objid[k] + c]);
     if (v.pts.size() < 6) continue;
+    if (ends) {  // the design builder names a cable "wire:<i>:<c>|<end a>|<end b>"
+      const std::string_view s(m_->names + m_->name_tendonadr[t]);
+      const std::size_t p = s.find('|'), q = p == std::string_view::npos ? p : s.find('|', p + 1);
+      if (q != std::string_view::npos) ends->emplace_back(std::string(s.substr(p + 1, q - p - 1)), std::string(s.substr(q + 1)));
+      else ends->emplace_back();
+    }
     v.radius = m_->tendon_width[t];  // MuJoCo's tendon "width" is the rendered cross-section RADIUS
     v.length = m_->tendon_lengthspring[2 * t];
     for (int c = 0; c < 4; ++c) v.rgba[c] = m_->tendon_rgba[4 * t + c];
