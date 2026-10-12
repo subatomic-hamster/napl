@@ -214,6 +214,9 @@ the parameters and channels (`napl program ... --describe`).
 
 ## For the video / HUD / C2 map worker
 
+The finished end-to-end video (build reveal, the six scenarios + the non-complying stand-on, HUD, result cards) is made by `tools/record_asv.py`; commands, seeds and what is a stand-in: `docs/asv/video.md`.
+The snippets below are the lower-level building blocks it grew from.
+
 ```
 tools/remote.sh run --gpu '.venv/bin/python -c "import os,json; os.environ[\"NAPL_PARAMS\"]=json.dumps({\"visual\":True,\"hs\":0.4}); \
    from napl import program; program.run(\"examples/asv/asv-head-on.scenario.toml\", \"build/runs_asv/head_on\")"'
