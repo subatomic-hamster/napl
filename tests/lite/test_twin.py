@@ -168,6 +168,36 @@ def test_stroke_aborts_when_the_barrel_leaves_the_sector_before_the_feed():
     )  # (the rig's flywheel refresh then takes it back to ENGAGING)
 
 
+def last_arm_result(r):
+    r.arm()
+    return r.acks(p.ARM)[-1].result
+
+
+def test_arm_needs_the_fire_sector_written_since_boot():
+    r = Rig().up(homed=False)  # up() writes the sector; reboot and start over
+    r.reboot_mcu()
+    assert r.st.state == p.IDLE
+    r.gim.home()
+    r.run(3.0)
+    assert r.st.flag1(p.F1_PAN_HOMED) and r.st.flag1(p.F1_TILT_HOMED)
+    assert (
+        r.twin.cfg[p.CFG_FIRE_PAN_MAX] == 170000
+    )  # the storage default is there, and does not count
+    assert last_arm_result(r) == p.NO_SECTOR and r.st.state == p.IDLE
+    for k, v in zip(p.SECTOR_KEYS[:-1], (0, -170000, 170000)):  # three of the four keys
+        r.gim.set_cfg(k, v)
+    r.run(0.05)
+    assert last_arm_result(r) == p.NO_SECTOR and r.st.state == p.IDLE
+    r.gim.set_cfg(p.SECTOR_KEYS[-1], 70000)
+    r.run(0.05)
+    assert last_arm_result(r) == p.OK and r.st.state == p.ARMED
+    r.reboot_mcu()  # a restart forgets it again, flash or not
+    r.gim.home()
+    r.run(3.0)
+    assert r.st.state == p.IDLE
+    assert last_arm_result(r) == p.NO_SECTOR and r.st.state == p.IDLE
+
+
 def test_burst_feeds_n_balls_in_one_fire_while_the_gates_hold():
     r = Rig().up().engage()
     fid, ack = r.fire(n=3)

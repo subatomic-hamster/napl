@@ -38,6 +38,7 @@ from .protocol import (
     FIRING,
     IDLE,
     SAFE,
+    SECTOR_KEYS,
     Ack,
     Aim,
     Arm,
@@ -148,7 +149,18 @@ class SimRP2040:
         home_off_deg=(0.0, 0.0),
         status_from_joint=False,
     ):
+        self._ctor = (
+            plant,
+            link,
+            uid,
+            q_hall,
+            step_loss,
+            cfg_invalid,
+            home_off_deg,
+            status_from_joint,
+        )
         self.status_from_joint = status_from_joint
+        self.sector_set = set()  # fire-sector cfg keys written since boot; ARM and FIRE are refused until all of SECTOR_KEYS are in (spec 3.2 row 4)
         self.plant, self.link, self.uid = plant, link, uid
         self.q_hall, self.step_loss = q_hall, step_loss
         self.diag_pin, self.diag_ms = False, 0
@@ -219,6 +231,22 @@ class SimRP2040:
                 self.fault_bits
             )  # the cfg-invalid fault is reported by the state, not by an EVENT
             self._to(FAULT, p.R_FAULT, quiet=True)
+
+    def reboot(self):
+        """Power cycle: RAM state is gone (SAFE, not homed, no session, sector UNSET), the saved flash config survives, the plant and the event logs stay."""
+        flash, logs = (
+            self.flash,
+            (self.events, self.shots, self.refusals, self.transitions),
+        )
+        self.__init__(*self._ctor)
+        self.cfg, self.flash = dict(flash), flash
+        for a, k in zip(self.ax, (p.CFG_PAN_SPR, p.CFG_TILT_SPR)):
+            a.spr = self.cfg[k]
+        self.events, self.shots, self.refusals, self.transitions = logs
+
+    @property
+    def sector_ok(self):
+        return all(k in self.sector_set for k in SECTOR_KEYS)
 
     # ---- helpers -----------------------------------------------------------------------------------------------------------------------
     @property
@@ -457,6 +485,8 @@ class SimRP2040:
             return p.INHIBIT
         if not all(a.homed for a in self.ax):
             return p.NOT_HOMED
+        if not self.sector_ok:
+            return p.NO_SECTOR
         if not self._in_sector():
             return p.RANGE
         if not self._spun():
@@ -491,6 +521,10 @@ class SimRP2040:
             return self._ack(f, p.INHIBIT)
         if not all(a.homed for a in self.ax):
             return self._ack(f, p.NOT_HOMED)
+        if not self.sector_ok:
+            return self._ack(
+                f, p.NO_SECTOR
+            )  # the host must write the fire sector every boot
         self.shot_cap = min(m.shot_cap, self.cfg[p.CFG_HARD_SHOT_CAP])
         self.arm_deadline = self.t + min(m.timeout_s, self.cfg[p.CFG_HARD_ARM_TIMEOUT])
         self.shots_arm = 0
@@ -518,6 +552,8 @@ class SimRP2040:
         if m.key in (p.CFG_HARD_SHOT_CAP,) and not 0 <= v <= 255:
             return self._ack(f, p.BAD_ARG)
         self.cfg[m.key] = v
+        if m.key in SECTOR_KEYS:
+            self.sector_set.add(m.key)
         if m.key in (p.CFG_PAN_SPR, p.CFG_TILT_SPR):
             self.ax[m.key - p.CFG_PAN_SPR].spr = v
         if m.key == p.CFG_DIR_INVERT:
