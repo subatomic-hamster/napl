@@ -21,9 +21,10 @@ Ops (args -> result):
   ui.visibility {instances?: [..] (default: all), visible?: true}   the browser's eye: show / hide those parts in the 3D view (view only;
       the document is unchanged)
   ui.measure {a: instance, b: instance} | {off: true}   BUILD: the MEASURE readout between two parts (centre distance, dx dy dz, gap)
-  ui.wire_view {zoom?: 0.1..4, fit?: bool, center?: [x, y], seconds?: s}   the WIRING canvas: fit the sheet, or zoom to that factor (1 = 100 %,
+  ui.wire_view {zoom?: 0.1..4, fit?: bool, center?: [x, y], seconds?: s, panel?: "open"|"fold"}   the WIRING canvas: fit the sheet, or zoom to that factor (1 = 100 %,
       every pin label shown) with the canvas point `center` (default: the current middle) in the middle of the sheet; `seconds` glides
       there instead of jumping (a recorded pan / zoom)
+  ui.wire_pick {instances: [..]}   the WIRING picker: tick exactly these components (all their power / signal terminals); the preview follows
   ui.state {}  (the Backend.ui dict)      select {instances: [..], add?: bool}
   library.search {text, filters, category, limit, offset, type_ms?}   library.categories {}   library.ranges {category?}
   library.info {part}   library.targets {part}  (ghost poses on every open compatible port)
@@ -50,6 +51,7 @@ UI_TOOLS = {
     "camera.orbit",
     "camera.fly",
     "ui.wire_view",
+    "ui.wire_pick",
     "ui.measure",
     "ui.visibility",
     "ui.frame",
@@ -316,6 +318,12 @@ class UiOps:
                     )
             self._event(cmd="measure", a=a["a"], b=a["b"])
             return self._ok({"a": a["a"], "b": a["b"]})
+        if tool == "ui.wire_pick":
+            ids = a.get("instances")
+            if not isinstance(ids, list):
+                raise DesignError("ui.wire_pick: instances is a list of instance ids")
+            self._event(cmd="wire_pick", instances=[str(i) for i in ids])
+            return self._ok({"instances": ids})
         if tool == "ui.wire_view":
             z = a.get("zoom")
             if z is not None and not (isinstance(z, (int, float)) and 0.1 <= z <= 4):
@@ -331,6 +339,10 @@ class UiOps:
                 a.get("seconds") is not None
             ):  # glide there (wall clock) instead of jumping
                 pan["seconds"] = float(a["seconds"])
+            if a.get("panel") is not None:  # the canvas's right panel: "open" | "fold"
+                if a["panel"] not in ("open", "fold"):
+                    raise DesignError("ui.wire_view: panel is open or fold")
+                pan["panel"] = a["panel"]
             self._event(cmd="wire_view", zoom=z, fit=bool(a.get("fit")), **pan)
             return self._ok({"zoom": z, "fit": bool(a.get("fit")), **pan})
         if tool == "ui.gizmo":

@@ -13,7 +13,7 @@
 namespace wire2d {
 namespace {
 constexpr float kHeadH = 30, kPad = 10, kRowH = 22;  // mirror python/napl/design/wire2d.py
-constexpr float kPinR = 6, kSideW = 320;  // kSideW: the side panel of the flattened view
+constexpr float kPinR = 6, kSideW = 220, kStripW = 22;  // the side panel of the flattened view, open / folded up to a strip
 constexpr double kFade = 0.45, kCardPop = 0.35, kWireAnim = 0.8, kGlide = 0.6;
 constexpr int kAwg[] = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30};
 
@@ -116,6 +116,17 @@ std::vector<ImVec2> prefix(const std::vector<ImVec2>& p, float f) {
 }
 }  // namespace
 
+float Canvas::side_w() const { return side_open_ ? kSideW : kStripW; }
+
+// A wire disappears with either of its components (a hidden part's wires are not drawn, labels and junction dots included).
+bool Canvas::wire_hidden(const Wire& w) const {
+  if (!hid_ || hid_->empty()) return false;
+  if (hidden(w.from.substr(0, w.from.find('.'))) || hidden(w.to.substr(0, w.to.find('.')))) return true;
+  for (const Strand& s : w.strands)
+    if (hidden(s.from.substr(0, s.from.find('.'))) || hidden(s.to.substr(0, s.to.find('.')))) return true;
+  return false;
+}
+
 const Card* Canvas::card(const std::string& id) const {
   for (const Card& c : cards_)
     if (c.id == id) return &c;
@@ -186,6 +197,23 @@ void Canvas::poll(int flat_rev) {
   }
 }
 
+Card Canvas::parse_card(const design::Json& c) {
+  Card n;
+  n.id = c.s("id"), n.part = c.s("part"), n.group = c.s("group");
+  n.x = static_cast<float>(c.n("x")), n.y = static_cast<float>(c.n("y")), n.w = static_cast<float>(c.n("w", 200)), n.h = static_cast<float>(c.n("h", 60));
+  for (const design::Json& p : c.at("pins").arr) {
+    Pin pin{p.s("name"), p.s("kind"), p.s("type"), p.s("gender"), p.s("role"), p.s("side"), static_cast<int>(p.n("row")),
+            p.at("wired").num != 0, p.s("label"), p.s("conn"), p.s("tip"), p.s("flag"), {}, p.s("port"), {}};
+    if (pin.label.empty()) pin.label = pin.name;
+    for (const design::Json& f : p.at("flags").arr) pin.flag_msgs.push_back(f.s("code") + ": " + f.s("message"));
+    for (const design::Json& l : p.at("connects").arr) pin.connects.push_back({l.s("component"), l.s("port"), l.s("pin")});
+    n.pins.push_back(std::move(pin));
+  }
+  for (const design::Json& k : c.at("connectors").arr)
+    n.conns.push_back({k.s("id"), k.s("name"), k.s("type"), k.s("side"), static_cast<int>(k.n("row")), static_cast<int>(k.n("nrows", 1))});
+  return n;
+}
+
 void Canvas::apply(const design::Json& f) {
   const double now = ImGui::GetTime();
   const bool was = active_;
@@ -194,18 +222,7 @@ void Canvas::apply(const design::Json& f) {
   std::vector<Card> next;
   int idx = 0;
   for (const design::Json& c : f.at("cards").arr) {
-    Card n;
-    n.id = c.s("id"), n.part = c.s("part"), n.group = c.s("group");
-    n.x = static_cast<float>(c.n("x")), n.y = static_cast<float>(c.n("y")), n.w = static_cast<float>(c.n("w", 200)), n.h = static_cast<float>(c.n("h", 60));
-    for (const design::Json& p : c.at("pins").arr) {
-      Pin pin{p.s("name"), p.s("kind"), p.s("type"), p.s("gender"), p.s("role"), p.s("side"), static_cast<int>(p.n("row")),
-              p.at("wired").num != 0, p.s("label"), p.s("conn"), p.s("tip"), p.s("flag"), {}};
-      if (pin.label.empty()) pin.label = pin.name;
-      for (const design::Json& f : p.at("flags").arr) pin.flag_msgs.push_back(f.s("code") + ": " + f.s("message"));
-      n.pins.push_back(std::move(pin));
-    }
-    for (const design::Json& k : c.at("connectors").arr)
-      n.conns.push_back({k.s("id"), k.s("name"), k.s("type"), k.s("side"), static_cast<int>(k.n("row")), static_cast<int>(k.n("nrows", 1))});
+    Card n = parse_card(c);
     const Card* old = card(n.id);
     n.born = old ? old->born : now + 0.18 + 0.06 * idx++;
     if (old && drag_.kind == Drag::on_card && drag_.card == n.id) n.x = old->x, n.y = old->y;  // being dragged: the local position wins
@@ -262,6 +279,13 @@ void Canvas::apply(const design::Json& f) {
 }
 
 void Canvas::on_reply(const std::string& tool, const design::Json& r) {
+  if (tool == "flatten.preview") {  // the picker's preview: cards only, never a toast
+    preview_.clear();
+    if (r.at("ok").num != 0)
+      for (const design::Json& c : r.at("result").at("cards").arr) preview_.push_back(parse_card(c));
+    preview_sig_ = preview_asked_;
+    return;
+  }
   if (r.at("ok").num == 0) {
     toast(tool.substr(tool.find('.') + 1) + ": " + r.s("error"), true);
     return;
@@ -283,16 +307,19 @@ void Canvas::fit() {
   if (cards_.empty()) return;
   float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
   for (const Card& c : cards_) {
+    if (hidden(c.id)) continue;
     x0 = std::min(x0, c.tx), y0 = std::min(y0, c.ty), x1 = std::max(x1, c.tx + c.w), y1 = std::max(y1, c.ty + c.h);
   }
-  const float aw = sz_.x - kSideW - 20, ah = sz_.y - 80;  // the side panel and the title strip
+  if (x1 < x0) return;
+  const float lg = legend_open_[0] || legend_open_[1] ? 190.f : 0.f;  // the key sits top-left: the sheet starts right of it
+  const float aw = sz_.x - side_w() - lg - 20, ah = sz_.y - 40;
   zoom_ = std::clamp(std::min(aw / (x1 - x0 + 80), ah / (y1 - y0 + 60)), 0.15f, 1.4f);  // (below ~0.5 the labels go connector-level, see canvas_ui)
-  ox_ = org_.x + 10 + (aw - (x1 - x0) * zoom_) * 0.5f - x0 * zoom_;
-  oy_ = org_.y + 50 + (ah - (y1 - y0) * zoom_) * 0.5f - y0 * zoom_;
+  ox_ = org_.x + lg + 10 + (aw - (x1 - x0) * zoom_) * 0.5f - x0 * zoom_;
+  oy_ = org_.y + 20 + (ah - (y1 - y0) * zoom_) * 0.5f - y0 * zoom_;
 }
 
-// flatten.begin with the picked components / terminals.
-void Canvas::begin_flatten() {
+// The picked components / terminals as the args of flatten.begin and flatten.preview.
+std::string Canvas::pick_args() const {
   std::string ids, ports;
   for (const auto& [id, ps] : pick_) {
     ids += (ids.empty() ? "" : ",") + design::quote(id);
@@ -300,8 +327,9 @@ void Canvas::begin_flatten() {
     for (const std::string& p : ps) l += (l.empty() ? "" : ",") + design::quote(p);
     ports += (ports.empty() ? "" : ",") + design::quote(id) + ":[" + l + "]";
   }
-  send_("flatten.begin", "{\"instances\":[" + ids + "],\"ports\":{" + ports + "}}", false);
+  return "{\"instances\":[" + ids + "],\"ports\":{" + ports + "}}";
 }
+void Canvas::begin_flatten() { send_("flatten.begin", pick_args(), false); }
 
 // The ribbon's WIRE: with nothing picked yet, the BUILD selection (all its power / signal terminals) is flattened at once.
 void Canvas::begin_selected(const design::State& st, const std::string& selected) {
@@ -317,13 +345,23 @@ void Canvas::begin_selected(const design::State& st, const std::string& selected
   else begin_flatten();
 }
 
+void Canvas::pick(const std::vector<std::string>& ids, const design::State& st) {
+  pick_.clear();
+  for (const std::string& id : ids) {
+    pick_[id];
+    if (const auto it = st.ports.find(id); it != st.ports.end())
+      for (const design::Port& p : it->second)
+        if (p.kind == "power" || p.kind == "signal") pick_[id].insert(p.name);
+  }
+}
+
 // PIN WIRE: zoom the sheet to 100 % about its centre so every pin label of a connector can be read and hit.
 void Canvas::zoom_to_pins() { view(1.0, false); }
 
 // ui.wire_view: fit the sheet, or zoom to `zoom` (1 = 100 %) about the middle of the canvas.
 void Canvas::view(double zoom, bool fit_it, double cx, double cy, double seconds) {
   const float z0 = zoom_, ox0 = ox_, oy0 = oy_;
-  const float sx = org_.x + (sz_.x - kSideW) / 2, sy = org_.y + sz_.y / 2;  // the middle of the sheet (screen)
+  const float sx = org_.x + (sz_.x - side_w()) / 2, sy = org_.y + sz_.y / 2;  // the middle of the sheet (screen)
   if (fit_it) {
     fit();
   } else {
@@ -339,42 +377,151 @@ void Canvas::view(double zoom, bool fit_it, double cx, double cy, double seconds
 }
 
 // ---- 3D mode: choose components and terminals ----------------------------------------------------------------------------
+// One card in screen space (see CardView): body, header, connector boxes and the pins with their labels.
+void Canvas::draw_card(ImDrawList* dl, const Card& c, const CardView& v) const {
+  ImFont* font = ImGui::GetFont();
+  const float fs = ImGui::GetFontSize(), zoom = v.zoom, s = v.s;
+  const float cx = v.ox + (c.x + c.w / 2) * zoom, cy = v.oy + (c.y + c.h / 2) * zoom;  // popping cards scale about their centre
+  const ImVec2 p0{cx - c.w * zoom * s / 2, cy - c.h * zoom * s / 2}, p1{cx + c.w * zoom * s / 2, cy + c.h * zoom * s / 2};
+  const int al = static_cast<int>(255 * std::min(1.f, s));
+  dl->AddRectFilled({p0.x + 3, p0.y + 4}, {p1.x + 3, p1.y + 4}, IM_COL32(0, 0, 0, al / 3), 7 * zoom);
+  dl->AddRectFilled(p0, p1, IM_COL32(28, 33, 41, al), 7 * zoom);
+  const ImU32 gc = group_col(c.group);
+  dl->AddRectFilled(p0, {p1.x, p0.y + kHeadH * zoom * s}, (gc & 0x00FFFFFF) | (static_cast<ImU32>(al) << 24), 7 * zoom, ImDrawFlags_RoundCornersTop);
+  dl->AddRect(p0, p1, IM_COL32(120, 130, 148, al), 7 * zoom, 0, 1.2f);
+  // level of detail: the label sizes follow the zoom but never drop below a legible floor. Pin labels: all of them (lod 2), only the
+  // wired / flagged ones (lod 1) or none (lod 0, the connector titles carry the card); the header moves above the card when it is
+  // too short to hold its text. The preview (bare) has no labels at all, only the component's name.
+  const float pin_fs = fs * 0.92f * zoom * s;
+  const int lod = v.bare ? -1 : pin_fs >= 8.5f ? 2 : kRowH * zoom * s >= 10.f ? 1 : 0;
+  if (s > 0.6f) {
+    const float hh = kHeadH * zoom * s, hs = std::max(fs * zoom * s, v.bare ? 12.5f : 11.5f), ps = std::max(fs * 0.78f * zoom * s, 9.5f);
+    if (!v.bare && hh >= hs + ps + 3) {
+      dl->AddText(font, hs, {p0.x + 8 * zoom, p0.y + 2 * zoom}, IM_COL32(244, 246, 250, al), c.id.c_str());
+      dl->AddText(font, ps, {p0.x + 8 * zoom, p0.y + 3 * zoom + hs}, IM_COL32(190, 198, 212, al), c.part.c_str());
+    } else if (hh >= hs + 3) {
+      dl->AddText(font, hs, {p0.x + 8 * zoom, p0.y + (hh - hs) / 2}, IM_COL32(244, 246, 250, al), c.id.c_str());
+    } else {  // above the card, on the sheet
+      const std::string t = v.bare ? c.id : c.id + "   " + c.part;
+      dl->AddText(font, hs, {p0.x + 2, p0.y - hs - 3}, IM_COL32(236, 239, 244, al), t.c_str());
+    }
+  }
+  // connector boxes: a rounded panel behind the pins of one connector, titled with its id (a two-row header spans the card)
+  const auto sy = [&](float row) { return cy + (v.oy + (c.y + kHeadH + kPad * 0.5f + row * kRowH) * zoom - cy) * s; };
+  const auto sx = [&](float xx) { return cx + (v.ox + (c.x + xx) * zoom - cx) * s; };
+  for (const ConnBox& k : c.conns) {
+    const float xl = k.side == "right" ? c.w / 2 + 3 : 5, xr = k.side == "left" ? c.w / 2 - 3 : c.w - 5;
+    const ImVec2 b0{sx(xl), sy(static_cast<float>(k.row)) + 1}, b1{sx(xr), sy(static_cast<float>(k.row + k.nrows)) - 1};
+    dl->AddRectFilled(b0, b1, IM_COL32(36, 42, 53, al), 5 * zoom * s);
+    dl->AddRect(b0, b1, IM_COL32(86, 96, 116, al), 5 * zoom * s, 0, 1.f);
+    if (s > 0.6f && !v.bare) {
+      const std::string title = k.id + "  " + k.name;
+      const float tfs = std::max(fs * 0.74f * zoom * s, lod == 0 ? 10.5f : 9.f);  // connector titles carry the card when the pins are unlabelled
+      const ImVec2 tsz = font->CalcTextSizeA(tfs, 1e9f, 0, title.c_str());
+      const float tx = k.side == "right" ? b1.x - tsz.x - 8 * zoom : k.side == "left" ? b0.x + 8 * zoom : (b0.x + b1.x - tsz.x) / 2;
+      const float rowh = kRowH * zoom * s;
+      if (lod > 0 && rowh >= tsz.y - 2) {  // the title sits in the connector's first row (a little tight is fine: pins start in the next one)
+        dl->PushClipRect(b0, {b1.x, b0.y + std::max(rowh, tsz.y)}, true);
+        dl->AddText(font, tfs, {tx, b0.y + (rowh - tsz.y) / 2}, IM_COL32(150, 162, 184, al), title.c_str());
+        dl->PopClipRect();
+      } else if (rowh >= tsz.y + 2) {  // the title sits in the connector's first row
+        dl->PushClipRect(b0, {b1.x, b0.y + rowh}, true);
+        dl->AddText(font, tfs, {tx, b0.y + (rowh - tsz.y) / 2}, IM_COL32(150, 162, 184, al), title.c_str());
+        dl->PopClipRect();
+      } else if (b1.y - b0.y >= tsz.y * 2 + 4) {  // a tall box with tiny rows (zoomed out): the title in the middle, over a plate
+        const float cxm = (b0.x + b1.x - tsz.x) / 2, cym = (b0.y + b1.y - tsz.y) / 2;
+        dl->AddRectFilled({cxm - 4, cym - 2}, {cxm + tsz.x + 4, cym + tsz.y + 2}, IM_COL32(36, 42, 53, al), 3);
+        dl->AddText(font, tfs, {cxm, cym}, IM_COL32(190, 200, 220, al), title.c_str());
+      } else {  // a short box: the title above it
+        dl->AddText(font, tfs, {b0.x, b0.y - tsz.y - 2}, IM_COL32(150, 162, 184, al), title.c_str());
+      }
+    }
+  }
+  for (const Pin& p : c.pins) {
+    float x = v.ox + (c.x + (p.side == "right" ? c.w : 0)) * zoom;
+    float y = v.oy + (c.y + kHeadH + kPad * 0.5f + (static_cast<float>(p.row) + 0.5f) * kRowH) * zoom;
+    x = cx + (x - cx) * s, y = cy + (y - cy) * s;
+    const bool right = p.side == "right";
+    const bool target = drag_.kind == Drag::on_pin && v.hover == &p && !(drag_.card == c.id && drag_.pin == p.name);
+    const bool compat = drag_.kind == Drag::on_pin && !(drag_.card == c.id && drag_.pin == p.name);
+    const float r = std::max(kPinR * zoom * s, v.bare ? 2.f : 0.f) * (target ? 1.5f : 1.f);
+    if (compat) dl->AddCircle({x, y}, r + 4 * zoom, IM_COL32(255, 255, 255, target ? 255 : 90), 0, 1.5f);
+    if (!p.flag.empty() && !v.bare) dl->AddCircle({x, y}, r + 3.5f * zoom, flag_col(p.flag, al), 0, 2.5f);
+    const bool wired = v.bare || (v.ends ? v.ends->count(c.id + "." + p.name) > 0 : p.wired);  // (a hidden component's wires do not count)
+    if (wired) {  // (the preview shows every pin filled in its colour)
+      dl->AddCircleFilled({x, y}, r, kind_col(p.kind, al));
+      if (v.ends)
+        if (const auto e = v.ends->find(c.id + "." + p.name); e != v.ends->end() && e->second >= 2) dl->AddCircleFilled({x, y}, r * 0.5f, IM_COL32(244, 247, 252, al));  // junction
+    } else {
+      dl->AddCircleFilled({x, y}, r, IM_COL32(28, 33, 41, al));
+      dl->AddCircle({x, y}, r, kind_col(p.kind, al), 0, 2);
+    }
+    if (s > 0.6f && !v.bare && (lod == 2 || (lod == 1 && (wired || !p.flag.empty())))) {
+      const bool dim = p.kind == "nc" || (!p.conn.empty() && !wired);  // unwired connector pins recede: the wired ones read first
+      const ImU32 tcol = dim ? IM_COL32(150, 158, 174, al) : IM_COL32(236, 239, 244, al);
+      const float lfs = std::max(fs * 0.92f * zoom, 9.f);
+      const ImVec2 ts = font->CalcTextSizeA(lfs, 1e9f, 0, p.label.c_str());
+      const float tx = right ? x - r - 6 * zoom - ts.x : x + r + 6 * zoom;
+      dl->AddText(font, lfs, {tx, y - ts.y / 2}, tcol, p.label.c_str());
+      if (p.conn.empty() && lod == 2) {  // a port terminal also names its connector type
+        const ImVec2 ty = font->CalcTextSizeA(fs * 0.72f * zoom, 1e9f, 0, p.type.c_str());
+        const float tx2 = right ? tx - ty.x - 8 * zoom : tx + ts.x + 8 * zoom;
+        if (std::abs(tx2 - (right ? p0.x : p1.x)) > 12 && tx2 > p0.x && tx2 + ty.x < p1.x)
+          dl->AddText(font, fs * 0.72f * zoom, {tx2, y - ty.y / 2}, IM_COL32(140, 150, 168, al), p.type.c_str());
+      }
+    }
+  }
+}
+
+// The picked components as cards, packed in rows into `size` at the largest zoom (<= 1) at which they all fit. Read-only.
+void Canvas::preview_ui(ImVec2 at, ImVec2 size) {
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilled(at, {at.x + size.x, at.y + size.y}, IM_COL32(12, 14, 19, 255), 6);
+  dl->AddRect(at, {at.x + size.x, at.y + size.y}, IM_COL32(120, 130, 148, 70), 6);
+  if (pick_.empty() || preview_.empty()) return;
+  constexpr float kEdge = 18, kGapX = 22, kGapY = 34;  // screen px: the name of a small card sits in the gap above it
+  const ImVec2 room{size.x - 2 * kEdge, size.y - 2 * kEdge};
+  std::vector<ImVec2> pos(preview_.size());
+  ImVec2 used{0, 0};
+  const auto pack = [&](float z) {
+    float x = 0, y = kGapY - 14, row_h = 0;
+    used = {0, 0};
+    for (std::size_t i = 0; i < preview_.size(); ++i) {
+      const float w = preview_[i].w * z, h = preview_[i].h * z;
+      if (w > room.x) return false;
+      if (x > 0 && x + w > room.x) y += row_h + kGapY, x = 0, row_h = 0;
+      pos[i] = {x, y};
+      x += w + kGapX, row_h = std::max(row_h, h);
+      used = {std::max(used.x, x - kGapX), y + row_h};
+    }
+    return used.y <= room.y;
+  };
+  float z = 1.f;
+  while (z > 0.06f && !pack(z)) z *= 0.94f;
+  pack(z);
+  const ImVec2 org{at.x + kEdge + (room.x - used.x) / 2, at.y + kEdge + std::max(0.f, (room.y - used.y) / 2)};
+  dl->PushClipRect(at, {at.x + size.x, at.y + size.y}, true);
+  for (std::size_t i = 0; i < preview_.size(); ++i) {
+    const Card& c = preview_[i];  // drawn with its own (x, y) cancelled: origin = where the pack put it
+    draw_card(dl, c, {org.x + pos[i].x - c.x * z, org.y + pos[i].y - c.y * z, z, 1.f, true, nullptr, nullptr});
+  }
+  dl->PopClipRect();
+}
+
+// The picker: "Wire Components", the filter and the component / terminal list under it; the picked components as cards on the right.
 void Canvas::select_ui(const design::State& st, const std::string& selected) {
-  ImGui::SetCursorPos({28, 24});
+  const float col_w = std::min(400.f, sz_.x * 0.42f), top = 22.f;
+  ImGui::SetCursorPos({28, top});
   ImGui::BeginGroup();
-  ImGui::PushItemWidth(std::min(360.f, sz_.x - 80));
-  theme::caption("2D WIRING");
-  ImGui::PushFont(nullptr, 18.f);
-  ImGui::TextUnformatted("Wire components on a flat canvas");
+  ImGui::PushFont(nullptr, 20.f);
+  ImGui::TextUnformatted("Wire Components");
   ImGui::PopFont();
-  ImGui::PushStyleColor(ImGuiCol_Text, theme::kDim);
-  ImGui::PushTextWrapPos(std::min(420.f, sz_.x - 60));
-  ImGui::TextWrapped("Pick the components and the terminals to wire, then flatten them: sources sit on the left, loads on the right, and dragging a pin onto another one lays the wire.");
-  ImGui::PopTextWrapPos();
-  ImGui::PopStyleColor();
   ImGui::Spacing();
+  ImGui::SetNextItemWidth(col_w);
   ImGui::InputTextWithHint("##filter", "filter components", filter_, sizeof filter_);
   ImGui::Spacing();
-  if (theme::button("ADD SELECTED") && !selected.empty()) {
-    auto it = st.ports.find(selected);
-    if (it != st.ports.end())
-      for (const design::Port& p : it->second)
-        if (p.kind == "power" || p.kind == "signal") pick_[selected].insert(p.name);
-    pick_[selected];
-  }
-  ImGui::SetItemTooltip("the instance selected in BUILD (all its power / signal terminals)");
-  ImGui::SameLine();
-  if (theme::button("CLEAR")) pick_.clear();
-  ImGui::SameLine();
-  ImGui::BeginDisabled(pick_.empty());
-  if (theme::button("FLATTEN", true)) begin_flatten();
-  ImGui::EndDisabled();
-  std::size_t terminals = 0;
-  for (const auto& [id, ps] : pick_) terminals += ps.size();
-  if (pick_.empty()) ImGui::TextDisabled("Nothing picked yet: tick components below, or select one in BUILD and press ADD SELECTED.");
-  else ImGui::TextDisabled("%zu component%s, %zu terminal%s picked", pick_.size(), pick_.size() == 1 ? "" : "s", terminals, terminals == 1 ? "" : "s");
-  ImGui::Separator();
-  ImGui::BeginChild("pick", {std::min(520.f, sz_.x - 48), sz_.y - ImGui::GetCursorPosY() - 16});
+  const float foot = 40;  // the action row under the list
+  ImGui::BeginChild("pick", {col_w, sz_.y - ImGui::GetCursorPosY() - foot - 12});
   const std::string f = filter_;
   for (const design::Instance& i : st.report.instances) {
     auto pit = st.ports.find(i.id);
@@ -411,8 +558,35 @@ void Canvas::select_ui(const design::State& st, const std::string& selected) {
     ImGui::PopID();
   }
   ImGui::EndChild();
-  ImGui::PopItemWidth();
+  if (theme::button("ADD SELECTED") && !selected.empty()) {
+    auto it = st.ports.find(selected);
+    if (it != st.ports.end())
+      for (const design::Port& p : it->second)
+        if (p.kind == "power" || p.kind == "signal") pick_[selected].insert(p.name);
+    pick_[selected];
+  }
+  ImGui::SetItemTooltip("the instance selected in BUILD (all its power / signal terminals)");
+  ImGui::SameLine();
+  if (theme::button("CLEAR")) pick_.clear();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(pick_.empty());
+  if (theme::button("FLATTEN", true)) begin_flatten();
+  ImGui::EndDisabled();
   ImGui::EndGroup();
+  // the picked components, as the canvas will draw them
+  std::string sig;
+  for (const auto& [id, ps] : pick_) {
+    sig += id + ":";
+    for (const std::string& p : ps) sig += p + ",";
+    sig += ";";
+  }
+  if (sig != preview_asked_) {
+    preview_asked_ = sig;
+    if (pick_.empty()) preview_.clear(), preview_sig_ = sig;
+    else send_("flatten.preview", pick_args(), true);
+  }
+  const float px = 28 + col_w + 28;
+  if (sz_.x - px > 120) preview_ui({org_.x + px, org_.y + top}, {sz_.x - px - 24, sz_.y - top - 24});
 }
 
 // ---- flattened: the canvas ------------------------------------------------------------------------------------------------
@@ -421,11 +595,13 @@ void Canvas::canvas_ui() {
   const double now = ImGui::GetTime();
   const float a = static_cast<float>(alpha_);
   // The canvas fills the pane left of the side panel: org_ / sz_ (screen). Everything below draws in screen coordinates.
-  const ImVec2 cs{sz_.x - kSideW, sz_.y};
+  const ImVec2 cs{sz_.x - side_w(), sz_.y};
   ImDrawList* dl = ImGui::GetWindowDrawList();
   ImGui::SetCursorScreenPos(org_);
   ImGui::InvisibleButton("##bg", cs, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
-  const bool bg_hover = ImGui::IsItemHovered();
+  const ImVec2 mp = ImGui::GetIO().MousePos;
+  const bool over_key = mp.x >= legend_rect_.x && mp.x <= legend_rect_.z && mp.y >= legend_rect_.y && mp.y <= legend_rect_.w;  // (last frame's key)
+  const bool bg_hover = ImGui::IsItemHovered() && !over_key;
   dl->PushClipRect(org_, {org_.x + cs.x, org_.y + cs.y}, true);
   // backdrop; the grid of the canvas fades in with the transition
   // the sheet: very dark, a thin grid (minor 20 units while it is still more than a few px apart, major every 100), like an EDA schematic
@@ -463,6 +639,7 @@ void Canvas::canvas_ui() {
   float hit_d2 = 12 * 12 * zoom_ * zoom_ + 16;  // the nearest pin within reach (a 2 x 20 header packs pins 22 units apart)
   for (const Card& c : cards_)
     for (const Pin& p : c.pins) {
+      if (hidden(c.id) || over_key) break;
       float x, y;
       pin_pos(c, p, x, y);
       const float d2 = (io.MousePos.x - x) * (io.MousePos.x - x) + (io.MousePos.y - y) * (io.MousePos.y - y);
@@ -483,10 +660,11 @@ void Canvas::canvas_ui() {
   if (io.MouseDelta.x != 0 || io.MouseDelta.y != 0) move_t_ = now;
   const bool tips = tip_mode_ == 1 || (tip_mode_ == 0 && now - move_t_ < 10.0);  // a still pointer (recordings) hovers nothing
   hover_wire_.clear();
-  if (tips && !hp && drag_.kind == Drag::none) {
+  if (tips && !hp && !over_key && drag_.kind == Drag::none) {
     float best = 7;
     for (const Wire& w : wires_)
       for (const Strand& s : w.strands) {
+        if (wire_hidden(w)) break;
         const float d = dist_to_poly(strand_path(s), io.MousePos);
         if (d < best) best = d, hover_wire_ = w.name;
       }
@@ -495,6 +673,7 @@ void Canvas::canvas_ui() {
   // wires (under the cards): orthogonal routes from the backend, rounded corners, an arrow into the target pin
   std::vector<std::pair<const Wire*, std::pair<ImVec2, bool>>> labels;
   for (const Wire& w : wires_) {
+    if (wire_hidden(w)) continue;  // a wire goes with either of its components
     ImVec2 lc{0, 0};
     bool has_label = false;
     wire_path(w, &lc, &has_label);
@@ -540,101 +719,17 @@ void Canvas::canvas_ui() {
   // cards
   std::map<std::string, int> ends;  // conductors ending on each pin: 2+ get a junction dot, as in a schematic
   for (const Wire& w : wires_)
-    for (const Strand& st : w.strands) ++ends[st.from], ++ends[st.to];
+    if (!wire_hidden(w))
+      for (const Strand& st : w.strands) ++ends[st.from], ++ends[st.to];
   const Card* head_hit = nullptr;
   for (const Card& c : cards_) {
+    if (hidden(c.id)) continue;
     const float s = static_cast<float>(ease_back((now - c.born) / kCardPop)) * intro;
     if (now < c.born || s <= 0.01f) continue;
-    // popping cards scale about their centre
-    const float cx = ox_ + (c.x + c.w / 2) * zoom_, cy = oy_ + (c.y + c.h / 2) * zoom_;
+    draw_card(dl, c, {ox_, oy_, zoom_, s, false, &ends, hp});
+    const float cx = ox_ + (c.x + c.w / 2) * zoom_, cy = oy_ + (c.y + c.h / 2) * zoom_;  // (popping cards scale about their centre)
     const ImVec2 p0{cx - c.w * zoom_ * s / 2, cy - c.h * zoom_ * s / 2}, p1{cx + c.w * zoom_ * s / 2, cy + c.h * zoom_ * s / 2};
-    const int al = static_cast<int>(255 * std::min(1.f, s));
-    dl->AddRectFilled({p0.x + 3, p0.y + 4}, {p1.x + 3, p1.y + 4}, IM_COL32(0, 0, 0, al / 3), 7 * zoom_);
-    dl->AddRectFilled(p0, p1, IM_COL32(28, 33, 41, al), 7 * zoom_);
-    const ImU32 gc = group_col(c.group);
-    dl->AddRectFilled(p0, {p1.x, p0.y + kHeadH * zoom_ * s}, (gc & 0x00FFFFFF) | (static_cast<ImU32>(al) << 24), 7 * zoom_, ImDrawFlags_RoundCornersTop);
-    dl->AddRect(p0, p1, IM_COL32(120, 130, 148, al), 7 * zoom_, 0, 1.2f);
-    // level of detail: the label sizes follow the zoom but never drop below a legible floor. Pin labels: all of them (lod 2), only the
-    // wired / flagged ones (lod 1) or none (lod 0, the connector titles carry the card); the header moves above the card when it is
-    // too short to hold its text.
-    const float pin_fs = fs * 0.92f * zoom_ * s;
-    const int lod = pin_fs >= 8.5f ? 2 : kRowH * zoom_ * s >= 10.f ? 1 : 0;
-    if (s > 0.6f) {
-      const float hh = kHeadH * zoom_ * s, hs = std::max(fs * zoom_ * s, 11.5f), ps = std::max(fs * 0.78f * zoom_ * s, 9.5f);
-      if (hh >= hs + ps + 3) {
-        dl->AddText(font, hs, {p0.x + 8 * zoom_, p0.y + 2 * zoom_}, IM_COL32(244, 246, 250, al), c.id.c_str());
-        dl->AddText(font, ps, {p0.x + 8 * zoom_, p0.y + 3 * zoom_ + hs}, IM_COL32(190, 198, 212, al), c.part.c_str());
-      } else if (hh >= hs + 3) {
-        dl->AddText(font, hs, {p0.x + 8 * zoom_, p0.y + (hh - hs) / 2}, IM_COL32(244, 246, 250, al), c.id.c_str());
-      } else {  // above the card, on the sheet
-        const std::string t = c.id + "   " + c.part;
-        dl->AddText(font, hs, {p0.x + 2, p0.y - hs - 3}, IM_COL32(236, 239, 244, al), t.c_str());
-      }
-    }
     if (io.MousePos.x >= p0.x && io.MousePos.x <= p1.x && io.MousePos.y >= p0.y && io.MousePos.y <= p0.y + kHeadH * zoom_ * s) head_hit = &c;
-    // connector boxes: a rounded panel behind the pins of one connector, titled with its id (a two-row header spans the card)
-    const auto sy = [&](float row) { return cy + (oy_ + (c.y + kHeadH + kPad * 0.5f + row * kRowH) * zoom_ - cy) * s; };
-    const auto sx = [&](float xx) { return cx + (ox_ + (c.x + xx) * zoom_ - cx) * s; };
-    for (const ConnBox& k : c.conns) {
-      const float xl = k.side == "right" ? c.w / 2 + 3 : 5, xr = k.side == "left" ? c.w / 2 - 3 : c.w - 5;
-      const ImVec2 b0{sx(xl), sy(static_cast<float>(k.row)) + 1}, b1{sx(xr), sy(static_cast<float>(k.row + k.nrows)) - 1};
-      dl->AddRectFilled(b0, b1, IM_COL32(36, 42, 53, al), 5 * zoom_ * s);
-      dl->AddRect(b0, b1, IM_COL32(86, 96, 116, al), 5 * zoom_ * s, 0, 1.f);
-      if (s > 0.6f) {
-        const std::string title = k.id + "  " + k.name;
-        const float tfs = std::max(fs * 0.74f * zoom_ * s, lod == 0 ? 10.5f : 9.f);  // connector titles carry the card when the pins are unlabelled
-        const ImVec2 tsz = font->CalcTextSizeA(tfs, 1e9f, 0, title.c_str());
-        const float tx = k.side == "right" ? b1.x - tsz.x - 8 * zoom_ : k.side == "left" ? b0.x + 8 * zoom_ : (b0.x + b1.x - tsz.x) / 2;
-        const float rowh = kRowH * zoom_ * s;
-        if (lod > 0 && rowh >= tsz.y - 2) {  // the title sits in the connector's first row (a little tight is fine: pins start in the next one)
-          dl->PushClipRect(b0, {b1.x, b0.y + std::max(rowh, tsz.y)}, true);
-          dl->AddText(font, tfs, {tx, b0.y + (rowh - tsz.y) / 2}, IM_COL32(150, 162, 184, al), title.c_str());
-          dl->PopClipRect();
-        } else if (rowh >= tsz.y + 2) {  // the title sits in the connector's first row
-          dl->PushClipRect(b0, {b1.x, b0.y + rowh}, true);
-          dl->AddText(font, tfs, {tx, b0.y + (rowh - tsz.y) / 2}, IM_COL32(150, 162, 184, al), title.c_str());
-          dl->PopClipRect();
-        } else if (b1.y - b0.y >= tsz.y * 2 + 4) {  // a tall box with tiny rows (zoomed out): the title in the middle, over a plate
-          const float cxm = (b0.x + b1.x - tsz.x) / 2, cym = (b0.y + b1.y - tsz.y) / 2;
-          dl->AddRectFilled({cxm - 4, cym - 2}, {cxm + tsz.x + 4, cym + tsz.y + 2}, IM_COL32(36, 42, 53, al), 3);
-          dl->AddText(font, tfs, {cxm, cym}, IM_COL32(190, 200, 220, al), title.c_str());
-        } else {  // a short box: the title above it
-          dl->AddText(font, tfs, {b0.x, b0.y - tsz.y - 2}, IM_COL32(150, 162, 184, al), title.c_str());
-        }
-      }
-    }
-    for (const Pin& p : c.pins) {
-      float x, y;
-      pin_pos(c, p, x, y);
-      x = cx + (x - cx) * s, y = cy + (y - cy) * s;
-      const bool right = p.side == "right";
-      const bool target = drag_.kind == Drag::on_pin && hp == &p && !(drag_.card == c.id && drag_.pin == p.name);
-      const bool compat = drag_.kind == Drag::on_pin && !(drag_.card == c.id && drag_.pin == p.name);
-      const float r = kPinR * zoom_ * s * (target ? 1.5f : 1.f);
-      if (compat) dl->AddCircle({x, y}, r + 4 * zoom_, IM_COL32(255, 255, 255, target ? 255 : 90), 0, 1.5f);
-      if (!p.flag.empty()) dl->AddCircle({x, y}, r + 3.5f * zoom_, flag_col(p.flag, al), 0, 2.5f);
-      if (p.wired) {
-        dl->AddCircleFilled({x, y}, r, kind_col(p.kind, al));
-        if (const auto e = ends.find(c.id + "." + p.name); e != ends.end() && e->second >= 2) dl->AddCircleFilled({x, y}, r * 0.5f, IM_COL32(244, 247, 252, al));  // junction
-      } else {
-        dl->AddCircleFilled({x, y}, r, IM_COL32(28, 33, 41, al));
-        dl->AddCircle({x, y}, r, kind_col(p.kind, al), 0, 2);
-      }
-      if (s > 0.6f && (lod == 2 || (lod == 1 && (p.wired || !p.flag.empty())))) {
-        const bool dim = p.kind == "nc" || (!p.conn.empty() && !p.wired);  // unwired connector pins recede: the wired ones read first
-        const ImU32 tcol = dim ? IM_COL32(150, 158, 174, al) : IM_COL32(236, 239, 244, al);
-        const float lfs = std::max(fs * 0.92f * zoom_, 9.f);
-        const ImVec2 ts = font->CalcTextSizeA(lfs, 1e9f, 0, p.label.c_str());
-        const float tx = right ? x - r - 6 * zoom_ - ts.x : x + r + 6 * zoom_;
-        dl->AddText(font, lfs, {tx, y - ts.y / 2}, tcol, p.label.c_str());
-        if (p.conn.empty() && lod == 2) {  // a port terminal also names its connector type
-          const ImVec2 ty = font->CalcTextSizeA(fs * 0.72f * zoom_, 1e9f, 0, p.type.c_str());
-          const float tx2 = right ? tx - ty.x - 8 * zoom_ : tx + ts.x + 8 * zoom_;
-          if (std::abs(tx2 - (right ? p0.x : p1.x)) > 12 && tx2 > p0.x && tx2 + ty.x < p1.x)
-            dl->AddText(font, fs * 0.72f * zoom_, {tx2, y - ty.y / 2}, IM_COL32(140, 150, 168, al), p.type.c_str());
-        }
-      }
-    }
   }
 
   // interaction
@@ -672,7 +767,9 @@ void Canvas::canvas_ui() {
     send_("flatten.unwire", str_args({{"name", design::quote(sel_wire_)}}), false);
   if (tips && hp && drag_.kind == Drag::none) {
     ImGui::BeginTooltip();
-    ImGui::Text("%s.%s", hc->id.c_str(), hp->name.c_str());
+    ImGui::Text("%s", hc->id.c_str());  // component, port, pin (the connector pin's own name, else just the port)
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s%s%s", hp->port.empty() ? hp->name.c_str() : hp->port.c_str(), hp->conn.empty() ? "" : "  ", hp->conn.empty() ? "" : hp->name.c_str());
     if (!hp->tip.empty()) {  // a connector pin: its functions, alternates, ratings (the part file's pinout)
       ImGui::TextDisabled("%s  %s", hp->type.c_str(), hp->gender.c_str());
       ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kind_col(hp->kind)));
@@ -686,7 +783,11 @@ void Canvas::canvas_ui() {
       ImGui::TextWrapped("%s", m.c_str());
       ImGui::PopStyleColor();
     }
-    ImGui::TextDisabled("drag to another pin to wire");
+    if (!hp->connects.empty()) {  // what its wires lead to
+      ImGui::Separator();
+      ImGui::TextDisabled("connects to");
+      for (const Link& l : hp->connects) ImGui::Text("%s  %s%s%s", l.component.c_str(), l.port.c_str(), l.pin.empty() ? "" : "  ", l.pin.c_str());
+    }
     ImGui::EndTooltip();
   }
 
@@ -706,29 +807,9 @@ void Canvas::canvas_ui() {
         ImGui::EndTooltip();
       }
   }
-  legend(dl, org_, cs, a);
+  legend_rect_ = legend(dl, org_, a);
 
-  // title strip + title block (bottom-left, like the corner block of a drawing sheet) + toast
-  const float x0 = org_.x, y0 = org_.y;
-  {
-    const float bw = 260, bh = 52, bx = x0 + cs.x - bw - 14, by = y0 + cs.y - bh - 14;
-    const auto al = [&](int v) { return static_cast<int>(v * a); };
-    dl->AddRectFilled({bx, by}, {bx + bw, by + bh}, IM_COL32(8, 10, 14, al(225)), 3);
-    dl->AddRect({bx, by}, {bx + bw, by + bh}, IM_COL32(120, 130, 148, al(120)), 3);
-    dl->AddLine({bx, by + 24}, {bx + bw, by + 24}, IM_COL32(120, 130, 148, al(90)));
-    dl->PushClipRect({bx, by}, {bx + bw, by + bh}, true);
-    dl->AddText(font, 14.f, {bx + 8, by + 4}, IM_COL32(236, 239, 244, al(255)), title_.empty() ? "WIRING SHEET" : title_.c_str());
-    char tb[96];
-    std::snprintf(tb, sizeof tb, "SHEET 1/1   %zu COMPONENTS   %zu WIRES   %d%%", cards_.size(), wires_.size(), static_cast<int>(zoom_ * 100 + 0.5f));
-    dl->AddText(font, 11.f, {bx + 8, by + 32}, IM_COL32(150, 160, 178, al(255)), tb);
-    dl->PopClipRect();
-  }
-  dl->AddRectFilled({x0, y0}, {x0 + cs.x, y0 + 34}, IM_COL32(8, 10, 14, static_cast<int>(230 * a)));
-  dl->AddText(font, fs * 1.15f, {x0 + 14, y0 + 8}, IM_COL32(236, 239, 244, static_cast<int>(255 * a)), "2D WIRING");
-  char sub[96];
-  std::snprintf(sub, sizeof sub, "%zu components   %zu wires%s", cards_.size(), wires_.size(),
-                hidden_wires_ ? ("   (+" + std::to_string(hidden_wires_) + " to terminals not shown)").c_str() : "");
-  dl->AddText(font, fs * 0.9f, {x0 + 140, y0 + 10}, IM_COL32(150, 160, 178, static_cast<int>(255 * a)), sub);
+  const float x0 = org_.x, y0 = org_.y;  // the toast (a refusal / confirmation of the last action)
   const double age = now - toast_t_;
   if (age < 7 && !toast_.empty()) {
     const ImVec2 ts = font->CalcTextSizeA(fs, 1e9f, 0, toast_.c_str());
@@ -742,16 +823,33 @@ void Canvas::canvas_ui() {
   dl->PopClipRect();
 }
 
-// Bottom-right key of the canvas: wire kinds, pin states, the flow arrow, the gauge label.
-void Canvas::legend(ImDrawList* dl, ImVec2 org, ImVec2 size, float a) const {
+// Top-left key of the canvas, two panels: the symbols (wire kinds, pin states, the flow arrow, the gauge label) and the controls.
+// A click on a panel's title folds it up.
+ImVec4 Canvas::legend(ImDrawList* dl, ImVec2 org, float a) {
   ImFont* font = ImGui::GetFont();
-  const float fs = ImGui::GetFontSize() * 0.8f, w = 168, h = 150, x = org.x + size.x - w - 14, y = org.y + size.y - h - 14 - 66;  // (above the title block)
+  const ImGuiIO& io = ImGui::GetIO();
+  const float fs = ImGui::GetFontSize() * 0.8f, w = 196, x = org.x + 12, head = 26;
+  float y = org.y + 12;
   const auto al = [&](int v) { return static_cast<int>(v * a); };
-  dl->AddRectFilled({x, y}, {x + w, y + h}, IM_COL32(8, 10, 14, al(225)), 6);
-  dl->AddRect({x, y}, {x + w, y + h}, IM_COL32(120, 130, 148, al(90)), 6);
-  dl->AddText(font, fs * 0.92f, {x + 10, y + 7}, IM_COL32(150, 160, 178, al(255)), "LEGEND");
+  // frame of one panel: background, title, fold chevron; returns whether the body is open
+  const auto frame = [&](int k, const char* title, float body_h) {
+    const bool open = legend_open_[k];
+    const float h = open ? head + body_h : head;
+    dl->AddRectFilled({x, y}, {x + w, y + h}, IM_COL32(8, 10, 14, al(225)), 6);
+    dl->AddRect({x, y}, {x + w, y + h}, IM_COL32(120, 130, 148, al(90)), 6);
+    dl->AddText(font, fs * 0.92f, {x + 10, y + 7}, IM_COL32(150, 160, 178, al(255)), title);
+    const ImVec2 c{x + w - 14, y + head / 2};
+    if (open) dl->AddTriangleFilled({c.x - 4, c.y - 2}, {c.x + 4, c.y - 2}, {c.x, c.y + 3}, IM_COL32(150, 160, 178, al(255)));
+    else dl->AddTriangleFilled({c.x - 2, c.y - 4}, {c.x - 2, c.y + 4}, {c.x + 3, c.y}, IM_COL32(150, 160, 178, al(255)));
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && io.MousePos.x >= x && io.MousePos.x <= x + w && io.MousePos.y >= y && io.MousePos.y <= y + head)
+      legend_open_[k] = !open;
+    const float top = y;
+    y += h + 8;
+    return open ? top + head + 10 : -1.f;  // y of the first row's centre
+  };
   const auto row = [&](float yy, const char* text) { dl->AddText(font, fs, {x + 52, yy - fs / 2}, IM_COL32(220, 224, 232, al(255)), text); };
-  float yy = y + 30;
+  float yy = frame(0, "LEGEND", 122);
+  if (yy >= 0) {
   dl->AddLine({x + 10, yy}, {x + 42, yy}, kind_col("power", al(240)), 2.6f), row(yy, "power wire");
   yy += 18;
   dl->AddLine({x + 10, yy}, {x + 42, yy}, kind_col("signal", al(240)), 2.6f), row(yy, "signal wire");
@@ -771,28 +869,53 @@ void Canvas::legend(ImDrawList* dl, ImVec2 org, ImVec2 size, float a) const {
   dl->AddCircle({x + 28, yy}, 8, flag_col("error", al(255)), 0, 2.5f);
   dl->AddCircleFilled({x + 28, yy}, 4, kind_col("signal", al(255)));
   row(yy, "pin DRC flag");
+  }
+  // the bindings of the canvas (canvas_ui): key on the left, effect on the right
+  static const char* const kControls[][2] = {{"drag pin", "wire to a pin"}, {"drag header", "move the card"}, {"wheel", "zoom"},
+                                             {"middle drag", "pan"},         {"click wire", "select it"},   {"Del", "remove the wire"}};
+  yy = frame(1, "CONTROLS", 12 + 18 * 6);
+  if (yy >= 0)
+    for (const auto& kc : kControls) {
+      dl->AddText(font, fs, {x + 10, yy - fs / 2}, IM_COL32(236, 239, 244, al(255)), kc[0]);
+      dl->AddText(font, fs, {x + 88, yy - fs / 2}, IM_COL32(170, 178, 194, al(255)), kc[1]);
+      yy += 18;
+    }
+  return {x, org.y + 12, x + w, y - 8};
 }
 
+// The right panel: view buttons, the selected wire, the wire list. Folds up to a strip with just the toggle.
 void Canvas::side_ui() {
-  ImGui::SetCursorScreenPos({org_.x + sz_.x - kSideW + 10, org_.y + 44});
-  ImGui::BeginChild("wiring tools", {kSideW - 20, sz_.y - 60});
-  if (theme::button("< BACK TO 3D")) send_("flatten.end", "{}", false);
+  const float sw = side_w();
+  const ImVec2 p{org_.x + sz_.x - sw, org_.y};
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilled(p, {p.x + sw, p.y + sz_.y}, theme::u32(theme::kPanel));
+  dl->AddLine(p, {p.x, p.y + sz_.y}, theme::u32(theme::kLine));
+  ImGui::SetCursorScreenPos({p.x + (side_open_ ? 6.f : 0.f), p.y + 8});
+  if (ImGui::InvisibleButton("##sidetoggle", {22, 26})) side_open_ = !side_open_;
+  ImGui::SetItemTooltip("%s", side_open_ ? "fold the panel up" : "open the panel");
+  const ImVec2 c{p.x + (side_open_ ? 17.f : 11.f), p.y + 21};
+  const ImU32 tc = theme::u32(ImGui::IsItemHovered() ? theme::kText : theme::kDim);
+  if (side_open_) dl->AddTriangleFilled({c.x - 3, c.y - 5}, {c.x - 3, c.y + 5}, {c.x + 3, c.y}, tc);  // points at the edge it folds into
+  else dl->AddTriangleFilled({c.x + 3, c.y - 5}, {c.x + 3, c.y + 5}, {c.x - 3, c.y}, tc);
+  if (!side_open_) return;
+  ImGui::SetCursorScreenPos({p.x + 10, p.y + 44});
+  ImGui::BeginChild("wiring tools", {sw - 20, sz_.y - 54});
+  if (theme::button("3D")) send_("flatten.end", "{}", false);
+  ImGui::SetItemTooltip("back to the 3D view");
   ImGui::SameLine();
-  if (theme::button("AUTO LAYOUT")) {
+  if (theme::button("LAYOUT")) {
     send_("flatten.layout", "{}", false);
     fit_pending_ = true;
   }
+  ImGui::SetItemTooltip("auto layout: signal flow left to right");
   ImGui::SameLine();
   if (theme::button("FIT")) fit();
-  ImGui::Spacing();
-  ImGui::TextDisabled("Drag from a pin onto another pin to wire them.");
-  ImGui::TextDisabled("Drag a card by its header. Wheel zooms,");
-  ImGui::TextDisabled("middle mouse pans. Del removes the selected wire.");
+  ImGui::SetItemTooltip("fit the sheet in the window");
   ImGui::Spacing();
   ImGui::Separator();
   const Wire* sel = nullptr;
   for (const Wire& w : wires_)
-    if (w.name == sel_wire_) sel = &w;
+    if (w.name == sel_wire_ && !wire_hidden(w)) sel = &w;
   if (sel) {
     ImGui::Text("wire  %s", sel->name.c_str());
     ImGui::TextDisabled("%s -> %s", sel->from.c_str(), sel->to.c_str());
@@ -820,14 +943,12 @@ void Canvas::side_ui() {
     }
     ImGui::SameLine();
     if (ImGui::Button("delete wire")) send_("flatten.unwire", str_args({{"name", design::quote(sel->name)}}), false);
-  } else {
-    ImGui::TextDisabled("click a wire to edit it");
   }
   ImGui::Separator();
   theme::caption("WIRES");
-  if (wires_.empty()) ImGui::TextDisabled("none yet: drag a pin onto another pin");
   ImGui::BeginChild("wl", {0, 0});
   for (const Wire& w : wires_) {
+    if (wire_hidden(w)) continue;
     std::string row = w.name + (w.awg > 0 ? "  " + std::to_string(static_cast<int>(w.awg)) + "AWG" : "");
     if (ImGui::Selectable(row.c_str(), w.name == sel_wire_)) sel_wire_ = w.name;
   }
@@ -835,9 +956,9 @@ void Canvas::side_ui() {
   ImGui::EndChild();
 }
 
-void Canvas::page(ImVec2 size, const design::State& st, const std::string& selected) {
+void Canvas::page(ImVec2 size, const design::State& st, const std::string& selected, const std::set<std::string>& hidden) {
   org_ = ImGui::GetCursorScreenPos(), sz_ = size;
-  title_ = st.report.assembly;
+  hid_ = &hidden;
   const double dt = std::min(0.1, static_cast<double>(ImGui::GetIO().DeltaTime));
   alpha_ = std::clamp(alpha_ + (active_ ? dt : -dt) / kFade, 0.0, 1.0);
   if (fit_pending_ && !cards_.empty()) {

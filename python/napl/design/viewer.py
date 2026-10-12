@@ -111,6 +111,10 @@ class Backend(UiOps):
         tool, a = req.get("tool"), req.get("args") or {}
         if tool == "rev":
             d = self.get_design()
+            if d is not None:
+                self.flat.prune(
+                    d
+                )  # a part removed / swapped by any edit path leaves the open canvas
             return {
                 "ok": True,
                 "result": {

@@ -12,6 +12,8 @@ scripted agent drives the same ops through `Backend`, so a recording shows the U
                                                                             explicit `wire` op instead: a lead the user chose, bridging unlike connectors
     flatten.set_wire {name, awg?, length?}                                  change a wire's gauge / length (unwire + wire in one edit)
     flatten.unwire  {name}
+    flatten.preview {instances, ports?}                                     the cards `begin` would open, as {"cards": [...]} in the result;
+                                                                            changes nothing (the picker's preview of the ticked components)
     flatten.state   {}                                                      the canvas state (cards, pins, wires)
     flatten.end     {}                                                      back to 3D: the wires are already in the design (tubes)
 
@@ -19,7 +21,8 @@ Every reply is {"ok": true, "result": {...}, "flatten": <state>, "state": <desig
 
 Canvas state: {"active", "rev",
   "cards": [{id, part, group, x, y, w, h, band, layer,
-             pins: [{name, label, kind, type, gender, role, side, row, wired, conn, num, dir, v, tip, flag, flags}],
+             pins: [{name, label, kind, type, gender, role, side, row, wired, conn, num, dir, v, tip, flag, flags,
+                    port, connects: [{component, port, pin}]}],  (connects = the far ends of the pin's wires; `pin_links` gives the same for any ref)
              connectors: [{id, name, type, rows, cols, side: "left" | "right" | "both", row, nrows}]}],
   "wires": [{name, from, to, part, awg, length, kind, conductors, flag, flags,
              route: [[x, y], ...], strands: [{from, to, route, flag}], label: {text, x, y, w, h} | null}],
@@ -128,6 +131,81 @@ def _tip(conn, pin):
     return "\n".join(lines)
 
 
+def wire_strands(d, want=lambda ia, ib: True):
+    """One entry per conductor of every wire of the design whose end instances pass `want(ia, ib)`: {wire, wn, k, ia, ta, ib, tb}
+    (terminal names: 'CONN.PIN' of a real pin, else the port name; a wire whose pin lists do not resolve is one port-to-port
+    strand)."""
+    try:
+        ctx = A.Ctx(A.Assembly(d.doc), d.lib)
+    except Exception:
+        ctx = None
+    out = []
+    for w in d.doc.get("wires", []):
+        ia, _, pa = str(w.get("from", "")).partition(".")
+        ib, _, pb = str(w.get("to", "")).partition(".")
+        if not want(ia, ib):
+            continue
+        try:
+            pairs = PN.wire_pairs(ctx, w) if ctx else []
+        except Exception:
+            pairs = []
+        if not pairs:
+            pairs = [(None, None)]
+        for k, (ra, rb) in enumerate(pairs):
+            out.append(
+                {
+                    "wire": w,
+                    "wn": w.get("name") or f"{w.get('from')}--{w.get('to')}",
+                    "k": k,
+                    "ia": ia,
+                    "ta": ra or pa,
+                    "ib": ib,
+                    "tb": rb or pb,
+                }
+            )
+    return out
+
+
+def terminal_ref(d, inst, term) -> dict:
+    """{component, port, pin} of one wire end: `term` is a port name, or 'CONN.PIN' (port = the port that pin belongs to)."""
+    port, pin = term, ""
+    if "." in term:
+        row = next((i for i in d.doc["instances"] if i["id"] == inst), None)
+        try:
+            port = PN.port_of_pin(d._part(row["part"]), term) or ""
+        except Exception:
+            port = ""
+        pin = term
+    return {"component": inst, "port": port, "pin": pin}
+
+
+def pin_links(d, ref, strands=None) -> list:
+    """What a pin / port / component connects to, for tooltips (the 2D canvas and the code editor). `ref` = "inst",
+    "inst.port" or "inst.CONN.PIN". Returns [{component, port, pin, connects: [{component, port, pin}]}], one entry per own
+    terminal that has a wire (the entry of a bare port ref lists the pins of that port one by one); `connects` = the far ends."""
+    inst, _, term = str(ref).partition(".")
+    out = {}
+    for s in (
+        strands
+        if strands is not None
+        else wire_strands(d, lambda ia, ib: inst in (ia, ib))
+    ):
+        for i, t, j, u in (
+            (s["ia"], s["ta"], s["ib"], s["tb"]),
+            (s["ib"], s["tb"], s["ia"], s["ta"]),
+        ):
+            if i != inst:
+                continue
+            me = terminal_ref(d, i, t)
+            if term and term not in (t, me["port"]):
+                continue
+            e = out.setdefault((t,), {**me, "connects": []})
+            far = terminal_ref(d, j, u)
+            if far not in e["connects"]:
+                e["connects"].append(far)
+    return list(out.values())
+
+
 class Flatten:
     def __init__(self):
         self.active = False
@@ -140,20 +218,35 @@ class Flatten:
 
     # ---- entry ---------------------------------------------------------------------------------------------------------------
     def handle(self, b, d, tool, a) -> dict:
+        self.prune(d)
         op = tool.partition(".")[2]
         fn = getattr(self, "_" + op, None)
         if fn is None or op.startswith("_"):
             raise DesignError(
-                f"unknown flatten op {tool!r} (begin layout move_card wire set_wire unwire state end)"
+                f"unknown flatten op {tool!r} (begin preview layout move_card wire set_wire unwire state end)"
             )
         res, changed = fn(b, d, a or {})
         if changed and self.active:
             self._layout_cards(b, d, place=not self.touched)
-        self.rev += 0 if op == "state" else 1
+        self.rev += 0 if op in ("state", "preview") else 1
         out = {"ok": True, "result": res, "flatten": self.state(b, d)}
         if changed:
             out["state"] = b.state(d)
         return out
+
+    def prune(self, d) -> bool:
+        """Drops the cards of instances the design no longer has (removed, or swapped to another part: their terminals are
+        stale). Any edit path can do that (the BUILD delete, undo, the MCP tools), so the Backend calls this on every rev poll
+        and every flatten op. Wires need no pruning: they live in the document and are drawn only between shown cards. No
+        card left ends the mode. Returns True (and bumps `rev`, so the canvas refetches) when something was dropped."""
+        part = {i["id"]: i["part"] for i in d.doc["instances"]}
+        gone = [k for k, c in self.cards.items() if part.get(k) != c["part"]]
+        for k in gone:
+            del self.cards[k]
+        if gone:
+            self.rev += 1
+            self.active = self.active and bool(self.cards)
+        return bool(gone)
 
     # ---- ops -----------------------------------------------------------------------------------------------------------------
     def _begin(self, b, d, a):
@@ -186,10 +279,23 @@ class Flatten:
                         f"flatten.begin: {i} has no wire port(s) {bad}; wire ports: {names}"
                     )
                 names = [n for n in allowed if n in asked]
-            cards[i] = {"id": i, "x": 0.0, "y": 0.0, "ports": names}
+            cards[i] = {
+                "id": i,
+                "part": by_id[i]["part"],
+                "x": 0.0,
+                "y": 0.0,
+                "ports": names,
+            }
         self.cards, self.active, self.touched = cards, True, False
         self._layout_cards(b, d)
         return {"cards": len(cards)}, False
+
+    def _preview(self, b, d, a):
+        tmp = (
+            Flatten()
+        )  # the same validation and layout as `begin`, on a scratch canvas
+        tmp._begin(b, d, a)
+        return {"cards": tmp.state(b, d)["cards"]}, False
 
     @staticmethod
     def _port_name(part, name):
@@ -329,35 +435,7 @@ class Flatten:
     def _strands(self, d):
         """One entry per conductor of every wire with an end on the canvas: {wire, k, ia, ta, ib, tb} (terminal names: 'CONN.PIN' of a
         real pin, else the port name). Wires whose pin lists do not resolve get one port-to-port strand."""
-        try:
-            ctx = A.Ctx(A.Assembly(d.doc), d.lib)
-        except Exception:
-            ctx = None
-        out = []
-        for w in d.doc.get("wires", []):
-            ia, _, pa = str(w.get("from", "")).partition(".")
-            ib, _, pb = str(w.get("to", "")).partition(".")
-            if ia not in self.cards and ib not in self.cards:
-                continue
-            try:
-                pairs = PN.wire_pairs(ctx, w) if ctx else []
-            except Exception:
-                pairs = []
-            if not pairs:
-                pairs = [(None, None)]
-            for k, (ra, rb) in enumerate(pairs):
-                out.append(
-                    {
-                        "wire": w,
-                        "wn": w.get("name") or f"{w.get('from')}--{w.get('to')}",
-                        "k": k,
-                        "ia": ia,
-                        "ta": ra or pa,
-                        "ib": ib,
-                        "tb": rb or pb,
-                    }
-                )
-        return out
+        return wire_strands(d, lambda ia, ib: ia in self.cards or ib in self.cards)
 
     def _build_terms(self, d, strands):
         """Terminals + blocks of every card: c["terms"] = {name: terminal dict}, c["blocks"] = [{conn, terms: [names], two}]."""
@@ -643,10 +721,20 @@ class Flatten:
     def state(self, b, d) -> dict:
         strands = self._strands(d)
         flags = self._pin_findings(d)
-        wired = set()
+        wired, links = (
+            set(),
+            {},
+        )  # links: (instance, terminal) -> the far ends of its wires (the pin tooltip)
         for s in strands:
             wired.add((s["ia"], s["ta"]))
             wired.add((s["ib"], s["tb"]))
+            for i, t, j, u in (
+                (s["ia"], s["ta"], s["ib"], s["tb"]),
+                (s["ib"], s["tb"], s["ia"], s["ta"]),
+            ):
+                far = terminal_ref(d, j, u)
+                if far not in links.setdefault((i, t), []):
+                    links[(i, t)].append(far)
         cards = []
         for c in self.cards.values():
             part = next(i["part"] for i in d.doc["instances"] if i["id"] == c["id"])
@@ -677,6 +765,8 @@ class Flatten:
                             )
                         },
                         "wired": (c["id"], t["name"]) in wired,
+                        "port": terminal_ref(d, c["id"], t["name"])["port"],
+                        "connects": links.get((c["id"], t["name"]), []),
                         "flag": self._worst(fl),
                         "flags": fl,
                     }

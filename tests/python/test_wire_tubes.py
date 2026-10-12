@@ -48,11 +48,18 @@ def _expected(asm_name, built_one):
 @pytest.mark.parametrize("name", NAMES)
 def test_every_onboard_wire_is_a_tube_with_its_awg_diameter(built, name):
     want = _expected(name, built[name])
-    got = {}
+    got, ends = {}, {}
     for t in _tendons(built[name]["xml"]):
-        _, k, c = t.get("name").split(":")
+        nm, ia, ib = t.get("name").split(
+            "|"
+        )  # "wire:<i>:<c>|<end a>|<end b>": the viewer hides a cable by these ids
+        _, k, c = nm.split(":")
         got.setdefault(int(k), {})[int(c)] = 2 * float(t.get("width"))
+        ends[int(k)] = (ia, ib)
     assert want and set(got) == set(want)
+    wires = design.load(REPO / "assemblies" / f"{name}.toml").doc["wires"]
+    for k in want:
+        assert ends[k] == tuple(wires[k][e].partition(".")[0] for e in ("from", "to"))
     for k, d in want.items():
         assert sorted(got[k]) == list(range(len(got[k])))  # conductors 0..n-1
         assert 1 <= len(got[k]) <= wiretubes.MAX_TUBES
