@@ -160,6 +160,16 @@ def status_text(rec):
     for k in INHIBIT_KEYS:
         if k in r:
             return f"FIRING INHIBITED: {REASON_TEXT[k]}", True
+    # app notes (App.log, last 12): EVENT 9 SECTOR_ABORT and the sector-not-set ARM refusal, shown for 3 s after the note
+    for t, txt in reversed(s.get("log", [])):
+        if s["t"] - t > 3.0:
+            break
+        if (
+            "aborted a ball" in txt
+        ):  # app.py: "MCU aborted a ball: barrel left the sector"
+            return "SECTOR ABORT: barrel left the fire sector, ball not fed", True
+        if "arm refused" in txt.lower() and "sector" in txt.lower():
+            return "ARM refused: sector not set", True
     if not s["armed"]:
         return (
             ("Disarmed: operator must ARM", False)
@@ -733,8 +743,10 @@ def cmd_oplog(a):
         shown += grp
         reqs = [
             R("ui.visibility", 0.6, instances=grp, visible=True),
-            R("select", 0.2, instances=[]),  # no selection outlines over the parts
             R("ui.frame", 1.2, instances=shown),
+            R(
+                "select", 0.2, instances=[]
+            ),  # ui.frame selects what it frames (viewer.cpp "frame"): clear after it
         ]
         reqs += [
             R(
