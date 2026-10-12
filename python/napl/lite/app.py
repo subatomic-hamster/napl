@@ -57,6 +57,10 @@ class App:
         self.last_aim = None
         self.fw_sent = 0.0
         self.cfg_requested = False
+        self.mcu_ms = (
+            0  # latest STATUS.t_ms (it going backwards means the MCU restarted)
+        )
+        self.sector_sent = False  # the sector was written to the MCU since the last HELLO (a new boot or session has none)
         self.t_sector = -math.inf
         self.home_sent = -math.inf
         self.estop_ui = False
@@ -134,8 +138,10 @@ class App:
         """The MCU reports (CFG_VAL) exactly the app's sector: the second, independent layer of the geofence (the MCU refuses FIRE outside it and
         aborts a pusher stroke that leaves it). ARM needs it."""
         want = self._sector_cfg()
-        return want is not None and all(
-            self.gim.cfg.get(k) == v for k, v in want.items()
+        return (
+            want is not None
+            and self.sector_sent
+            and all(self.gim.cfg.get(k) == v for k, v in want.items())
         )
 
     def _sync_sector(self, now):
@@ -152,9 +158,12 @@ class App:
             return
         self.t_sector = now
         for k, v in want.items():
-            if g.cfg.get(k) != v:
+            if (
+                not self.sector_sent or g.cfg.get(k) != v
+            ):  # first pass of a boot / HELLO: write all four (the MCU takes the sector as set only when written)
                 g.set_cfg(k, v)
             g._send(p.CfgGet(k))
+        self.sector_sent = True
 
     def _disarm(self):
         self.gim.disarm()
@@ -189,7 +198,18 @@ class App:
         # link bring-up: HELLO until acked, again whenever STATUS stops
         if (g.ack is None or not g.link_ok) and now - self.t_hello >= c.hello_period:
             self.t_hello = now
-            g.hello()
+            g.hello()  # clears g.cfg: nothing read before this HELLO counts
+            self.cfg_requested = False
+            self.sector_sent = False
+            self.t_sector = -math.inf
+            self.home_sent = -math.inf  # a restarted MCU is not homed
+        if g.status_t is not None:
+            if (
+                fc.armed and g.status.t_ms + 100 < self.mcu_ms
+            ):  # the MCU clock went backwards: it restarted (SAFE, no sector, not homed)
+                self._disarm()
+                self._note(now, "MCU restart detected: disarmed")
+            self.mcu_ms = g.status.t_ms
         if g.ack is not None and not self.cfg_requested:
             self.cfg_requested = True
             self.mismatch = not p.handshake_ok(g.ack)
@@ -258,6 +278,11 @@ class App:
                     fc.on_fire_ack(a)
                 if a.cmd_id == p.ARM:
                     fc.disarm()
+                if (
+                    a.result == p.NO_SECTOR
+                ):  # the MCU has no sector (restart not seen): write it again
+                    self.sector_sent = False
+                    self.t_sector = -math.inf
 
     def _perceive(self, now, f, res):
         """Detector reply -> tracker. Returns True when a fresh decision should be taken."""
@@ -301,11 +326,12 @@ class App:
             self._disarm()
             self._note(now, "disarmed: " + ",".join(d.reasons))
             return
-        if d.aim is not None:
+        if (
+            d.aim is not None and g.link_ok and g.status.state not in (p.SAFE, p.FAULT)
+        ):  # the MCU refuses AIM in SAFE / FAULT (BAD_STATE): send none before IDLE
             pan, tilt, vp, vt = d.aim
             if (
-                g.status_t is None
-                or d.target is not None
+                d.target is not None
                 or self.last_aim is None
                 or now - self.t_aim >= self.cfg.aim_period
             ):

@@ -79,6 +79,7 @@ class SerialGimbal:
 
     def hello(self):
         self.ack = None
+        self.cfg.clear()  # a HELLO starts a new MCU session (maybe a new boot, whose RAM config is the defaults): re-read everything
         self._send(p.Hello(p.MAJOR, p.MINOR, self.session))
 
     def request_config(self):

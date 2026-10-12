@@ -192,7 +192,7 @@ static int spun(const fw_t *f) {
     return f->fw_req > 0 && f->fw >= f->fw_req - SPUN_ABS_TOL && MS_SINCE(f, f->fw_req_t) >= (uint32_t)f->cfg[CFG_SPINUP_MS];
 }
 
-/* The measured barrel position inside the fire sector (cfg 20, 21 pan; 17, 22 tilt, mdeg). Checked at FIRE and on every tick of the pusher stroke. */
+/* The planner position (no encoder) inside the fire sector (cfg 20, 21 pan; 17, 22 tilt, mdeg). Checked at FIRE and on every tick of the pusher stroke. */
 static int in_sector(const fw_t *f) {
     const double pan = f->ax[0].pos * 1000.0, tilt = f->ax[1].pos * 1000.0;
     return pan >= f->cfg[CFG_FIRE_PAN_MIN] && pan <= f->cfg[CFG_FIRE_PAN_MAX] && tilt >= f->cfg[CFG_FIRE_TILT_MIN] && tilt <= f->cfg[CFG_FIRE_TILT_MAX];
@@ -205,6 +205,7 @@ static uint8_t fire_check(const fw_t *f, uint8_t n) {
     if (!rail_on(f)) return RES_INTERLOCK;
     if (!hb_ok(f) || !deadman_ok(f) || inhibit(f)) return RES_INHIBIT;
     if (!f->ax[0].homed || !f->ax[1].homed) return RES_NOT_HOMED;
+    if (f->sector_set != SECTOR_ALL) return RES_NO_SECTOR;
     if (!in_sector(f)) return RES_RANGE;
     if (!spun(f)) return RES_NOT_SPUN;
     if (f->shots_arm + n > f->shot_cap) return RES_CAP;
@@ -248,6 +249,7 @@ static void cmd_arm(fw_t *f, const fw_frame_t *fr) {
     if (f->fault_bits) return ack(f, fr, RES_BAD_STATE, 0);
     if (!hb_ok(f) || !deadman_ok(f)) return ack(f, fr, RES_INHIBIT, 0);
     if (!f->ax[0].homed || !f->ax[1].homed) return ack(f, fr, RES_NOT_HOMED, 0);
+    if (f->sector_set != SECTOR_ALL) return ack(f, fr, RES_NO_SECTOR, 0);  /* the host must write the fire sector every boot */
     const int32_t hcap = f->cfg[CFG_HARD_SHOT_CAP], hto = f->cfg[CFG_HARD_ARM_TIMEOUT];
     f->shot_cap = (uint8_t)(cap < hcap ? cap : (hcap < 0 ? 0 : hcap));
     f->arm_deadline = f->now + 1000u * (uint32_t)(timeout_s < hto ? timeout_s : (hto < 0 ? 0 : hto));
@@ -279,6 +281,10 @@ static void cmd_cfg_set(fw_t *f, const fw_frame_t *fr) {
     if (key == CFG_WD_MS) v = v < 1 ? 1 : (v > 300 ? 300 : v);
     if (!cfg_valid(key, v)) return ack(f, fr, RES_BAD_ARG, 0);
     f->cfg[key] = v;
+    if (key == CFG_FIRE_TILT_MIN) f->sector_set |= SECTOR_17;
+    else if (key == CFG_FIRE_PAN_MIN) f->sector_set |= SECTOR_20;
+    else if (key == CFG_FIRE_PAN_MAX) f->sector_set |= SECTOR_21;
+    else if (key == CFG_FIRE_TILT_MAX) f->sector_set |= SECTOR_22;
     if (key == CFG_PAN_SPR || key == CFG_TILT_SPR) {  /* the position scale changed: the old home no longer holds (firmware addition) */
         const int i = key == CFG_TILT_SPR;
         f->ax[i].homed = 0;

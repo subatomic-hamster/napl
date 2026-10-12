@@ -130,6 +130,7 @@ class FwMcu:
         )
         if flash_mode is None:
             flash_mode = 2 if cfg_invalid else 1
+        self._boot_args = (cfg, flash_mode, uid)
         self.h = lib().fwh_new(cfg, flash_mode, uid)
         self.step_log = None  # a list switches on recording of (ms, pan_steps, tilt_steps) per tick, the stream the step generator would emit
         self.plant, self.link, self.uid = plant, link, uid
@@ -148,6 +149,19 @@ class FwMcu:
         self.ax = [_Axis(self, 0), _Axis(self, 1)]
         self.cfg, self.flash = _Cfg(self, False), _Cfg(self, True)
         self.bootsel = False
+        self._snap_cache = None
+
+    def reboot(self):
+        """Power cycle: a fresh C core (SAFE, not homed, no session, sector UNSET, config from the boot-time flash image); plant and logs stay."""
+        lib().fwh_free(self.h)
+        self.h = lib().fwh_new(*self._boot_args)
+        self.t = self.t0 = None
+        self.cmd_joint = list(self.plant.joint_deg())
+        self.diag = 0
+        self.goal_sent = None
+        self.steppers_en = 0
+        self.fw_duty = None
+        self.plant.set_torque(False)
         self._snap_cache = None
 
     def __del__(self):

@@ -211,6 +211,45 @@ def test_arm_is_refused_until_the_mcu_holds_the_sector():
     assert r.app.fc.armed
 
 
+def test_mcu_reboot_mid_session_disarms_and_the_sector_is_rewritten_before_any_arm():
+    r = AppRig().ready()
+    r.arm()
+    assert r.app.fc.armed
+    r.twin.reboot()  # power cycle: the MCU is SAFE, not homed, its RAM sector is the storage default (the full range), the app's cache is stale
+    assert r.twin.cfg[p.CFG_FIRE_PAN_MAX] == 170000
+    want = [-60000, 60000, 0, 60000]
+    keys = (
+        p.CFG_FIRE_PAN_MIN,
+        p.CFG_FIRE_PAN_MAX,
+        p.CFG_FIRE_TILT_MIN,
+        p.CFG_FIRE_TILT_MAX,
+    )
+    armed_seen = False
+    for _ in range(
+        int(9.0 / 0.1)
+    ):  # the operator keeps pressing ARM through the restart
+        if armed_seen:
+            break
+        r.app.post("arm")
+        r.run(0.1)
+        if (
+            r.twin.state in (p.ARMED, p.ENGAGING, p.FIRING)
+        ):  # (the MCU's own state: the app's last STATUS is stale for 100 ms after the restart)
+            armed_seen = True
+            assert [
+                r.twin.cfg[k] for k in keys
+            ] == want  # the MCU never arms on a sector the app did not write this boot
+    assert armed_seen and r.app.sector_synced() and r.app.fc.armed
+    assert any("disarmed" in t or "refused" in t for _, t in r.app.log)
+
+
+def test_no_aim_is_sent_while_the_mcu_is_safe():
+    r = AppRig()
+    r.hold = True
+    r.run(5.0)  # bring-up: SAFE for the first second, then IDLE and homing
+    assert not any("Aim refused" in t for _, t in r.app.log), list(r.app.log)
+
+
 def test_burst_of_three_feeds_three_balls_of_one_fire():
     cfg = AppCfg()
     cfg.fire.burst = 3

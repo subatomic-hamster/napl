@@ -59,6 +59,7 @@
    "fields": {"t_ms": 0, "state": 0, "flags1": 0, "flags2": 0, "pan_steps": 0, "tilt_steps": 0, "fw_duty": 0, "fw_rpm": 0, "shots_total": 0, "shots_arm": 0, "shot_cap": 0, "fault_bits": 0, "arm_left_s": 0, "last_fire_id": 0},
    "payload_hex": "0000000000000000000000000000000000000000000000000000000000", "frame_hex": "0382030101010101010101010101010101010101010101010101010101010103d9fb00"},
   {"name": "ack", "dir": "mcu_to_host", "id": 131, "seq": 4, "fields": {"cmd_id": 6, "cmd_seq": 8, "result": 10, "info": 0}, "payload_hex": "06080a00", "frame_hex": "06830406080a0325fc00"},
+  {"name": "ack_no_sector", "dir": "mcu_to_host", "id": 131, "seq": 4, "fields": {"cmd_id": 6, "cmd_seq": 8, "result": 11, "info": 0}, "payload_hex": "06080b00", "frame_hex": "06830406080b0314cf00"},
   {"name": "cfg_val", "dir": "mcu_to_host", "id": 132, "seq": 5, "fields": {"key": 3, "value": -170000}, "payload_hex": "03f067fdff", "frame_hex": "0a840503f067fdfff9cc00"},
   {"name": "event_shot", "dir": "mcu_to_host", "id": 133, "seq": 6, "fields": {"code": 2, "arg": 65538}, "payload_hex": "0202000100", "frame_hex": "0585060202020103ab3400"},
   {"name": "event_state", "dir": "mcu_to_host", "id": 133, "seq": 7, "fields": {"code": 1, "arg": 512}, "payload_hex": "0100020000", "frame_hex": "0485070102020103e02f00"},
