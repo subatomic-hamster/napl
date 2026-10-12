@@ -31,7 +31,7 @@ class ProgramUi {
   // The strip at the top-right of the editor (kRunSlotW px wide, one toolbar row high). The RUN worker sets `run_slot`: it is
   // called every frame inside that strip with its size, cursor at the strip's top-left, mono font off (draw the Run / Test
   // button and the bench / full-simulation toggle there). Unset = a disabled "Run" stub.
-  static constexpr float kRunSlotW = 300.f;
+  static constexpr float kRunSlotW = 380.f;
   std::function<void(ImVec2 size)> run_slot;
 
   // ---- called by the viewer -------------------------------------------------------------------------------------------

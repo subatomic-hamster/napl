@@ -28,6 +28,7 @@
 #include "viewer/design.h"
 #include "viewer/library_ui.h"
 #include "viewer/program_ui.h"
+#include "viewer/run_ui.h"
 #include "viewer/theme.h"
 #include "viewer/wire2d.h"
 
@@ -235,6 +236,9 @@ class Viewer {
       if (design_action_args(c.action).first >= 0 && !o.design_api)
         throw std::runtime_error("script: " + c.action + " needs a design editor (Sim.show(design=...) / napl.design.viewer.view)");
     prog_.send = [this](const std::string& kind, const std::string& json) { dreq(kind, json, true); };  // prog.* / term.* ride the design queue
+    run_.send = [this](const std::string& kind, const std::string& json) { dreq(kind, json, true); };  // so do run.*
+    run_.selected = [this] { const design::Instance* i = sel_instance(); return i ? i->id : std::string(); };
+    prog_.run_slot = [this](ImVec2 size) { run_.draw(size); };
   }
 
   void run() {
@@ -612,6 +616,8 @@ class Viewer {
           dq_.push_back({"rev", true, [] { return design::request("rev"); }});
         } else if (std::string pk, pj; !draining_ && prog_.poll(ImGui::GetTime(), mode_ == Mode::Program, &pk, &pj)) {
           dq_.push_back({pk, true, [pj] { return pj; }});  // terminal reads: one at a time, only when the queue is idle
+        } else if (std::string rk, rj; !draining_ && run_.poll(ImGui::GetTime(), mode_ == Mode::Program, &rk, &rj)) {
+          dq_.push_back({rk, true, [rj] { return rj; }});  // run.targets / run.poll (~200 ms) likewise
         } else {
           return;
         }
@@ -641,6 +647,10 @@ class Viewer {
     }
     if (rq.kind.rfind("prog.", 0) == 0 || rq.kind.rfind("term.", 0) == 0) {  // the PROGRAM page (program_ui.cpp) owns these replies
       prog_.on_reply(rq.kind, j);
+      return;
+    }
+    if (rq.kind.rfind("run.", 0) == 0) {  // the Run slot (run_ui.cpp)
+      run_.on_reply(rq.kind, j);
       return;
     }
     if (rq.kind.rfind("flatten.", 0) == 0) {  // the 2D wiring canvas (wire2d.cpp) owns these replies
@@ -1252,12 +1262,14 @@ class Viewer {
       }
       case Mode::Simulate: {
         r.group("RUN");
-        if (cur_.running) {
+        if (run_.live()) {
+          if (r.button(Icon::Clear, "Stop", true, true, "stop the live program (kills it)")) run_.toggle();
+        } else if (cur_.running) {
           if (r.button(Icon::Pause, "Pause", true, true, "pause the simulation")) send(env_pause(kSource), "pause");
         } else if (r.button(Icon::Play, "Run", false, true, "run at the rate set in the left panel")) {
           send(env_run(kSource, rate_), "run");
         }
-        if (r.button(Icon::Step, "Step", false, !cur_.running, "advance by the ticks set in the left panel")) send(env_step(kSource, std::max(1, steps_)), "step");
+        if (r.button(Icon::Step, "Step", false, !cur_.running && !run_.live(), "advance by the ticks set in the left panel")) send(env_step(kSource, std::max(1, steps_)), "step");
         r.group("VIEW");
         if (r.button(Icon::Fit, "Fit", false, !scene_.empty(), "frame the whole model")) frame_selection(true);
         if (r.button(Icon::Home, "Iso", false, true, "isometric view")) camera_preset("iso");
@@ -1383,8 +1395,7 @@ class Viewer {
     bool hint = false;
     if (msg.empty() && has_design_) {  // keyboard hints of the page, while nothing else needs the space
       hint = true;
-      msg = mode_ == Mode::Program   ? "CTRL+P OPEN   CTRL+S SAVE   CTRL+F FIND   CTRL+H REPLACE   CTRL+G LINE   CTRL+SHIFT+F IN FILES   F12 DEFINITION   F2 RENAME"
-            : mode_ == Mode::Build     ? "G MOVE   R ROTATE   F FRAME   1-4 VIEWS   DEL REMOVE   CTRL+Z UNDO"
+      msg = mode_ == Mode::Build     ?"G MOVE   R ROTATE   F FRAME   1-4 VIEWS   DEL REMOVE   CTRL+Z UNDO"
             : mode_ == Mode::Library ? "CLICK A CARD FOR DETAILS   DRAG ONE INTO THE 3D VIEW"
             : mode_ == Mode::Wiring  ? "DRAG PIN TO PIN   WHEEL ZOOMS   MIDDLE DRAG PANS   DEL REMOVES WIRE"
                                      : "";
@@ -2187,13 +2198,18 @@ class Viewer {
     theme::caption("SIMULATION");
     ImGui::Text("tick %llu   t = %.4f s", static_cast<unsigned long long>(cur_.tick), static_cast<double>(cur_.tick) * cur_.dt);
     if (cur_.diverged) ImGui::TextColored(theme::kErr, "solver diverged");
+    else if (run_.live()) ImGui::TextColored(theme::kAccent, "%s", run_.live_label().c_str());
     else if (cur_.running) ImGui::Text("running (rate %.3g)", cur_.rate);
     else ImGui::TextDisabled("paused");
-    if (cur_.running) {
+    if (run_.live()) {  // a program steps this World: Run / Step would fight it
+      if (theme::button("STOP PROGRAM", true)) run_.toggle();
+      ImGui::SetItemTooltip("kills the program; the World stays where it stopped");
+    } else if (cur_.running) {
       if (theme::button("PAUSE")) send(env_pause(kSource), "pause");
     } else if (theme::button("RUN", true)) {
       send(env_run(kSource, rate_), "run");
     }
+    ImGui::BeginDisabled(run_.live());
     ImGui::SameLine();
     ImGui::SetNextItemWidth(70);
     if (ImGui::InputDouble("rate", &rate_, 0, 0, "%.3g", ImGuiInputTextFlags_EnterReturnsTrue) && cur_.running) send(env_run(kSource, rate_), "run");
@@ -2202,6 +2218,7 @@ class Viewer {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(90);
     ImGui::InputInt("ticks", &steps_);
+    ImGui::EndDisabled();
     if (!status_.empty()) ImGui::TextColored(theme::kWarn, "%s", status_.c_str());
     ImGui::Spacing();
     theme::caption("SCENE");
@@ -2846,6 +2863,8 @@ class Viewer {
     else if (cmd == "program") {  // a source file in the PROGRAM page (text empty = back to the design TOML)
       prog_.show_external(e.s("name"), e.s("text"), e.at("scroll").kind == design::Json::Num ? static_cast<float>(e.at("scroll").num) : -1.f);
       if (mode_ != Mode::Program) set_mode("program");
+    } else if (cmd == "prog_cmd" && run_.command(e.s("name"))) {  // scripted Run slot: bench | full | run | stop | target:<id or scenario>
+      if (e.s("name") != "stop" && mode_ != Mode::Program) set_mode("program");
     } else if (cmd.rfind("prog_", 0) == 0) {  // scripted IDE actions (prog.ui)
       if (mode_ != Mode::Program) set_mode("program");
       prog_.script(e);
@@ -3093,6 +3112,7 @@ class Viewer {
   bool confirm_open_ = false;
   std::deque<std::string> log_;
   progui::ProgramUi prog_;  // the PROGRAM page (program_ui.cpp)
+  runui::RunUi run_{prog_};  // its Test / Run controls (run_ui.cpp)
   std::vector<Sugg> suggs_;
   bool sugg_swap_ = false, auto_dev_ = true;
   std::vector<Decision> decisions_;

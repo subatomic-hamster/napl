@@ -479,6 +479,73 @@ TEST(viewer_design, program_page_opens_a_file_types_and_saves_through_the_design
   EXPECT_EQ(count("term.kill"), 1);   // the shell dies with the window
 }
 
+// ---- PROGRAM page Run slot: Run saves the dirty buffers, then run.start {mode:"bench"}, then run.poll until Stop sends run.stop ----
+TEST(viewer_design, program_run_slot_saves_then_starts_polls_and_stops_a_bench_run) {
+  NEED_DISPLAY();
+  std::vector<std::string> seen;
+  std::string start_args;
+  int polls = 0, run_polls = 0;
+  bool stopped = false;
+  Host h(pendulum(), session());
+  ViewerOptions o;
+  o.frames = 420;
+  o.width = 1100;
+  o.height = 540;
+  o.design_api = [&](const std::string& req) -> std::string {
+    const design::Json j = design::Parser(req).parse();
+    const std::string tool = j.s("tool");
+    seen.push_back(tool);
+    if (tool == "ui_poll") {
+      ++polls;
+      if (polls == 2) return R"({"ok":true,"result":{"events":[{"cmd":"mode","name":"program"}]}})";
+      if (polls == 5) return R"({"ok":true,"result":{"events":[{"cmd":"prog_open","path":"plan.py","line":0,"col":0}]}})";
+      if (polls == 9) return R"({"ok":true,"result":{"events":[{"cmd":"prog_type","text":"# edited\n"}]}})";
+      if (polls == 12) return R"({"ok":true,"result":{"events":[{"cmd":"prog_cmd","name":"bench"},{"cmd":"prog_cmd","name":"run"}]}})";
+      if (polls == 30) return R"({"ok":true,"result":{"events":[{"cmd":"prog_cmd","name":"stop"}]}})";
+      return R"({"ok":true,"result":{"events":[]}})";
+    }
+    if (tool == "run.targets") return R"({"ok":true,"result":{"scenarios":["a.scenario.toml"],"components":[{"id":"arm","part":"demo-rod","kind":"servo"}]}})";
+    if (tool == "run.start") {
+      start_args = req;
+      return R"({"ok":true,"result":{"run_id":"r1"}})";
+    }
+    if (tool == "run.poll") {
+      ++run_polls;
+      return stopped ? R"({"ok":true,"result":{"state":"stopped","out":"stopped\n","result":{"pass":false,"metrics":{}}}})"
+                     : R"({"ok":true,"result":{"state":"running","out":"[bench] arm: servo\n"}})";
+    }
+    if (tool == "run.stop") {
+      stopped = true;
+      return R"({"ok":true,"result":{"state":"running"}})";
+    }
+    if (tool == "prog.files") return R"({"ok":true,"result":{"root":"/work/prog","files":["plan.py"]}})";
+    if (tool == "prog.read") return R"({"ok":true,"result":{"text":"def plan(x):\n    return x + 1\n"}})";
+    if (tool == "prog.write") return R"({"ok":true,"result":{}})";
+    if (tool == "prog.check") return R"({"ok":true,"result":{"problems":[]}})";
+    if (tool == "term.open") return R"({"ok":true,"result":{"id":7,"cwd":"/work/prog"}})";
+    if (tool == "term.read") return R"({"ok":true,"result":{"data":"","alive":true}})";
+    if (tool == "library.categories") return R"({"ok":true,"result":{"categories":[]}})";
+    if (tool == "library.search") return R"({"ok":true,"result":{"total":0,"parts":[]}})";
+    if (tool == "library.ranges") return R"({"ok":true,"result":{"ranges":{}}})";
+    return R"({"ok":true,"result":{},"state":{"rev":"r0","xml":")" + std::string(kModel) + R"(","build_error":"","path":"","undo":0,"redo":0,
+      "report":{"assembly":"pendulum_demo","mass":{"total":1,"by_group":{}},"instances":[{"id":"arm","part":"demo-rod","group":"frame","body":"pole","mass":1}],
+        "targets":[],"findings":[]},"ports":{"arm":[]}}})";
+  };
+  run_viewer(h, o);
+  finish(h);
+  const auto first = [&](const std::string& s) { return std::find(seen.begin(), seen.end(), s) - seen.begin(); };
+  const auto count = [&](const std::string& s) { return std::count(seen.begin(), seen.end(), s); };
+  ASSERT_EQ(count("run.start"), 1);
+  EXPECT_LT(first("prog.write"), first("run.start")) << "the dirty buffer must be saved before the run starts";
+  EXPECT_LT(first("run.start"), first("run.poll"));
+  EXPECT_NE(start_args.find("\"mode\":\"bench\""), std::string::npos) << start_args;
+  EXPECT_NE(start_args.find("\"component\":\"arm\""), std::string::npos) << start_args;
+  EXPECT_NE(start_args.find("\"files\":[\"plan.py\"]"), std::string::npos) << start_args;  // the open file, for its tests
+  EXPECT_GE(run_polls, 3);          // polled repeatedly while running ...
+  EXPECT_EQ(count("run.stop"), 1);  // ... and Stop sent run.stop
+  EXPECT_TRUE(stopped);
+}
+
 TEST(viewer_design, request_json_carries_file_text_and_keystrokes) {  // no window needed
   EXPECT_EQ(design::quote("a\nb\t\"c\"\x03"), R"("a\nb\t\"c\"\u0003")");
   const design::Json j = design::Parser(R"({"s":"x\u001b[0m 😀 é"})").parse();

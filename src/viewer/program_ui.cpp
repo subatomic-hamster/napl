@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <regex>
 #include <set>
 
 #include "viewer/theme.h"
@@ -732,6 +733,22 @@ struct State {
       ImGui::AlignTextToFramePadding();
       ImGui::TextColored(note_bad ? theme::kErr : theme::kOk, "%s", note.c_str());
     }
+    // "?": the shortcuts (the status bar carries no hints)
+    ImGui::SetCursorPos({w - ProgramUi::kRunSlotW - 30, (h - ImGui::GetFrameHeight()) * 0.5f});
+    if (ImGui::SmallButton("?")) ImGui::OpenPopup("##shortcuts");
+    ImGui::SetItemTooltip("keyboard shortcuts");
+    if (ImGui::BeginPopup("##shortcuts")) {
+      theme::caption("SHORTCUTS");
+      static const char* kKeys[][2] = {{"Ctrl+P", "open a file"}, {"Ctrl+S / Ctrl+Shift+S", "save / save all"}, {"Ctrl+F / Ctrl+H", "find / replace"},
+                                       {"Ctrl+G", "go to line"}, {"Ctrl+Shift+F", "find in files"}, {"F12 / F2", "definition / rename (python)"},
+                                       {"Ctrl+W / Ctrl+Shift+T", "close / reopen tab"}, {"Ctrl+`", "terminal"}, {"Ctrl+L", "clear the terminal"}};
+      for (const auto& k : kKeys) {
+        ImGui::TextColored(theme::kDim, "%-22s", k[0]);
+        ImGui::SameLine();
+        ImGui::TextUnformatted(k[1]);
+      }
+      ImGui::EndPopup();
+    }
     // ---- RUN SLOT (top-right of the editor): the RUN controls (Run / Test + bench|full toggle) draw here ----
     ImGui::SetCursorPos({w - ProgramUi::kRunSlotW, 0});
     ImGui::BeginChild("##runslot", {ProgramUi::kRunSlotW, h}, false, ImGuiWindowFlags_NoScrollbar);
@@ -904,6 +921,17 @@ struct State {
         t.sr0 = t.sr1 = row, t.sc0 = a, t.sc1 = b - 1, t.sel_on = b > a;
       }
       if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("##tctx");
+      if (t.id == -1 && !input && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !t.sel_on && row < n) {  // OUTPUT: a traceback line opens its file
+        std::string line;
+        for (char32_t c : t.lines[static_cast<std::size_t>(row)].ch) put_utf8(line, c);
+        static const std::regex kTb(R"re(File "([^"]+)", line (\d+))re");
+        std::smatch m;
+        if (std::regex_search(line, m, kTb)) {
+          std::string p = m[1];
+          if (!root.empty() && p.rfind(root + "/", 0) == 0) p = p.substr(root.size() + 1);  // absolute path under the program root
+          if (!p.empty() && p[0] != '/') open(p, std::stoi(m[2]) - 1, 0);
+        }
+      }
     }
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) t.dragging = false;
     if (ImGui::BeginPopup("##tctx")) {
