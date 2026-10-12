@@ -13,7 +13,7 @@ mode "full": the scenario's program (napl program semantics) against the VIEWER'
 the scenario model is loaded into the Sim the window shows, the program process drives it (napl.attach), the replay log, monitors and
 pass / fail are kept. Afterwards the design's own model is loaded back. Result = the run's result.json (+ run_dir).
 
-Paths are relative to the program root (the repository) and confined to it. This runs USER CODE (the scenario's program, the tests):
+Paths are relative to the program root (the IDE's: Prog.root) and confined to it. This runs USER CODE (the scenario's program, the tests):
 like `napl program` it is deliberately not an MCP tool; only the viewer's Backend serves it.
 """
 
@@ -106,21 +106,27 @@ class Runs:
         self.b = backend
         self.runs = {}
         self.ids = itertools.count(1)
-        self.root = REPO
+
+    @property
+    def root(self):
+        """The program root: the IDE's (Prog.root: examples/<name> beside assemblies/<name>.toml), so paths match the explorer."""
+        return self.b.prog.root()
 
     # ---- paths ------------------------------------------------------------------------------------------------------
     def _rel(self, name, what):
-        p = (self.root / name).resolve()
-        if p != self.root and self.root not in p.parents:
+        root = self.root
+        p = (root / name).resolve()
+        if p != root and root not in p.parents:
             raise DesignError(f"run: {what} {name!r} is outside the program root")
         return p
 
-    def _walk(self, suffix):
-        for dp, dn, fn in os.walk(self.root):
+    def _walk(self, suffix, base=None):
+        base = base or self.root
+        for dp, dn, fn in os.walk(base):
             dn[:] = sorted(d for d in dn if d not in SKIP)
             for f in sorted(fn):
                 if f.endswith(suffix):
-                    yield str((Path(dp) / f).relative_to(self.root))
+                    yield str((Path(dp) / f).relative_to(base))
 
     # ---- ops --------------------------------------------------------------------------------------------------------
     def handle(self, tool, a):
@@ -251,6 +257,11 @@ class Runs:
         def on_dir(rd):
             run.log = rd / "program.log"
 
+        self._ui(
+            "ui.mode", name="simulate"
+        )  # the window shows the vehicle fly (a no-op without a window)
+        over = threading.Event()
+        threading.Thread(target=self._chase, args=(sim, over), daemon=True).start()
         try:
             res, rd = program.run(
                 sc,
@@ -263,6 +274,7 @@ class Runs:
                 ),
             )
         finally:
+            over.set()
             if (
                 xml and Path(xml).exists()
             ):  # the window goes back to the design's own model
@@ -281,6 +293,48 @@ class Runs:
         run.result = {**res, "run_dir": str(rd)}
         if run.stop.is_set():
             raise Stopped
+
+    def _ui(self, tool, **a):
+        try:
+            with self.b.lock:
+                self.b._ui_tool(tool, a)
+        except DesignError:
+            pass
+
+    def _chase(self, sim, over):
+        """Chase camera for a live run: the scenario's scene is far bigger than the design, so the window's own framing shows a
+        speck. Follows the root part's body (the design's root instance id is the end of its body name) from behind and above."""
+        path, t0 = None, time.monotonic()
+        while not over.wait(0.25):
+            if sim.tick < 300:  # the scenario model is not stepping yet
+                continue
+            try:
+                if path is None:
+                    d = self.b.get_design()
+                    root = (
+                        next((i["id"] for i in d.doc["instances"] if i.get("root")), "")
+                        if d is not None
+                        else ""
+                    )
+                    path = next(
+                        (
+                            k
+                            for k in sim.body_positions()
+                            if root and k.rsplit("/", 1)[-1].endswith(root)
+                        ),
+                        "",
+                    )
+                if not path:
+                    return
+                p = [float(x) for x in sim.query(path, "pos")[0]]
+            except (KeyError, ValueError, RuntimeError):
+                continue
+            self._ui(
+                "camera.fly",
+                eye=[p[0] - 4.0, p[1] - 4.0, p[2] + 3.5],
+                look=p,
+                seconds=0.3,
+            )
 
     # ---- bench: the component's device model, then the tests tied to the open file ---------------------------------
     def _bench(self, run, iid, mine, all_devs, xml, files):
@@ -347,7 +401,7 @@ class Runs:
         tests = self._tests(files)
         t_ok = True
         if tests:
-            em(f"[tests] pytest {' '.join(tests)}")
+            em(f"[tests] pytest {' '.join(map(self._disp, tests))}")
             t_ok = self._pytest(run, tests)
         elif files:
             em(f"[tests] no test file is tied to {', '.join(files)}")
@@ -356,7 +410,7 @@ class Runs:
         run.result = {
             "pass": ok and t_ok,
             "metrics": metrics,
-            "tests": tests,
+            "tests": [self._disp(t) for t in tests],
             "tests_pass": t_ok if tests else None,
         }
         em(
@@ -368,24 +422,34 @@ class Runs:
         """Test files tied to the open files: the file itself if it is a test, test_<stem>.py anywhere in tests/ or next to it, or a
         test that imports <stem>."""
         out = []
+        bases = [self.root] + [
+            b for b in (REPO / "tests",) if b.is_dir() and b != self.root
+        ]  # the repo's tests/ are read, not editable
         for f in files:
             if not f.endswith(".py"):
                 continue
             stem = Path(f).stem
             if stem.startswith("test_"):
-                out.append(f)
+                out.append(self.root / f)
                 continue
             imp = re.compile(
                 rf"^\s*(?:from|import)\s+[\w.]*\b{re.escape(stem)}\b", re.MULTILINE
             )
-            for t in self._walk(".py"):
-                n = Path(t).name
-                if n.startswith("test_") and (
-                    n == f"test_{stem}.py"
-                    or imp.search((self.root / t).read_text(errors="replace"))
-                ):
-                    out.append(t)
+            for base in bases:
+                for t in self._walk(".py", base):
+                    n = Path(t).name
+                    if n.startswith("test_") and (
+                        n == f"test_{stem}.py"
+                        or imp.search((base / t).read_text(errors="replace"))
+                    ):
+                        out.append(base / t)
         return list(dict.fromkeys(out))[:8]
+
+    def _disp(self, p):
+        for b in (self.root, REPO):
+            if b in Path(p).parents:
+                return str(Path(p).relative_to(b))
+        return str(p)
 
     def _pytest(self, run, tests):
         log = self.b.out / "runs" / f"{run.id}-pytest.log"
@@ -401,7 +465,7 @@ class Runs:
                     "--no-header",
                     "-p",
                     "no:cacheprovider",
-                    *tests,
+                    *map(str, tests),
                 ],
                 cwd=self.root,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},

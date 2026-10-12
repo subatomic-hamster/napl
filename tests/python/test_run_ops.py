@@ -49,7 +49,9 @@ def skydio(tmp_path):
 @needs_kernel
 def test_targets_list_scenarios_and_components_with_models_first(skydio):
     t = ask(skydio, "run.targets")
-    assert "examples/skydio/follow.scenario.toml" in t["scenarios"]
+    assert (
+        "follow.scenario.toml" in t["scenarios"]
+    )  # relative to the IDE's root, examples/skydio
     kinds = [c["kind"] for c in t["components"]]
     assert kinds[0] and kinds == sorted(
         kinds, key=lambda k: not k
@@ -108,23 +110,63 @@ def test_bench_servo_step_response():
 
 
 @needs_kernel
-def test_component_without_device_model_runs_only_the_tests(skydio):
-    inst = next(
-        c["id"] for c in ask(skydio, "run.targets")["components"] if not c["kind"]
+def test_component_without_device_model_runs_only_the_tests(tmp_path):
+    prog = (
+        tmp_path / "prog"
+    )  # the program root is the IDE's (Prog.root), here an explicit one
+    prog.mkdir()
+    (prog / "foo.py").write_text("X = 1\n")
+    (prog / "test_foo.py").write_text("def test_x():\n    assert 1\n")
+    (prog / "test_bar.py").write_text(
+        "import foo\n\n\ndef test_y():\n    assert foo.X == 1\n"
     )
+    d = Design.open(REPO / "assemblies" / "skydio.toml")
+    b = Backend(lambda: d, tmp_path / "out", program_root=prog)
+    inst = next(c["id"] for c in ask(b, "run.targets")["components"] if not c["kind"])
     rid = ask(
-        skydio,
-        "run.start",
-        {"mode": "bench", "component": inst, "files": ["python/napl/attach.py"]},
+        b, "run.start", {"mode": "bench", "component": inst, "files": ["foo.py"]}
     )["run_id"]
-    r, out = finish(skydio, rid, timeout=600)
+    r, out = finish(b, rid, timeout=600)
     assert "no device model" in out and r["result"]["metrics"] == {}
-    assert r["result"]["tests"] == [
-        "tests/python/test_attach.py"
-    ]  # test_<name>.py of the open file
-    assert r["result"]["tests_pass"] and r["result"]["pass"] and "passed" in out, out[
+    assert sorted(r["result"]["tests"]) == [
+        "test_bar.py",
+        "test_foo.py",
+    ]  # test_<name>.py + a test that imports it
+    assert r["result"]["tests_pass"] and r["result"]["pass"] and "2 passed" in out, out[
         -800:
     ]
+
+
+def test_root_is_the_ides_program_root(tmp_path):
+    prog = tmp_path / "prog"
+    prog.mkdir()
+    (prog / "a.scenario.toml").write_text("name='a'\n")
+    (prog / "sub").mkdir()
+    (prog / "sub" / "b.scenario.toml").write_text("name='b'\n")
+    d = Design.open(REPO / "assemblies" / "skydio.toml")
+    b = Backend(lambda: d, tmp_path / "out", program_root=prog)
+    assert ask(b, "run.targets")["scenarios"] == [
+        "a.scenario.toml",
+        "sub/b.scenario.toml",
+    ]
+    skydio = Backend(
+        lambda: d, tmp_path / "o2"
+    )  # default root: examples/skydio beside assemblies/skydio.toml
+    assert "follow.scenario.toml" in ask(skydio, "run.targets")["scenarios"]
+    r = json.loads(
+        b(
+            json.dumps(
+                {
+                    "tool": "run.start",
+                    "args": {
+                        "mode": "full",
+                        "scenario": "../../examples/skydio/follow.scenario.toml",
+                    },
+                }
+            )
+        )
+    )
+    assert not r["ok"] and "outside the program root" in r["error"]
 
 
 def test_paths_are_confined(skydio):
@@ -159,7 +201,7 @@ def live_backend(tmp_path, monkeypatch):
     d = Design.open(REPO / "assemblies" / "skydio.toml")
     b = Backend(lambda: d, tmp_path / "out")
     b.sim = napl.Sim.load(
-        b.state(d)["xml"], host=True
+        b.state(d)["xml"], root=b.out, host=True
     )  # what napl.design.viewer.view() hands to Sim.show
     b.run_rate = 0.0  # as fast as possible (the viewer demo runs at rate 1)
     return b
@@ -172,7 +214,7 @@ def test_full_run_live_matches_napl_program_hash(tmp_path, monkeypatch, mission)
     rid = ask(
         b,
         "run.start",
-        {"mode": "full", "scenario": f"examples/skydio/{mission}.scenario.toml"},
+        {"mode": "full", "scenario": f"{mission}.scenario.toml"},
     )["run_id"]
     r, out = finish(b, rid, timeout=900)
     res = r["result"]
@@ -192,7 +234,7 @@ def test_stop_mid_run_kills_the_program_group(tmp_path, monkeypatch):
     rid = ask(
         b,
         "run.start",
-        {"mode": "full", "scenario": "examples/skydio/follow.scenario.toml"},
+        {"mode": "full", "scenario": "follow.scenario.toml"},
     )["run_id"]
     t0, tick = time.monotonic(), 0
     while (

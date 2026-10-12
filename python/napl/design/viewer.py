@@ -309,9 +309,9 @@ def view(design, out=None, **show_kw):
     st = backend.state(design)
     if st["xml"] is None:
         raise DesignError(f"the design does not build: {st['build_error']}")
-    sim = Sim.load(
-        st["xml"], host=True
-    )  # a Host Sim: the window shows it while `run.start full` drives it from another thread
+    # a Host Sim: the window shows it while `run.start full` drives it from another thread. Its LoadModel root is the build dir
+    # `out`, which is where run.start puts the run dirs (out/runs), so a live run's scenario model loads inside the root.
+    sim = Sim.load(st["xml"], root=out, host=True)
     backend.sim = sim
     try:
         sim.show(design=backend, **show_kw)
