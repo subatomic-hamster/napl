@@ -1216,7 +1216,7 @@ class Writer:
         return img
 
 
-def _build_frames(w, root, speedup):
+def _build_frames(w, root, speedup, chapters_over=None):
     """The viewer capture (record_turret.py build --open): per-step playback speed, the router / rebuild dead time played fast, captions from the op log + the Design's replies."""
     bd = root / "build"
     if not (bd / "timeline.json").exists():
@@ -1262,6 +1262,9 @@ def _build_frames(w, root, speedup):
             ],
         ),
     }
+    chapters = (
+        chapters_over or chapters
+    )  # tools/record_skydio.py passes its own chapter cards
     cache, cur, last = {}, steps[0], None
     for t0_, t1_, sp, s in segs:
         if s is not None:
