@@ -114,6 +114,13 @@ std::vector<ImVec2> prefix(const std::vector<ImVec2>& p, float f) {
   }
   return o;
 }
+// `t` cut to fit `maxw` px at font size `size`, with ".." for what is gone (the full text is in the hover tooltip / the part file).
+std::string elide(ImFont* f, float size, const std::string& t, float maxw) {
+  if (f->CalcTextSizeA(size, 1e9f, 0, t.c_str()).x <= maxw) return t;
+  std::string o = t;
+  while (!o.empty() && f->CalcTextSizeA(size, 1e9f, 0, (o + "..").c_str()).x > maxw) o.pop_back();
+  return o.empty() ? o : o + "..";
+}
 }  // namespace
 
 float Canvas::side_w() const { return side_open_ ? kSideW : kStripW; }
@@ -224,7 +231,7 @@ void Canvas::apply(const design::Json& f) {
   for (const design::Json& c : f.at("cards").arr) {
     Card n = parse_card(c);
     const Card* old = card(n.id);
-    n.born = old ? old->born : now + 0.18 + 0.06 * idx++;
+    n.born = old ? old->born : was ? now + 0.18 + 0.06 * idx++ : -1e9;  // the first state arrives laid out: it fades in, nothing pops
     if (old && drag_.kind == Drag::on_card && drag_.card == n.id) n.x = old->x, n.y = old->y;  // being dragged: the local position wins
     n.tx = n.x, n.ty = n.y, n.x0 = n.x, n.y0 = n.y;
     if (old && active_ && was && !(drag_.kind == Drag::on_card && drag_.card == n.id) && std::abs(old->tx - n.tx) + std::abs(old->ty - n.ty) > 1.f) {
@@ -261,7 +268,7 @@ void Canvas::apply(const design::Json& f) {
     wnext.push_back(std::move(n));
   }
   if (!was && active_) fit_pending_ = true;
-  if (wires_.empty() && !wnext.empty() && cards_.empty()) {  // the first state: wires that already exist are not "drawn"
+  if (!was) {  // the first state: wires that already exist are not "drawn"
     for (Wire& w : wnext) w.born = -1e9;
     new_wire_slot_ = 0;
   }
@@ -383,7 +390,7 @@ void Canvas::draw_card(ImDrawList* dl, const Card& c, const CardView& v) const {
   const float fs = ImGui::GetFontSize(), zoom = v.zoom, s = v.s;
   const float cx = v.ox + (c.x + c.w / 2) * zoom, cy = v.oy + (c.y + c.h / 2) * zoom;  // popping cards scale about their centre
   const ImVec2 p0{cx - c.w * zoom * s / 2, cy - c.h * zoom * s / 2}, p1{cx + c.w * zoom * s / 2, cy + c.h * zoom * s / 2};
-  const int al = static_cast<int>(255 * std::min(1.f, s));
+  const int al = static_cast<int>(255 * std::min(1.f, s) * v.fade);
   dl->AddRectFilled({p0.x + 3, p0.y + 4}, {p1.x + 3, p1.y + 4}, IM_COL32(0, 0, 0, al / 3), 7 * zoom);
   dl->AddRectFilled(p0, p1, IM_COL32(28, 33, 41, al), 7 * zoom);
   const ImU32 gc = group_col(c.group);
@@ -396,11 +403,12 @@ void Canvas::draw_card(ImDrawList* dl, const Card& c, const CardView& v) const {
   const int lod = v.bare ? -1 : pin_fs >= 8.5f ? 2 : kRowH * zoom * s >= 10.f ? 1 : 0;
   if (s > 0.6f) {
     const float hh = kHeadH * zoom * s, hs = std::max(fs * zoom * s, v.bare ? 12.5f : 11.5f), ps = std::max(fs * 0.78f * zoom * s, 9.5f);
+    const float room = p1.x - p0.x - 16 * zoom;  // the header text never leaves the card
     if (!v.bare && hh >= hs + ps + 3) {
-      dl->AddText(font, hs, {p0.x + 8 * zoom, p0.y + 2 * zoom}, IM_COL32(244, 246, 250, al), c.id.c_str());
-      dl->AddText(font, ps, {p0.x + 8 * zoom, p0.y + 3 * zoom + hs}, IM_COL32(190, 198, 212, al), c.part.c_str());
+      dl->AddText(font, hs, {p0.x + 8 * zoom, p0.y + 2 * zoom}, IM_COL32(244, 246, 250, al), elide(font, hs, c.id, room).c_str());
+      dl->AddText(font, ps, {p0.x + 8 * zoom, p0.y + 3 * zoom + hs}, IM_COL32(190, 198, 212, al), elide(font, ps, c.part, room).c_str());
     } else if (hh >= hs + 3) {
-      dl->AddText(font, hs, {p0.x + 8 * zoom, p0.y + (hh - hs) / 2}, IM_COL32(244, 246, 250, al), c.id.c_str());
+      dl->AddText(font, hs, {p0.x + 8 * zoom, p0.y + (hh - hs) / 2}, IM_COL32(244, 246, 250, al), elide(font, hs, c.id, room).c_str());
     } else {  // above the card, on the sheet
       const std::string t = v.bare ? c.id : c.id + "   " + c.part;
       dl->AddText(font, hs, {p0.x + 2, p0.y - hs - 3}, IM_COL32(236, 239, 244, al), t.c_str());
@@ -415,8 +423,8 @@ void Canvas::draw_card(ImDrawList* dl, const Card& c, const CardView& v) const {
     dl->AddRectFilled(b0, b1, IM_COL32(36, 42, 53, al), 5 * zoom * s);
     dl->AddRect(b0, b1, IM_COL32(86, 96, 116, al), 5 * zoom * s, 0, 1.f);
     if (s > 0.6f && !v.bare) {
-      const std::string title = k.id + "  " + k.name;
       const float tfs = std::max(fs * 0.74f * zoom * s, lod == 0 ? 10.5f : 9.f);  // connector titles carry the card when the pins are unlabelled
+      const std::string title = elide(font, tfs, k.id + "  " + k.name, b1.x - b0.x - 14 * zoom);  // (a long name is cut to its box)
       const ImVec2 tsz = font->CalcTextSizeA(tfs, 1e9f, 0, title.c_str());
       const float tx = k.side == "right" ? b1.x - tsz.x - 8 * zoom : k.side == "left" ? b0.x + 8 * zoom : (b0.x + b1.x - tsz.x) / 2;
       const float rowh = kRowH * zoom * s;
@@ -460,10 +468,12 @@ void Canvas::draw_card(ImDrawList* dl, const Card& c, const CardView& v) const {
       const bool dim = p.kind == "nc" || (!p.conn.empty() && !wired);  // unwired connector pins recede: the wired ones read first
       const ImU32 tcol = dim ? IM_COL32(150, 158, 174, al) : IM_COL32(236, 239, 244, al);
       const float lfs = std::max(fs * 0.92f * zoom, 9.f);
-      const ImVec2 ts = font->CalcTextSizeA(lfs, 1e9f, 0, p.label.c_str());
+      const float mid = (p0.x + p1.x) / 2, room = right ? x - r - 6 * zoom - (mid + 4) : mid - 4 - (x + r + 6 * zoom);  // a label stays on its half of the card
+      const std::string label = elide(font, lfs, p.label, room);
+      const ImVec2 ts = font->CalcTextSizeA(lfs, 1e9f, 0, label.c_str());
       const float tx = right ? x - r - 6 * zoom - ts.x : x + r + 6 * zoom;
-      dl->AddText(font, lfs, {tx, y - ts.y / 2}, tcol, p.label.c_str());
-      if (p.conn.empty() && lod == 2) {  // a port terminal also names its connector type
+      if (!label.empty()) dl->AddText(font, lfs, {tx, y - ts.y / 2}, tcol, label.c_str());
+      if (p.conn.empty() && lod == 2 && label == p.label) {  // a port terminal also names its connector type
         const ImVec2 ty = font->CalcTextSizeA(fs * 0.72f * zoom, 1e9f, 0, p.type.c_str());
         const float tx2 = right ? tx - ty.x - 8 * zoom : tx + ts.x + 8 * zoom;
         if (std::abs(tx2 - (right ? p0.x : p1.x)) > 12 && tx2 > p0.x && tx2 + ty.x < p1.x)
@@ -520,8 +530,8 @@ void Canvas::select_ui(const design::State& st, const std::string& selected) {
   ImGui::SetNextItemWidth(col_w);
   ImGui::InputTextWithHint("##filter", "filter components", filter_, sizeof filter_);
   ImGui::Spacing();
-  const float foot = 40;  // the action row under the list
-  ImGui::BeginChild("pick", {col_w, sz_.y - ImGui::GetCursorPosY() - foot - 12});
+  const float foot = 40, auto_h = autowire_open_ && autowire_ui ? 170.f : 0.f;  // the action row under the list; AUTOWIRE (folded) above it
+  ImGui::BeginChild("pick", {col_w, sz_.y - ImGui::GetCursorPosY() - foot - auto_h - 12});
   const std::string f = filter_;
   for (const design::Instance& i : st.report.instances) {
     auto pit = st.ports.find(i.id);
@@ -558,6 +568,11 @@ void Canvas::select_ui(const design::State& st, const std::string& selected) {
     ImGui::PopID();
   }
   ImGui::EndChild();
+  if (auto_h > 0) {
+    ImGui::BeginChild("autowire", {col_w, auto_h}, ImGuiChildFlags_Borders);
+    autowire_ui();
+    ImGui::EndChild();
+  }
   if (theme::button("ADD SELECTED") && !selected.empty()) {
     auto it = st.ports.find(selected);
     if (it != st.ports.end())
@@ -572,6 +587,12 @@ void Canvas::select_ui(const design::State& st, const std::string& selected) {
   ImGui::BeginDisabled(pick_.empty());
   if (theme::button("FLATTEN", true)) begin_flatten();
   ImGui::EndDisabled();
+  if (autowire_ui) {
+    ImGui::SameLine();
+    const std::string al = std::string("AUTOWIRE") + (autowire_n ? " (" + std::to_string(autowire_n) + ")" : "") + (autowire_open_ ? " v" : " >");
+    if (theme::button(al.c_str(), autowire_open_)) autowire_open_ = !autowire_open_;
+    ImGui::SetItemTooltip("wire open ports automatically; the ambiguous ones are listed for you to pick");
+  }
   ImGui::EndGroup();
   // the picked components, as the canvas will draw them
   std::string sig;
@@ -671,12 +692,18 @@ void Canvas::canvas_ui() {
   }
 
   // wires (under the cards): orthogonal routes from the backend, rounded corners, an arrow into the target pin
-  std::vector<std::pair<const Wire*, std::pair<ImVec2, bool>>> labels;
+  struct Label {
+    const Wire* w;
+    ImVec2 at;
+    bool sel;
+    std::vector<ImVec2> path;
+  };
+  std::vector<Label> labels;
   for (const Wire& w : wires_) {
     if (wire_hidden(w)) continue;  // a wire goes with either of its components
     ImVec2 lc{0, 0};
     bool has_label = false;
-    wire_path(w, &lc, &has_label);
+    const std::vector<ImVec2> lpath = wire_path(w, &lc, &has_label);
     const double t = (now - w.born) / kWireAnim;
     const bool drawing = t >= 0 && t < 1;
     if (t < 0 || wire_fade <= 0.f) continue;  // queued behind another wire's animation / the cards are still gliding
@@ -706,14 +733,36 @@ void Canvas::canvas_ui() {
                               kind_col(sk, static_cast<int>(240 * a)));
       }
     }
-    if (!drawing && has_label) labels.push_back({&w, {lc, sel}});
+    if (!drawing && has_label) labels.push_back({&w, lc, sel, round_path(lpath, 9 * zoom_)});
   }
-  for (const auto& [w, at] : labels) {  // gauge labels on top of every wire (positions chosen by the backend: no overlaps)
-    const ImVec2 ts = font->CalcTextSizeA(fs * 0.8f * std::max(0.8f, zoom_), 1e9f, 0, w->label.c_str());
-    const ImVec2 c = at.first;
-    dl->AddRectFilled({c.x - ts.x / 2 - 5, c.y - ts.y / 2 - 2}, {c.x + ts.x / 2 + 5, c.y + ts.y / 2 + 2}, IM_COL32(14, 17, 22, 235), 4);
-    dl->AddRect({c.x - ts.x / 2 - 5, c.y - ts.y / 2 - 2}, {c.x + ts.x / 2 + 5, c.y + ts.y / 2 + 2}, kind_col(w->kind, 150), 4, 0, 1.f);
-    dl->AddText(font, fs * 0.8f * std::max(0.8f, zoom_), {c.x - ts.x / 2, c.y - ts.y / 2}, IM_COL32(230, 232, 238, 255), w->label.c_str());
+  // gauge labels on top of every wire. The backend placed them clear of each other for its own text size; at the size drawn here two can
+  // still touch (or sit on a card), so each is moved along its wire to the first spot that is free, else left off (the wire's tooltip has it).
+  std::vector<ImVec4> taken;
+  for (const Card& c : cards_)
+    if (!hidden(c.id)) taken.push_back({ox_ + c.x * zoom_ - 2, oy_ + c.y * zoom_ - 2, ox_ + (c.x + c.w) * zoom_ + 2, oy_ + (c.y + c.h) * zoom_ + 2});
+  for (const Label& l : labels) {
+    const float lfs = fs * 0.8f * std::max(0.8f, zoom_);
+    const ImVec2 ts = font->CalcTextSizeA(lfs, 1e9f, 0, l.w->label.c_str());
+    const auto box = [&](ImVec2 c) { return ImVec4{c.x - ts.x / 2 - 5, c.y - ts.y / 2 - 2, c.x + ts.x / 2 + 5, c.y + ts.y / 2 + 2}; };
+    const auto free_at = [&](ImVec2 c) {
+      const ImVec4 b = box(c);
+      for (const ImVec4& r : taken)
+        if (b.x < r.z && b.z > r.x && b.y < r.w && b.w > r.y) return false;
+      return true;
+    };
+    ImVec2 c = l.at;
+    bool ok = free_at(c);
+    for (float f : {0.5f, 0.35f, 0.65f, 0.2f, 0.8f, 0.12f, 0.88f}) {
+      if (ok || l.path.size() < 2) break;
+      c = prefix(l.path, f).back();
+      ok = free_at(c);
+    }
+    if (!ok) continue;
+    const ImVec4 b = box(c);
+    taken.push_back(b);
+    dl->AddRectFilled({b.x, b.y}, {b.z, b.w}, IM_COL32(14, 17, 22, 235), 4);
+    dl->AddRect({b.x, b.y}, {b.z, b.w}, kind_col(l.w->kind, 150), 4, 0, 1.f);
+    dl->AddText(font, lfs, {c.x - ts.x / 2, c.y - ts.y / 2}, IM_COL32(230, 232, 238, 255), l.w->label.c_str());
   }
 
   // cards
@@ -724,9 +773,9 @@ void Canvas::canvas_ui() {
   const Card* head_hit = nullptr;
   for (const Card& c : cards_) {
     if (hidden(c.id)) continue;
-    const float s = static_cast<float>(ease_back((now - c.born) / kCardPop)) * intro;
+    const float s = static_cast<float>(ease_back((now - c.born) / kCardPop));
     if (now < c.born || s <= 0.01f) continue;
-    draw_card(dl, c, {ox_, oy_, zoom_, s, false, &ends, hp});
+    draw_card(dl, c, {ox_, oy_, zoom_, s, false, &ends, hp, intro});
     const float cx = ox_ + (c.x + c.w / 2) * zoom_, cy = oy_ + (c.y + c.h / 2) * zoom_;  // (popping cards scale about their centre)
     const ImVec2 p0{cx - c.w * zoom_ * s / 2, cy - c.h * zoom_ * s / 2}, p1{cx + c.w * zoom_ * s / 2, cy + c.h * zoom_ * s / 2};
     if (io.MousePos.x >= p0.x && io.MousePos.x <= p1.x && io.MousePos.y >= p0.y && io.MousePos.y <= p0.y + kHeadH * zoom_ * s) head_hit = &c;
