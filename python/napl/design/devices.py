@@ -114,6 +114,22 @@ FIELD_UNITS = {
     "n_h": {"px": 1.0},
     "n_v": {"px": 1.0},
     "ray_groups": {"bitmask": 1.0},
+    # rain (schema Rain; rotor and rangefinder rain_* fields): docs/models.md "Rain"
+    "rate": {"mm/h": 1.0},
+    "catch_area": {"m^2": 1.0},
+    "wet_area": {"m^2": 1.0},
+    "film_depth": {"m": 1.0, "mm": 1e-3},
+    "film_tau": {"s": 1.0},
+    "collect_eff": {"1": 1.0},
+    "rain_kt": {"1": 1.0},
+    "rain_kq": {"1": 1.0},
+    "rain_a": {"1/m": 1.0, "1/km": 1e-3},
+    "rain_b": {"1": 1.0},
+    "rain_margin_db": {"dB": 1.0},
+    "rain_window_db": {"dB": 1.0},
+    "rain_beam": {"m": 1.0},
+    "rain_zone": {"m": 1.0},
+    "rain_det": {"1": 1.0},
 }
 INT_FIELDS = {
     "awg",
@@ -148,6 +164,7 @@ TYPE_KEY = {
     "vessel": "vessels",
     "rangefinder": "rangefinders",
     "jet_vane": "jet_vanes",
+    "rain": "rains",
 }
 NODE_TYPES = {"battery", "psu", "load", "esc", "servo"}
 TEXT_FIELDS = {
@@ -674,6 +691,11 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
             d.setdefault(
                 "ray_groups", RAY_GROUPS
             )  # sees the world, not the vehicle's own geoms (group 4)
+            if d.get("projection", "pinhole") == "pinhole":
+                # Rain defaults of an active-stereo depth camera (kernel defaults = a 905 nm lidar / ToF). ESTIMATES: stereo matching
+                # loses its texture and rain streaks add false matches sooner than a ToF pulse loses signal (docs/models.md "Rain").
+                d.setdefault("rain_margin_db", 4.0)
+                d.setdefault("rain_det", 0.02)
         if typ == "rotor":
             d.setdefault("ray_groups", RAY_GROUPS)
             if b.get("reynolds"):

@@ -328,6 +328,7 @@ class Viewer {
       int fw = opts_.width, fh = opts_.height;
       if (window) glfwGetFramebufferSize(window->w, &fw, &fh);
       renderer.set_tubes(shown_tubes());
+      renderer.set_weather(cur_.weather);
       const bool drawn = renderer.frame(shown_poses(), view_cam_, fw, fh, [](VkCommandBuffer cb) {
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
       }, window ? nullptr : &shot);

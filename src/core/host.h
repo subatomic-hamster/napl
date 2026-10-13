@@ -27,6 +27,7 @@ struct Frame {
   std::vector<GeomPose> poses;       // index-parallel to visuals
   std::vector<TubeVisual> tubes;     // every frame
   std::vector<std::pair<std::string, std::string>> tube_ends;  // index-parallel to tubes: the instance ids at each cable's ends
+  Weather weather;                   // every frame: rain rate etc. for the renderer (all zero = clear)
   double dt = 0;                     // seconds per tick
   bool running = false, diverged = false;
   double rate = 0;                   // Run rate while running (0 = as fast as possible)

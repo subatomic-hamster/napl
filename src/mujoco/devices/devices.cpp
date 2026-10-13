@@ -71,6 +71,7 @@ const std::string& Devices::name(int slot) const {
     case Slot::vessel: return vessel.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::range: return range.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::vane: return vane.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::rain: return rain.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::esc: break;
   }
   return esc.cfg[static_cast<std::size_t>(s.i)].meta.name;
@@ -301,6 +302,8 @@ Devices parse(const std::string& json) {
       need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
       c.water = r->water();
       if (r->stator_body()) c.stator_body = r->stator_body()->str();
+      c.rain_kt = r->rain_kt(); c.rain_kq = r->rain_kq();
+      need(c.rain_kt >= 0 && c.rain_kt <= 1 && c.rain_kq >= 0 && std::isfinite(c.rain_kq), n, "rain_kt must be in [0, 1], rain_kq >= 0");
       c.swirl_recovery = r->swirl_recovery();
       need(c.swirl_recovery >= 0 && c.swirl_recovery <= 1, n, "swirl_recovery must be in [0, 1]");
       need(c.swirl_recovery == 0 || !c.stator_body.empty(), n, "swirl_recovery needs a stator_body");
@@ -681,6 +684,12 @@ Devices parse(const std::string& json) {
       need(c.dropout >= 0 && c.dropout <= 1, n, "dropout must be in [0, 1]");
       c.ray_groups = rf->ray_groups();
       need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
+      c.rain_a = rf->rain_a(); c.rain_b = rf->rain_b(); c.rain_margin_db = rf->rain_margin_db();
+      c.rain_beam = rf->rain_beam(); c.rain_zone = rf->rain_zone(); c.rain_det = rf->rain_det();
+      c.rain_window_db = rf->rain_window_db();
+      need(c.rain_a >= 0 && c.rain_b >= 0 && c.rain_beam >= 0 && c.rain_zone >= 0 && c.rain_det >= 0 && c.rain_det <= 1 &&
+               c.rain_window_db >= 0 && std::isfinite(c.rain_a + c.rain_b + c.rain_margin_db + c.rain_beam + c.rain_zone + c.rain_window_db),
+           n, "rain_a, rain_b, rain_beam, rain_zone, rain_window_db >= 0, rain_det in [0, 1], rain_margin_db finite");
       const std::size_t cnt = static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v);
       c.dir.resize(3 * cnt);
       c.scale.resize(cnt);
@@ -724,6 +733,23 @@ Devices parse(const std::string& json) {
            "cn_alpha, cd0 and jet_factor must be finite and >= 0");
       slot(Devices::Slot::vane, static_cast<int>(dv.vane.cfg.size()));
       dv.vane.cfg.push_back(std::move(c));
+    }
+  if (root->rains())
+    for (const fb::Rain* rn : *root->rains()) {
+      RainCfg c{};
+      c.meta = meta_of(rn->name(), rn->parts(), seen);
+      const std::string& n = c.meta.name;
+      need(dv.rain.cfg.empty(), n, "only one rain device is allowed");
+      c.rate0 = rn->rate();
+      need(c.rate0 >= 0 && c.rate0 <= 500, n, "rate must be in [0, 500] mm/h");
+      if (rn->body()) c.body = rn->body()->str();
+      c.catch_area = rn->catch_area(); c.wet_area = rn->wet_area(); c.film_depth = rn->film_depth();
+      c.film_tau = rn->film_tau(); c.collect_eff = rn->collect_eff();
+      need(c.catch_area >= 0 && c.wet_area >= 0 && c.film_depth >= 0 && c.film_tau > 0 && c.collect_eff >= 0 && c.collect_eff <= 1 &&
+               std::isfinite(c.catch_area + c.wet_area + c.film_depth + c.film_tau),
+           n, "catch_area, wet_area, film_depth >= 0, film_tau > 0, collect_eff in [0, 1]");
+      slot(Devices::Slot::rain, static_cast<int>(dv.rain.cfg.size()));
+      dv.rain.cfg.push_back(std::move(c));
     }
   if (dv.slots.empty()) throw std::runtime_error("napl.devices: no devices declared");
 
@@ -822,6 +848,11 @@ Devices parse(const std::string& json) {
     dv.range_img.emplace_back(static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v), 0.0);
   }
   dv.vane.st.assign(dv.vane.cfg.size(), JetVaneState{});
+  for (const RainCfg& c : dv.rain.cfg) {
+    RainState s{};
+    s.rate = c.rate0;
+    dv.rain.st.push_back(s);
+  }
   if (!dv.sea.cfg.empty()) dv.sea.st[0].eta0 = sea_eta(dv, 0.0, 0.0);
   return dv;
 }
@@ -947,6 +978,7 @@ void bind(mjModel* m, Devices& dv) {
       if (dv.rotor.cfg[r].meta.name == c.rotor) c.rot = static_cast<int>(r);
     if (c.rot < 0) fail(c.meta.name, "rotor '" + c.rotor + "' is not a rotor device");
   }
+  for (RainCfg& c : dv.rain.cfg) c.bid = c.body.empty() ? -1 : body_id(c.meta.name, c.body);
   for (VesselCfg& c : dv.vessel.cfg) {
     c.bid = body_id(c.meta.name, c.body);
     if (dv.sea.cfg.empty()) fail(c.meta.name, "a vessel needs a sea device");
@@ -1102,6 +1134,7 @@ template <class D, class F> void for_groups(D& dv, F&& f) {
   f(dv.vessel);
   f(dv.range);
   f(dv.vane);
+  f(dv.rain);
 }
 template <class G> constexpr bool pod_ok = std::is_trivially_copyable_v<typename G::State> && sizeof(typename G::State) % 8 == 0;
 }  // namespace
@@ -1243,6 +1276,12 @@ constexpr Attr3<VesselState> kVessel3[] = {{"buoyancy", "N", &VesselState::buoya
 constexpr Attr<RangefinderState> kRange[] = {{"frames", "1", &RangefinderState::frames}, {"valid", "1", &RangefinderState::valid},
                                              {"t", "s", &RangefinderState::t}};
 
+// Rain: `rate` is the input (mm/h, 0 = dry); the rest are outputs of the last tick.
+constexpr Attr<RainState> kRain[] = {{"rate", "mm/h", &RainState::rate, true, false, 0, 500}, {"lwc", "g/m^3", &RainState::lwc},
+                                     {"v_fall", "m/s", &RainState::v_fall}, {"film_mass", "kg", &RainState::film_mass},
+                                     {"thrust_loss", "1", &RainState::thrust_loss}};
+constexpr Attr3<RainState> kRain3[] = {{"force", "N", &RainState::force}};
+
 template <class P> struct Found { P p; const char* unit; bool rw, bin; double lo, hi; std::size_t n = 1; };
 template <class D> auto locate(D& dv, int slot, const std::string& attr) {
   using P = std::conditional_t<std::is_const_v<D>, const double*, double*>;
@@ -1295,6 +1334,7 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
     }
     case Devices::Slot::vessel: pick(kVessel, dv.vessel.st); pick3(kVessel3, dv.vessel.st); break;
     case Devices::Slot::vane: pick(kVane, dv.vane.st); pick3(kVane3, dv.vane.st); break;
+    case Devices::Slot::rain: pick(kRain, dv.rain.st); pick3(kRain3, dv.rain.st); break;
     case Devices::Slot::range: {
       pick(kRange, dv.range.st);
       auto& img = dv.range_img[static_cast<std::size_t>(s.i)];

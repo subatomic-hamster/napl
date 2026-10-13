@@ -315,7 +315,7 @@ View make_view(const Camera& c, int w, int h) {
 // std140 mirrors of Scene / Draw in geom.slang (float4 members only).
 struct GpuScene {
   float view_r[4], view_u[4], view_f[4], proj[4], lcol[4][4], sun_dir[4], sun_col[4], sky_top[4], sky_mid[4], sky_hor[4], ground[4],
-      ground_col[4], fog[4], vp[4], camf[4];
+      ground_col[4], fog[4], vp[4], camf[4], wx[4], rainv[4], rcam[4];
 };
 struct GpuDraw {
   float rot[12], trel[4], color[4], mat[4], flags[4];
@@ -337,7 +337,21 @@ RenderStyle parse_render_style(const std::string& words, RenderStyle s) {
     else if (w == "nowires") s.tubes = false;
     else if (w == "boldwires") s.wire_px = 4.f;
     else if (w == "plainwires") s.wire_px = 0.f;
-    else throw std::invalid_argument("render style: unknown word '" + w + "' (studio outdoor edges noedges shadows noshadows wires nowires boldwires plainwires)");
+    else if (w == "rain=auto") s.rain = -1;
+    else if (w == "overcast=auto") s.overcast = -1;
+    else if (w.rfind("rain=", 0) == 0 || w.rfind("overcast=", 0) == 0) {
+      const std::size_t eq = w.find('=');
+      std::size_t used = 0;
+      float v = 0;
+      try {
+        v = std::stof(w.substr(eq + 1), &used);
+      } catch (const std::exception&) {
+        used = 0;
+      }
+      if (used == 0 || used != w.size() - eq - 1 || !std::isfinite(v) || v < 0 || (w[0] == 'o' && v > 1) || v > 500)
+        throw std::invalid_argument("render style: bad value in '" + w + "' (rain=<mm/h 0..500>, overcast=<0..1>)");
+      (w[0] == 'r' ? s.rain : s.overcast) = v;
+    } else throw std::invalid_argument("render style: unknown word '" + w + "' (studio outdoor edges noedges shadows noshadows wires nowires boldwires plainwires rain=<mm/h> overcast=<0..1>)");
   }
   return s;
 }
@@ -397,7 +411,7 @@ struct Renderer::Impl {
   VkDescriptorSet dset = nullptr;
   VkSampler shadow_smp = nullptr;
   VkPipelineLayout layout = nullptr;
-  VkPipeline pipe_scene = nullptr, pipe_sky = nullptr, pipe_edge = nullptr, pipe_shadow = nullptr, pipe_lin = nullptr;
+  VkPipeline pipe_scene = nullptr, pipe_sky = nullptr, pipe_edge = nullptr, pipe_shadow = nullptr, pipe_lin = nullptr, pipe_rain = nullptr;
   VkImage sh_img = nullptr;
   VmaAllocation sh_a = nullptr;
   VkImageView sh_view = nullptr;
@@ -410,6 +424,8 @@ struct Renderer::Impl {
 
   RenderStyle style;
   bool has_style = false;
+  Weather weather;               // from the solver / viewer frame; the style's rain= / overcast= words override it
+  std::uint32_t n_streaks = 0;   // rain streak instances of the frame being recorded (0 = none drawn)
   std::vector<TubeVisual> tubes_in;
   struct TubeDraw { std::uint32_t first, count, draw; };
   std::vector<TubeDraw> tube_draws;
@@ -725,7 +741,7 @@ struct Renderer::Impl {
   }
 
   VkPipeline gfx(const char* vs, const char* fs, bool vertex_in, VkSampleCountFlagBits samples, std::vector<VkFormat> colors, bool dtest,
-                 bool dwrite, VkCompareOp op, bool bias) {
+                 bool dwrite, VkCompareOp op, bool bias, bool blend = false) {
     VkPipelineShaderStageCreateInfo stages[2] = {
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, shader, vs, nullptr},
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, shader, fs, nullptr}};
@@ -762,6 +778,15 @@ struct Renderer::Impl {
     ds.depthCompareOp = op;
     VkPipelineColorBlendAttachmentState cba{};
     cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    if (blend) {  // straight alpha over the colour already drawn
+      cba.blendEnable = VK_TRUE;
+      cba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+      cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      cba.colorBlendOp = VK_BLEND_OP_ADD;
+      cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+      cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      cba.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
     std::vector<VkPipelineColorBlendAttachmentState> cbas(colors.size(), cba);
     VkPipelineColorBlendStateCreateInfo cbs{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cbs.attachmentCount = static_cast<std::uint32_t>(cbas.size());
@@ -812,6 +837,7 @@ struct Renderer::Impl {
     pipe_edge = gfx("vsEdge", "fsEdge", true, msaa, {color_fmt}, true, false, VK_COMPARE_OP_LESS_OR_EQUAL, false);
     pipe_shadow = gfx("vsShadow", nullptr, true, VK_SAMPLE_COUNT_1_BIT, {}, true, true, VK_COMPARE_OP_LESS, true);
     pipe_lin = gfx("vsMain", "fsLin", true, VK_SAMPLE_COUNT_1_BIT, {kLinFmt}, true, true, VK_COMPARE_OP_LESS, false);
+    pipe_rain = gfx("vsRain", "fsRain", false, msaa, {color_fmt}, true, false, VK_COMPARE_OP_LESS, false, true);
   }
 
   void destroy_target() {
@@ -888,7 +914,28 @@ struct Renderer::Impl {
     cur = effective_style();
     const View v = make_view(cam, w, h);
     constexpr double A = kFar / (kFar - kNear), B = -kFar * kNear / (kFar - kNear);
-    const Palette pal = palette(cur.sky);
+    Palette pal = palette(cur.sky);
+    // Weather (outdoor sky only; rain 0 and overcast 0 leave every value above untouched, bit for bit). Overcast follows the rain rate
+    // unless the style says otherwise: o = 1 - exp(-R / 5) (0.18 at 1 mm/h, 0.99 at 25). The look is art-directed, not radiometric:
+    // grey sky stops, sun x (1 - 0.85 o) with no glare, ambient x (1 - 0.2 o), wet (darker) ground, haze density + 0.0016 sqrt(R) per m.
+    const double rain = cur.sky == RenderStyle::Sky::studio ? 0.0 : (cur.rain >= 0 ? cur.rain : weather.rain);
+    const float oc = cur.sky == RenderStyle::Sky::studio ? 0.0f
+                     : cur.overcast >= 0                 ? cur.overcast
+                                                         : (rain > 0 ? static_cast<float>(1.0 - std::exp(-rain / 5.0)) : 0.0f);
+    if (oc > 0 || rain > 0) {
+      constexpr float grey_top[3] = {0.40f, 0.43f, 0.47f}, grey_mid[3] = {0.52f, 0.55f, 0.58f}, grey_hor[3] = {0.64f, 0.66f, 0.68f};
+      for (int i = 0; i < 3; ++i) {
+        pal.top[i] += (grey_top[i] - pal.top[i]) * oc;
+        pal.mid[i] += (grey_mid[i] - pal.mid[i]) * oc;
+        pal.hor[i] += (grey_hor[i] - pal.hor[i]) * oc;
+        pal.sun[i] *= 1.0f - 0.85f * oc;
+        pal.ground[i] *= 1.0f - 0.3f * oc;
+        pal.ground_col[i] *= 1.0f - 0.3f * oc;
+      }
+      pal.glare *= 1.0f - oc;
+      pal.ambient *= 1.0f - 0.2f * oc;
+      pal.haze += 0.0016f * static_cast<float>(std::sqrt(rain));
+    }
 
     // sun shadow map: an orthographic box fitted to the bounding sphere of everything that casts (planes do not)
     V3 lo{1e300, 1e300, 1e300}, hi{-1e300, -1e300, -1e300};
@@ -933,6 +980,19 @@ struct Renderer::Impl {
     s.vp[3] = static_cast<float>(2 * R / kShadowSize);
     s.camf[0] = static_cast<float>(std::fmod(cam.pos[0], 10.0)), s.camf[1] = static_cast<float>(std::fmod(cam.pos[1], 10.0));
     s.camf[2] = static_cast<float>(cam.pos[2]), s.camf[3] = 1.0f / kShadowSize;
+    // Rain streaks: Marshall-Palmer fall speed (docs/models.md "Rain": v = R / LWC, LWC = 0.072 R^0.88 g/m^3), drops drift with the wind.
+    n_streaks = 0;
+    s.wx[0] = oc;
+    if (rain > 0) {
+      constexpr double kBox = 48.0;  // edge of the world-fixed periodic box the streaks live in, m
+      const double vf = rain / 3600.0 / (0.072 * std::pow(rain, 0.88) * 1e-3);
+      n_streaks = static_cast<std::uint32_t>(14000.0 * (1.0 - std::exp(-rain / 30.0)));
+      s.wx[1] = static_cast<float>(0.2 + 0.3 * std::min(1.0, rain / 25.0)), s.wx[2] = static_cast<float>(0.06 * std::hypot(vf, std::hypot(weather.wind[0], weather.wind[1])));
+      s.wx[3] = static_cast<float>(std::fmod(weather.time, 1000.0));
+      s.rainv[0] = static_cast<float>(weather.wind[0]), s.rainv[1] = static_cast<float>(weather.wind[1]);
+      s.rainv[2] = static_cast<float>(weather.wind[2] - vf), s.rainv[3] = static_cast<float>(kBox);
+      for (int i = 0; i < 3; ++i) s.rcam[i] = static_cast<float>(std::fmod(cam.pos[i], kBox));
+    }
     fill(ubo, &s, sizeof s);
 
     // draws: geoms, then cables
@@ -1080,6 +1140,10 @@ struct Renderer::Impl {
         push(static_cast<std::uint32_t>(i));
         vkCmdDraw(cb, draws[i].ecount, 1, draws[i].efirst, 0);
       }
+    }
+    if (n_streaks > 0) {  // rain: instanced streak quads over the lit scene (depth-tested, no depth write)
+      bind(pipe_rain);
+      vkCmdDraw(cb, 6, n_streaks, 0, 0);
     }
     vkCmdEndRendering(cb);
   }
@@ -1464,7 +1528,7 @@ struct Renderer::Impl {
       if (sh_img) vmaDestroyImage(vma, sh_img, sh_a);
     }
     if (dev) {
-      for (VkPipeline p : {pipe_scene, pipe_sky, pipe_edge, pipe_shadow, pipe_lin})
+      for (VkPipeline p : {pipe_scene, pipe_sky, pipe_edge, pipe_shadow, pipe_lin, pipe_rain})
         if (p) vkDestroyPipeline(dev, p, nullptr);
       if (layout) vkDestroyPipelineLayout(dev, layout, nullptr);
       if (shadow_smp) vkDestroySampler(dev, shadow_smp, nullptr);
@@ -1482,7 +1546,7 @@ struct Renderer::Impl {
     vbuf = tbuf = ubo = ssbo = {};
     sh_img = nullptr;
     sh_view = nullptr;
-    pipe_scene = pipe_sky = pipe_edge = pipe_shadow = pipe_lin = nullptr;
+    pipe_scene = pipe_sky = pipe_edge = pipe_shadow = pipe_lin = pipe_rain = nullptr;
     layout = nullptr;
     shadow_smp = nullptr;
     dpool = nullptr;
@@ -1509,6 +1573,7 @@ void Renderer::set_style(const RenderStyle& s) {
   p_->style = s;
   p_->has_style = true;
 }
+void Renderer::set_weather(const Weather& w) { p_->weather = w; }
 
 Image Renderer::draw(std::span<const GeomPose> poses, const Camera& cam, int width, int height) {
   return p_->draw(poses, cam, width, height);
@@ -1522,6 +1587,7 @@ Image Renderer::render(const Solver& s, const Camera& cam, int width, int height
   for (std::size_t i = 0; i < v.size(); ++i)
     if (v[i].water()) p_->update_water(i, v[i].mesh);
   p_->tubes_in = s.tubes();
+  p_->weather = s.weather();
   const std::vector<GeomPose> poses = s.poses();
   return p_->draw(poses, cam, width, height);
 }
@@ -1534,6 +1600,7 @@ WindowRenderer::Handles WindowRenderer::handles() const {
 }
 void WindowRenderer::set_scene(std::span<const GeomVisual> visuals) { p_->set_scene(visuals); }
 void WindowRenderer::set_tubes(std::span<const TubeVisual> tubes) { p_->tubes_in.assign(tubes.begin(), tubes.end()); }
+void WindowRenderer::set_weather(const Weather& w) { p_->weather = w; }
 void WindowRenderer::set_style(const RenderStyle& s) {
   p_->style = s;
   p_->has_style = true;
