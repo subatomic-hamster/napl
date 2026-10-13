@@ -20,13 +20,14 @@ scripted agent drives the same ops through `Backend`, so a recording shows the U
 Every reply is {"ok": true, "result": {...}, "flatten": <state>, "state": <design state when the design changed>}.
 
 Canvas state: {"active", "rev",
-  "cards": [{id, part, group, x, y, w, h, band, layer,
+  "cards": [{id, hidden, part, group, x, y, w, h, band, layer,
              pins: [{name, label, kind, type, gender, role, side, row, wired, conn, num, dir, v, tip, flag, flags,
                     port, connects: [{component, port, pin}]}],  (connects = the far ends of the pin's wires; `pin_links` gives the same for any ref)
              connectors: [{id, name, type, rows, cols, side: "left" | "right" | "both", row, nrows}]}],
-  "wires": [{name, from, to, part, awg, length, kind, conductors, flag, flags,
+  "wires": [{name, from, to, part, awg, length, kind, conductors, flag, flags, hidden,
              route: [[x, y], ...], strands: [{from, to, route, flag}], label: {text, x, y, w, h} | null}],
-  "hidden_wires": n}.
+  "hidden_wires": n}.  `hidden` = the part (either end of the wire) is switched off with the eye in the window: it stays in the list so an
+agent can still read it, the window does not draw it.
 
 A card terminal (`pins`) is either a port of the part (`conn` = "", name = the port name, as before) or one real connector pin
 (`conn` = the connector id, name = "CONN.PIN", `num` = the pin id as printed on the part, `label` = "num name", `dir` / `v` from the
@@ -653,14 +654,17 @@ class Flatten:
                 + (len(t["type"]) * CW_TYPE if not t["conn"] else 0)
                 + PIN_PAD
             )
-            pin_w = (
-                max((nm(t) for t in lw), default=0)
-                + max((nm(t) for t in rw), default=0)
-                + MID_GAP
+            lmax, rmax = (
+                max((nm(t) for t in lw), default=0),
+                max((nm(t) for t in rw), default=0),
             )
+            # a pin label stays on its half of the card (the viewer elides what does not fit), so each half holds the longer side
+            pin_w = max(lmax + rmax + MID_GAP, 2 * max(lmax, rmax) + MID_GAP / 2)
+            # a connector title sits in its box: half the card for a one-sided connector, the whole card for a two-row one
             title_w = max(
                 (
-                    len(f"{k['conn']}  {k['name']}") * CW_NAME * 0.8 + 20
+                    (len(f"{k['conn']}  {k['name']}") * CW_NAME * 0.8 + 20)
+                    * (1 if k["two"] else 2)
                     for k in c["blocks"]
                     if k["conn"]
                 ),
@@ -720,6 +724,9 @@ class Flatten:
 
     def state(self, b, d) -> dict:
         strands = self._strands(d)
+        hid = getattr(
+            b, "hidden", set()
+        )  # eye-hidden parts: still listed, flagged `hidden` (as the window greys / skips them)
         flags = self._pin_findings(d)
         wired, links = (
             set(),
@@ -774,6 +781,7 @@ class Flatten:
             cards.append(
                 {
                     "id": c["id"],
+                    "hidden": c["id"] in hid,
                     "part": part,
                     "group": grp,
                     "x": c["x"],
@@ -851,6 +859,7 @@ class Flatten:
                     "conductors": w.get("conductors", 1),
                     "flag": self._worst(fl),
                     "flags": fl,
+                    "hidden": any(s["ia"] in hid or s["ib"] in hid for s in ss),
                     "strands": [
                         {
                             "from": f"{s['ia']}.{s['ta']}",

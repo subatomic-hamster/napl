@@ -76,6 +76,10 @@ class Canvas {
   // ui.wire_pick: tick exactly these components in the picker (all their power / signal terminals).
   void pick(const std::vector<std::string>& ids, const design::State& st);
   void fit_view() { fit(); }
+  // The picker's AUTOWIRE section (folded behind a button in its action row): `autowire_ui` draws the body, `autowire_n` is the number of
+  // decisions waiting for the user (shown on the button).
+  std::function<void()> autowire_ui;
+  int autowire_n = 0;
   // ui.wire_view: fit the sheet, or zoom to `zoom` (0 = keep) with canvas point (cx, cy) at the middle of the sheet (NaN = keep the
   // current middle; kKeep = 1e30); `seconds` > 0 glides there (eased) instead of jumping: a recorded pan / zoom.
   static constexpr double kKeep = 1e30;
@@ -110,6 +114,7 @@ class Canvas {
     bool bare;
     const std::map<std::string, int>* ends;  // conductors ending on each pin ("card.pin"): 2+ get a junction dot
     const Pin* hover;
+    float fade = 1;  // 0..1 opacity (the canvas fading in)
   };
   void draw_card(ImDrawList* dl, const Card& c, const CardView& v) const;
   float side_w() const;
@@ -158,6 +163,7 @@ class Canvas {
   const std::set<std::string>* hid_ = nullptr;  // the viewer's hidden instances, set by page()
   bool side_open_ = true;                       // the right panel of the canvas (remembered while the viewer runs)
   bool legend_open_[2] = {true, true};          // symbols, controls
+  bool autowire_open_ = false;                  // the picker's AUTOWIRE section
   ImVec4 legend_rect_{0, 0, 0, 0};              // x0 y0 x1 y1 of the key as drawn last frame
   // selection (3D mode)
   std::map<std::string, std::set<std::string>> pick_;  // instance -> chosen terminals

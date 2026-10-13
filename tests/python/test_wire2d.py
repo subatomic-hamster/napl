@@ -220,7 +220,7 @@ def _inside(p, q, c):
     )
 
 
-ASMS = ["x500v2", "so101", "koch", "rover", "car4", "aos5", "turret"]
+ASMS = ["x500v2", "so101", "koch", "rover", "car4", "aos5", "turret", "skydio"]
 
 
 @pytest.mark.parametrize("asm", ASMS)
@@ -439,3 +439,35 @@ def test_preview_returns_the_cards_and_changes_nothing(pair):
     assert not r["flatten"]["active"] and not r["flatten"]["cards"]  # no canvas opened
     assert ask(b, "rev")["result"]["flat_rev"] == rev0 and Backend.rev_of(d) == before
     assert not ask(b, "flatten.preview", {"instances": ["nope"]})["ok"]
+
+
+def test_state_flags_the_eye_hidden_parts_and_their_wires(tmp_path):
+    d = Design.open(X500)
+    d.unwire("pdb-to-esc1")
+    b = Backend(lambda: d, tmp_path)
+    ask(
+        b,
+        "flatten.begin",
+        {"instances": ["pdb", "esc1", "esc2"], "ports": ["pdb.out1", "esc1.power_in"]},
+    )
+    ask(b, "flatten.wire", {"from": "pdb.out1", "to": "esc1.power_in"})
+    f = ask(b, "flatten.state")["flatten"]
+    assert f["wires"] and not any(c["hidden"] for c in f["cards"])
+    assert not any(w["hidden"] for w in f["wires"])
+    ask(b, "ui.visibility", {"instances": ["esc1"], "visible": False})
+    f = ask(b, "flatten.state")["flatten"]
+    assert {c["id"] for c in f["cards"] if c["hidden"]} == {"esc1"}  # still listed
+    ends = lambda w: {w["from"].partition(".")[0], w["to"].partition(".")[0]}
+    assert f["wires"] and all(w["hidden"] == ("esc1" in ends(w)) for w in f["wires"])
+    ask(b, "ui.visibility", {"visible": True})
+    f = ask(b, "flatten.state")["flatten"]
+    assert not any(c["hidden"] for c in f["cards"] + f["wires"])
+
+
+@pytest.mark.parametrize("asm", ASMS)
+def test_a_connector_title_fits_its_half_of_the_card(tmp_path, asm):
+    f = _all_wired(tmp_path, asm)
+    for c in f["cards"]:
+        for k in c["connectors"]:
+            title = len(f"{k['id']}  {k['name']}") * 7.6 * 0.8 + 20
+            assert c["w"] >= title * (1 if k["side"] == "both" else 2) - 1e-6
