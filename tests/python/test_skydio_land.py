@@ -319,8 +319,33 @@ def test_quiescent_window_timing_beats_sinking_at_once_on_a_scripted_deck():
         np.mean(timed) < np.mean(now) - 0.03
     )  # the waited-for window closes slower on average...
     assert (
-        np.median(timed) < np.median(now)
-    )  # ...and so does the typical start (a forecast is imperfect: the worst case is not asserted)
+        np.percentile(timed, 75) < np.percentile(now, 75)
+    )  # ...and so do the rougher starts (a forecast is imperfect: the single worst case is not asserted)
+
+
+# ---- depth in rain -----------------------------------------------------------------------------------------------------------------
+def test_despeckle_removes_rain_returns_and_keeps_the_wall_and_a_pole():
+    rng = np.random.default_rng(3)
+    d = np.full((90, 160), 8.0, np.float32)  # a wall 8 m away
+    d[:, 60:64] = 3.0  # a pole four pixels wide, 3 m away
+    drops = rng.random(d.shape) < 0.04
+    drops[:, 58:66] = (
+        False  # (keep the speckle off the pole's edges: the test is about isolated pixels)
+    )
+    d[drops] = 1.5  # false near returns
+    gaps = (rng.random(d.shape) < 0.08) & ~drops
+    d[gaps] = np.inf  # dropouts
+    out = L.despeckle(d)
+    assert (
+        out[drops] < 5
+    ).mean() < 0.03  # (all but the odd cluster of drops: 4 in a clump)
+    assert (
+        np.isinf(out[gaps]).mean() < 0.1
+    )  # a dropout inside a surface is unknown, not free space
+    assert (out[:, 60:64] == 3.0).mean() > 0.9  # the pole stays
+    assert (out[5:-5, 100:140] == 8.0).mean() > 0.8  # and the wall
+    clean = np.full((90, 160), 8.0, np.float32)
+    assert (L.despeckle(clean) == clean).all()  # a clean image is untouched
 
 
 def test_sink_start_is_none_without_history():

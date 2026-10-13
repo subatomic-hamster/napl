@@ -171,10 +171,16 @@ def _asv_scene(out, seed, hs, wave_dir_deg, wind, w20):
     import asv.encounters as enc
     import asv.scene as asv_scene
 
+    # compose() wants one timestep: the ASV design runs at 2 ms, the Skydio at 1 ms. A copy of the ASV design at 1 ms (same parts, wires, devices) goes next to the scene.
+    asv1 = Path(out) / "asv-1ms.toml"
+    Path(out).mkdir(parents=True, exist_ok=True)
+    src = (HERE.parents[1] / "assemblies" / "asv.toml").read_text()
+    assert "timestep = 0.002" in src
+    asv1.write_text(src.replace("timestep = 0.002", "timestep = 0.001"))
     res = compose(
         out,
         [
-            Vehicle("asv", "asv", pos=(0.0, 0.0, 0.0)),
+            Vehicle("asv", str(asv1), pos=(0.0, 0.0, 0.0)),
             Vehicle(VEHICLE, ASSEMBLY, pos=(0.0, 0.0, 0.0)),
         ],
         env=Environment(wind=wind, w20=w20, seed=seed),
@@ -346,7 +352,8 @@ def _ground_box(wb, half=500.0):
 
 
 def _sensors(root, ground="world"):
-    """`ground`: the body the lander lands on (the world body, or a hull on the decks)."""
+    """`ground`: the body the lander lands on (the world body, or a hull on the decks: its whole subtree, the pad and the deck fittings are child bodies)."""
+    g2 = {"body2": ground} if ground == "world" else {"subtree2": ground}
     s = root.find("sensor")
     if s is None:
         s = ET.SubElement(root, "sensor")
@@ -364,7 +371,7 @@ def _sensors(root, ground="world"):
         "contact",
         name="hit_ground",
         subtree1="skydio_bottom",
-        body2=ground,
+        **g2,
         data="found",
         num="1",
     )
@@ -374,7 +381,7 @@ def _sensors(root, ground="world"):
             "contact",
             name=f"hit_gear_{leg}",
             body1=f"skydio/leg_{leg}",
-            body2=ground,
+            **g2,
             data="found",
             num="1",
         )

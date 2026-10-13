@@ -30,14 +30,20 @@ sys.path.insert(0, str(HERE.parent))  # examples/: ship.pilot
 import land as L
 from land_fly import GEAR_H, SkydioLand
 from napl.cuas import relnav as RN
+from napl.cuas.flyer import WN_Z
 
 ANT_ROOT = np.array(
     [-0.062, 0.0, 0.074]
 )  # m: the RTK board's antenna in the lander's root frame (assemblies/skydio-land.toml rtk_kit; position estimated)
-T_STAY = 3.0  # s on the deck after the motors are cut
+T_PRESS = 4.0  # s the lander is pressed onto the deck after the first contact, motors running at their floor
+T_STAY = 4.0  # s on the deck after the first contact (motors off for the last T_STAY - T_PRESS)
 V_SINK = 0.35  # m/s relative to the pad
 H_WAIT = 1.5  # m: gear height over the pad while waiting for the window
 HOVER_H = 4.0  # m: gear height over the pad while following
+TAU_LEVEL = (
+    3.0  # s: time constant of the pad level the lander rides (about a wave period)
+)
+T_BLEND = 1.5  # s: the sink's height reference moves from the pad's level to its forecast height over this time
 
 
 def sink_start(pred, ts, t_sink=H_WAIT / V_SINK):
@@ -92,7 +98,13 @@ class SkydioDeck(SkydioLand):
         self.pred = RN.DeckPredictor()
         self.msgs = deque(maxlen=80)
         self.tdeck, self.fix, self.fix_t = None, None, None
-        self.pilot = None
+        self.pilot, self._level, self._hp = None, None, None
+        osv = d["kind"] == "osv"
+        self.LIM = (
+            1.0,
+            12.0,
+            1.25 if osv else 0.3,
+        )  # the monitors of deck/osv and deck/asv: the gear's limits as on the ground (1.0 m/s, 12 deg), the pad's size
         if d["ship_speed_ms"] > 0 or d["kind"] == "osv":
             from ship.pilot import ShipPilot
 
@@ -114,6 +126,15 @@ class SkydioDeck(SkydioLand):
                 self.pilot.advance(_NoStep(self.sim))
                 self._pt = self.sim.tick
         self._aids(ts)
+        if (
+            pad := self._pad_now()
+        ) is not None:  # the pad's smoothed level (see _ref_z)
+            z = float(pad[0][2])
+            self._level = (
+                z
+                if self._level is None
+                else self._level + (z - self._level) * self.dtc / TAU_LEVEL
+            )
         super().step()
 
     def _aids(self, ts):
@@ -164,23 +185,49 @@ class SkydioDeck(SkydioLand):
         if self.t - self.t_phase >= 1.0:
             self._enter("follow")
 
-    def _track(self, h, vz=0.0):
-        """Command: gear height `h` over the pad point, moving with it; yaw with the vessel."""
+    def _heave(self):
+        """(z, vz, az) of the pad point now from the DeckPredictor's autoregressive forecast of its height (smooth: no sensor jitter, no extrapolation lag), the forecast refitted
+        every 0.25 s; the DeckLink extrapolation (z, vz, 0) before the predictor is ready."""
+        ts = self.sim.tick * self.dt
+        if self._hp is None or ts - self._hp[0] >= 0.25:
+            self._hp = (ts, self.pred.predict(6.0, keys=("h",)))
+        pr = self._hp[1]
+        if pr is not None and pr[0][0] <= ts <= pr[0][-2]:
+            t_f, h = pr[0], pr[1]["h"]
+            v = np.gradient(h, self.pred.dt)
+            a = np.gradient(v, self.pred.dt)
+            return tuple(float(np.interp(ts, t_f, x)) for x in (h, v, a))
         pad = self._pad_now()
-        if pad is None:
+        return None if pad is None else (float(pad[0][2]), float(pad[1][2]), 0.0)
+
+    def _ref_z(self, w):
+        """Height reference of the pad as (z, vz, az): the pad's smoothed level (tau TAU_LEVEL) blended by `w` (0..1) toward its forecast height. A pad that heaves at 3 m/s^2 in
+        a head sea is not followed raw (measured: 35-45 deg tilt excursions chasing its sensor jitter and its extrapolation lag): the lander rides the level while it waits and
+        goes over to the forecast for the sink, with the acceleration fed forward (a position offset az / kz: the altitude loop then has nothing left to track)."""
+        hv = self._heave()
+        if hv is None:
+            return None
+        if self._level is None:
+            self._level = hv[0]
+        return (self._level + w * (hv[0] - self._level), w * hv[1], w * hv[2])
+
+    def _track(self, h, vz=0.0, w=0.0):
+        """Command: gear height `h` over the pad point (horizontally moving with it; vertically see `_ref_z`); yaw with the vessel."""
+        pad, ref = self._pad_now(), self._ref_z(w)
+        if pad is None or ref is None:
             return None
         pp, pv = pad
         self.yaw_sp = self.msgs[-1].yaw
         self.flyer.target(
-            pp + np.array([0.0, 0.0, GEAR_H + h]),
-            pv + np.array([0.0, 0.0, vz]),
+            [pp[0], pp[1], ref[0] + ref[2] / WN_Z**2 + GEAR_H + h],
+            [pv[0], pv[1], ref[1] + vz],
             self.yaw_sp,
         )
         return pp, pv
 
-    def _rel_h(self, p):
-        pad = self._pad_now()
-        return None if pad is None else float(p[2] - pad[0][2] - GEAR_H)
+    def _rel_h(self, p, w=0.0):
+        ref = self._ref_z(w)
+        return None if ref is None else float(p[2] - ref[0] - GEAR_H)
 
     def _ph_follow(self, p, v, R):
         self._track(HOVER_H)
@@ -213,17 +260,45 @@ class SkydioDeck(SkydioLand):
     def _ph_sink(self, p, v, R):
         ts = self.sim.tick * self.dt
         h = self.h_sink0 - V_SINK * (ts - self.t_sink0)
-        self._track(max(h, -0.3), -V_SINK)
+        w = min((ts - self.t_sink0) / T_BLEND, 1.0)
+        self._track(max(h, -0.3), -V_SINK, w)
         low = self._agl_buf and np.mean(self._agl_buf) < self.lp.touch_agl
         if low or h < -0.25:
-            self.flyer.cut()
-            self.t_cut = ts
+            self.t_cut = ts  # (the contact; the motors go off after T_PRESS)
             self._enter("touchdown")
 
     def _ph_touchdown(self, p, v, R):
-        if self.sim.tick * self.dt - self.t_cut > T_STAY:
+        """On a moving, tilting deck the lander is first PRESSED onto it with the attitude loop still running (the height command 0.35 m under the pad: the thrust drops to its floor,
+        0.2 of the weight, the airframe stays level), then the motors go off. Cutting at the first contact tipped the lander over on the ASV's plate in 4 of 8 calm-water flights."""
+        ts = self.sim.tick * self.dt
+        pad, ref = self._pad_now(), self._ref_z(1.0)
+        if ts - self.t_cut < T_PRESS and pad is not None and ref is not None:
+            # horizontally: no position error to correct (the gear is on the deck, a tilted thrust would drag it), only the pad's velocity
+            self.flyer.target(
+                [p[0], p[1], ref[0] + ref[2] / WN_Z**2 + GEAR_H - 0.35],
+                [pad[1][0], pad[1][1], ref[1] - V_SINK],
+                self.yaw_sp,
+            )
+        elif self.flyer.alive:
+            self.flyer.cut()
+        if ts - self.t_cut > T_STAY:
             self.t_landed = self.t
             self._enter("landed")
+
+    COLS = SkydioLand.COLS + [
+        "pad_x",
+        "pad_y",
+        "pad_z",
+        "sp_x",
+        "sp_y",
+        "sp_z",
+    ]  # the true pad centre and the command
+
+    def _trace(self, p, R_true, v, tilt_cmd):
+        super()._trace(p, R_true, v, tilt_cmd)
+        pad = self._deck_truth()[0] if self.tdeck is not None else np.zeros(3)
+        sp = self.flyer.sp[0]
+        self.rows[-1] += [*map(float, pad), *map(float, sp)]
 
     # ---- truth records ----------------------------------------------------------------------------------------------------------------
     def _deck_truth(self):

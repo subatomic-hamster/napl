@@ -201,6 +201,32 @@ def trim_leg(win, a, b, z, r_safe, step=0.25, margin=0.3, min_len=2.5):
     return a + (b - a) * best[0] / n, a + (b - a) * best[1] / n
 
 
+# ---- depth in rain ------------------------------------------------------------------------------------------------------------------
+def despeckle(depth, unknown=1.0e3, tol=0.15, k_hit=3, k_miss=6):
+    """Depth image cleaned of the speckle that rain leaves in it (a raindrop in the beam: a false NEAR return on an otherwise coherent surface; an attenuated return: a dropout in
+    a valid neighbourhood). A pixel is judged by its 8 neighbours: a valid pixel with fewer than `k_hit` neighbours at a similar depth (within `tol` of it + 0.1 m) is a speckle; a
+    no-return (inf) pixel with at least `k_miss` valid neighbours is a dropout, not free space. Both become `unknown` (a finite depth beyond the mapper's hit range: neither a hit nor
+    a carved ray, mapping.integrate). Thin things one or two pixels wide (wires, twigs) are lost with the speckle: the price of the filter (README.md)."""
+    h, w = depth.shape
+    pad = np.pad(depth, 1, constant_values=np.inf)
+    nb = [
+        pad[i : i + h, j : j + w]
+        for i in range(3)
+        for j in range(3)
+        if (i, j) != (1, 1)
+    ]
+    fin = np.isfinite(depth)
+    with np.errstate(invalid="ignore"):
+        similar = sum(
+            np.isfinite(n) & (np.abs(n - depth) <= tol * depth + 0.1) for n in nb
+        )
+    valid_nb = sum(np.isfinite(n) for n in nb)
+    bad = (fin & (similar < k_hit)) | (~fin & (valid_nb >= k_miss))
+    out = depth.copy()
+    out[bad] = unknown
+    return out
+
+
 # ---- estimator: RTK position fix ----------------------------------------------------------------------------------------------------
 def geodetic_to_enu(lat, lon, alt, lat0, lon0, alt0):
     """Flat-earth east / north / up of a fix w.r.t. (lat0, lon0, alt0): the inverse of the kernel's GNSS (sensors.cpp, WGS84 meridian and prime-vertical radii at lat0)."""

@@ -141,6 +141,11 @@ class SkydioLand(Skydio):
             cfg.get("band_hi", 3.4)
         )  # m: top of the planner's altitude band above the ground reference
         self.z_c = self.ground + self.cruise
+        self.g_rate, self._g_t = (
+            0.0,
+            0.0,
+        )  # climb rate of the terrain under the vehicle, from the lidar (see _lidar)
+        self._speeds0 = self.prm.speeds
         self.gmap = L.GroundMap()
         self.surveying = False
         self.assessments, self.rejected = [], []
@@ -229,12 +234,23 @@ class SkydioLand(Skydio):
         self._agl_buf = (self._agl_buf + [r * vr - self.vr_rest])[-5:]
         self.agl = float(np.median(self._agl_buf))
         hit = o + r * d
+        if (
+            abs(r * vr - self.vr_rest - self.agl) > 0.3
+        ):  # not the median of the last five readings: a raindrop in the beam (a lone false near return), a real step shows in the median within 3 frames
+            return
         if self.surveying:
             self.gmap.add(hit[0], hit[1], hit[2])
         if self.follow_ground and self.phase in ("fly", "map", "scan"):
+            g0 = self.ground
             self.ground += (
                 0.02 * (float(hit[2]) - self.ground)
             )  # ~0.5 s at the lidar's 100 Hz: follows the terrain, ignores a boulder passed over
+            dt = self.t - self._g_t
+            if (
+                0.0 < dt < 0.5
+            ):  # the climb rate of the ground under the vehicle (m/s), ~1 s average: the planner leads a rising slope with it
+                self.g_rate += dt * ((self.ground - g0) / dt - self.g_rate)
+            self._g_t = self.t
 
     def _rtk(self):
         """RTK rover fix (10 Hz, delayed): a position measurement for the filter, gated at 3 m (a jump is a fault)."""
@@ -483,6 +499,10 @@ class SkydioLand(Skydio):
     # ---- sensing and planning ---------------------------------------------------------------------------------------------------------------
     def _process(self, img, cam_pos, cam_R, t_s, tcam):
         w0 = time.perf_counter()
+        if (
+            self.land["rain_mm_h"] > 0
+        ):  # the speckle filter of the rain scenarios (land.despeckle)
+            img = L.despeckle(img)
         self.map.integrate(img, self.cam, cam_pos, cam_R)
         if self.map.frames % DEPTH_EVERY == 0:
             self.depth_log.append((t_s, img.astype(np.float16)))
@@ -494,11 +514,19 @@ class SkydioLand(Skydio):
         p, v, R = self.flyer.last[0], self.flyer.last[1], self.flyer.last[2]
         g, prm = self.ground, self.prm
         hi = self.band_hi
+        lead = (
+            2.0 * min(max(self.g_rate, 0.0), 2.5)
+        )  # m: a rising slope is led by ~2 s of its climb rate (the ground reference lags ~0.5 s and the plan holds 1.4 s)
         prm.z_min, prm.z_max, prm.z_cruise = (
-            g + 0.9,
-            g + hi,
-            g + self.cruise,
+            g + 0.9 + 0.5 * lead,
+            g + hi + lead,
+            g + self.cruise + lead,
         )  # the original's altitude band, above the ground reference
+        prm.speeds = (
+            self._speeds0
+            if self.g_rate < 0.6
+            else tuple(s for s in self._speeds0 if s <= 2.5)
+        )  # steep ground: no fast primitives
         win = self.map.window(p, half=10.0, z_lo=g + 0.4, z_hi=g + hi + 1.6)
         field = GoalField(win, self.goal, z_lo=g + 0.9, z_hi=g + hi)
         plan = self.planner.plan(
@@ -615,6 +643,12 @@ class SkydioLand(Skydio):
                 break
         return self.finish()
 
+    LIM = (
+        1.0,
+        12.0,
+        DIST_ZONE_M,
+    )  # success: touchdown speed (m/s), tilt (deg) and distance from a safe zone's centre (m): the scenarios' monitors (decks override)
+
     def _final_ok(self):
         """The run's own last check on the final pose (ground: nothing; decks: still on the pad)."""
         return True
@@ -643,8 +677,8 @@ class SkydioLand(Skydio):
         td = self.td
         fin = tr[-1]
         z_fin, z_name = self.world.nearest_safe_zone(fin[1:3])
-        ok = bool(self.phase == "landed" and td is not None and self.n_crash == 0 and self.n_obst == 0 and td["speed"] <= 1.0 and td["tilt_deg"] <= 12.0
-                  and td["safe"] and td["dist_safe_m"] <= DIST_ZONE_M and col["tilt_deg"][-1] < 25.0 and self._final_ok())  # fmt: skip
+        ok = bool(self.phase == "landed" and td is not None and self.n_crash == 0 and self.n_obst == 0 and td["speed"] <= self.LIM[0] and td["tilt_deg"] <= self.LIM[1]
+                  and td["safe"] and td["dist_safe_m"] <= self.LIM[2] and col["tilt_deg"][-1] < 25.0 and self._final_ok())  # fmt: skip
         summ = dict(scenario=self.land["scenario"], family=self.land["family"], seed=self.seed, sim_s=self.t, wall_s=time.monotonic() - self.wall0,
                     landed=self.phase == "landed", success=ok, touchdown=td, crash_steps=int(self.n_crash), contact_steps=int(self.n_obst),
                     min_clearance_m=self.min_clear, path_length_m=self.path_len, zones_tried=[a["zone"] for a in self.assessments], rejected=self.rejected,

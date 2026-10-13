@@ -107,16 +107,16 @@ lo = 1
 to = 100
 
 [[monitors]]
-name = "touchdown_vertical_speed"
+name = "touchdown_vertical_speed"           # RELATIVE to the plate; the gear's limit, as on the ground (the first version asked 0.8)
 column = "td_speed_ms"
 op = "final"
-hi = 0.8
+hi = 1.0
 
 [[monitors]]
 name = "touchdown_tilt"
 column = "td_tilt_deg"
 op = "final"
-hi = 8
+hi = 12
 
 [[monitors]]
 name = "touchdown_on_the_plate"              # distance from the plate centre in the deck frame; the plate is 0.75 x 0.90 m, 0.10 m margin for the gear
