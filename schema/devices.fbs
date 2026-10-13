@@ -179,6 +179,31 @@ table JetVane {
   jet_factor: double = 1.0;   // mean exhaust speed over the vane / momentum-theory exit speed
 }
 
+// Terrain-aware wind (windfield.cpp), at most one, needs an Environment. Replaces the one uniform wind vector by a field evaluated at
+// every rotor hub / drag body (Environment.wind = the steady wind at height z_ref above local ground, far from relief). Components:
+//  - boundary layer: horizontal wind x ln(h / z0) / ln(z_ref / z0), h = height above ground (hfield surface under the point, else
+//    ground_z) clamped to [2 z0, h_max] (neutral log law; z0 = 0 turns it off);
+//  - ridge flow (an estimate): linear potential flow over hills (Jackson & Hunt 1975 / Hunt et al. 1988 flavour). With h_L, h_B the
+//    terrain smoothed over ridge_len and 4 ridge_len, U the local wind speed along u = wind_xy / |wind_xy|, d = exp(-h / ridge_len):
+//    along-wind speed-up dU = ridge_gain U d (h_L - h_B) / ridge_len (clamped to [-0.5, 1] U), vertical wind
+//    w = ridge_gain U d u.grad(h_L) (clamped to +-U): updraft on windward slopes, downdraft on lee slopes. Needs an hfield_geom;
+//  - lee separation (an estimate): where an upwind slope (sampled 0..3 ridge_len upwind) exceeds ~0.15..0.4, the lee zone adds a
+//    downdraft lee_down U and multiplies the Dryden turbulence by up to lee_turb (decaying with 2 ridge_len of height, 4 ridge_len of distance);
+//  - discrete gusts (input `gust`, "1 - cos" of FAR 25.341 / MIL-F-8785C), see windfield.cpp.
+// Dryden turbulence then uses the height above LOCAL ground. Without this device nothing changes, bitwise.
+table WindField {
+  name: string (required); parts: [string];
+  hfield_geom: string;       // static, unrotated hfield geom giving the ground; empty = flat ground at ground_z
+  ground_z: double;          // m (world z) of the flat ground when hfield_geom is empty
+  z0: double;                // roughness length, m (grass 0.03, bare rock / snow 0.001..0.01); 0 = no profile
+  z_ref: double = 10.0;      // m AGL where Environment.wind is given
+  h_max: double = 300.0;     // m AGL above which the profile stops growing
+  ridge_gain: double;        // scale of the ridge speed-up / lift (1 = linear theory, 0 = off)
+  ridge_len: double = 80.0;  // m, smoothing length and decay height of the ridge flow
+  lee_turb: double = 2.0;    // Dryden intensity multiplier in the lee separation zone
+  lee_down: double = 0.2;    // lee downdraft, fraction of the local wind speed
+}
+
 // At most one. World frame, z up; world z = 0 is ground level (AGL for turbulence) and origin_alt metres MSL (ISA).
 // Turbulence = Dryden (MIL-F-8785C low altitude) of reference height h: z of `ref_body` if given, else `ref_height`
 // (m above world z = 0). One frozen turbulence vector for the whole scene. w20 = wind speed at 6.1 m (20 ft), 0 = off.
@@ -419,6 +444,7 @@ table Devices {
   launchers: [Launcher]; cameras: [Camera];
   solid_motors: [SolidMotor]; airframes: [Airframe]; seas: [Sea]; vessels: [Vessel]; rangefinders: [Rangefinder];
   jet_vanes: [JetVane];
+  wind_fields: [WindField];
 }
 
 root_type Devices;

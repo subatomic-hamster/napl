@@ -119,8 +119,14 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
     const EnvCfg& c = dv.env.cfg[e];
     EnvState& s = dv.env.st[e];
     s.density = rho_at(dv, 0.0);
-    if (c.w20 > 0) dryden_step(c, s, c.bid >= 0 ? d->xpos[3 * c.bid + 2] : c.ref_height, dt);
+    if (c.w20 > 0) {
+      double z_ref = c.bid >= 0 ? d->xpos[3 * c.bid + 2] : c.ref_height;
+      if (c.bid >= 0 && !dv.wfield.cfg.empty()) z_ref -= ground_height(dv, d->xpos[3 * c.bid], d->xpos[3 * c.bid + 1]);  // AGL of the local ground
+      dryden_step(c, s, z_ref, dt);
+    }
   }
+  step_wind_field(m, d, dv);  // gusts, WindField outputs (no-op without a wind_field device)
+  const bool field = !dv.wfield.cfg.empty();  // wind per point (windfield.cpp) instead of the one uniform vector
   double wind[3];
   wind_at(dv, wind);
 
@@ -135,7 +141,9 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
     // A marine propeller (c.water) sees the sea: its density, its current instead of the wind, and the surface above the hub.
     double cur[3] = {0, 0, 0};
     if (c.water) sea_current(dv, cur);
-    const double* air = c.water ? cur : wind;
+    double loc[3] = {0, 0, 0};
+    if (field && !c.water) wind_at_point(dv, d->xipos + 3 * c.bid, loc);
+    const double* air = c.water ? cur : field ? loc : wind;
     const double vrel[3] = {vel[3] - air[0], vel[4] - air[1], vel[5] - air[2]};
     const double v_ax = dot3(vrel, ax);
     const double vperp[3] = {vrel[0] - v_ax * ax[0], vrel[1] - v_ax * ax[1], vrel[2] - v_ax * ax[2]};
@@ -187,13 +195,17 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
     const DragCfg& c = dv.drag.cfg[b];
     double vel[6];
     mj_objectVelocity(m, d, mjOBJ_BODY, c.bid, vel, 0);
-    const double vrel[3] = {vel[3] - wind[0], vel[4] - wind[1], vel[5] - wind[2]};
+    double loc[3] = {0, 0, 0};
+    if (field) wind_at_point(dv, d->xipos + 3 * c.bid, loc);
+    const double* air = field ? loc : wind;
+    const double vrel[3] = {vel[3] - air[0], vel[4] - air[1], vel[5] - air[2]};
     const double k = -0.5 * rho_at(dv, d->xipos[3 * c.bid + 2]) * c.cd * c.area * std::sqrt(dot3(vrel, vrel));
     for (int i = 0; i < 3; ++i) {
       dv.drag.st[b].force[i] = k * vrel[i];
       d->xfrc_applied[6 * c.bid + i] += k * vrel[i];
     }
   }
+  advance_wind_clock(dv, dt);
 }
 
 }  // namespace devs

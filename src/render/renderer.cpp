@@ -32,6 +32,7 @@ constexpr VkFormat kLinFmt = VK_FORMAT_R32_SFLOAT;  // linear depth in metres
 constexpr VkFormat kDepthFmt = VK_FORMAT_D32_SFLOAT;
 constexpr int kShadowSize = 2048;
 constexpr double kNear = 0.05, kFar = 1000;  // metres; depth testing only (the linear-depth output is exact)
+constexpr double kFarTerrain = 5000;          // scenes with a heightfield (mountains are seen from kilometres); others keep kFar bit for bit
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kUnboundedPlane = 500;  // half extent drawn for a plane of size <= 0 (inside kFar)
 constexpr float kEdgePx = 1.6f;          // crease-edge line width in pixels
@@ -121,7 +122,8 @@ Verts tessellate(const GeomVisual& g) {
       quad(o, q0, q1, q2, q3);
       break;
     }
-    case GeomType::mesh: o = g.mesh; break;
+    case GeomType::mesh:
+    case GeomType::hfield: o = g.mesh; break;
     case GeomType::other: break;
   }
   return o;
@@ -192,6 +194,10 @@ std::uint64_t hash_visuals(std::span<const GeomVisual> v) {  // FNV-1a 64 over e
     if (g.water()) {  // the sea mesh changes every frame and is rewritten in place (Renderer::render): only its size is part of the scene
       const std::size_t n = g.mesh.size();
       mix(&n, sizeof n);
+    } else if (g.type == GeomType::hfield) {  // static and large (100k+ triangles): the size and every 61st float stand for it
+      const std::size_t n = g.mesh.size();
+      mix(&n, sizeof n);
+      for (std::size_t i = 0; i < n; i += 61) mix(&g.mesh[i], sizeof(float));
     } else {
       mix(g.mesh.data(), g.mesh.size() * sizeof(float));
     }
@@ -365,6 +371,8 @@ struct Renderer::Impl {
     float rgba[4] = {}, mat[4] = {};
     double radius = 0;
     bool visible = false, plane = false, water = false;  // water: the sea mesh (rewritten every frame by update_water)
+    bool terrain = false;  // heightfield: slope / height shaded, no crease edges, outside the shadow-map fit
+    float zlo = 0, zhi = 1;  // terrain: local z range of the mesh
   };
   struct Target {
     int w = 0, h = 0;
@@ -887,14 +895,15 @@ struct Renderer::Impl {
   void prepare(std::span<const GeomPose> poses, const Camera& cam, int w, int h) {
     cur = effective_style();
     const View v = make_view(cam, w, h);
-    constexpr double A = kFar / (kFar - kNear), B = -kFar * kNear / (kFar - kNear);
+    const double zfar = std::any_of(draws.begin(), draws.end(), [](const Draw& d) { return d.terrain; }) ? kFarTerrain : kFar;
+    const double A = zfar / (zfar - kNear), B = -zfar * kNear / (zfar - kNear);
     const Palette pal = palette(cur.sky);
 
     // sun shadow map: an orthographic box fitted to the bounding sphere of everything that casts (planes do not)
     V3 lo{1e300, 1e300, 1e300}, hi{-1e300, -1e300, -1e300};
     bool any = false;
     for (std::size_t i = 0; i < draws.size(); ++i) {
-      if (!draws[i].visible || draws[i].plane || draws[i].water) continue;
+      if (!draws[i].visible || draws[i].plane || draws[i].water || draws[i].terrain) continue;
       const V3 p{poses[i].pos[0], poses[i].pos[1], poses[i].pos[2]};
       const double r = draws[i].radius;
       lo = {std::min(lo.x, p.x - r), std::min(lo.y, p.y - r), std::min(lo.z, p.z - r)};
@@ -948,7 +957,8 @@ struct Renderer::Impl {
       std::memcpy(d.color, draws[i].rgba, sizeof d.color);
       std::memcpy(d.mat, draws[i].mat, sizeof d.mat);
       d.flags[0] = draws[i].plane ? 1.0f : 0.0f;
-      d.flags[1] = draws[i].water ? 1.0f : 0.0f;
+      d.flags[1] = draws[i].water ? 1.0f : draws[i].terrain ? 2.0f : 0.0f;
+      d.flags[2] = draws[i].zlo, d.flags[3] = draws[i].zhi;
     }
     Verts tv;
     tube_draws.clear();
@@ -1199,9 +1209,15 @@ struct Renderer::Impl {
       d.visible = d.count > 0 && g.group != 3 && g.rgba[3] > 0;  // group 3: hidden collision geoms (4 = design-builder vehicle geoms: shown)
       d.plane = g.type == GeomType::plane;
       d.water = g.water();
+      d.terrain = g.type == GeomType::hfield;
+      if (d.terrain && !v.empty()) {
+        d.zlo = d.zhi = v[2];
+        for (std::size_t k = 2; k < v.size(); k += 6) d.zlo = std::min(d.zlo, v[k]), d.zhi = std::max(d.zhi, v[k]);
+        d.mat[0] = 0.08f, d.mat[1] = 0.1f, d.mat[2] = d.mat[3] = -1;  // a matte surface, whatever the geom's default material
+      }
       d.radius = bound_radius(v);
       all.insert(all.end(), v.begin(), v.end());
-      if (d.visible && !d.plane && !d.water) {
+      if (d.visible && !d.plane && !d.water && !d.terrain) {
         const Verts e = crease_edges(v);
         d.efirst = static_cast<std::uint32_t>(all.size() / 6);
         d.ecount = static_cast<std::uint32_t>(e.size() / 6);

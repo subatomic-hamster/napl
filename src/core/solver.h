@@ -20,8 +20,10 @@ struct Result {
 
 // Static look of one geom (what the renderer tessellates once). visuals() and poses() are index-parallel.
 // size: plane = half extents x,y (<= 0: unbounded); sphere = r; capsule = r, half length (along local z);
-// ellipsoid = semi-axes; cylinder = r, half length; box = half extents. `other` (heightfield, SDF, ...) is not drawn.
-enum class GeomType { plane, sphere, capsule, ellipsoid, cylinder, box, mesh, other };
+// ellipsoid = semi-axes; cylinder = r, half length; box = half extents. `other` (SDF, ...) is not drawn. hfield: the heightfield already
+// triangulated into `mesh` (like mesh, geom frame; shaded as terrain by the renderer, never part of the shadow-map fit); size = its
+// half extents x, y and elevation range.
+enum class GeomType { plane, sphere, capsule, ellipsoid, cylinder, box, mesh, other, hfield };
 struct GeomVisual {
   GeomType type = GeomType::other;
   double size[3] = {0, 0, 0};
