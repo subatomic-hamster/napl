@@ -20,8 +20,10 @@ struct Result {
 
 // Static look of one geom (what the renderer tessellates once). visuals() and poses() are index-parallel.
 // size: plane = half extents x,y (<= 0: unbounded); sphere = r; capsule = r, half length (along local z);
-// ellipsoid = semi-axes; cylinder = r, half length; box = half extents. `other` (heightfield, SDF, ...) is not drawn.
-enum class GeomType { plane, sphere, capsule, ellipsoid, cylinder, box, mesh, other };
+// ellipsoid = semi-axes; cylinder = r, half length; box = half extents. `other` (SDF, ...) is not drawn. hfield: the heightfield already
+// triangulated into `mesh` (like mesh, geom frame; shaded as terrain by the renderer, never part of the shadow-map fit); size = its
+// half extents x, y and elevation range.
+enum class GeomType { plane, sphere, capsule, ellipsoid, cylinder, box, mesh, other, hfield };
 struct GeomVisual {
   GeomType type = GeomType::other;
   double size[3] = {0, 0, 0};
@@ -50,9 +52,16 @@ struct GeomPose {
   double rot[9];
 };
 
+// The weather a renderer shows (a pure read of the scene's rain device; all zero = the clear look, unchanged): rain rate mm/h,
+// the wind the drops drift with (m/s, world), sim time s (so streaks move with the simulation, not the wall clock).
+struct Weather {
+  double rain = 0, wind[3] = {0, 0, 0}, time = 0;
+};
+
 class Solver {
  public:
   virtual ~Solver() = default;
+  virtual Weather weather() const { return {}; }
 
   virtual double dt() const = 0;
   // Advance up to n steps; stops early on divergence. Returns steps actually taken.

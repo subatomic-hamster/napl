@@ -155,6 +155,10 @@ table Rotor {
   // Thrust factor in reverse spin (foils are asymmetric: T200 3.71 kgf forward, 2.92 kgf reverse at 12 V). Multiplies the thrust only
   // (the torque is the mirrored table). 1 = symmetric (default, bitwise unchanged).
   rev_thrust: double = 1.0;
+  // Rain (only with a Rain device and rate > 0; docs/models.md "Rain"): thrust x (1 - rain_kt LWC / 23 g/m^3), aero torque x
+  // (1 + rain_kq LWC / 23 g/m^3), LWC = liquid water content of the rain. First-order estimates, not rotor measurements.
+  rain_kt: double = 0.10;
+  rain_kq: double = 0.15;
 }
 
 // Jet vane: a flat plate on a hinge in the exhaust of a Rotor (a ducted fan, a slipstream), the thrust-vectoring surface of a
@@ -177,6 +181,31 @@ table JetVane {
   cn_max: double = 1.2;       // normal-force coefficient of the stalled plate
   cd0: double;                // chord-wise drag coefficient on `area`
   jet_factor: double = 1.0;   // mean exhaust speed over the vane / momentum-theory exit speed
+}
+
+// Terrain-aware wind (windfield.cpp), at most one, needs an Environment. Replaces the one uniform wind vector by a field evaluated at
+// every rotor hub / drag body (Environment.wind = the steady wind at height z_ref above local ground, far from relief). Components:
+//  - boundary layer: horizontal wind x ln(h / z0) / ln(z_ref / z0), h = height above ground (hfield surface under the point, else
+//    ground_z) clamped to [2 z0, h_max] (neutral log law; z0 = 0 turns it off);
+//  - ridge flow (an estimate): linear potential flow over hills (Jackson & Hunt 1975 / Hunt et al. 1988 flavour). With h_L, h_B the
+//    terrain smoothed over ridge_len and 4 ridge_len, U the local wind speed along u = wind_xy / |wind_xy|, d = exp(-h / ridge_len):
+//    along-wind speed-up dU = ridge_gain U d (h_L - h_B) / ridge_len (clamped to [-0.5, 1] U), vertical wind
+//    w = ridge_gain U d u.grad(h_L) (clamped to +-U): updraft on windward slopes, downdraft on lee slopes. Needs an hfield_geom;
+//  - lee separation (an estimate): where an upwind slope (sampled 0..3 ridge_len upwind) exceeds ~0.15..0.4, the lee zone adds a
+//    downdraft lee_down U and multiplies the Dryden turbulence by up to lee_turb (decaying with 2 ridge_len of height, 4 ridge_len of distance);
+//  - discrete gusts (input `gust`, "1 - cos" of FAR 25.341 / MIL-F-8785C), see windfield.cpp.
+// Dryden turbulence then uses the height above LOCAL ground. Without this device nothing changes, bitwise.
+table WindField {
+  name: string (required); parts: [string];
+  hfield_geom: string;       // static, unrotated hfield geom giving the ground; empty = flat ground at ground_z
+  ground_z: double;          // m (world z) of the flat ground when hfield_geom is empty
+  z0: double;                // roughness length, m (grass 0.03, bare rock / snow 0.001..0.01); 0 = no profile
+  z_ref: double = 10.0;      // m AGL where Environment.wind is given
+  h_max: double = 300.0;     // m AGL above which the profile stops growing
+  ridge_gain: double;        // scale of the ridge speed-up / lift (1 = linear theory, 0 = off)
+  ridge_len: double = 80.0;  // m, smoothing length and decay height of the ridge flow
+  lee_turb: double = 2.0;    // Dryden intensity multiplier in the lee separation zone
+  lee_down: double = 0.2;    // lee downdraft, fraction of the local wind speed
 }
 
 // At most one. World frame, z up; world z = 0 is ground level (AGL for turbulence) and origin_alt metres MSL (ISA).
@@ -409,6 +438,26 @@ table Rangefinder {
   resolution: double; dropout: double;
   ray_groups: uint = 63;
   seed: uint64;
+  // Rain (only with a Rain device and rate > 0; docs/models.md "Rain"): extinction alpha = rain_a R^rain_b (1/m, R in mm/h;
+  // Marshall-Palmer drops, Q_ext = 2), two-way loss 8.686 alpha r dB, detection logistic of (rain_margin_db + 20 log10(max/r) - loss),
+  // range sigma x 10^(loss/20); false near returns from drops: beam diameter rain_beam (m), zone to rain_zone (m), detectable
+  // fraction rain_det. Defaults: a 905 nm-class lidar / ToF; rain_det = 0 turns the false returns off.
+  rain_a: double = 1.82e-4; rain_b: double = 0.63; rain_margin_db: double = 6.0;
+  rain_beam: double = 0.02; rain_zone: double = 1.5; rain_det: double = 0.01;
+  // Water film on the sensor window / wet targets: extra two-way loss rain_window_db (dB at 25 mm/h, x sqrt(R / 25)), an estimate.
+  rain_window_db: double = 1.5;
+}
+
+// Rain: precipitation of the whole scene (needs an Environment for the wind the drops drift with; rotors, rangefinders and the
+// film body read it). `rate` mm/h is settable at run time (0 = dry: every effect off, nothing changes bitwise). Marshall-Palmer
+// drops; LWC = 0.072 R^0.88 g/m^3; fall speed v = R / LWC (so the mass flux equals the rain rate). The `body` (a vehicle root) catches
+// rain: momentum force LWC A |u| u (u = drop velocity - body velocity, drops drift with the wind) at its CoM, and a water film
+// that adds weight: dm/dt = collect_eff LWC A |u| - m / film_tau, m <= 1000 kg/m^3 film_depth wet_area.
+table Rain {
+  name: string (required); parts: [string];
+  rate: double;
+  body: string; catch_area: double; wet_area: double;
+  film_depth: double = 3e-4; film_tau: double = 20.0; collect_eff: double = 0.3;
 }
 
 table Devices {
@@ -419,6 +468,8 @@ table Devices {
   launchers: [Launcher]; cameras: [Camera];
   solid_motors: [SolidMotor]; airframes: [Airframe]; seas: [Sea]; vessels: [Vessel]; rangefinders: [Rangefinder];
   jet_vanes: [JetVane];
+  wind_fields: [WindField];
+  rains: [Rain];
 }
 
 root_type Devices;

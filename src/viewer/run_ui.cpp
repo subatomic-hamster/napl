@@ -1,6 +1,7 @@
 #include "viewer/run_ui.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
 
 #include "viewer/theme.h"
@@ -29,6 +30,9 @@ bool RunUi::command(const std::string& name) {
   if (name == "bench" || name == "full") full_ = name == "full";
   else if (name == "run") start();
   else if (name == "stop") stop();
+  else if (name.rfind("hover:", 0) == 0) hover_ = name.substr(6), click_ = 0;
+  else if (name.rfind("click:", 0) == 0) hover_ = name.substr(6), click_ = 1;
+  else if (name == "follow" || name == "unfollow") follow = name == "follow";  // the chase camera, as the user's take-over / resume
   else if (name.rfind("target:", 0) == 0) (full_ ? full_pick_ : bench_pick_) = name.substr(7);
   else return false;
   return true;
@@ -57,6 +61,8 @@ void RunUi::start() {
   prog_.show_output();
   state_ = State::Starting;
   verdict_.clear();
+  held_ = false;  // the new run replaces the held scene (the Backend loads its own model)
+  follow = true;
   stop_sent_ = false;
   send("run.start", design::request("run.start", args));
 }
@@ -130,6 +136,12 @@ void RunUi::finish(const design::Json& r) {
   const bool pass = result.at("pass").kind == design::Json::Bool || result.at("pass").kind == design::Json::Num ? result.at("pass").num != 0 : false;
   state_ = State::Done;
   verdict_ = st == "stopped" ? "stopped" : st == "failed" ? "failed" : pass ? "PASS" : "FAIL";
+  monitors_.clear(), why_.clear();
+  held_ = full_;  // (the Backend keeps the final scene of every full run, stopped ones too)
+  if (full_) {
+    for (const design::Json& m : result.at("monitors").arr) monitors_.push_back({m.s("name"), m.at("pass").num != 0});
+    for (const design::Json& w : result.at("fail_reasons").arr) why_.push_back(w.str);
+  }
   std::string line = "== " + verdict_ + "  " + (full_ ? "full: " : "bench: ") + target_label_;
   int n = 0;
   for (const auto& [k, v] : result.at("metrics").obj) {
@@ -142,47 +154,106 @@ void RunUi::finish(const design::Json& r) {
   note(line, verdict_ == "PASS" ? "\x1b[32m" : verdict_ == "stopped" ? "\x1b[33m" : "\x1b[31m");
 }
 
+void RunUi::restore() {
+  if (!held_ || running()) return;
+  held_ = false;
+  send("run.restore", design::request("run.restore"));
+}
+
+void RunUi::draw_result() {
+  if (!held()) return;
+  ImGui::Spacing();
+  theme::caption("LAST FULL RUN");
+  const ImVec4 col = verdict_ == "PASS" ? theme::kOk : verdict_ == "stopped" ? theme::kWarn : theme::kErr;
+  ImGui::TextColored(col, "%s", verdict_.c_str());
+  ImGui::SameLine();
+  ImGui::TextWrapped("%s", target_label_.c_str());
+  for (const auto& [name, ok] : monitors_) {
+    ImGui::TextColored(ok ? theme::kOk : theme::kErr, "%s", ok ? "ok  " : "FAIL");
+    ImGui::SameLine();
+    ImGui::TextWrapped("%s", name.c_str());
+  }
+  for (const std::string& w : why_) ImGui::TextColored(theme::kErr, "why: %s", w.c_str());
+  ImGui::TextDisabled("the scene above is the run's final state");
+  if (theme::button("BACK TO PROGRAM", true)) back_to_program = true;
+  ImGui::SetItemTooltip("the PROGRAM page; BUILD / LIBRARY / WIRING load the design's own model back");
+}
+
 void RunUi::draw(ImVec2 /*size*/) {
   const bool busy = running();
+  // A disabled widget has no hover unless asked: say why instead of being silent.
+  const auto busy_tip = [&](const char* what) {
+    if (busy && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("a run is in progress: Stop it first\n(%s)", what);
+  };
+  const auto at = [&](const char* name) {  // scripted hover ("hover:<bench|full|combo|run>"): park the mouse on that control
+    if (hover_ != name) return;
+    const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent((a.x + b.x) / 2, (a.y + b.y) / 2);
+    if (click_ && !io.MouseDown[0] && click_++ == 1) io.AddMouseButtonEvent(0, true);  // "click:<name>": press, then release a frame later
+    else if (click_ && io.MouseDown[0]) io.AddMouseButtonEvent(0, false), click_ = 0;
+  };
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4, 0});
   ImGui::BeginDisabled(busy);
   if (theme::button("BENCH", !full_, {52, 0})) full_ = false;
-  ImGui::SetItemTooltip("the selected component's device model on a short bench, then the tests of the open file");
+  at("bench");
+  if (busy) busy_tip("BENCH: the selected component's device model, then the tests of the open file");
+  else ImGui::SetItemTooltip("the selected component's device model on a short bench, then the tests of the open file");
   ImGui::SameLine();
   if (theme::button("FULL SIM", full_, {66, 0})) full_ = true;
-  ImGui::SetItemTooltip("the scenario's program, live in this window's 3D view");
+  at("full");
+  if (busy) busy_tip("FULL SIM: the scenario's program, live in the 3D view");
+  else ImGui::SetItemTooltip("the scenario's program, live in this window's 3D view");
   ImGui::EndDisabled();
   ImGui::SameLine();
   // target combo
-  std::string cur;
-  if (full_) cur = base(!full_pick_.empty() ? full_pick_ : scenarios_.empty() ? "" : scenarios_.front());
-  else {
+  std::string cur, preview;  // cur: the target id (component id / scenario path); preview: what the closed combo shows
+  const auto comp_label = [](const Comp& c) { return c.id + "   " + (c.kind.empty() ? "(tests only)" : c.kind) + (c.part.empty() ? "" : "   " + c.part); };
+  if (full_) {
+    cur = !full_pick_.empty() ? full_pick_ : scenarios_.empty() ? "" : scenarios_.front();
+    preview = cur;
+  } else {
     cur = bench_pick_;
     if (cur.empty() && selected) cur = selected();
     if (std::none_of(comps_.begin(), comps_.end(), [&](const Comp& c) { return c.id == cur; })) cur = comps_.empty() ? "" : comps_.front().id;
+    for (const Comp& c : comps_)
+      if (c.id == cur) preview = comp_label(c);
   }
   ImGui::BeginDisabled(busy);
-  ImGui::SetNextItemWidth(118);
-  if (ImGui::BeginCombo("##runtarget", cur.empty() ? "(none)" : cur.c_str())) {
-    if (full_) {
-      for (const std::string& s : scenarios_)
-        if (ImGui::Selectable(base(s).c_str(), base(s) == cur)) full_pick_ = s;
-    } else {
-      for (const Comp& c : comps_) {
-        const std::string lab = c.id + (c.kind.empty() ? "   (tests only)" : "   " + c.kind);
-        if (ImGui::Selectable(lab.c_str(), c.id == cur)) bench_pick_ = c.id;
+  ImGui::SetNextItemWidth(140);  // (the run slot is 380 px wide: the open list is wider, and the tooltip names the full pick)
+  ImGui::SetNextWindowSizeConstraints({420, 0}, {FLT_MAX, 340});
+  if (ImGui::BeginCombo("##runtarget", preview.empty() ? "(none)" : preview.c_str())) {
+    if (full_) {  // grouped by folder (relative to the program root), each entry shows its path
+      std::string dir = "\x01";
+      for (const std::string& s : scenarios_) {
+        const std::string d = s.rfind('/') == std::string::npos ? "program root" : s.substr(0, s.rfind('/'));
+        if (d != dir) ImGui::SeparatorText((dir = d).c_str());
+        if (ImGui::Selectable(s.c_str(), s == cur)) full_pick_ = s;
+      }
+    } else {  // modelled components (the bench runs their device model) first, then the ones with tests only
+      for (const bool modelled : {true, false}) {
+        bool head = false;
+        for (const Comp& c : comps_) {
+          if (c.kind.empty() == modelled) continue;
+          if (!head) ImGui::SeparatorText(modelled ? "DEVICE MODEL + TESTS" : "TESTS ONLY (no device model)"), head = true;
+          if (ImGui::Selectable(comp_label(c).c_str(), c.id == cur)) bench_pick_ = c.id;
+        }
       }
     }
     ImGui::EndCombo();
   }
   ImGui::EndDisabled();
-  ImGui::SetItemTooltip(full_ ? "scenario to run (*.scenario.toml in the program root)" : "component to bench (defaults to the one selected in BUILD)");
+  at("combo");
+  if (busy) busy_tip(full_ ? "scenario to run" : "component to bench");
+  else ImGui::SetItemTooltip("%s\n%s", preview.c_str(), full_ ? "scenario to run (*.scenario.toml in the program root)" : "component to bench (defaults to the one selected in BUILD)");
   ImGui::SameLine();
   const bool can = busy || !cur.empty();
   ImGui::BeginDisabled(!can || (busy && state_ == State::Starting));
   if (theme::button(busy ? "Stop" : "Run", !busy, {50, 0})) toggle();
   ImGui::EndDisabled();
-  ImGui::SetItemTooltip(busy ? "stop the run (kills the program)" : "save all, then run");
+  at("run");
+  if (busy && state_ == State::Starting && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("the run is starting: Stop works in a moment");
+  else ImGui::SetItemTooltip(busy ? "stop the run (kills the program)" : "save all, then run");
   if (const std::string c = chip(); !c.empty()) {
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();

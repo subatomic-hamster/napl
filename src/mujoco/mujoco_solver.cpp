@@ -536,7 +536,42 @@ std::vector<double> water_axis(double half) {
   for (std::size_t i = 1; i < u.size(); ++i) out.push_back(u[i]);
   return out;
 }
+
+// The heightfield `id` as unrolled triangles (position xyz, smooth normal xyz) in the geom frame. Cell (r, c) is split along the
+// (c, r) - (c + 1, r + 1) diagonal; vertex normals from central differences of the grid.
+std::vector<float> hfield_mesh(const mjModel* m, int id) {
+  const int nr = m->hfield_nrow[id], nc = m->hfield_ncol[id];
+  const double* sz = m->hfield_size + 4 * id;
+  const float* data = m->hfield_data + m->hfield_adr[id];
+  const double dx = 2 * sz[0] / (nc - 1), dy = 2 * sz[1] / (nr - 1);
+  // MuJoCo's data row 0 is the +y edge (image convention); our row r is at y = -sy + r dy.
+  auto z = [&](int r, int c) { return static_cast<double>(data[(nr - 1 - std::clamp(r, 0, nr - 1)) * nc + std::clamp(c, 0, nc - 1)]) * sz[2]; };
+  auto vert = [&](std::vector<float>& o, int r, int c) {
+    const double nx = -(z(r, c + 1) - z(r, c - 1)) / ((std::min(c + 1, nc - 1) - std::max(c - 1, 0)) * dx);
+    const double ny = -(z(r + 1, c) - z(r - 1, c)) / ((std::min(r + 1, nr - 1) - std::max(r - 1, 0)) * dy);
+    const double l = std::sqrt(nx * nx + ny * ny + 1);
+    o.insert(o.end(), {static_cast<float>(-sz[0] + c * dx), static_cast<float>(-sz[1] + r * dy), static_cast<float>(z(r, c)),
+                       static_cast<float>(nx / l), static_cast<float>(ny / l), static_cast<float>(1 / l)});
+  };
+  std::vector<float> o;
+  o.reserve(static_cast<std::size_t>(nr - 1) * static_cast<std::size_t>(nc - 1) * 36);
+  for (int r = 0; r + 1 < nr; ++r)
+    for (int c = 0; c + 1 < nc; ++c) {
+      vert(o, r, c); vert(o, r, c + 1); vert(o, r + 1, c + 1);
+      vert(o, r, c); vert(o, r + 1, c + 1); vert(o, r + 1, c);
+    }
+  return o;
+}
 }  // namespace
+
+Weather MujocoSolver::weather() const {
+  Weather w;
+  if (!dev_ || dev_->rain.st.empty()) return w;
+  w.rain = dev_->rain.st[0].rate;
+  w.time = d_->time;
+  devs::wind_at(*dev_, w.wind);
+  return w;
+}
 
 std::vector<GeomVisual> MujocoSolver::visuals() const {
   std::vector<GeomVisual> out(static_cast<std::size_t>(m_->ngeom));
@@ -550,6 +585,7 @@ std::vector<GeomVisual> MujocoSolver::visuals() const {
       case mjGEOM_CYLINDER: v.type = GeomType::cylinder; break;
       case mjGEOM_BOX: v.type = GeomType::box; break;
       case mjGEOM_MESH: v.type = GeomType::mesh; break;
+      case mjGEOM_HFIELD: v.type = GeomType::hfield; break;
       default: v.type = GeomType::other; break;
     }
     for (int k = 0; k < 3; ++k) v.size[k] = m_->geom_size[3 * g + k];
@@ -575,6 +611,10 @@ std::vector<GeomVisual> MujocoSolver::visuals() const {
         v.mesh = devs::sea_surface_mesh(*dev_, water_axis(m_->geom_size[3 * g]), water_axis(m_->geom_size[3 * g + 1]));
         continue;
       }
+    }
+    if (v.type == GeomType::hfield) {
+      v.mesh = hfield_mesh(m_, m_->geom_dataid[g]);
+      continue;
     }
     if (v.type != GeomType::mesh) continue;
     // mesh_face / mesh_facenormal index locally from the mesh's vertex / normal address.

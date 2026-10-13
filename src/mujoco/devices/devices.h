@@ -74,6 +74,7 @@ struct RotorCfg {
   double rev_thrust = 1.0;                 // thrust factor in reverse spin (schema Rotor.rev_thrust)
   std::vector<double> re_x, re_ft, re_fq;  // optional Reynolds factors over x = |n| D^2 (empty = off)
   std::string stator_body; double swirl_recovery = 0;  // EDF stator: share of the fan's torque handed to stator_body (schema Rotor)
+  double rain_kt = 0.10, rain_kq = 0.15;               // rain: thrust loss / torque rise per 23 g/m^3 of LWC (schema Rotor)
   int bid = -1, jnt = -1, dof = -1, stator_bid = -1;  // resolved by bind()
 };
 struct EnvCfg {
@@ -140,14 +141,26 @@ struct VesselCfg {
   bool has_a = false, heading_frame = false;  // heading_frame: surge / sway / heave damping and added mass in the yaw-only frame (schema Vessel)
   int bid = -1;
 };
+struct RainCfg {
+  Meta meta; double rate0; std::string body; double catch_area, wet_area, film_depth, film_tau, collect_eff;
+  int bid = -1;  // body, resolved by bind() (-1: no film)
+};
 struct RangefinderCfg {
   Meta meta; std::string site; double rate_hz, fov_h, fov_v, min_r, max_r, s0, s1, s2, res, dropout; std::string proj;
   int n_h, n_v; unsigned ray_groups; std::uint64_t seed;
   bool pinhole = true;
-  std::vector<double> dir;    // n_v * n_h unit rays in the site frame (row-major), 3 doubles each
+  double rain_a = 1.82e-4, rain_b = 0.63, rain_margin_db = 6.0, rain_beam = 0.02, rain_zone = 1.5, rain_det = 0.01, rain_window_db = 1.5;  // schema Rangefinder
+  std::vector<double> dir;   // n_v * n_h unit rays in the site frame (row-major), 3 doubles each
   std::vector<double> scale;  // range -> output factor per pixel (pinhole: 1 / |unnormalised ray| = z-depth per metre; spherical: 1)
   double cutoff = 0;  // Euclidean ray length that can still give an output <= max_r
   int sid = -1, body = -1, period = 0;
+};
+// Terrain-aware wind (schema WindField, windfield.cpp). The hfield grids are resolved by bind(): heights in metres (world z), row r (y) x
+// column c (x) at index r * ncol + c; h = the surface, hl / hb = h smoothed (Gaussian, sigma ridge_len / 4 ridge_len), not saved (derived).
+struct WindFieldCfg {
+  Meta meta; std::string hfield_geom; double ground_z, z0, z_ref, h_max, ridge_gain, ridge_len, lee_turb, lee_down;
+  int nrow = 0, ncol = 0; double x_lo = 0, y_lo = 0, dx = 1, dy = 1;  // grid origin (corner) and spacing, m; nrow = 0: flat ground
+  std::vector<float> h, hl, hb;
 };
 
 // ---- state: every mutable quantity, doubles / uint64 only (no padding), saved and hashed byte-for-byte ----
@@ -265,6 +278,21 @@ struct VesselState { double buoyancy[3], submerged, wetted, eta, hydro[3]; };
 // Range sensor: the image itself lives in Devices::range_img (derived output, not saved; a restored run holds the old image until its
 // next sample). frames: samples taken; valid: returns in the last one; t: sim time of the last sample.
 struct RangefinderState { Rng rng; std::uint64_t ticks; double frames, valid, t; };
+// Wind field: its own clock t (s). Input `gust_in` = [amplitude m/s (signed), H m (gradient distance, > 0), direction xyz (any length,
+// normalised here), delay s from now, speed m/s]: consumed by the next tick into the first free of kMaxGusts slots (all-zero / H <= 0 = no
+// gust; the oldest slot is overwritten when full), `gust_clear` = 1 drops every gust. A slot is [amp, H, ux, uy, uz, t0, c, nx, ny]
+// (n = unit horizontal propagation direction). Outputs of the last tick at the reference body (Environment.ref_body, else the origin
+// at ref_height): wind (steady + ridge + gust + turbulence), height above ground, ground height, lee factor.
+constexpr int kMaxGusts = 8;
+struct WindState {
+  double t, gust_in[7], gust_clear, n_gusts;  // n_gusts: scheduled so far (slot = n_gusts % kMaxGusts)
+  double gust[kMaxGusts][9];
+  double wind_ref[3], hag, ground, lee;
+};
+
+// Rain (rain.cpp). rate: input (mm/h). Outputs of the last tick: lwc (g/m^3), v_fall (m/s), film_mass (kg; also the film's state),
+// force (N, world: the catch force and the film's weight on the body), thrust_loss (mean fractional thrust loss of the air rotors).
+struct RainState { double rate, lwc, v_fall, film_mass, force[3], thrust_loss; };
 
 template <class C, class S> struct Group {
   using Cfg = C;
@@ -294,11 +322,13 @@ struct Devices {
   Group<SeaCfg, SeaState> sea;  // 0 or 1 element
   Group<VesselCfg, VesselState> vessel;
   Group<RangefinderCfg, RangefinderState> range;
-  Group<JetVaneCfg, JetVaneState> vane;  // last group: older state layouts and hashes are unchanged
+  Group<JetVaneCfg, JetVaneState> vane;
+  Group<WindFieldCfg, WindState> wfield;  // 0 or 1 element; appended after the older groups: their state layouts and hashes are unchanged
+  Group<RainCfg, RainState> rain;  // 0 or 1 element; last group: models without rain keep their state layout and hashes
   int n_nodes = 0;  // highest node id used
   struct Slot {
     enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss, launcher, camera, motor, airframe, sea,
-                vessel, range, vane } type;
+                vessel, range, vane, wfield, rain } type;
     int i;
   };
   std::vector<Slot> slots;  // prim order: type by type, config order within a type
@@ -327,6 +357,14 @@ void solve_electrical(Devices& dv, double dt);
 double rho_at(const Devices& dv, double z);
 double pressure_at(const Devices& dv, double z);  // ISA static pressure, Pa, same altitude convention
 void wind_at(const Devices& dv, double out[3]);
+// Wind field (windfield.cpp). Wind at a world point: with a WindField device the full field (boundary layer, ridge flow, gusts, turbulence
+// scaled by the lee zone), else exactly wind_at. ground_height: the hfield surface (or the flat ground_z) under (x, y); NaN without a
+// WindField. step_wind_field: gust intake + reference outputs, before the rotors; advance_wind_clock: after the force phase.
+void wind_at_point(const Devices& dv, const double pos[3], double out[3]);
+double ground_height(const Devices& dv, double x, double y);
+void bind_wind_field(const mjModel* m, WindFieldCfg& c);  // resolves the hfield grid (throws naming the device)
+void step_wind_field(const mjModel* m, const mjData* d, Devices& dv);
+void advance_wind_clock(Devices& dv, double dt);
 // Phase 2 (servo.cpp): encoder reading of every servo, and the firmware position loop on its own period.
 void step_firmware(const mjModel* m, const mjData* d, Devices& dv);
 // Phase 5: advances the environment (turbulence), then applies rotor and body-drag forces to d->xfrc_applied.
@@ -342,6 +380,10 @@ void step_launchers(const mjModel* m, mjData* d, Devices& dv);
 void prepare_motors(mjModel* m, Devices& dv);
 void step_motors(const mjModel* m, mjData* d, Devices& dv);
 void step_airframes(const mjModel* m, mjData* d, Devices& dv);
+// Rain (rain.cpp): the rate in effect (0 without a rain device) and, in the force phase, the rain state of this tick (LWC, fall speed,
+// film mass, the catch force on the film body). The rotor and rangefinder effects live in aero.cpp / rangefinder.cpp.
+double rain_rate(const Devices& dv);
+void step_rain(const mjModel* m, mjData* d, Devices& dv, const double wind[3]);
 // Jet vanes (vane.cpp): plates in the exhaust of a rotor, after the rotor forces of the same tick.
 void step_vanes(const mjModel* m, mjData* d, Devices& dv);
 

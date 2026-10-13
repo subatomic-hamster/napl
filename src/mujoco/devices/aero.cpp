@@ -119,10 +119,20 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
     const EnvCfg& c = dv.env.cfg[e];
     EnvState& s = dv.env.st[e];
     s.density = rho_at(dv, 0.0);
-    if (c.w20 > 0) dryden_step(c, s, c.bid >= 0 ? d->xpos[3 * c.bid + 2] : c.ref_height, dt);
+    if (c.w20 > 0) {
+      double z_ref = c.bid >= 0 ? d->xpos[3 * c.bid + 2] : c.ref_height;
+      if (c.bid >= 0 && !dv.wfield.cfg.empty()) z_ref -= ground_height(dv, d->xpos[3 * c.bid], d->xpos[3 * c.bid + 1]);  // AGL of the local ground
+      dryden_step(c, s, z_ref, dt);
+    }
   }
+  step_wind_field(m, d, dv);  // gusts, WindField outputs (no-op without a wind_field device)
+  const bool field = !dv.wfield.cfg.empty();  // wind per point (windfield.cpp) instead of the one uniform vector
   double wind[3];
   wind_at(dv, wind);
+  step_rain(m, d, dv, wind);  // rain.cpp: LWC / fall speed of this tick, catch force + film weight on the film body
+  const bool wet = rain_rate(dv) > 0;
+  int n_wet = 0;
+  double s_loss_sum = 0.0;
 
   // Rotors. All velocities in the world frame, rotor CoM (xipos); xfrc_applied acts at xipos.
   for (std::size_t r = 0; r < dv.rotor.cfg.size(); ++r) {
@@ -135,7 +145,9 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
     // A marine propeller (c.water) sees the sea: its density, its current instead of the wind, and the surface above the hub.
     double cur[3] = {0, 0, 0};
     if (c.water) sea_current(dv, cur);
-    const double* air = c.water ? cur : wind;
+    double loc[3] = {0, 0, 0};
+    if (field && !c.water) wind_at_point(dv, d->xipos + 3 * c.bid, loc);
+    const double* air = c.water ? cur : field ? loc : wind;
     const double vrel[3] = {vel[3] - air[0], vel[4] - air[1], vel[5] - air[2]};
     const double v_ax = dot3(vrel, ax);
     const double vperp[3] = {vrel[0] - v_ax * ax[0], vrel[1] - v_ax * ax[1], vrel[2] - v_ax * ax[2]};
@@ -168,9 +180,22 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
       fq = interp(c.re_x, c.re_fq, x);
     }
     const double healthy = 1.0 - s.damage;  // F3 prop damage: fraction of thrust and torque lost (0 = x * 1.0, bitwise unchanged)
-    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy * imm * (s_dir < 0 ? c.rev_thrust : 1.0);
-    const double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter * healthy * imm;
+    double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy * imm * (s_dir < 0 ? c.rev_thrust : 1.0);
+    double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter * healthy * imm;
     double* xf = d->xfrc_applied + 6 * c.bid;
+    if (wet && !c.water) {  // rain (rain.cpp, docs/models.md "Rain"): wetted blades lose lift / gain drag, drops hit the disk
+      const RainState& rs = dv.rain.st[0];
+      const double x = rs.lwc / 23.0;
+      const double kt = std::max(0.5, 1.0 - c.rain_kt * x);
+      thrust *= kt;
+      q_aero *= 1.0 + c.rain_kq * x;
+      s_loss_sum += 1.0 - kt;
+      ++n_wet;
+      // Momentum of the drops stopped by the disk: u = drop velocity - hub velocity along the axis; half of the disk intercepts (estimate).
+      const double u_ax = (wind[0] - vel[3]) * ax[0] + (wind[1] - vel[4]) * ax[1] + (wind[2] - rs.v_fall - vel[5]) * ax[2];
+      const double f_drop = 0.5 * rs.lwc * 1e-3 * (0.25 * kPi * c.diameter * c.diameter) * std::abs(u_ax) * u_ax;
+      for (int i = 0; i < 3; ++i) xf[i] += f_drop * ax[i];
+    }
     for (int i = 0; i < 3; ++i) {
       xf[i] += thrust * ax[i] - c.k_h * std::abs(w) * vperp[i];
       xf[3 + i] += -sgn(w) * q_aero * ax[i];
@@ -182,18 +207,24 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
     s.omega = w; s.thrust = thrust; s.torque = q_aero; s.advance_ratio = adv; s.ge_ratio = c.water ? imm : ge; s.rho = rho;  // damage is an input: keep
   }
 
+  if (n_wet > 0) dv.rain.st[0].thrust_loss = s_loss_sum / n_wet;
+
   // Body drag.
   for (std::size_t b = 0; b < dv.drag.cfg.size(); ++b) {
     const DragCfg& c = dv.drag.cfg[b];
     double vel[6];
     mj_objectVelocity(m, d, mjOBJ_BODY, c.bid, vel, 0);
-    const double vrel[3] = {vel[3] - wind[0], vel[4] - wind[1], vel[5] - wind[2]};
+    double loc[3] = {0, 0, 0};
+    if (field) wind_at_point(dv, d->xipos + 3 * c.bid, loc);
+    const double* air = field ? loc : wind;
+    const double vrel[3] = {vel[3] - air[0], vel[4] - air[1], vel[5] - air[2]};
     const double k = -0.5 * rho_at(dv, d->xipos[3 * c.bid + 2]) * c.cd * c.area * std::sqrt(dot3(vrel, vrel));
     for (int i = 0; i < 3; ++i) {
       dv.drag.st[b].force[i] = k * vrel[i];
       d->xfrc_applied[6 * c.bid + i] += k * vrel[i];
     }
   }
+  advance_wind_clock(dv, dt);
 }
 
 }  // namespace devs

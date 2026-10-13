@@ -71,6 +71,8 @@ const std::string& Devices::name(int slot) const {
     case Slot::vessel: return vessel.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::range: return range.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::vane: return vane.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::wfield: return wfield.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::rain: return rain.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::esc: break;
   }
   return esc.cfg[static_cast<std::size_t>(s.i)].meta.name;
@@ -301,6 +303,8 @@ Devices parse(const std::string& json) {
       need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
       c.water = r->water();
       if (r->stator_body()) c.stator_body = r->stator_body()->str();
+      c.rain_kt = r->rain_kt(); c.rain_kq = r->rain_kq();
+      need(c.rain_kt >= 0 && c.rain_kt <= 1 && c.rain_kq >= 0 && std::isfinite(c.rain_kq), n, "rain_kt must be in [0, 1], rain_kq >= 0");
       c.swirl_recovery = r->swirl_recovery();
       need(c.swirl_recovery >= 0 && c.swirl_recovery <= 1, n, "swirl_recovery must be in [0, 1]");
       need(c.swirl_recovery == 0 || !c.stator_body.empty(), n, "swirl_recovery needs a stator_body");
@@ -681,6 +685,12 @@ Devices parse(const std::string& json) {
       need(c.dropout >= 0 && c.dropout <= 1, n, "dropout must be in [0, 1]");
       c.ray_groups = rf->ray_groups();
       need(c.ray_groups < 64, n, "ray_groups is a 6-bit mask (geom groups 0..5)");
+      c.rain_a = rf->rain_a(); c.rain_b = rf->rain_b(); c.rain_margin_db = rf->rain_margin_db();
+      c.rain_beam = rf->rain_beam(); c.rain_zone = rf->rain_zone(); c.rain_det = rf->rain_det();
+      c.rain_window_db = rf->rain_window_db();
+      need(c.rain_a >= 0 && c.rain_b >= 0 && c.rain_beam >= 0 && c.rain_zone >= 0 && c.rain_det >= 0 && c.rain_det <= 1 &&
+               c.rain_window_db >= 0 && std::isfinite(c.rain_a + c.rain_b + c.rain_margin_db + c.rain_beam + c.rain_zone + c.rain_window_db),
+           n, "rain_a, rain_b, rain_beam, rain_zone, rain_window_db >= 0, rain_det in [0, 1], rain_margin_db finite");
       const std::size_t cnt = static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v);
       c.dir.resize(3 * cnt);
       c.scale.resize(cnt);
@@ -724,6 +734,42 @@ Devices parse(const std::string& json) {
            "cn_alpha, cd0 and jet_factor must be finite and >= 0");
       slot(Devices::Slot::vane, static_cast<int>(dv.vane.cfg.size()));
       dv.vane.cfg.push_back(std::move(c));
+    }
+  if (root->wind_fields())
+    for (const fb::WindField* w : *root->wind_fields()) {
+      WindFieldCfg c{};
+      c.meta = meta_of(w->name(), w->parts(), seen);
+      const std::string& n = c.meta.name;
+      need(dv.wfield.cfg.empty(), n, "only one wind_field device is allowed");
+      need(!dv.env.cfg.empty(), n, "a wind_field needs an environment device");
+      if (w->hfield_geom()) c.hfield_geom = w->hfield_geom()->str();
+      c.ground_z = w->ground_z(); c.z0 = w->z0(); c.z_ref = w->z_ref(); c.h_max = w->h_max();
+      c.ridge_gain = w->ridge_gain(); c.ridge_len = w->ridge_len(); c.lee_turb = w->lee_turb(); c.lee_down = w->lee_down();
+      need(std::isfinite(c.ground_z + c.z0 + c.z_ref + c.h_max + c.ridge_gain + c.ridge_len + c.lee_turb + c.lee_down), n,
+           "wind_field parameters must be finite");
+      need(c.z0 >= 0 && (c.z0 == 0 || c.z_ref > 2.72 * c.z0) && c.h_max > c.z0, n, "need z0 >= 0, z_ref > e z0, h_max > z0");
+      need(c.ridge_gain >= 0 && c.ridge_len > 0 && c.lee_turb >= 0 && c.lee_down >= 0, n,
+           "need ridge_gain, lee_turb, lee_down >= 0 and ridge_len > 0");
+      need(c.ridge_gain == 0 || !c.hfield_geom.empty(), n, "ridge_gain needs an hfield_geom");
+      slot(Devices::Slot::wfield, static_cast<int>(dv.wfield.cfg.size()));
+      dv.wfield.cfg.push_back(std::move(c));
+    }
+  if (root->rains())
+    for (const fb::Rain* rn : *root->rains()) {
+      RainCfg c{};
+      c.meta = meta_of(rn->name(), rn->parts(), seen);
+      const std::string& n = c.meta.name;
+      need(dv.rain.cfg.empty(), n, "only one rain device is allowed");
+      c.rate0 = rn->rate();
+      need(c.rate0 >= 0 && c.rate0 <= 500, n, "rate must be in [0, 500] mm/h");
+      if (rn->body()) c.body = rn->body()->str();
+      c.catch_area = rn->catch_area(); c.wet_area = rn->wet_area(); c.film_depth = rn->film_depth();
+      c.film_tau = rn->film_tau(); c.collect_eff = rn->collect_eff();
+      need(c.catch_area >= 0 && c.wet_area >= 0 && c.film_depth >= 0 && c.film_tau > 0 && c.collect_eff >= 0 && c.collect_eff <= 1 &&
+               std::isfinite(c.catch_area + c.wet_area + c.film_depth + c.film_tau),
+           n, "catch_area, wet_area, film_depth >= 0, film_tau > 0, collect_eff in [0, 1]");
+      slot(Devices::Slot::rain, static_cast<int>(dv.rain.cfg.size()));
+      dv.rain.cfg.push_back(std::move(c));
     }
   if (dv.slots.empty()) throw std::runtime_error("napl.devices: no devices declared");
 
@@ -822,6 +868,12 @@ Devices parse(const std::string& json) {
     dv.range_img.emplace_back(static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v), 0.0);
   }
   dv.vane.st.assign(dv.vane.cfg.size(), JetVaneState{});
+  dv.wfield.st.assign(dv.wfield.cfg.size(), WindState{});
+  for (const RainCfg& c : dv.rain.cfg) {
+    RainState s{};
+    s.rate = c.rate0;
+    dv.rain.st.push_back(s);
+  }
   if (!dv.sea.cfg.empty()) dv.sea.st[0].eta0 = sea_eta(dv, 0.0, 0.0);
   return dv;
 }
@@ -947,10 +999,12 @@ void bind(mjModel* m, Devices& dv) {
       if (dv.rotor.cfg[r].meta.name == c.rotor) c.rot = static_cast<int>(r);
     if (c.rot < 0) fail(c.meta.name, "rotor '" + c.rotor + "' is not a rotor device");
   }
+  for (RainCfg& c : dv.rain.cfg) c.bid = c.body.empty() ? -1 : body_id(c.meta.name, c.body);
   for (VesselCfg& c : dv.vessel.cfg) {
     c.bid = body_id(c.meta.name, c.body);
     if (dv.sea.cfg.empty()) fail(c.meta.name, "a vessel needs a sea device");
   }
+  for (WindFieldCfg& c : dv.wfield.cfg) bind_wind_field(m, c);
   for (const RotorCfg& c : dv.rotor.cfg)
     if (c.water && dv.sea.cfg.empty()) fail(c.meta.name, "a water rotor needs a sea device");
   for (RangefinderCfg& c : dv.range.cfg) {
@@ -1102,6 +1156,8 @@ template <class D, class F> void for_groups(D& dv, F&& f) {
   f(dv.vessel);
   f(dv.range);
   f(dv.vane);
+  f(dv.wfield);
+  f(dv.rain);
 }
 template <class G> constexpr bool pod_ok = std::is_trivially_copyable_v<typename G::State> && sizeof(typename G::State) % 8 == 0;
 }  // namespace
@@ -1240,8 +1296,18 @@ constexpr Attr3<SeaState> kSea3[] = {{"current", "m/s", &SeaState::current, true
 constexpr Attr<VesselState> kVessel[] = {{"submerged", "m^3", &VesselState::submerged}, {"wetted", "1", &VesselState::wetted},
                                          {"eta", "m", &VesselState::eta}};
 constexpr Attr3<VesselState> kVessel3[] = {{"buoyancy", "N", &VesselState::buoyancy}, {"hydro", "N", &VesselState::hydro}};
+constexpr Attr<WindState> kWind[] = {{"time", "s", &WindState::t}, {"gust_clear", "1", &WindState::gust_clear, true, true, 0, 1},
+                                     {"n_gusts", "1", &WindState::n_gusts}, {"height_agl", "m", &WindState::hag},
+                                     {"ground", "m", &WindState::ground}, {"lee", "1", &WindState::lee}};
+constexpr Attr3<WindState> kWind3[] = {{"wind_ref", "m/s", &WindState::wind_ref}};
 constexpr Attr<RangefinderState> kRange[] = {{"frames", "1", &RangefinderState::frames}, {"valid", "1", &RangefinderState::valid},
                                              {"t", "s", &RangefinderState::t}};
+
+// Rain: `rate` is the input (mm/h, 0 = dry); the rest are outputs of the last tick.
+constexpr Attr<RainState> kRain[] = {{"rate", "mm/h", &RainState::rate, true, false, 0, 500}, {"lwc", "g/m^3", &RainState::lwc},
+                                     {"v_fall", "m/s", &RainState::v_fall}, {"film_mass", "kg", &RainState::film_mass},
+                                     {"thrust_loss", "1", &RainState::thrust_loss}};
+constexpr Attr3<RainState> kRain3[] = {{"force", "N", &RainState::force}};
 
 template <class P> struct Found { P p; const char* unit; bool rw, bin; double lo, hi; std::size_t n = 1; };
 template <class D> auto locate(D& dv, int slot, const std::string& attr) {
@@ -1295,6 +1361,16 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
     }
     case Devices::Slot::vessel: pick(kVessel, dv.vessel.st); pick3(kVessel3, dv.vessel.st); break;
     case Devices::Slot::vane: pick(kVane, dv.vane.st); pick3(kVane3, dv.vane.st); break;
+    case Devices::Slot::wfield: {
+      pick(kWind, dv.wfield.st);
+      pick3(kWind3, dv.wfield.st);
+      auto& st = dv.wfield.st[static_cast<std::size_t>(s.i)];
+      // gust: [amplitude m/s, gradient distance H m, direction x y z, delay s, propagation speed m/s]; consumed by the next tick
+      if (attr == "gust") f = {st.gust_in, "m/s,m,1,1,1,s,m/s", true, false, -1e4, 1e4, std::size(st.gust_in)};
+      if (attr == "gusts") f = {&st.gust[0][0], "m/s,m,1,1,1,s,m/s,1,1", false, false, 0, 0, 9 * kMaxGusts};
+      break;
+    }
+    case Devices::Slot::rain: pick(kRain, dv.rain.st); pick3(kRain3, dv.rain.st); break;
     case Devices::Slot::range: {
       pick(kRange, dv.range.st);
       auto& img = dv.range_img[static_cast<std::size_t>(s.i)];

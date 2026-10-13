@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import design
+from ..terrain import GEOM_NAME, add_terrain
 
 REPO = Path(__file__).resolve().parents[3]
 N_PELLETS = 16  # kMaxPellets of the kernel
@@ -57,6 +58,15 @@ class Environment:
     w20: float = 0.0  # Dryden turbulence level, wind speed at 6.1 m (m/s); 0 = none
     origin_alt: float = 0.0
     seed: int = 1
+    # Rain (kernel `rain` device, docs/models.md "Rain"): present iff rain or rain_rate > 0, so every existing scene keeps its state layout
+    # and replay hash. rain_rate is the initial rate in mm/h (the harness changes it at run time: sim.set("/devices/rain", "rate", R)).
+    # rain_vehicle: the vehicle whose root body catches rain (drag by the drops' momentum + a water film that adds weight);
+    # rain_catch_area / rain_wet_area (m^2, ESTIMATES by the caller): area facing the falling rain / exposed surface that holds a film.
+    rain: bool = False
+    rain_rate: float = 0.0
+    rain_vehicle: str = ""
+    rain_catch_area: float = 0.0
+    rain_wet_area: float = 0.0
 
 
 def _fmt(v):
@@ -117,7 +127,11 @@ def compose(
     seed=1,
     floor_size=(0, 0, 1),
     visual=True,
+    terrain=None,
+    wind_field=None,
 ) -> dict:
+    """`terrain`: a napl.terrain.Terrain (replaces the floor with its hfield, pads, boulders); `wind_field`: a napl.terrain.WindField (terrain-aware wind device
+    `wind`, needs the environment; its hfield is the terrain's). The manifest gets `pads` {name: {x, y, z, radius}} and `terrain` {kind, size, seed}."""
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     env = env or Environment()
@@ -126,6 +140,7 @@ def compose(
     node_base = 0
     man = {"vehicles": {}, "seed": seed}
     taken = set()
+    roots = {}  # vehicle name -> its first top-level body (the one a rain film sits on)
     for v in vehicles:
         if v.name in taken or "/" in v.name or "_" in v.name[:1]:
             raise ValueError(
@@ -161,6 +176,7 @@ def compose(
             b.set("quat", _fmt([qz[0] * q0[0] - qz[3] * q0[3], qz[0] * q0[1] - qz[3] * q0[2],
                                 qz[0] * q0[2] + qz[3] * q0[1], qz[0] * q0[3] + qz[3] * q0[0]]))  # fmt: skip
         tops = list(wb.findall("body"))
+        roots[v.name] = tops[0].get("name") if tops else ""
         if root is None:
             root = ET.Element("mujoco", model="cuas_scene")
             ET.SubElement(root, "compiler", angle="radian")
@@ -227,6 +243,20 @@ def compose(
             ref_height=10.0,
         )
     ]
+    if env.rain or env.rain_rate > 0:
+        if env.rain_vehicle and env.rain_vehicle not in roots:
+            raise ValueError(
+                f"rain_vehicle {env.rain_vehicle!r} is not a vehicle of the scene"
+            )
+        devs["rains"] = [
+            dict(
+                name="rain",
+                rate=env.rain_rate,
+                body=roots.get(env.rain_vehicle, ""),
+                catch_area=env.rain_catch_area,
+                wet_area=env.rain_wet_area,
+            )
+        ]
     rw = root.find("worldbody")
     names = []
     for k in range(N_PELLETS):
@@ -249,6 +279,10 @@ def compose(
     if len(devs.get("launchers", [])) > 1:
         raise ValueError("one launcher per scene (they would share the tracer pool)")
     devs["seed"] = seed
+    if wind_field is not None:
+        devs["wind_fields"] = [
+            wind_field.device(GEOM_NAME if terrain is not None else None)
+        ]
     root.find("custom").append(
         ET.Element(
             "text",
@@ -256,6 +290,15 @@ def compose(
             data=json.dumps(devs, sort_keys=True, separators=(",", ":")),
         )
     )
+    if terrain is not None:
+        add_terrain(root, terrain)
+        man["terrain"] = dict(
+            kind=terrain.kind, size=list(terrain.size), seed=terrain.seed, n=terrain.nx
+        )
+        man["pads"] = {
+            p.name: dict(x=p.x, y=p.y, z=p.z, radius=p.radius)
+            for p in terrain.pads.values()
+        }
     ET.indent(root)
     path = out / "scene.xml"
     path.write_text(ET.tostring(root, encoding="unicode"))

@@ -170,6 +170,26 @@ TEST(render_gpu, cpu_device_is_refused_unless_allowed) {
   EXPECT_NE(r.device_name().find("llvmpipe"), std::string::npos) << r.device_name();
 }
 
+// Weather look: rain=0 is the clear look bit for bit (and so is the default with no rain device); rain=50 changes the image (overcast sky,
+// dim sun, haze, streaks) and darkens it, but not the linear depth.
+TEST(render, rain_look_changes_with_the_rate_and_clear_is_unchanged) {
+  const auto s = scene();
+  Renderer r;
+  const Image clear = r.render(*s, kCam, kW, kH);
+  r.set_style(parse_render_style("rain=0"));
+  const Image zero = r.render(*s, kCam, kW, kH);
+  EXPECT_EQ(clear.rgba, zero.rgba);
+  r.set_style(parse_render_style("rain=50"));
+  const Image wet = r.render(*s, kCam, kW, kH);
+  EXPECT_EQ(clear.depth, wet.depth);
+  std::size_t diff = 0;
+  for (std::size_t i = 0; i < clear.rgba.size(); i += 4)
+    diff += clear.rgba[i] != wet.rgba[i] || clear.rgba[i + 1] != wet.rgba[i + 1] || clear.rgba[i + 2] != wet.rgba[i + 2];
+  EXPECT_GT(diff, clear.rgba.size() / 4 / 2);
+  EXPECT_THROW(parse_render_style("rain=-1"), std::invalid_argument);
+  EXPECT_THROW(parse_render_style("overcast=2"), std::invalid_argument);
+}
+
 TEST(render, error_no_vulkan_device) {
   ASSERT_EQ(setenv("VK_DRIVER_FILES", "/nonexistent/none_icd.json", 1), 0);  // own process: ctest runs one test each
   try {

@@ -555,6 +555,54 @@ TEST(viewer_design, program_run_slot_saves_then_starts_polls_and_stops_a_bench_r
   EXPECT_TRUE(stopped);
 }
 
+// ---- a FULL SIM run leaves its final scene in the World: run.restore only when the window leaves for a design page ----
+TEST(viewer_design, full_run_scene_is_held_until_the_window_leaves_for_a_design_page) {
+  NEED_DISPLAY();
+  std::vector<std::string> seen;
+  int polls = 0, run_polls = 0, done_at = 0;
+  Host h(pendulum(), session());
+  ViewerOptions o;
+  o.frames = 700;
+  o.width = 1100;
+  o.height = 540;
+  o.design_api = [&](const std::string& req) -> std::string {
+    const std::string tool = design::Parser(req).parse().s("tool");
+    seen.push_back(tool);
+    if (tool == "ui_poll") {
+      ++polls;
+      if (polls == 2) return R"({"ok":true,"result":{"events":[{"cmd":"mode","name":"program"}]}})";  // (the target lists load when the page opens)
+      if (polls == 12) return R"({"ok":true,"result":{"events":[{"cmd":"prog_cmd","name":"full"},{"cmd":"prog_cmd","name":"run"}]}})";
+      if (done_at && polls == done_at + 10) return R"({"ok":true,"result":{"events":[{"cmd":"mode","name":"simulate"}]}})";  // the verdict banner is drawn here
+      if (done_at && polls == done_at + 20) return R"({"ok":true,"result":{"events":[{"cmd":"mode","name":"program"}]}})";   // PROGRAM keeps the scene
+      if (done_at && polls == done_at + 30) return R"({"ok":true,"result":{"events":[{"cmd":"mode","name":"build"}]}})";    // BUILD loads the design back
+      return R"({"ok":true,"result":{"events":[]}})";
+    }
+    if (tool == "run.targets") return R"({"ok":true,"result":{"scenarios":["a.scenario.toml"],"components":[]}})";
+    if (tool == "run.start") return R"({"ok":true,"result":{"run_id":"r1"}})";
+    if (tool == "run.poll") {
+      if (++run_polls == 3) done_at = polls;
+      return run_polls < 3 ? R"({"ok":true,"result":{"state":"running","out":""}})"
+                             : R"({"ok":true,"result":{"state":"done","out":"","result":{"pass":false,"metrics":{},"monitors":[{"name":"stays_up","pass":true},{"name":"in_cage","pass":false}],"fail_reasons":["in_cage: left the cage"]}}})";
+    }
+    if (tool == "run.restore") return R"({"ok":true,"result":{"restored":true}})";
+    if (tool == "prog.files") return R"({"ok":true,"result":{"root":"/work/prog","files":[]}})";
+    if (tool == "term.open") return R"({"ok":true,"result":{"id":7,"cwd":"/work/prog"}})";
+    if (tool == "term.read") return R"({"ok":true,"result":{"data":"","alive":true}})";
+    if (tool == "library.categories") return R"({"ok":true,"result":{"categories":[]}})";
+    if (tool == "library.search") return R"({"ok":true,"result":{"total":0,"parts":[]}})";
+    if (tool == "library.ranges") return R"({"ok":true,"result":{"ranges":{}}})";
+    return R"({"ok":true,"result":{},"state":{"rev":"r0","xml":")" + std::string(kModel) + R"(","build_error":"","path":"","undo":0,"redo":0,
+      "report":{"assembly":"pendulum_demo","mass":{"total":1,"by_group":{}},"instances":[{"id":"arm","part":"demo-rod","group":"frame","body":"pole","mass":1}],
+        "targets":[],"findings":[]},"ports":{"arm":[]}}})";
+  };
+  run_viewer(h, o);
+  finish(h);
+  const auto first = [&](const std::string& s) { return std::find(seen.begin(), seen.end(), s) - seen.begin(); };
+  ASSERT_EQ(std::count(seen.begin(), seen.end(), "run.start"), 1);
+  ASSERT_EQ(std::count(seen.begin(), seen.end(), "run.restore"), 1) << "exactly one restore: the PROGRAM page keeps the scene, BUILD loads the design back";
+  EXPECT_LT(first("run.poll"), first("run.restore"));
+}
+
 TEST(viewer_design, request_json_carries_file_text_and_keystrokes) {  // no window needed
   EXPECT_EQ(design::quote("a\nb\t\"c\"\x03"), R"("a\nb\t\"c\"\u0003")");
   const design::Json j = design::Parser(R"({"s":"x\u001b[0m 😀 é"})").parse();

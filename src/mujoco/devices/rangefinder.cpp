@@ -39,17 +39,35 @@ void sample_ranges(const mjModel* m, mjData* d, Devices& dv) {
     mjtByte groups[mjNGROUP] = {0};
     for (int g = 0; g < 6; ++g) groups[g] = (c.ray_groups >> g) & 1;
     mj_multiRay(m, d, o, dirs.data(), groups, 1, c.body, geom.data(), dist.data(), nullptr, static_cast<int>(n), c.cutoff);
+    // Rain (rain.cpp, docs/models.md "Rain"): none of this runs, and no RNG is drawn, at rate 0.
+    const double rr = rain_rate(dv);
+    const double alpha = rr > 0 ? c.rain_a * std::pow(rr, c.rain_b) : 0.0;  // extinction, 1/m
+    const double zone = std::max(c.rain_zone, c.min_r);
+    const double drops = rr > 0 && c.rain_det > 0 ? 1951.0 * std::pow(rr, 0.21) : 0.0;  // Marshall-Palmer drops per m^3
+    const double p_false = 1.0 - std::exp(-drops * 0.25 * kPi * c.rain_beam * c.rain_beam * (zone - c.min_r) * c.rain_det);
+    auto det = [](double margin_db) { return 1.0 / (1.0 + std::exp(-margin_db / 1.5)); };
     double valid = 0;
     for (std::size_t k = 0; k < n; ++k) {
       double v = 0.0;
+      bool drop_rain = false;
       if (dist[k] >= 0) {
         double r = dist[k];
-        const double sg = c.s0 + c.s1 * r + c.s2 * r * r;
+        double sg = c.s0 + c.s1 * r + c.s2 * r * r;
+        if (alpha > 0) {
+          const double rm = std::max(std::min(r, c.max_r), 1e-3);
+          const double loss_db = 8.686 * alpha * rm + c.rain_window_db * std::sqrt(rr / 25.0), margin = c.rain_margin_db + 20.0 * std::log10(c.max_r / rm);
+          sg *= std::pow(10.0, loss_db / 20.0);
+          drop_rain = s.rng.uniform() >= det(margin - loss_db) / det(margin);
+        }
         if (sg > 0) r += sg * s.rng.gauss();
         if (c.res > 0) r = std::round(r / c.res) * c.res;
         const bool drop = c.dropout > 0 && s.rng.uniform() < c.dropout;
         v = r * c.scale[k];
-        if (drop || !(v >= c.min_r && v <= c.max_r)) v = 0.0;
+        if (drop || drop_rain || !(v >= c.min_r && v <= c.max_r)) v = 0.0;
+      }
+      if (p_false > 0 && s.rng.uniform() < p_false) {  // a drop in the near beam returns before the real surface
+        const double rf = c.min_r + (zone - c.min_r) * s.rng.uniform();
+        if (dist[k] < 0 || rf < dist[k]) v = rf * c.scale[k];
       }
       img[k] = v;
       valid += v > 0 ? 1.0 : 0.0;
