@@ -8,15 +8,30 @@ from pathlib import Path
 import pytest
 
 EX = Path(__file__).resolve().parents[2] / "examples" / "cuas-lite"
-sys.path.insert(0, str(EX))
+CLASH = ("mc", "scene", "run")  # example-module names other examples also use
+mc = scene = None
 
-mc = pytest.importorskip("mc")
+
+@pytest.fixture(scope="module", autouse=True)
+def _lite_modules():
+    """Other examples have their own mc.py / scene.py / run.py, and an earlier test in the same xdist worker may have imported them: resolve these
+    names to examples/cuas-lite for this module's tests only (the worker pool forks with them)."""
+    global mc, scene
+    saved = {n: sys.modules.pop(n) for n in CLASH if n in sys.modules}
+    sys.path.insert(0, str(EX))
+    mc = pytest.importorskip("mc")
+    import scene as lite_scene
+
+    scene = lite_scene
+    yield
+    sys.path.remove(str(EX))
+    for n in CLASH:
+        sys.modules.pop(n, None)
+    sys.modules.update(saved)
 
 
 @pytest.fixture(scope="module")
 def root(tmp_path_factory):
-    import scene
-
     scene.cached_base()  # the turret is composed once (minutes the first time, cached under build/ after); the episodes copy it
     return tmp_path_factory.mktemp("mc")
 
@@ -58,8 +73,6 @@ def test_mc_smoke_few_seeds(root):
 
 
 def test_episode_is_deterministic(root):
-    import scene
-
     name, kw, seed = mc.draw("balloon", "5-10", 0)
     a, b = (
         mc.episode(
