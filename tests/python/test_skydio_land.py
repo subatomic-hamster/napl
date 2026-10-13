@@ -16,9 +16,31 @@ sys.path.insert(0, str(EX))
 sys.path.insert(0, str(REPO / "examples" / "skydio"))
 
 sys.path.insert(0, str(REPO / "examples"))  # (examples/ship for land_deck)
+CLASH = (
+    "estimator",
+    "fly",
+    "planner",
+    "land",
+)  # example-module names other examples also use
+_others = {n: sys.modules.pop(n) for n in CLASH if n in sys.modules}
 import land as L
 import land_deck as LD
 import land_world as W
+
+_ours = {n: sys.modules[n] for n in CLASH if n in sys.modules}
+sys.modules.update(_others)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _example_modules():
+    """Our CLASH modules while this file's tests run (lazy imports inside them resolve to examples/skydio(-land)), the others after."""
+    saved = {n: sys.modules.pop(n) for n in CLASH if n in sys.modules}
+    sys.modules.update(_ours)
+    yield
+    for n in CLASH:
+        sys.modules.pop(n, None)
+    sys.modules.update(saved)
+
 
 needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 LP = L.LandParams()
