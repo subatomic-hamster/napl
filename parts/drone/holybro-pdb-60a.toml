@@ -211,6 +211,7 @@ ref = [1.0, 0.0, 0.0]
 rows = 1
 cols = 2
 pitch = 0.005
+joinable = true   # bare solder pads on a bus bar: a tap is soldered on beside the XT30 lead (the editing ops accept these pins on a wire from out1, as the assembly loader does)
 src = "S2"
 fidelity = "estimated"
 rationale = "No datasheet lists spare pads. The PDB is a copper bus (r_path 0.5 mOhm), so a solder tap on the rail beside an XT30 output is physically available; two pads, + then -, at the XT30 spacing, on the same net as out1 (pdb.out1)."

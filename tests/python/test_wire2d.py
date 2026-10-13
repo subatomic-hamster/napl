@@ -145,6 +145,44 @@ def test_explicit_lead_bridges_what_autowire_refuses(tmp_path):
     assert r["ok"] and d.doc["wires"] == [w]
 
 
+def test_a_tap_on_the_pdb_solder_pads_can_be_drawn():
+    """assemblies/skydio.toml taps the PDB rail on the TAP solder pads (TAP.1 / TAP.2, not pins of port out1): the TAP connector is joinable, so the editing op accepts them as the loader does."""
+    d = Design.open(X500.with_name("skydio.toml"))
+    w = dict(next(x for x in d.doc["wires"] if x["name"] == "pdb-to-reg"))
+    assert w["from_pins"] == ["TAP.1", "TAP.2"]
+    d.unwire("pdb-to-reg")
+    keys = ("part", "length", "conductors", "name", "from_pins")
+    d.wire(w["from"], w["to"], **{k: w[k] for k in keys if k in w})
+    assert d.doc["wires"][-1] == w and not [
+        f for f in d.check() if f.code == "PIN_ALREADY_USED"
+    ]
+
+
+def test_explicit_lead_keeps_its_pinned_connectors(tmp_path):
+    """A lead drawn on the canvas with an explicit part carries every field of the wire, the pinned connector parts included (they were dropped)."""
+    d = Design.open(X500)
+    w = dict(next(x for x in d.doc["wires"] if x["name"] == "pdb-to-esc1"))
+    assert w["connectors"]
+    d.unwire("pdb-to-esc1")
+    b = Backend(lambda: d, tmp_path)
+    ask(b, "flatten.begin", {"instances": ["pdb", "esc1"], "ports": list(PAIR)})
+    keys = (
+        "from",
+        "to",
+        "part",
+        "length",
+        "conductors",
+        "included_in",
+        "name",
+        "connectors",
+        "from_pins",
+        "to_pins",
+    )
+    r = ask(b, "flatten.wire", {k: w[k] for k in keys if k in w})
+    assert r["ok"], r
+    assert d.doc["wires"][-1] == w
+
+
 def test_move_card_layout_state_and_rev(pair):
     _, _, b = pair
     begin(b)

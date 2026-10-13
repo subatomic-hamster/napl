@@ -366,6 +366,7 @@ class Flatten:
                         "included_in",
                         "from_pins",
                         "to_pins",
+                        "connectors",
                     )
                     if a.get(k) is not None
                 }
