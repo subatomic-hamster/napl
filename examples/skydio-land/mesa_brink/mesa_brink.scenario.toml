@@ -1,0 +1,163 @@
+# napl program examples/skydio-land/mesa_brink/mesa_brink.scenario.toml --runs-dir <dir>
+# Mesa-brink landing at ~2600 m: take off from a pad on a seeded plateau and land at the designated zone near the cliff edge. In ~60 % of the seeds that pad lies within reach
+# of the drop-off (the ground falls away more than 0.45 m within 6 m of it: truth unsafe); the downward lidar sees the edge as missing returns / a step, the survey rejects
+# the zone and the vehicle flies to the alternate pad, 40 m inland. In the other seeds the designated pad is a margin short of that and the vehicle lands on it, next to the edge,
+# in a wind from the lowland (toward -x: the updraft at the brink and the lee behind it come from the terrain wind field).
+name = "skyland-mesa-brink"
+
+[land]
+family = "mesa_brink"
+rtk = true
+terrain_following = true
+origin_alt = 2600.0
+wind_az_deg = 180.0            # toward -x: from the lowland up the cliff onto the plateau
+wind_jitter_deg = 20.0
+cruise_h = 3.0
+band_hi = 12.0
+map_z_lo = -24.0
+map_z_hi = 20.0
+
+[land.wind_field]
+z0 = 0.03
+ridge_gain = 1.0
+lee_turb = 2.0
+lee_down = 0.2
+
+[model]
+script = "mesa_brink.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../land_fly.py", "{dir}/mesa_brink.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 2
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the cliff line, the terrain detail, the wind azimuth, the turbulence, the unsafe-zone draw and the sensor noise. Seed 2 puts the designated zone at the brink."
+
+[[parameters]]
+name = "wind_ms"
+type = "float"
+default = 6.0
+min = 0.0
+max = 14.0
+unit = "m/s"
+group = "environment"
+label = "Mean wind (10 m)"
+
+[[parameters]]
+name = "turbulence_ms"
+type = "float"
+default = 2.0
+min = 0.0
+max = 8.0
+unit = "m/s"
+group = "environment"
+label = "Dryden level W20"
+doc = "MIL-F-8785C turbulence intensity parameter: wind speed at 6.1 m."
+
+[[parameters]]
+name = "gust_ms"
+type = "float"
+default = 0.0
+min = 0.0
+max = 12.0
+unit = "m/s"
+group = "environment"
+label = "Gust front"
+doc = "Peak of a 1-cos gust front moving with the mean wind; 0 = none."
+
+[[parameters]]
+name = "gust_t_s"
+type = "float"
+default = 80.0
+min = 0.0
+max = 400.0
+unit = "s"
+group = "environment"
+label = "Gust front time"
+
+[[parameters]]
+name = "hazard"
+type = "choice"
+choices = ["auto", "yes", "no"]
+default = "auto"
+group = "mission"
+label = "Designated zone at the brink (unsafe)"
+doc = "auto: drawn from the seed (about 60 %); yes puts the designated pad within reach of the drop-off, no a margin short of it."
+
+[[parameters]]
+name = "t_max_s"
+type = "float"
+default = 360.0
+min = 60.0
+max = 600.0
+unit = "s"
+group = "run"
+label = "Longest flight"
+
+[limits]
+wall_s = 1200
+cpu_s = 1200
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_collision"
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_crash"
+column = "crash"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "clearance_positive"
+column = "clearance_m"
+op = "always"
+lo = 0.05
+
+[[monitors]]
+name = "lands_within_300s"
+column = "landed"
+op = "eventually"
+lo = 1
+to = 300
+
+[[monitors]]
+name = "touchdown_vertical_speed"
+column = "td_speed_ms"
+op = "final"
+hi = 1.0
+
+[[monitors]]
+name = "touchdown_tilt"
+column = "td_tilt_deg"
+op = "final"
+hi = 12
+
+[[monitors]]
+name = "on_a_safe_zone"
+column = "td_dist_m"
+op = "final"
+hi = 5.0
+
+[[monitors]]
+name = "on_a_safe_spot"                      # TRUTH: the detector's thresholds (slope, roughness, rises, drop-offs) on the exact surface at the touchdown point
+column = "td_safe"
+op = "final"
+lo = 1
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45

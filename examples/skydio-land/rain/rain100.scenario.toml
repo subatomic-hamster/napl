@@ -1,0 +1,137 @@
+# napl program examples/skydio-land/rain/rain100.scenario.toml --runs-dir <dir>
+# The forest landing of ../forest/clearing.scenario.toml in 100 mm/h rain (violent, a cloudburst): see rain25.scenario.toml for what the rain device does. At this rate the
+# depth camera's range shrinks to a few metres with false near returns, the lidar drops pulses (the survey reads "no return" voids) and the rotors lose thrust: the
+# vehicle may reject every zone and go home, or abort. The honest envelope (pass rate vs rate) is in README.md.
+name = "skyland-rain-100"
+
+[land]
+family = "rain"
+rtk = false
+terrain_following = false
+
+[model]
+script = "rain100.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../land_fly.py", "{dir}/rain100.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the forest layout, the clearings, the hazard draw, the wind, the turbulence, the rain noise and the sensor noise."
+
+[[parameters]]
+name = "rain_mm_h"
+type = "float"
+default = 100.0
+min = 0.0
+max = 150.0
+unit = "mm/h"
+group = "environment"
+label = "Rain rate"
+doc = "Kernel rain device: liquid water content and drop fall speed from the rate (Marshall-Palmer); 25 mm/h = heavy, 100 mm/h = violent."
+
+[[parameters]]
+name = "wind_ms"
+type = "float"
+default = 2.0
+min = 0.0
+max = 10.0
+unit = "m/s"
+group = "environment"
+label = "Mean wind (10 m)"
+
+[[parameters]]
+name = "turbulence_ms"
+type = "float"
+default = 1.5
+min = 0.0
+max = 8.0
+unit = "m/s"
+group = "environment"
+label = "Dryden level W20"
+
+[[parameters]]
+name = "hazard"
+type = "choice"
+choices = ["auto", "yes", "no"]
+default = "auto"
+group = "mission"
+label = "Hazard in the designated clearing"
+
+[[parameters]]
+name = "t_max_s"
+type = "float"
+default = 300.0
+min = 60.0
+max = 600.0
+unit = "s"
+group = "run"
+label = "Longest flight"
+
+[limits]
+wall_s = 1200
+cpu_s = 1200
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_collision"
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_crash"
+column = "crash"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "clearance_positive"
+column = "clearance_m"
+op = "always"
+lo = 0.05
+
+[[monitors]]
+name = "lands_within_240s"
+column = "landed"
+op = "eventually"
+lo = 1
+to = 240
+
+[[monitors]]
+name = "touchdown_vertical_speed"
+column = "td_speed_ms"
+op = "final"
+hi = 1.0
+
+[[monitors]]
+name = "touchdown_tilt"
+column = "td_tilt_deg"
+op = "final"
+hi = 12
+
+[[monitors]]
+name = "on_a_safe_zone"
+column = "td_dist_m"
+op = "final"
+hi = 5.0
+
+[[monitors]]
+name = "on_a_safe_spot"                      # TRUTH: no tree, pole, boulder or log within 1.5 m of the touchdown point
+column = "td_safe"
+op = "final"
+lo = 1
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45
