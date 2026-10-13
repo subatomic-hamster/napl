@@ -202,12 +202,12 @@ struct Orbit {
     c.pos[2] = target[2] + dist * std::sin(pitch);
     return c;
   }
-  // Frame the movable geoms (planes are unbounded floors: ignored).
+  // Frame the movable geoms (planes are unbounded floors, terrain is a floor too: ignored).
   void fit(const std::vector<GeomVisual>& vis, const std::vector<GeomPose>& poses) {
     double sum[3] = {0, 0, 0};
     int n = 0;
     for (std::size_t i = 0; i < vis.size() && i < poses.size(); ++i)
-      if (vis[i].type != GeomType::plane && vis[i].group != 3) {
+      if (vis[i].type != GeomType::plane && vis[i].type != GeomType::hfield && vis[i].group != 3) {
         for (int k = 0; k < 3; ++k) sum[k] += poses[i].pos[k];
         ++n;
       }
@@ -215,7 +215,7 @@ struct Orbit {
     if (n) {
       for (int k = 0; k < 3; ++k) target[k] = sum[k] / n;
       for (std::size_t i = 0; i < vis.size() && i < poses.size(); ++i)
-        if (vis[i].type != GeomType::plane && vis[i].group != 3) {
+        if (vis[i].type != GeomType::plane && vis[i].type != GeomType::hfield && vis[i].group != 3) {
           double d2 = 0;
           for (int k = 0; k < 3; ++k) d2 += (poses[i].pos[k] - target[k]) * (poses[i].pos[k] - target[k]);
           radius = std::max(radius, std::sqrt(d2) + std::max({vis[i].size[0], vis[i].size[1], vis[i].size[2]}));

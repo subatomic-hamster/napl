@@ -55,12 +55,14 @@ struct VsOut {
   float4 clip : SV_Position;
   float3 rel : TEXCOORD0;
   float3 n : NORMAL;
+  float3 lp : TEXCOORD1;  // geom-frame position (terrain texturing)
 };
 
 [shader("vertex")]
 VsOut vsMain(VsIn i) {
   const Draw d = draws[pc.draw];
   VsOut o;
+  o.lp = i.pos;
   o.rel = d.rot[0].xyz * i.pos.x + d.rot[1].xyz * i.pos.y + d.rot[2].xyz * i.pos.z + d.trel.xyz;
   o.n = d.rot[0].xyz * i.nrm.x + d.rot[1].xyz * i.nrm.y + d.rot[2].xyz * i.nrm.z;
   o.clip = clip_of(o.rel);
@@ -185,16 +187,33 @@ float4 water_shade(VsOut i, Draw d) {
   return float4(to_srgb(col), 1);
 }
 
+// ---- terrain ---------------------------------------------------------------------------------------------------------
+// Heightfield albedo (flags.y = 2; flags.z / w = the local z range of the mesh): green meadow low, tundra higher, bare rock on steep
+// slopes (a noise-wobbled threshold at about 15-30 degrees), snow on the highest, gentler ground. Two fbm octaves of the geom-frame
+// position break the bands up. Stylised, not a land-cover model.
+float3 terrain_albedo(float3 lp, float3 N, Draw d) {
+  const float t = saturate((lp.z - d.flags.z) / max(d.flags.w - d.flags.z, 1.0));
+  const float n = fbm(lp.xy * 0.012), f = vnoise(lp.xy * 0.35);
+  const float s = 1.0 - saturate(N.z);
+  float3 grass = to_lin(float3(0.26, 0.42, 0.18)), tundra = to_lin(float3(0.36, 0.42, 0.24)), rock = to_lin(float3(0.40, 0.40, 0.42));
+  float3 a = lerp(grass, tundra, smoothstep(0.22, 0.60, t + (n - 0.5) * 0.25));
+  a = lerp(a, rock * (0.7 + 0.5 * n), smoothstep(0.05, 0.14, s + (n - 0.5) * 0.06));
+  const float snow = smoothstep(0.66, 0.86, t + (n - 0.5) * 0.3) * smoothstep(0.30, 0.62, fbm(lp.xy * 0.02 + 7.0)) * (1.0 - smoothstep(0.12, 0.22, s));  // patchy
+  a = lerp(a, to_lin(float3(0.93, 0.95, 0.98)), snow);
+  return a * (0.88 + 0.24 * f);
+}
+
 // ---- lit surfaces ----------------------------------------------------------------------------------------------------
 [shader("fragment")]
 float4 fsMain(VsOut i) : SV_Target0 {
   const Draw d = draws[pc.draw];
-  if (d.flags.y > 0.5) return water_shade(i, d);
+  if (d.flags.y > 0.5 && d.flags.y < 1.5) return water_shade(i, d);
   const float3 V = -normalize(i.rel);
   float3 N = normalize(i.n);
   const bool ground = d.flags.x > 0.5;
   if (ground && N.z * V.z < 0) N = -N;
-  float3 albedo = ground ? sc.ground_col.rgb : to_lin(d.color.rgb);
+  const bool terrain = d.flags.y > 1.5;
+  float3 albedo = ground ? sc.ground_col.rgb : terrain ? terrain_albedo(i.lp, N, d) : to_lin(d.color.rgb);
   if (ground && sc.fog.y > 0.5) {  // studio floor: 1 m / 0.1 m grid, fading out
     const float2 w = i.rel.xy + sc.camf.xy;
     const float dist = length(i.rel);
@@ -224,7 +243,7 @@ float4 fsMain(VsOut i) : SV_Target0 {
   // distance haze toward the horizon colour
   const float dist = length(i.rel);
   // outdoor: the ground melts into the horizon within ~100 m while objects (drones at range) stay readable
-  const float k = sc.fog.y > 0.5 ? 1.0 : (ground ? 4.0 : 0.5);
+  const float k = sc.fog.y > 0.5 ? 1.0 : (ground ? 4.0 : (terrain ? 0.2 : 0.5));  // terrain: distant ridges fade, not vanish
   const float haze = 1.0 - exp(-dist * sc.fog.x * k);
   col = lerp(col, sc.sky_hor.rgb, saturate(haze));
   return float4(to_srgb(col), 1);

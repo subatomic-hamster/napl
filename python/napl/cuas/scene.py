@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import design
+from ..terrain import GEOM_NAME, add_terrain
 
 REPO = Path(__file__).resolve().parents[3]
 N_PELLETS = 16  # kMaxPellets of the kernel
@@ -109,7 +110,11 @@ def compose(
     seed=1,
     floor_size=(0, 0, 1),
     visual=True,
+    terrain=None,
+    wind_field=None,
 ) -> dict:
+    """`terrain`: a napl.terrain.Terrain (replaces the floor with its hfield, pads, boulders); `wind_field`: a napl.terrain.WindField (terrain-aware wind device
+    `wind`, needs the environment; its hfield is the terrain's). The manifest gets `pads` {name: {x, y, z, radius}} and `terrain` {kind, size, seed}."""
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     env = env or Environment()
@@ -237,6 +242,10 @@ def compose(
     if len(devs.get("launchers", [])) > 1:
         raise ValueError("one launcher per scene (they would share the tracer pool)")
     devs["seed"] = seed
+    if wind_field is not None:
+        devs["wind_fields"] = [
+            wind_field.device(GEOM_NAME if terrain is not None else None)
+        ]
     root.find("custom").append(
         ET.Element(
             "text",
@@ -244,6 +253,15 @@ def compose(
             data=json.dumps(devs, sort_keys=True, separators=(",", ":")),
         )
     )
+    if terrain is not None:
+        add_terrain(root, terrain)
+        man["terrain"] = dict(
+            kind=terrain.kind, size=list(terrain.size), seed=terrain.seed, n=terrain.nx
+        )
+        man["pads"] = {
+            p.name: dict(x=p.x, y=p.y, z=p.z, radius=p.radius)
+            for p in terrain.pads.values()
+        }
     ET.indent(root)
     path = out / "scene.xml"
     path.write_text(ET.tostring(root, encoding="unicode"))

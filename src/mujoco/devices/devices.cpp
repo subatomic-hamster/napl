@@ -71,6 +71,7 @@ const std::string& Devices::name(int slot) const {
     case Slot::vessel: return vessel.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::range: return range.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::vane: return vane.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::wfield: return wfield.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::esc: break;
   }
   return esc.cfg[static_cast<std::size_t>(s.i)].meta.name;
@@ -725,6 +726,25 @@ Devices parse(const std::string& json) {
       slot(Devices::Slot::vane, static_cast<int>(dv.vane.cfg.size()));
       dv.vane.cfg.push_back(std::move(c));
     }
+  if (root->wind_fields())
+    for (const fb::WindField* w : *root->wind_fields()) {
+      WindFieldCfg c{};
+      c.meta = meta_of(w->name(), w->parts(), seen);
+      const std::string& n = c.meta.name;
+      need(dv.wfield.cfg.empty(), n, "only one wind_field device is allowed");
+      need(!dv.env.cfg.empty(), n, "a wind_field needs an environment device");
+      if (w->hfield_geom()) c.hfield_geom = w->hfield_geom()->str();
+      c.ground_z = w->ground_z(); c.z0 = w->z0(); c.z_ref = w->z_ref(); c.h_max = w->h_max();
+      c.ridge_gain = w->ridge_gain(); c.ridge_len = w->ridge_len(); c.lee_turb = w->lee_turb(); c.lee_down = w->lee_down();
+      need(std::isfinite(c.ground_z + c.z0 + c.z_ref + c.h_max + c.ridge_gain + c.ridge_len + c.lee_turb + c.lee_down), n,
+           "wind_field parameters must be finite");
+      need(c.z0 >= 0 && (c.z0 == 0 || c.z_ref > 2.72 * c.z0) && c.h_max > c.z0, n, "need z0 >= 0, z_ref > e z0, h_max > z0");
+      need(c.ridge_gain >= 0 && c.ridge_len > 0 && c.lee_turb >= 0 && c.lee_down >= 0, n,
+           "need ridge_gain, lee_turb, lee_down >= 0 and ridge_len > 0");
+      need(c.ridge_gain == 0 || !c.hfield_geom.empty(), n, "ridge_gain needs an hfield_geom");
+      slot(Devices::Slot::wfield, static_cast<int>(dv.wfield.cfg.size()));
+      dv.wfield.cfg.push_back(std::move(c));
+    }
   if (dv.slots.empty()) throw std::runtime_error("napl.devices: no devices declared");
 
   // Initial state. RNG stream k uses the device's flat slot index (battery, psu, wire, load, esc order).
@@ -822,6 +842,7 @@ Devices parse(const std::string& json) {
     dv.range_img.emplace_back(static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v), 0.0);
   }
   dv.vane.st.assign(dv.vane.cfg.size(), JetVaneState{});
+  dv.wfield.st.assign(dv.wfield.cfg.size(), WindState{});
   if (!dv.sea.cfg.empty()) dv.sea.st[0].eta0 = sea_eta(dv, 0.0, 0.0);
   return dv;
 }
@@ -951,6 +972,7 @@ void bind(mjModel* m, Devices& dv) {
     c.bid = body_id(c.meta.name, c.body);
     if (dv.sea.cfg.empty()) fail(c.meta.name, "a vessel needs a sea device");
   }
+  for (WindFieldCfg& c : dv.wfield.cfg) bind_wind_field(m, c);
   for (const RotorCfg& c : dv.rotor.cfg)
     if (c.water && dv.sea.cfg.empty()) fail(c.meta.name, "a water rotor needs a sea device");
   for (RangefinderCfg& c : dv.range.cfg) {
@@ -1102,6 +1124,7 @@ template <class D, class F> void for_groups(D& dv, F&& f) {
   f(dv.vessel);
   f(dv.range);
   f(dv.vane);
+  f(dv.wfield);
 }
 template <class G> constexpr bool pod_ok = std::is_trivially_copyable_v<typename G::State> && sizeof(typename G::State) % 8 == 0;
 }  // namespace
@@ -1240,6 +1263,10 @@ constexpr Attr3<SeaState> kSea3[] = {{"current", "m/s", &SeaState::current, true
 constexpr Attr<VesselState> kVessel[] = {{"submerged", "m^3", &VesselState::submerged}, {"wetted", "1", &VesselState::wetted},
                                          {"eta", "m", &VesselState::eta}};
 constexpr Attr3<VesselState> kVessel3[] = {{"buoyancy", "N", &VesselState::buoyancy}, {"hydro", "N", &VesselState::hydro}};
+constexpr Attr<WindState> kWind[] = {{"time", "s", &WindState::t}, {"gust_clear", "1", &WindState::gust_clear, true, true, 0, 1},
+                                     {"n_gusts", "1", &WindState::n_gusts}, {"height_agl", "m", &WindState::hag},
+                                     {"ground", "m", &WindState::ground}, {"lee", "1", &WindState::lee}};
+constexpr Attr3<WindState> kWind3[] = {{"wind_ref", "m/s", &WindState::wind_ref}};
 constexpr Attr<RangefinderState> kRange[] = {{"frames", "1", &RangefinderState::frames}, {"valid", "1", &RangefinderState::valid},
                                              {"t", "s", &RangefinderState::t}};
 
@@ -1295,6 +1322,15 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
     }
     case Devices::Slot::vessel: pick(kVessel, dv.vessel.st); pick3(kVessel3, dv.vessel.st); break;
     case Devices::Slot::vane: pick(kVane, dv.vane.st); pick3(kVane3, dv.vane.st); break;
+    case Devices::Slot::wfield: {
+      pick(kWind, dv.wfield.st);
+      pick3(kWind3, dv.wfield.st);
+      auto& st = dv.wfield.st[static_cast<std::size_t>(s.i)];
+      // gust: [amplitude m/s, gradient distance H m, direction x y z, delay s, propagation speed m/s]; consumed by the next tick
+      if (attr == "gust") f = {st.gust_in, "m/s,m,1,1,1,s,m/s", true, false, -1e4, 1e4, std::size(st.gust_in)};
+      if (attr == "gusts") f = {&st.gust[0][0], "m/s,m,1,1,1,s,m/s,1,1", false, false, 0, 0, 9 * kMaxGusts};
+      break;
+    }
     case Devices::Slot::range: {
       pick(kRange, dv.range.st);
       auto& img = dv.range_img[static_cast<std::size_t>(s.i)];
