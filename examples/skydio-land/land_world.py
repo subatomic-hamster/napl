@@ -122,13 +122,35 @@ def load_forest_obstacles(j):
     return f
 
 
+class DeckWorld(LandingWorld):
+    """A pad that moves: `ground_z` is the pad height the lander's loop last measured (truth, evaluation only); no obstacles, no terrain."""
+
+    pad_z = 0.0
+
+    def ground_z(self, x, y):
+        return self.pad_z
+
+    def spot_safe(self, x, y):
+        return True
+
+
+def deck_world(family, seed, start, pad_radius):
+    return DeckWorld(
+        family,
+        seed,
+        F.Forest(seed, "goal", start=(start[0], start[1]), goal=(start[0], start[1])),
+        [Zone("deck", start[0], start[1], start[2], pad_radius)],
+        start,
+    )
+
+
 def load_world(j, terrain=None):
     """The inverse of LandingWorld.to_json; the mountain families regenerate their terrain from notes["terrain_args"] (seeded: the same heights)."""
     if terrain is None and j["notes"].get("terrain_args"):
         terrain = build_terrain(
             j["notes"]["terrain_args"], j["notes"].get("extra_rocks", [])
         )
-    return LandingWorld(
+    return (DeckWorld if j["family"].startswith("deck") else LandingWorld)(
         j["family"],
         j["seed"],
         load_forest_obstacles(j["forest"]),

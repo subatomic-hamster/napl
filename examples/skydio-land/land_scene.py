@@ -67,6 +67,8 @@ def build(out, scenario):
     """Build the scenario's scene under `out` -> path of the MJCF. Also writes land.json (mission + truth + settings) beside it."""
     cfg, prm, sc = scenario_cfg(scenario)
     fam, seed = cfg["family"], prm["seed"]
+    if fam.startswith("deck"):
+        return build_deck(out, cfg, prm, sc)
     world = make_world(fam, seed, prm, cfg)
     wind, az = wind_vector(
         seed,
@@ -151,6 +153,171 @@ def build(out, scenario):
     return path
 
 
+ASV_PAD_OFF = (
+    -0.15,
+    0.0,
+    0.505,
+)  # the ASV landing plate's top surface centre in the hull frame (examples/asv/scene.py add_landing_pad)
+ASV_BASE_OFF = (
+    -0.5,
+    0.0,
+    0.9,
+)  # ESTIMATE: a ZED-F9P base antenna on a short mast aft; the ASV design has no RTK base (the OSV's is on its wheelhouse mast)
+
+
+def _asv_scene(out, seed, hs, wave_dir_deg, wind, w20):
+    """The 1.2 m ASV with its landing plate and the Skydio standing on it, in a seeded sea of significant height `hs` (calm: 0.1-0.3 m). -> (model path, pad top centre world)."""
+    sys.path.insert(0, str(HERE.parents[0]))  # examples/ (package asv)
+    import asv.encounters as enc
+    import asv.scene as asv_scene
+
+    res = compose(
+        out,
+        [
+            Vehicle("asv", "asv", pos=(0.0, 0.0, 0.0)),
+            Vehicle(VEHICLE, ASSEMBLY, pos=(0.0, 0.0, 0.0)),
+        ],
+        env=Environment(wind=wind, w20=w20, seed=seed),
+        seed=seed,
+        visual=True,
+    )
+    path = Path(res["model"])
+    root = ET.parse(path).getroot()
+    wb = root.find("worldbody")
+    hull = next(b for b in wb.findall("body") if b.get("name") == "asv_hull")
+    hz = float(hull.get("pos", "0 0 0").split()[2])
+    pad = np.array(
+        [ASV_PAD_OFF[0], ASV_PAD_OFF[1], hz + ASV_PAD_OFF[2]]
+    )  # hull yaw 0, level at tick 0
+    for b in wb.findall("body"):  # the lander stands on the plate (2 mm clearance)
+        if b.get("name", "").startswith(VEHICLE + "_"):
+            p = [float(x) for x in b.get("pos", "0 0 0").split()]
+            b.set(
+                "pos",
+                " ".join(f"{x:.9g}" for x in (pad[0], pad[1], pad[2] + 0.002 + p[2])),
+            )
+    asv_scene.add_landing_pad(hull)
+    txt = root.find("custom/text")
+    d = json.loads(txt.get("data"))
+    sea = next(s for s in d["seas"] if s["name"] == "asv_sea")
+    sea.pop("jonswap", None)
+    if hs > 0:
+        sea["jonswap"] = dict(
+            hs=hs,
+            tp=enc.peak_period(hs),
+            direction=math.radians(wave_dir_deg),
+            seed=1000 + seed,
+        )
+    d["seas"] = [sea]
+    txt.set("data", json.dumps(d, sort_keys=True, separators=(",", ":")))
+    for g in wb.findall("geom"):
+        if g.get("name") == "floor":
+            g.set("pos", "0 0 -40")
+            g.set("rgba", "0.30 0.27 0.20 1")
+    ET.SubElement(
+        wb,
+        "geom",
+        name="water",
+        type="plane",
+        size="400 400 0.1",
+        pos="0 0 0",
+        rgba=asv_scene.WATER_RGBA,
+        group="2",
+        contype="0",
+        conaffinity="0",
+    )
+    ET.indent(root)
+    path.write_text(ET.tostring(root, encoding="unicode"))
+    return path, pad
+
+
+def build_deck(out, cfg, prm, sc):
+    """Deck families `deck_osv` (the 12.6 m support vessel under way, Hs `hs_m`, `ship_speed_ms`) and `deck_asv` (the 1.2 m ASV in calm water): the scene of napl.cuas.ship.ship_scene /
+    examples/asv with the landing program's contact sensors (gear vs the hull) and mission (one zone: the deck)."""
+    import os
+    import tempfile
+
+    from napl.cuas.ship import PAD_CENTRE, POINTS, ship_scene
+
+    # the first build of the vessel (or the ASV) routes its wires: minutes; the route cache makes every later build seconds
+    os.environ.setdefault(
+        "NAPL_ROUTE_CACHE",
+        str(Path(tempfile.gettempdir()) / "napl-route-cache-skyland"),
+    )
+    fam, seed = cfg["family"], prm["seed"]
+    kind = fam.split("_", 1)[1]
+    wind, az = wind_vector(
+        seed,
+        prm["wind_ms"],
+        cfg.get("wind_az_deg"),
+        float(cfg.get("wind_jitter_deg", 0.0)),
+    )
+    if kind == "osv":
+        r = ship_scene(
+            out,
+            lander=ASSEMBLY,
+            lander_start="deck",
+            hs=prm["hs_m"],
+            wave_dir=prm["wave_dir_deg"],
+            wind=wind,
+            w20=prm["turbulence_ms"],
+            seed=seed,
+            ship_yaw=0.0,
+        )
+        path, pad0 = Path(r["model"]), np.asarray(r["pad"], float)
+        deck = dict(
+            hull="osv_hull",
+            prefix="osv",
+            pad_off=list(PAD_CENTRE),
+            base_off=list(POINTS["rtk_base"]),
+            half=[1.5, 1.5],
+            margin=0.25,
+            pad_radius=1.5,
+        )
+    else:
+        path, pad0 = _asv_scene(
+            out, seed, prm["hs_m"], prm["wave_dir_deg"], wind, prm["turbulence_ms"]
+        )
+        deck = dict(
+            hull="asv_hull",
+            prefix="asv",
+            pad_off=list(ASV_PAD_OFF),
+            base_off=list(ASV_BASE_OFF),
+            half=[0.375, 0.45],
+            margin=0.10,
+            pad_radius=0.4,
+        )
+    tree = ET.parse(path)
+    root = tree.getroot()
+    wb = root.find("worldbody")
+    add_obstacles(wb, W.F.Forest(seed, "goal"))
+    ET.SubElement(
+        wb.find("body[@name='obstacles']"),
+        "geom",
+        name="obs_none",
+        type="sphere",
+        size="0.1",
+        pos="0 0 -500",
+        contype="1",
+        conaffinity="1",
+        group="4",
+    )
+    _sensors(root, ground=deck["hull"])
+    _devices(root, 0.0)
+    ET.indent(root)
+    tree.write(path, encoding="unicode")
+    world = W.deck_world(
+        fam, seed, (float(pad0[0]), float(pad0[1]), float(pad0[2])), deck["pad_radius"]
+    )
+    deck.update(kind=kind, t_go=float(cfg.get("t_go_s", 14.0)), ship_speed_ms=float(prm.get("ship_speed_ms", 0.0)), ship_heading_deg=float(cfg.get("ship_heading_deg", 0.0)),
+                t_wait_s=float(cfg.get("t_wait_s", 45.0)), wait_max_s=float(cfg.get("wait_max_s", 60.0)))  # fmt: skip
+    land = dict(scenario=sc.get("name", ""), family=fam, seed=seed, params=prm, cfg=cfg, wind=list(wind), wind_az_deg=az, origin_alt=0.0, rain_mm_h=0.0, mission=world.mission(),
+                truth=world.to_json(), use_rtk=False, terrain_following=False, gusts=[], deck=deck)  # fmt: skip
+    (Path(out) / "land.json").write_text(json.dumps(land))
+    (Path(out) / "forest.json").write_text(json.dumps(world.forest.to_json()))
+    return path
+
+
 def build_for(out, script_file):
     """The model script of a scenario `<name>.scenario.toml` is `<name>.py` beside it: build(out) = build_for(out, __file__)."""
     return build(out, Path(script_file).with_suffix("").with_suffix(".scenario.toml"))
@@ -178,7 +345,8 @@ def _ground_box(wb, half=500.0):
     )
 
 
-def _sensors(root):
+def _sensors(root, ground="world"):
+    """`ground`: the body the lander lands on (the world body, or a hull on the decks)."""
     s = root.find("sensor")
     if s is None:
         s = ET.SubElement(root, "sensor")
@@ -196,7 +364,7 @@ def _sensors(root):
         "contact",
         name="hit_ground",
         subtree1="skydio_bottom",
-        body2="world",
+        body2=ground,
         data="found",
         num="1",
     )
@@ -206,7 +374,7 @@ def _sensors(root):
             "contact",
             name=f"hit_gear_{leg}",
             body1=f"skydio/leg_{leg}",
-            body2="world",
+            body2=ground,
             data="found",
             num="1",
         )

@@ -1,0 +1,151 @@
+# napl program examples/skydio-land/deck/osv.scenario.toml --runs-dir <dir>
+# Deck landing on the 12.6 m support vessel (assemblies/osv.toml) UNDER WAY: the Skydio-style quadrotor (assemblies/skydio-land.toml) takes off from the 3 x 3 m helipad with the vessel
+# at rest, the vessel gets under way at t = 14 s (ShipPilot, 3 m/s ahead by default) in a seeded JONSWAP sea (Hs 1.0 m, head seas), and the lander follows the pad with the ship stage's
+# aids: ZED-F9P moving-base RTK (RelGnss), the vessel's motion unit over the deck radio (DeckLink), the downward TF-Luna on the deck surface, and the DeckPredictor, which tells it
+# when a quiescent window (pad vertical speed < 0.2 m/s, roll / pitch < 3 deg) will arrive so that the 1.5 m sink ends inside it. See land_deck.py. Estimates and limits: README.md.
+name = "skyland-deck-osv"
+
+[land]
+family = "deck_osv"
+wind_az_deg = 90.0             # the air moves toward +y: across the vessel's course
+wind_jitter_deg = 30.0
+ship_heading_deg = 0.0         # east
+t_go_s = 14.0                  # s: the vessel gets under way
+t_wait_s = 45.0                # s: earliest start of the approach (the predictor needs 20 s of underway history)
+wait_max_s = 60.0              # s: after this long in the waiting hover the lander sinks anyway (reported as a forced landing)
+cruise_h = 4.0
+
+[model]
+script = "osv.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../land_fly.py", "{dir}/osv.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the sea (component phases), the wind azimuth, the turbulence, the RTK / datalink error and loss draws and the sensor noise: one seed, one landing."
+
+[[parameters]]
+name = "hs_m"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.5
+unit = "m"
+group = "environment"
+label = "Significant wave height"
+doc = "JONSWAP sea (peak period 5 sqrt(Hs) s) built by napl.cuas.ship.jonswap_waves."
+
+[[parameters]]
+name = "wave_dir_deg"
+type = "float"
+default = 180.0
+min = 0.0
+max = 360.0
+unit = "deg"
+group = "environment"
+label = "Wave direction (towards)"
+doc = "Math angle, degrees from East: 180 = waves travelling toward -x, head seas for the vessel's eastward course; 90 = beam seas."
+
+[[parameters]]
+name = "ship_speed_ms"
+type = "float"
+default = 3.0
+min = 0.0
+max = 5.0
+unit = "m/s"
+group = "mission"
+label = "Vessel speed"
+doc = "Commanded speed through the water from t = 14 s (ShipPilot heading + speed loop)."
+
+[[parameters]]
+name = "wind_ms"
+type = "float"
+default = 3.0
+min = 0.0
+max = 12.0
+unit = "m/s"
+group = "environment"
+label = "Mean wind"
+
+[[parameters]]
+name = "turbulence_ms"
+type = "float"
+default = 1.0
+min = 0.0
+max = 8.0
+unit = "m/s"
+group = "environment"
+label = "Dryden level W20"
+
+[[parameters]]
+name = "t_max_s"
+type = "float"
+default = 170.0
+min = 60.0
+max = 400.0
+unit = "s"
+group = "run"
+label = "Longest flight"
+
+[limits]
+wall_s = 1800
+cpu_s = 1800
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_collision"
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_crash"                            # only the two landing legs touch the deck once airborne
+column = "crash"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "lands_within_150s"
+column = "landed"
+op = "eventually"
+lo = 1
+to = 150
+
+[[monitors]]
+name = "touchdown_vertical_speed"            # vertical speed RELATIVE to the pad at the first gear contact
+column = "td_speed_ms"
+op = "final"
+hi = 0.8
+
+[[monitors]]
+name = "touchdown_tilt"                      # angle between the lander's z axis and the deck normal
+column = "td_tilt_deg"
+op = "final"
+hi = 8
+
+[[monitors]]
+name = "touchdown_on_the_pad"                # horizontal distance from the pad centre in the deck frame; the pad is 3 x 3 m, the gear needs 0.25 m of margin
+column = "td_dist_m"
+op = "final"
+hi = 1.25
+
+[[monitors]]
+name = "on_a_safe_spot"
+column = "td_safe"
+op = "final"
+lo = 1
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45

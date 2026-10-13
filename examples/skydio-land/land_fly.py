@@ -63,6 +63,9 @@ PHASES = (
     "descend",
     "touchdown",
     "landed",
+    "follow",  # deck landings (land_deck.py)
+    "wait",
+    "sink",
 )
 T_MAX = 300.0
 SCAN_RATE = 0.9  # rad/s of the 360 degree look-around over the zone
@@ -154,6 +157,12 @@ class SkydioLand(Skydio):
             float(cfg.get("map_z_lo", self.ground - 0.4)),
             float(cfg.get("map_z_hi", self.ground + 19.6)),
         )  # the mission area's height range (a priori, from the map; 20 m for flat sites)
+        if self.world.terrain is not None:
+            # the mapper skips hits and free-space carving below FLOOR = 0.25 m (the flat ground the original flies over); on terrain the datum is the take-off pad and the
+            # vehicle flies below it, and the depth camera does not see the terrain (see land_scene._devices), so nothing to skip
+            import mapping
+
+            mapping.FLOOR = -1.0e3
         self.map = VoxelMap(
             z0=z_lo,
             n_z=int(math.ceil((z_hi - z_lo) / 0.2)),
@@ -606,6 +615,14 @@ class SkydioLand(Skydio):
                 break
         return self.finish()
 
+    def _final_ok(self):
+        """The run's own last check on the final pose (ground: nothing; decks: still on the pad)."""
+        return True
+
+    def _extra(self):
+        """More summary fields (decks)."""
+        return {}
+
     def finish(self):
         r = self.run_dir
         self.tele.close()
@@ -627,7 +644,7 @@ class SkydioLand(Skydio):
         fin = tr[-1]
         z_fin, z_name = self.world.nearest_safe_zone(fin[1:3])
         ok = bool(self.phase == "landed" and td is not None and self.n_crash == 0 and self.n_obst == 0 and td["speed"] <= 1.0 and td["tilt_deg"] <= 12.0
-                  and td["safe"] and td["dist_safe_m"] <= DIST_ZONE_M and col["tilt_deg"][-1] < 25.0)  # fmt: skip
+                  and td["safe"] and td["dist_safe_m"] <= DIST_ZONE_M and col["tilt_deg"][-1] < 25.0 and self._final_ok())  # fmt: skip
         summ = dict(scenario=self.land["scenario"], family=self.land["family"], seed=self.seed, sim_s=self.t, wall_s=time.monotonic() - self.wall0,
                     landed=self.phase == "landed", success=ok, touchdown=td, crash_steps=int(self.n_crash), contact_steps=int(self.n_obst),
                     min_clearance_m=self.min_clear, path_length_m=self.path_len, zones_tried=[a["zone"] for a in self.assessments], rejected=self.rejected,
@@ -639,6 +656,7 @@ class SkydioLand(Skydio):
             e = np.array(self.err)
             summ["estimation"] = dict(pos_rms_m=float(np.sqrt((e[:, 1] ** 2).mean())), pos_max_m=float(e[:, 1].max()), pos_final_m=float(e[-1, 1]),
                                       att_rms_deg=float(np.sqrt((e[:, 3] ** 2).mean())), att_max_deg=float(e[:, 3].max()))  # fmt: skip
+        summ.update(self._extra())
         (r / "summary.json").write_text(json.dumps(summ, indent=1))
         self._seal(r)
         return summ
@@ -654,7 +672,12 @@ def main():
         out = Path(sys.argv[2])
         out.mkdir(parents=True, exist_ok=True)
         model = land_scene.build(out / "model", scenario)
-    run = SkydioLand(model, out, prm["seed"], cal)
+    cls = SkydioLand
+    if cfg["family"].startswith("deck"):
+        import land_deck
+
+        cls = land_deck.SkydioDeck
+    run = cls(model, out, prm["seed"], cal)
     s = run.run(float(os.environ.get("LAND_T_MAX", prm.get("t_max_s", T_MAX))))
     sys.stdout.write(json.dumps(s) + "\n")
 

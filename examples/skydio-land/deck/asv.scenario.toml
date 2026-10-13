@@ -1,0 +1,137 @@
+# napl program examples/skydio-land/deck/asv.scenario.toml --runs-dir <dir>
+# Deck landing on the 1.2 m autonomous surface vessel (assemblies/asv.toml, build_spec(pad=True)): a 0.75 x 0.90 m plate 0.5 m above the keel, in calm water (Hs 0.15 m). The
+# Skydio-style quadrotor takes off from the plate, hovers over it with the moving-base RTK + deck-link aids of the ship stage, waits for a quiescent window and sets down on it.
+# The plate leaves 0.10 m of margin for the gear. The ASV has no RTK base or motion-unit radio in its design: both are ASSUMED (a ZED-F9P base on a mast aft, the ASV's IMU
+# on a radio link with the OSV's DeckLink model); see README.md.
+name = "skyland-deck-asv"
+
+[land]
+family = "deck_asv"
+wind_az_deg = 90.0
+wind_jitter_deg = 30.0
+t_wait_s = 30.0
+wait_max_s = 40.0
+cruise_h = 4.0
+
+[model]
+script = "asv.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../land_fly.py", "{dir}/asv.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the sea, the wind azimuth, the turbulence, the RTK / datalink error draws and the sensor noise."
+
+[[parameters]]
+name = "hs_m"
+type = "float"
+default = 0.15
+min = 0.0
+max = 0.8
+unit = "m"
+group = "environment"
+label = "Significant wave height"
+doc = "Calm water: 0.15 m. The 1.2 m hull follows the waves; the plate's pitch and heave grow with Hs."
+
+[[parameters]]
+name = "wave_dir_deg"
+type = "float"
+default = 180.0
+min = 0.0
+max = 360.0
+unit = "deg"
+group = "environment"
+label = "Wave direction (towards)"
+
+[[parameters]]
+name = "wind_ms"
+type = "float"
+default = 1.0
+min = 0.0
+max = 8.0
+unit = "m/s"
+group = "environment"
+label = "Mean wind"
+
+[[parameters]]
+name = "turbulence_ms"
+type = "float"
+default = 0.5
+min = 0.0
+max = 8.0
+unit = "m/s"
+group = "environment"
+label = "Dryden level W20"
+
+[[parameters]]
+name = "t_max_s"
+type = "float"
+default = 120.0
+min = 40.0
+max = 400.0
+unit = "s"
+group = "run"
+label = "Longest flight"
+
+[limits]
+wall_s = 1800
+cpu_s = 1800
+address_space_mb = 16384
+
+[[monitors]]
+name = "no_collision"
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_crash"
+column = "crash"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "lands_within_100s"
+column = "landed"
+op = "eventually"
+lo = 1
+to = 100
+
+[[monitors]]
+name = "touchdown_vertical_speed"
+column = "td_speed_ms"
+op = "final"
+hi = 0.8
+
+[[monitors]]
+name = "touchdown_tilt"
+column = "td_tilt_deg"
+op = "final"
+hi = 8
+
+[[monitors]]
+name = "touchdown_on_the_plate"              # distance from the plate centre in the deck frame; the plate is 0.75 x 0.90 m, 0.10 m margin for the gear
+column = "td_dist_m"
+op = "final"
+hi = 0.3
+
+[[monitors]]
+name = "on_a_safe_spot"
+column = "td_safe"
+op = "final"
+lo = 1
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45

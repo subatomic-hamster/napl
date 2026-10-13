@@ -1,5 +1,5 @@
 """Landing components of the Skydio-style quadrotor (numpy only, no kernel): landing-zone detection from the downward lidar and the depth map, the descent
-profile, the RTK position update of the estimator, and the deck-relative interface (deck state source, heave predictor, touchdown timing).
+profile and the RTK position update of the estimator.
 
 LANDING-ZONE DETECTION (`GroundMap.assess`). A survey pass at `survey_agl` over the designated zone collects the downward lidar's ground points (x, y, z) in the
 ESTIMATE frame (the pose of the estimator, so the map is as good as the odometry: relative geometry within the 40 s of a survey is accurate to a few cm
@@ -12,11 +12,7 @@ designated centre:
   obstacles  no voxel of the depth map (examples/skydio/mapping.py) stands higher than `obs_h` above the plane within `obs_r` of the spot (a tree, a pole, a wall).
 The spot with the best score (flat, smooth, close to the designated centre) wins; no spot -> the zone is rejected with the dominant reason and the next one is tried.
 
-DECK INTERFACE. The landing target is a `PadSource`: `FixedPad` (a ground zone) or any object with `state(t) -> DeckState | None` (the ship stage's relnav output,
-napl.cuas.relnav: the deck pad's position / velocity and attitude in the vehicle's frame, from RTK moving-baseline + datalink + the downward lidar). `DeckPredictor`
-fits the deck's heave (a sum of sinusoids found by a periodogram scan over the last seconds) and `Touchdown.start_time` picks the moment to begin the final sink
-so that contact comes when the deck is at the bottom of a heave cycle (deck moving down or still): the relative speed at contact is the sink rate plus the deck's
-upward speed, so a contact on the up-stroke is the worst case.
+DECKS are in land_deck.py (RelGnss + DeckLink + DeckPredictor of napl.cuas.relnav).
 """
 
 import math
@@ -235,128 +231,4 @@ def sink_speed(agl, prm: LandParams):
     return prm.v_slow + (prm.v_touch - prm.v_slow) * (1.0 - agl / prm.h_final)
 
 
-# ---- deck-relative interface -------------------------------------------------------------------------------------------------------
-@dataclass
-class DeckState:
-    """The landing pad's state in the vehicle's world frame at time t: centre (x, y, z of the pad surface), velocity, and roll / pitch (rad)."""
-
-    t: float
-    p: np.ndarray
-    v: np.ndarray
-    roll: float = 0.0
-    pitch: float = 0.0
-
-
-class FixedPad:
-    """A pad on the ground: never moves."""
-
-    def __init__(self, x, y, z=0.0):
-        self.p = np.array([x, y, z], float)
-
-    def state(self, t):
-        return DeckState(t, self.p.copy(), np.zeros(3))
-
-
-class DeckPredictor:
-    """Heave of the deck: z(t) = c + sum_k (a_k sin w_k t + b_k cos w_k t) with up to `n_comp` frequencies from a periodogram scan over the last `window` s.
-    Valid once the window holds `min_s` s of samples. Honest limits: a JONSWAP sea is a continuum, so the fit predicts well for a few seconds (about one
-    peak period) and less beyond; `predict` returns (z, vz) and `rms_residual` says how much of the heave the fit explains."""
-
-    def __init__(self, window=25.0, min_s=12.0, f_lo=0.05, f_hi=0.6, n_comp=2):
-        self.window, self.min_s, self.f = (
-            window,
-            min_s,
-            np.arange(f_lo, f_hi + 1e-9, 0.01),
-        )
-        self.n_comp = n_comp
-        self.t, self.z = [], []
-        self.coef = None
-        self.freqs = []
-        self.rms_residual = math.inf
-
-    def add(self, t, z):
-        self.t.append(t)
-        self.z.append(z)
-        while self.t and t - self.t[0] > self.window:
-            self.t.pop(0)
-            self.z.pop(0)
-
-    def ready(self):
-        return len(self.t) > 20 and self.t[-1] - self.t[0] >= self.min_s
-
-    def fit(self):
-        if not self.ready():
-            return False
-        t, z = np.asarray(self.t), np.asarray(self.z)
-        self.t0 = t[-1]
-        tt = t - self.t0
-        res, freqs = z - z.mean(), []
-        for _ in range(self.n_comp):
-            best = None
-            for f in self.f:
-                B = np.column_stack(
-                    [np.sin(2 * np.pi * f * tt), np.cos(2 * np.pi * f * tt)]
-                )
-                c, *_ = np.linalg.lstsq(B, res, rcond=None)
-                e = float(np.sum((res - B @ c) ** 2))
-                if best is None or e < best[0]:
-                    best = (e, f)
-            freqs.append(best[1])
-            B = np.column_stack(
-                [np.sin(2 * np.pi * best[1] * tt), np.cos(2 * np.pi * best[1] * tt)]
-            )
-            c, *_ = np.linalg.lstsq(B, res, rcond=None)
-            res = res - B @ c
-        cols = [np.ones_like(tt)]
-        for f in freqs:
-            cols += [np.sin(2 * np.pi * f * tt), np.cos(2 * np.pi * f * tt)]
-        B = np.column_stack(cols)  # joint refit of the offset and every component
-        self.coef, *_ = np.linalg.lstsq(B, z, rcond=None)
-        self.freqs = freqs
-        self.rms_residual = float(np.sqrt(np.mean((z - B @ self.coef) ** 2)))
-        return True
-
-    def predict(self, t):
-        """(z, vz) of the deck at absolute time t from the last fit."""
-        tt = np.atleast_1d(np.asarray(t, float)) - self.t0
-        z, vz = np.full_like(tt, self.coef[0]), np.zeros_like(tt)
-        for k, f in enumerate(self.freqs):
-            w = 2 * np.pi * f
-            a, b = self.coef[1 + 2 * k], self.coef[2 + 2 * k]
-            z += a * np.sin(w * tt) + b * np.cos(w * tt)
-            vz += w * (a * np.cos(w * tt) - b * np.sin(w * tt))
-        return z, vz
-
-
-class Touchdown:
-    """When to begin the final sink above a heaving deck. The vehicle holds `h_hold` m above the (predicted) deck surface and sinks at `v_sink`; contact
-    comes `h_hold / v_sink` s after the start. Choose the start (within `horizon` s) whose contact instant has the lowest relative speed
-    v_sink + max(deck vz, 0) with the deck below its mean, i.e. the bottom of a heave cycle. Without a usable fit it starts at once (a calm deck)."""
-
-    def __init__(
-        self, pred: DeckPredictor, v_sink=0.3, h_hold=1.0, horizon=12.0, dt=0.1
-    ):
-        self.pred, self.v, self.h, self.horizon, self.dt = (
-            pred,
-            v_sink,
-            h_hold,
-            horizon,
-            dt,
-        )
-
-    def start_time(self, t_now):
-        if not self.pred.ready() or self.pred.coef is None:
-            return t_now
-        t_c = (
-            t_now + self.h / self.v + np.arange(0.0, self.horizon, self.dt)
-        )  # candidate contact instants
-        z, vz = self.pred.predict(t_c)
-        rel = (
-            self.v + np.maximum(vz, 0.0) + 0.5 * np.maximum(z - self.pred.coef[0], 0.0)
-        )  # impact speed + a penalty for a high deck
-        return float(t_c[int(np.argmin(rel))] - self.h / self.v)
-
-    def contact_speed(self, t_start):
-        """Predicted relative speed at contact for a start at t_start."""
-        z, vz = self.pred.predict(t_start + self.h / self.v)
-        return float(self.v + max(float(vz[0]), 0.0))
+# The deck-relative interface (DeckLink, RelGnss, DeckPredictor) is napl.cuas.relnav; land_deck.py wires the lander to it.
