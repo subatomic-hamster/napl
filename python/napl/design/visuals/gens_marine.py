@@ -126,3 +126,156 @@ def esc_sealed(c, **_):
         for s in (1, -1)
     )
     return {"body": body, "label": label, "fins": fins}
+
+
+def _osv_taper(s):
+    """Plan-form factor of the half-beam along the hull (s = 0 transom .. 1 bow): full beam to 62 % of the length, then a
+    superelliptic bow."""
+    u = max(0.0, (s - 0.62) / 0.38)
+    return (1.0 - u**2.2) ** 0.55 if u < 1 else 0.0
+
+
+def _osv_rings(L, Bd, depth, z_w, stations=30):
+    """Deep-V sections of the 12 m work boat, transom to bow: keel (0, 0), waterline chine (half-beam 1.2 m at z_w, 0.85 m up),
+    flared topsides to the deck edge Bd / 2 at `depth`. Returns lower (keel .. chine) and upper (chine .. deck) rings plus the
+    deck outline [(x, half-beam)]. The keel rises towards the bow (raked stem)."""
+    y_w = 0.63 * Bd  # waterline half-beam
+    low, up, outline = [], [], []
+    for i in range(stations):
+        s = (i / (stations - 1)) ** 0.8 if i < stations - 1 else 1.0
+        x = -L / 2 + s * L
+        f = max(_osv_taper(s), 0.03)
+        zb = 0.75 * depth * s**3  # keel rise
+        k = lambda z: zb + z * (1 - zb / depth)
+        yw, yd = y_w * f, 0.5 * Bd * f
+        low.append([(x, 0.0, zb), (x, yw, k(z_w)), (x, -yw, k(z_w))])
+        up.append([(x, yw, k(z_w)), (x, yd, depth), (x, -yd, depth), (x, -yw, k(z_w))])
+        outline.append((x, yd))
+    return low, up, outline
+
+
+@gen(
+    "osv_hull",
+    bottom="alu-anodised-blue",
+    side="hull-orange",
+    deck="gunmetal",
+    fender="rubber",
+)
+def osv_hull(c, **_):
+    """12.6 m aluminium crew-boat hull (Damen FCS 1204 class): deep-V bottom (dark blue), orange topsides, grey non-skid deck,
+    rubber D-fender along the gunwale. Frame: mid-length on the centreline, keel at z = 0, bow +x, deck at `depth`."""
+    from .mesh import extrude
+
+    L = c.p("length", default=12.6)
+    Bd = c.p("beam", default=3.8)
+    depth = c.p("depth", default=1.7)
+    z_w = c.p("chine_z", default=0.85)
+    low, up, outline = _osv_rings(L, Bd, depth, z_w)
+    bottom = loft(low)
+    side = loft(up)
+    poly = [(x, y) for x, y in outline] + [(x, -y) for x, y in reversed(outline)]
+    deck = extrude(poly[::-1], depth, depth + 0.006)  # ccw outline
+    fenders = []
+    for sg in (1, -1):
+        rings = []
+        for x, y in outline[2:-1]:
+            ring = [
+                (x, sg * (y + 0.04 + r * math.cos(t)), depth - 0.12 + r * math.sin(t))
+                for r, t in ((0.06, 2 * math.pi * k / 10) for k in range(10))
+            ]
+            rings.append(ring[::sg])
+        fenders.append(loft(rings))
+    return {"bottom": bottom, "side": side, "deck": deck, "fender": merge(fenders)}
+
+
+@gen(
+    "osv_deckhouse",
+    house="plastic-white",
+    glass="glass-dark",
+    roof="plastic-white",
+    mast="alu-anodised-grey",
+)
+def osv_deckhouse(c, **_):
+    """Wheelhouse of the work boat: a long cabin with a raked front, dark window bands, a flat roof with a short instrument
+    mast. Frame: centre of the footprint at the deck level (z = 0), bow +x."""
+    from .mesh import extrude
+
+    L, W, H = (
+        c.p("length", default=3.6),
+        c.p("width", default=2.8),
+        c.p("height", default=2.1),
+    )
+    hw, hl = W / 2, L / 2
+    plan = [
+        (-hl, -hw),
+        (hl - 0.9, -hw),
+        (hl, -hw + 0.5),
+        (hl, hw - 0.5),
+        (hl - 0.9, hw),
+        (-hl, hw),
+    ]
+    house = extrude(plan, 0.0, H - 0.05)
+    roof = extrude(
+        [
+            (
+                x * 1.0 + (0.08 if x > 0 else -0.08),
+                y * 1.02 + (0.05 if y > 0 else -0.05),
+            )
+            for x, y in plan
+        ],
+        H - 0.05,
+        H + 0.04,
+    )
+    glass = []
+    z0, z1 = 1.0, 1.75
+    for sg in (1, -1):  # side window bands, proud of the wall by 5 mm
+        glass.append(
+            rbox((L - 1.6, 0.012, z1 - z0), 0.0).at(
+                (-0.45, sg * (hw + 0.004), (z0 + z1) / 2)
+            )
+        )
+    glass.append(
+        rbox((0.012, W - 1.3, z1 - z0), 0.0).at((hl + 0.004, 0.0, (z0 + z1) / 2))
+    )  # front windows
+    mast = merge([tube(0.06, 0.05, 1.2, 24, z0=H + 0.04).at((0.2, 0.0, 0.0))])
+    return {"house": house, "roof": roof, "glass": merge(glass), "mast": mast}
+
+
+@gen(
+    "helipad_deck",
+    plate="gunmetal",
+    border="plastic-yellow",
+    mark="plastic-white",
+    ring="plastic-white",
+)
+def helipad_deck(c, **_):
+    """Square landing pad with markings (render only: the physics is the `landing` shape of the part): yellow perimeter band,
+    white touchdown circle and a white H. Frame: centre of the underside at the origin, +z up, H reads from the stern (-x)."""
+    S = c.p("pad_size", default=3.0)
+    T = c.p("pad_thickness", default=0.05)
+    m = 0.002  # marking height
+    plate = rbox((S, S, T), 0.004).at((0, 0, T / 2))
+    b = 0.14  # perimeter band width
+    bands = merge(
+        [
+            rbox((S - 0.02, b, m), 0.0).at((0, sg * (S / 2 - b / 2 - 0.01), T + m / 2))
+            for sg in (1, -1)
+        ]
+        + [
+            rbox((b, S - 0.02 - 2 * b, m), 0.0).at(
+                (sg * (S / 2 - b / 2 - 0.01), 0, T + m / 2)
+            )
+            for sg in (1, -1)
+        ]
+    )
+    r = 0.42 * S
+    ring = tube(r, r - 0.09, m, 64, z0=T)
+    h = 0.5 * r  # H: two legs and a crossbar
+    hmark = merge(
+        [
+            rbox((1.1 * h, 0.16 * h, m), 0.0).at((0, 0, T + m / 2)),
+            rbox((0.16 * h, 1.1 * h * 1.6, m), 0.0).at((0.55 * h, 0, T + m / 2)),
+            rbox((0.16 * h, 1.1 * h * 1.6, m), 0.0).at((-0.55 * h, 0, T + m / 2)),
+        ]
+    )
+    return {"plate": plate, "border": bands, "mark": hmark, "ring": ring}

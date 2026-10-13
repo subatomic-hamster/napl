@@ -27,7 +27,15 @@ REPO = Path(__file__).resolve().parents[3]
 N_PELLETS = 16  # kMaxPellets of the kernel
 TRACER_RADIUS = 0.015  # m: VISUAL sphere of a flying pellet (the physical pellet is 4.5 mm; enlarged so the viewer shows it, still < 1 px beyond 15 m)
 NAME_TAGS = ("body", "geom", "joint", "freejoint", "site", "mesh")
-DEV_REFS = ("joint", "backlash_joint", "body", "ref_body", "site")
+DEV_REFS = (
+    "joint",
+    "backlash_joint",
+    "body",
+    "ref_body",
+    "stator_body",
+    "duct",
+    "site",
+)
 
 
 @dataclass
@@ -191,6 +199,10 @@ def compose(
                 for r in DEV_REFS:
                     if dev.get(r):
                         dev[r] = renames.get(f"{v.name}/{dev[r]}", f"{v.name}/{dev[r]}")
+                if isinstance(
+                    dev.get("rotor"), str
+                ):  # a jet vane names the rotor DEVICE it sits in the jet of
+                    dev["rotor"] = f"{v.name}_{dev['rotor']}"
                 for f in ("node", "a", "b"):
                     if dev.get(f, 0) > 0:
                         top = max(top, dev[f])
