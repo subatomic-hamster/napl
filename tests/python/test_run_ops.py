@@ -153,6 +153,33 @@ def test_component_without_device_model_runs_only_the_tests(tmp_path):
     ), out[-800:]
 
 
+def test_chase_camera_steps_around_a_tree_and_eases():
+    import numpy as np
+    from napl.design.runops import Runs
+
+    class Sim:  # a tree standing south-west of the vehicle: rays towards -x,-y hit it 2 m out
+        def raycast(self, origin, dirs):
+            u = np.asarray(dirs[0])
+            return np.array([2.0 if u[0] < 0 and u[1] < 0 else -1.0])
+
+    p, st = np.array([0.0, 0.0, 2.0]), {}
+    e1 = Runs._chase_eye(Sim(), p, st)
+    assert (
+        e1[0] > -0.1 or e1[1] > -0.1
+    )  # not behind the tree (the old fixed offset was (-4, -4, +3.5))
+    az = st["az"]
+    e2 = Runs._chase_eye(
+        Sim(), p + [1, 0, 0], st
+    )  # the vehicle moves on: same clear azimuth, camera eases (does not jump)
+    assert st["az"] == az and 0 < np.linalg.norm(e2 - e1) < 1.2
+
+    class Walled:  # boxed in on every side: a spring arm, the camera right next to the vehicle (never behind the wall)
+        def raycast(self, origin, dirs):
+            return np.array([0.5])
+
+    assert np.linalg.norm(Runs._chase_eye(Walled(), p, {}) - p) == pytest.approx(0.8)
+
+
 def test_root_is_the_ides_program_root(tmp_path):
     prog = tmp_path / "prog"
     prog.mkdir()

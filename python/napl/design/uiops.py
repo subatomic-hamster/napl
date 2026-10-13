@@ -537,6 +537,10 @@ class UiOps:
             if math.dist(eye, look) < 1e-4:
                 raise DesignError("camera.fly: eye and look must differ")
             ev.update(kind="fly", eye=eye, look=look)
+            if a.get(
+                "chase"
+            ):  # the live-run chase camera: the window drops it while the user holds the camera (FOLLOW off)
+                ev["chase"] = True
         else:
             ev.update(
                 kind="orbit",

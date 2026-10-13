@@ -1082,6 +1082,7 @@ class Viewer {
     for (Mode m : {Mode::Build, Mode::Library, Mode::Wiring, Mode::Simulate, Mode::Program})
       if (name == mode_name(m)) {
         if (!has_design_ && m != Mode::Simulate && m != Mode::Program) return false;
+        if (m != Mode::Simulate && m != Mode::Program) run_.restore();  // leaving for the design pages: its own model back in the World
         mode_ = m;
         return true;
       }
@@ -2047,6 +2048,7 @@ class Viewer {
 
   // camera.orbit / camera.fly (python/napl/design/uiops.py): a smooth move over `seconds` of wall-clock time.
   void camera_move(const design::Json& e) {
+    if (e.at("chase").num != 0 && e.at("chase").kind == design::Json::Bool && !run_.follow) return;  // the user holds the camera
     constexpr double kDeg = 3.14159265358979 / 180;
     const auto vec3 = [&](const char* k, b3::V3& out) {
       double p[3];
@@ -2243,6 +2245,8 @@ class Viewer {
     if (run_.live()) {  // a program steps this World: Run / Step would fight it
       if (theme::button("STOP PROGRAM", true)) run_.toggle();
       ImGui::SetItemTooltip("kills the program; the World stays where it stopped");
+      ImGui::Checkbox("FOLLOW VEHICLE", &run_.follow);
+      ImGui::SetItemTooltip("the chase camera keeps the vehicle in view, clear of trees; orbit / pan / zoom the view to take over, tick this to resume");
     } else if (cur_.running) {
       if (theme::button("PAUSE")) send(env_pause(kSource), "pause");
     } else if (theme::button("RUN", true)) {
@@ -2259,6 +2263,8 @@ class Viewer {
     ImGui::InputInt("ticks", &steps_);
     ImGui::EndDisabled();
     if (!status_.empty()) ImGui::TextColored(theme::kWarn, "%s", status_.c_str());
+    run_.draw_result();  // the last full run's verdict + monitors (its final scene is still in the World)
+    if (run_.back_to_program) run_.back_to_program = false, set_mode("program");
     ImGui::Spacing();
     theme::caption("SCENE");
     ImGui::BeginChild("##scenetree", {0, has_design_ && opts_.design_api ? 260.f : 0.f});
@@ -2571,6 +2577,7 @@ class Viewer {
       orbit_.dist = std::max(0.05, orbit_.dist * std::pow(0.9, io.MouseWheel));
       cam_anim_.active = false;
     }
+    if ((nav_drag_ && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0)) || (free_mouse && io.MouseWheel != 0)) run_.follow = false;  // the user took the camera
   }
 
   // MEASURE readout: a dimension line between the two parts' box centres with end ticks, the centre distance and the clear gap
@@ -2903,7 +2910,7 @@ class Viewer {
       prog_.show_external(e.s("name"), e.s("text"), e.at("scroll").kind == design::Json::Num ? static_cast<float>(e.at("scroll").num) : -1.f);
       if (mode_ != Mode::Program) set_mode("program");
     } else if (cmd == "prog_cmd" && run_.command(e.s("name"))) {  // scripted Run slot: bench | full | run | stop | target:<id or scenario>
-      if (e.s("name") != "stop" && mode_ != Mode::Program) set_mode("program");
+      if (const std::string n = e.s("name"); n != "stop" && n != "follow" && n != "unfollow" && n.rfind("hover:", 0) != 0 && n.rfind("click:", 0) != 0 && mode_ != Mode::Program) set_mode("program");
     } else if (cmd.rfind("prog_", 0) == 0) {  // scripted IDE actions (prog.ui)
       if (mode_ != Mode::Program) set_mode("program");
       prog_.script(e);

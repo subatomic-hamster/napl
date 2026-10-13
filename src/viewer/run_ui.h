@@ -32,6 +32,13 @@ class RunUi {
   bool live() const { return running() && full_; }               // a program drives this window's World
   std::string live_label() const { return "LIVE: " + target_label_; }
   std::string chip() const;                                       // "", "running", "PASS", "FAIL", "stopped"
+  // A FULL SIM run leaves its final scene in the World (the Backend holds it): the SIMULATE panel shows the verdict + monitors,
+  // and restore() (the window leaving for BUILD / LIBRARY / WIRING) asks the Backend to load the design's own model back.
+  bool held() const { return held_ && !running(); }
+  void draw_result();       // the verdict banner (SIMULATE panel); returns via back_to_program
+  void restore();
+  bool back_to_program = false;  // set by draw_result's button; the viewer switches the page and clears it
+  bool follow = true;            // the live chase camera follows the vehicle; the viewer clears it when the user orbits / pans
 
  private:
   enum class State { Idle, Starting, Running, Done };
@@ -50,6 +57,11 @@ class RunUi {
   std::string bench_pick_, full_pick_;   // the user's choice ("" = the default)
   State state_ = State::Idle;
   std::string run_id_, target_label_, verdict_;  // verdict_: PASS / FAIL / failed / stopped of the last run
+  int click_ = 0;                            // scripted click phase (0 = none)
+  std::string hover_;                     // scripted: the control the mouse is parked on (tooltip shots)
+  bool held_ = false;                       // the last full run's scene is still in the World
+  std::vector<std::pair<std::string, bool>> monitors_;  // that run's monitors (name, pass)
+  std::vector<std::string> why_;                        // and its fail reasons
   bool targets_wanted_ = true, targets_flight_ = false, poll_flight_ = false, was_visible_ = false, stop_sent_ = false;
   double last_poll_ = 0;
 };
