@@ -1,6 +1,6 @@
 # napl program examples/hopper-land/osv/underway.scenario.toml --runs-dir <dir>
 # The EDF hopper takes off from the 3 m helipad of the 12.6 m offshore support vessel (napl.cuas.ship.ship_scene, lander "hopper-land") while it gets underway at 2 m/s in a seeded JONSWAP sea
-# (Hs 1 m, head seas), climbs 12 m, follows the deck and lands back on it. The flight computer knows the deck only through the vessel stack of napl.cuas.relnav: moving-baseline RTK between the
+# (Hs 0.5 m, head seas), climbs 12 m, follows the deck and lands back on it. The flight computer knows the deck only through the vessel stack of napl.cuas.relnav: moving-baseline RTK between the
 # vessel's mast and the hopper (RelGnss, 8 Hz, 0.125 s late), the deck datalink with attitude and rates (DeckLink, 25 Hz, 0.08 s late, burst losses) and DeckPredictor, which names the quiet window
 # in which the final sink starts (landship.ShipLink builds the landdeck.DeckState from them). The monitors judge touchdown against the true moving pad: vertical speed relative to the deck, tilt
 # relative to the deck normal, distance from the pad centre. Sea level, 1.225 kg/m3. The vessel needs ~2 min of one-off wire routing on a cold build (NAPL_ROUTE_CACHE).
@@ -200,7 +200,7 @@ label = "Rain rate"
 [[parameters]]
 name = "hs_m"
 type = "float"
-default = 1.0
+default = 0.5
 min = 0.0
 max = 2.5
 unit = "m"

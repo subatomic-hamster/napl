@@ -235,7 +235,10 @@ def fly(seed, p, model, h, info, run_dir=None, log=True, telemetry=True, max_s=N
                 z_max > 0.5
                 and hs <= TOUCH_Z
                 and vrel < 0
-                and (touch_tick is None or -vrel > res["td_speed"])
+                and (
+                    touch_tick is None
+                    or (k - touch_tick < 300 and -vrel > res["td_speed"])
+                )  # touchdown speed = the peak approach speed relative to the surface in the 0.3 s after first contact (a deck that heaves under the standing vehicle is not an impact)
             ):
                 touch_tick = k if touch_tick is None else touch_tick
                 dpx, dpy = deck.center(t) if deck is not None else (tx, ty)

@@ -3,7 +3,9 @@
 listing the scenarios. Needs the built kernel (hfbox: tools/remote.sh run ...)."""
 
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import napl

@@ -32,7 +32,7 @@ G = veh.G
 W = veh.MASS * G
 DEFAULTS = dict(
     BASE_DEFAULTS, k_dob=0.7, margin_min=landveh.MARGIN_MIN, v_sink_min=0.25, z_final=2.0, t_max_s=160.0, abort_off_m=12.0,
-    use_window=1.0, window_wait_s=20.0,
+    use_window=1.0, window_wait_s=20.0, deck_hold_h=0.45, deck_vz_hold=0.15,
 )  # fmt: skip
 
 
@@ -358,19 +358,30 @@ class Flight:
                 a_ref = np.zeros(3)
         if self.state in ("FINAL", "ABORT_LAND"):
             h = pos[2] - zg if self.state == "FINAL" else e.height_above_ground()
+            hold = False
+            if self.deck is not None and self.state == "FINAL":
+                if (
+                    e.pad_lidar and e.agl_age < 0.1
+                ):  # over the deck: the height above it is what the lidar reads, not the difference of two filtered heights
+                    h = max(e.agl - veh.H_STAND, 0.0)
+                # a deck rising fast would hit the fan-off hopper and throw it: hold `deck_hold_h` above it until it is no longer rising (crest passed)
+                hold = h < p["deck_hold_h"] + 0.3 and vzg > p["deck_vz_hold"]
             sink = min(p["v_sink_max"], max(p["v_sink_min"], p["k_sink"] * h))
+            if hold:
+                sink = min(0.6, max(-0.6, h - p["deck_hold_h"]))
             self.sink += min(max(sink - self.sink, -3.0 * DT), 3.0 * DT)
             xy = txy if self.state == "FINAL" else self.target
             p_ref = np.array([*xy, pos[2]])
-            v_ref = np.array(
-                [
-                    *(vtxy if self.state == "FINAL" else (0.0, 0.0)),
-                    (vzg if self.deck is not None else 0.0) - self.sink,
-                ]
-            )
+            vz_ref = -self.sink
+            if self.deck is not None:
+                # the deck's heave rate is a feed-forward only near the deck (full below 0.5 m, none above 1.5 m: far above it the datalink's rate would only add to the sink), and the descent
+                # in the air stays below `v_sink_max`: faster, the throttle drops under 0.7 W and the jet vanes lose the yaw / roll authority that scales with the exhaust (a spin-up in the seed 21002 flight)
+                w_ff = min(1.0, max(0.0, (1.5 - h) / 1.0))
+                vz_ref = max(w_ff * vzg - self.sink, -p["v_sink_max"])
+            v_ref = np.array([*(vtxy if self.state == "FINAL" else (0.0, 0.0)), vz_ref])
             a_ref = np.zeros(3)
             hold_int = h < 0.15
-            if h < 0.02:
+            if h < 0.02 and not hold:
                 self.t_touch = t
                 self._go("TOUCHDOWN", t)
         if self.state == "TOUCHDOWN":
