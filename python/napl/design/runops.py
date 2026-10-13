@@ -55,6 +55,7 @@ BENCH = (
     "rangefinder",
 )
 TEST_WALL_S = 300
+IMPORTER_WALL_S = 60  # tests that merely import the open file, narrowed with -k
 THROTTLES = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
 
@@ -106,6 +107,7 @@ class Runs:
         self.b = backend
         self.runs = {}
         self.ids = itertools.count(1)
+        self.held = False  # a full run's final scene is in the window's World
 
     @property
     def root(self):
@@ -134,6 +136,8 @@ class Runs:
             return {"ok": True, "result": self.targets()}
         if tool == "run.start":
             return {"ok": True, "result": self.start(a)}
+        if tool == "run.restore":
+            return {"ok": True, "result": {"restored": self.restore()}}
         r = self.runs.get(a.get("run_id"))
         if r is None:
             raise DesignError(f"{tool}: unknown run_id {a.get('run_id')!r}")
@@ -245,11 +249,6 @@ class Runs:
     def _full(self, run, sc, sim):
         from .. import program
 
-        d = self.b.get_design()
-        xml = None
-        with self.b.lock:
-            if d is not None:
-                xml = self.b.state(d)["xml"]
         run.emit(
             f"[run] {sc.relative_to(self.root)} live in the viewer (real time); Stop kills the program"
         )
@@ -275,11 +274,8 @@ class Runs:
             )
         finally:
             over.set()
-            if (
-                xml and Path(xml).exists()
-            ):  # the window goes back to the design's own model
-                sim.call({"cmd_type": "Pause", "cmd": {}})
-                sim.call({"cmd_type": "LoadModel", "cmd": {"path": str(xml)}})
+            self.held = True  # the run's final scene stays in the window; run.restore (the window leaving SIMULATE) loads the design back
+            sim.call({"cmd_type": "Pause", "cmd": {}})
         sm, rp = res.get("sim", {}), res.get("replay", {})
         run.emit(
             f"[run] {'PASS' if res['pass'] else 'FAIL'}  {res['name']}  sim {sm.get('sim_s', sm.get('tick', 0) * sm.get('dt', 0)):.1f} s"
@@ -293,6 +289,25 @@ class Runs:
         run.result = {**res, "run_dir": str(rd)}
         if run.stop.is_set():
             raise Stopped
+
+    def restore(self):
+        """Load the design's own (current) model back into the window's World after a full run left its final scene there.
+        No-op (False) while a run is live or when nothing is held."""
+        sim = getattr(self.b, "sim", None)
+        d = self.b.get_design()
+        if (
+            not self.held
+            or sim is None
+            or d is None
+            or any(r.state == "running" for r in self.runs.values())
+        ):
+            return False
+        xml = self.b.state(d)["xml"]
+        if not xml or not Path(xml).exists():
+            return False
+        r = sim.call({"cmd_type": "LoadModel", "cmd": {"path": str(xml)}})
+        self.held = not r["ok"]
+        return r["ok"]
 
     def _ui(self, tool, **a):
         try:
@@ -398,11 +413,15 @@ class Runs:
             if bad:
                 ok = False
                 em(f"[bench] non-finite metrics: {bad}")
-        tests = self._tests(files)
+        tests, kexpr, budget = self._tests(files)
         t_ok = True
         if tests:
-            em(f"[tests] pytest {' '.join(map(self._disp, tests))}")
-            t_ok = self._pytest(run, tests)
+            em(
+                f"[tests] pytest {' '.join(map(self._disp, tests))}"
+                + (f" -k {kexpr}" if kexpr else "")
+                + f"   (budget {budget:.0f} s; Stop cancels)"
+            )
+            t_ok = self._pytest(run, tests, kexpr, budget)
         elif files:
             em(f"[tests] no test file is tied to {', '.join(files)}")
         if run.stop.is_set():
@@ -419,9 +438,10 @@ class Runs:
         )
 
     def _tests(self, files):
-        """Test files tied to the open files: the file itself if it is a test, test_<stem>.py anywhere in tests/ or next to it, or a
-        test that imports <stem>."""
-        out = []
+        """-> (test files, -k expression or None, wall budget s). Tests that TARGET the open files: the file itself if it is a test,
+        else test_<stem>*.py (root or the repo's tests/). Only when there is none: the tests that import <stem>, narrowed to the
+        test names containing <stem> (-k) and a short budget (a whole suite that merely imports the module is not the bench)."""
+        out, importers, stems = [], [], []
         bases = [self.root] + [
             b for b in (REPO / "tests",) if b.is_dir() and b != self.root
         ]  # the repo's tests/ are read, not editable
@@ -432,18 +452,28 @@ class Runs:
             if stem.startswith("test_"):
                 out.append(self.root / f)
                 continue
+            stems.append(stem)
             imp = re.compile(
                 rf"^\s*(?:from|import)\s+[\w.]*\b{re.escape(stem)}\b", re.MULTILINE
             )
             for base in bases:
                 for t in self._walk(".py", base):
                     n = Path(t).name
-                    if n.startswith("test_") and (
-                        n == f"test_{stem}.py"
-                        or imp.search((base / t).read_text(errors="replace"))
-                    ):
+                    if not n.startswith("test_"):
+                        continue
+                    if n == f"test_{stem}.py" or n.startswith(f"test_{stem}_"):
                         out.append(base / t)
-        return list(dict.fromkeys(out))[:8]
+                    elif imp.search((base / t).read_text(errors="replace")):
+                        importers.append(base / t)
+        if out:
+            return list(dict.fromkeys(out))[:8], None, TEST_WALL_S
+        if importers and stems:
+            return (
+                list(dict.fromkeys(importers))[:4],
+                " or ".join(stems),
+                IMPORTER_WALL_S,
+            )
+        return [], None, 0
 
     def _disp(self, p):
         for b in (self.root, REPO):
@@ -451,7 +481,7 @@ class Runs:
                 return str(Path(p).relative_to(b))
         return str(p)
 
-    def _pytest(self, run, tests):
+    def _pytest(self, run, tests, kexpr=None, budget=TEST_WALL_S):
         log = self.b.out / "runs" / f"{run.id}-pytest.log"
         log.parent.mkdir(parents=True, exist_ok=True)
         run.log, run._off = log, 0
@@ -465,6 +495,7 @@ class Runs:
                     "--no-header",
                     "-p",
                     "no:cacheprovider",
+                    *(["-k", kexpr] if kexpr else []),
                     *map(str, tests),
                 ],
                 cwd=self.root,
@@ -478,13 +509,16 @@ class Runs:
             while (
                 p.poll() is None
                 and not run.stop.is_set()
-                and time.monotonic() - t0 < TEST_WALL_S
+                and time.monotonic() - t0 < budget
             ):
                 time.sleep(0.1)
             if p.poll() is None:
                 from ..program import kill_group
 
                 kill_group(p, 1.0)
+                if not run.stop.is_set():
+                    run.emit(f"[tests] budget of {budget:.0f} s spent: killed")
+                    return False
             rc = p.wait()
         with run.lock:
             run._drain()  # the tail of pytest's output, before the verdict line

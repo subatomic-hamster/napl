@@ -90,7 +90,12 @@ INFO    THRUST_TO_WEIGHT  [mot1, mot2, mot3, mot4]  max static thrust 44.7 N (..
 compiler; `uv venv && uv pip install -e '.[px4,arm,dev]'` builds the C++ kernel with scikit-build-core into `build/` (the MuJoCo
 and FlatBuffers sources are about 700 MB there). Extras: `px4` = MAVSDK-Python (flying X500 under PX4), `arm` = ROBOTIS
 `dynamixel_sdk` (the Koch example), `dev` = pytest. The design tools (`napl design ...`, the `napl.design` package) need only the
-standard library and numpy; the kernel is needed to simulate. PX4 SITL needs its own build on the host, installed once with
+standard library and numpy; the kernel is needed to simulate. **After any C++ change re-run `tools/install_dev.sh`** (= `uv pip
+install --reinstall-package napl --refresh-package napl -e '.[dev,px4]'`): a plain `uv pip install -e .` sees nothing changed and
+keeps the old `_napl.abi3.so` in site-packages (scikit-build-core's editable mode redirects only the Python files; its
+`editable.rebuild` is off on purpose: it would rebuild on every `import napl`, racing under pytest-xdist). The build is incremental
+in `build/`. sccache (if installed) runs one server per checkout in preprocessor mode (`SCCACHE_DIRECT=false`, CMakeLists.txt):
+the earlier shared direct-mode server served stale objects after a header change. `-DNAPL_SCCACHE=OFF` bypasses it. PX4 SITL needs its own build on the host, installed once with
 `tools/px4_setup.sh` **[not run]**.
 
 Pass/fail and exit codes: `napl test` / `napl program` return 0 = pass, 1 = a monitor failed, 2 = an error (bad spec, model, args);
