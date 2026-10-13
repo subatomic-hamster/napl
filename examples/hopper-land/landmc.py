@@ -50,6 +50,7 @@ SCEN = {
     "rain25": "rain/rain25.scenario.toml",
     "rain100": "rain/rain100.scenario.toml",
     "deck": "deck/scripted.scenario.toml",
+    "osv": "osv/underway.scenario.toml",
 }
 # The envelope sweeps: (label, overrides) per family; `wind_x` / `gust_x` multiply the scenario's own numbers (resolved in `one`).
 SWEEPS = {
@@ -63,6 +64,8 @@ SWEEPS = {
     "rain100": [("rain 150 mm/h", dict(rain_mmh=150.0)), ("wind x 2", dict(wind_x=2.0))],
     "deck": [("heave 0.6 m", dict(deck_heave_m=0.6)), ("heave 1.0 m", dict(deck_heave_m=1.0)), ("roll 4 deg, pitch 2 deg", dict(deck_roll_deg=4.0, deck_pitch_deg=2.0)),
              ("drift 2 m/s", dict(deck_vy_ms=2.0)), ("datalink 0.3 s late", dict(deck_latency_s=0.3)), ("wind 5 m/s", dict(wind_ms=5.0))],
+    "osv": [("Hs 0.5 m", dict(hs_m=0.5)), ("Hs 1.5 m", dict(hs_m=1.5)), ("Hs 2.0 m", dict(hs_m=2.0)), ("beam seas, Hs 1 m", dict(wave_dir_deg=90.0)), ("beam seas, Hs 1.5 m", dict(wave_dir_deg=90.0, hs_m=1.5)),
+            ("vessel stopped", dict(ship_speed_ms=0.0)), ("vessel 3.5 m/s", dict(ship_speed_ms=3.5)), ("no quiet-window wait", dict(use_window=0.0)), ("deck link 0.3 s late", dict(ship_link_latency_s=0.3)), ("wind x 2", dict(wind_x=2.0))],
 }  # fmt: skip
 
 

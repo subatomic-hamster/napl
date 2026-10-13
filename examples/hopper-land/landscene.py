@@ -119,6 +119,9 @@ SITES = {
         ridge_len=20.0,
     ),
     "deck": Site("deck", origin_alt=0.0),
+    "osv": Site(
+        "osv", origin_alt=0.0
+    ),  # the 12.6 m support vessel of napl.cuas.ship underway in a seeded JONSWAP sea, the hopper on its helipad
 }
 # the ISA rho at those altitudes, kg/m3: 3200 m 0.891, 3800 m 0.837, 3400 m 0.873, 2800 m 0.927 (landveh.isa_rho)
 
@@ -214,6 +217,29 @@ def add_deck(root, y_m, x_m=0.0, size=(1.6, 1.6)):
         )
 
 
+def _build_osv(out, p, seed, oa, visual):
+    """The hopper standing on the helipad of the support vessel (napl.cuas.ship.ship_scene; the lander is the hopper-land assembly, which composes as `hopper_*`). The vehicle scatter
+    of the other sites (mass / thrust / CG) is not applied here: ship_scene composes the assembly as it is; sensor biases and servo scatter still are (landhop.fly)."""
+    from napl.cuas.ship import ship_scene
+
+    sc = ship_scene(
+        out,
+        lander="hopper-land",
+        lander_name="hopper",
+        lander_start="deck",
+        hs=float(p["hs_m"]),
+        tp=None if p["tp_s"] <= 0 else float(p["tp_s"]),
+        wave_dir=float(p["wave_dir_deg"]),
+        origin_alt=oa,
+        seed=int(seed),
+        visual=visual,
+    )
+    pad = tuple(float(v) for v in sc["pad"])
+    info = Info("osv", None, pad, pad, oa, 2.0, 0.0)
+    info.deck = dict(x=pad[0], y=pad[1], z=pad[2], half=1.5, ship=True)
+    return Path(sc["model"]), info
+
+
 def build_model(out, p, seed=1, scatter=None, visual=False):
     """MJCF of one flight. `p` keys: site, reverse (land on the take-off pad of the site's reverse hop), origin_alt (-1 = the site's), w20_ms, rain_mmh (device present iff > 0), deck_y_m (site deck),
     wind_field (False = uniform wind, no terrain wind). -> (path of scene.xml, Info)"""
@@ -221,6 +247,8 @@ def build_model(out, p, seed=1, scatter=None, visual=False):
     out.mkdir(parents=True, exist_ok=True)
     site = SITES[p["site"]]
     oa = site.origin_alt if p.get("origin_alt", -1.0) < 0 else float(p["origin_alt"])
+    if site.kind == "osv":
+        return _build_osv(out, p, seed, oa, visual)
     xml = _compute(out, seed, p["w20_ms"] if p["w20_ms"] >= 0 else p["wind_ms"], visual)
     if scatter:
         xml = hopper_scene.scatter_xml(xml, scatter)

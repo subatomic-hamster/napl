@@ -30,6 +30,18 @@ class DeckState:
     )  # surface normal (unit)
     sigma_pos: float = 0.03  # m, 1-sigma of each position component (for the log)
     sigma_vel: float = 0.05  # m/s
+    ready: bool | None = (
+        None  # None: no motion predictor; False: still collecting history; True: it names quiet windows (landship)
+    )
+    window: float | None = (
+        None  # start (flight clock, s) of the next predicted quiet window, if any
+    )
+    omega_b: np.ndarray | None = (
+        None  # the deck's angular rate in its body frame (rad/s), for the moving-base alignment on the pad
+    )
+    up_b: np.ndarray | None = (
+        None  # the vertical in the deck's body frame (unit): where the accelerometers' mean points on a still deck
+    )
 
     def predict(self, t):
         """(position, velocity) at time t: constant-velocity extrapolation from the sample (heave is slow against the link's latency)."""

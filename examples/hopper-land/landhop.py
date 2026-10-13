@@ -24,6 +24,7 @@ import hop  # examples/hopper/hop.py: draw_hidden, _play, q, tilt_deg, STATE_COD
 import landdeck
 import landing
 import landscene
+import landship
 import napl
 import vehicle as veh
 from landflight import DEFAULTS, Flight, Mission
@@ -66,7 +67,11 @@ def prepare(seed, p, out):
 
 def fly(seed, p, model, h, info, run_dir=None, log=True, telemetry=True, max_s=None):
     """One flight. -> dict(res, rows, sim, fl). `p` = landing.resolve(...), `h` = landing.draw_hidden(seed, p), `info` = landscene.Info of the built model."""
-    sim = napl.Sim.load(str(model))
+    raw = napl.Sim.load(str(model))
+    ship = bool(info.deck and info.deck.get("ship"))
+    sim = (
+        landship.PrefixSim(raw) if ship else raw
+    )  # a composed ship scene prefixes the vehicle
     if log:
         sim.start_log()
     tw = (
@@ -86,12 +91,17 @@ def fly(seed, p, model, h, info, run_dir=None, log=True, telemetry=True, max_s=N
     gust = landing.gust_command(h, p, info.land)
     if gust is not None and info.terrain is not None:
         sim.set("/devices/wind", "gust", gust)
-    deck = landdeck.ScriptedDeck(sim, info, p, h) if info.deck else None
-    link = (
-        landdeck.DeckLink(deck, p, np.random.default_rng([int(seed), 9999]))
-        if deck
-        else None
-    )
+    if ship:
+        deck = landship.ShipDeck(raw, info, p, h)
+        link = landship.ShipLink(deck, p, seed, info.takeoff)
+        link.rover_pos = lambda: np.array(raw.query("/world/hopper_frame", "pos")[0])
+    else:
+        deck = landdeck.ScriptedDeck(sim, info, p, h) if info.deck else None
+        link = (
+            landdeck.DeckLink(deck, p, np.random.default_rng([int(seed), 9999]))
+            if deck
+            else None
+        )
     fl = Flight(
         Mission(
             mis["alt"],
@@ -101,6 +111,7 @@ def fly(seed, p, model, h, info, run_dir=None, log=True, telemetry=True, max_s=N
             mis["pad_r"],
             p["hold_s"],
             mis.get("deck_half", 1.5),
+            mis.get("fixed_pads", True),
         ),
         **{k: p[k] for k in DEFAULTS if k in p},
     )
@@ -146,7 +157,11 @@ def fly(seed, p, model, h, info, run_dir=None, log=True, telemetry=True, max_s=N
             last_gnss = gn
             rng = hop.q(sim, "/devices/lidar", "range")
             vb = hop.q(sim, "/devices/battery", "voltage")
-            ds = link.sample(t) if link is not None else None
+            ds = (
+                (link.sample(t, fl) if ship else link.sample(t))
+                if link is not None
+                else None
+            )
             c = fl.step(t, gyro, accel, baro, fix, rng, vb, deck=ds)
             for i in range(4):
                 play[i] = hop._play(
@@ -198,6 +213,8 @@ def fly(seed, p, model, h, info, run_dir=None, log=True, telemetry=True, max_s=N
             tl = (
                 hop.tilt_deg(sim) if deck is None else tilt_rel(sim, deck._pose()[1])
             )  # on a deck: relative to its normal
+            # the trace's tilt column: the airframe against the vertical, except on a vessel, where it stands on the deck (against the deck normal); a scripted deck is landed on, not taken off from
+            tlw = tl if ship or deck is None else hop.tilt_deg(sim)
             soc = hop.q(sim, "/devices/battery", "soc")
             if thrust > 1.0:
                 pow_n += 1
@@ -257,7 +274,7 @@ def fly(seed, p, model, h, info, run_dir=None, log=True, telemetry=True, max_s=N
                     else float(np.linalg.norm(h["wind"]))
                 )
                 rows.append([
-                    t, fx - fx0, fy - fy0, zt, vz, tl, hop.STATE_CODE[fl.state], thrust, ex, ey, ea, math.hypot(ex - (fx - fx0), ey - (fy - fy0)),
+                    t, fx - fx0, fy - fy0, zt, vz, tlw, hop.STATE_CODE[fl.state], thrust, ex, ey, ea, math.hypot(ex - (fx - fx0), ey - (fy - fy0)),
                     math.hypot(fx - tx, fy - ty) if deck is None else math.hypot(fx - deck.center(t)[0], fy - deck.center(t)[1]), he,
                     vb, hop.q(sim, "/devices/battery", "current"), soc, hop.q(sim, "/devices/esc", "omega") * 30.0 / math.pi, rng,
                     math.degrees(float(np.max(np.abs(c.goals)))), sat_n / max(pow_n, 1), abort_seen, res["td_speed"], res["td_tilt"], res["td_dist"], res["landed"],
@@ -273,7 +290,7 @@ def fly(seed, p, model, h, info, run_dir=None, log=True, telemetry=True, max_s=N
                         t,
                         zt,
                         vz,
-                        tl,
+                        tlw,
                         thrust,
                         fx - fx0,
                         fy - fy0,

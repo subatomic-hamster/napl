@@ -32,6 +32,7 @@ G = veh.G
 W = veh.MASS * G
 DEFAULTS = dict(
     BASE_DEFAULTS, k_dob=0.7, margin_min=landveh.MARGIN_MIN, v_sink_min=0.25, z_final=2.0, t_max_s=160.0, abort_off_m=12.0,
+    use_window=1.0, window_wait_s=20.0,
 )  # fmt: skip
 
 
@@ -44,6 +45,7 @@ class Mission:
     pad_r: float = 3.0  # flat radius of the pads (the lidar is trusted inside it)
     hold_s: float = 3.0
     deck_half: float = 1.5  # half width of a moving deck's landing surface
+    fixed_pads: bool = True  # the take-off pad stands still in the flight frame; False on a ship (the deck is the only pad and it moves, the climb follows it)
 
 
 class ThrustCtlRho(ctl.ThrustCtl):
@@ -101,10 +103,15 @@ class Flight:
         self.p = p
         self.m = mission or Mission()
         self.est = LandEstimator(DT)
-        self.est.pads = [
-            (0.0, 0.0, 0.0, self.m.pad_r),
-            (self.m.dx_m, self.m.dy_m, self.m.dz_m, self.m.pad_r),
-        ]
+        self.est.pads = (
+            [
+                (0.0, 0.0, 0.0, self.m.pad_r),
+                (self.m.dx_m, self.m.dy_m, self.m.dz_m, self.m.pad_r),
+            ]
+            if self.m.fixed_pads
+            else []
+        )
+        self.t_gate = None  # when the descent reached the hold point over the deck (quiet-window gate)
         self.est.deck_half = self.m.deck_half
         self.att = AttitudeCtlRho(
             wn=p["wn_att"], zeta=p["zeta_att"], t_lead=p["t_lead"]
@@ -146,6 +153,8 @@ class Flight:
         """Chain a min-jerk segment to p1. follow: p1's xy is the landing point and the deck is moving: aim at where the deck will be when the segment ends and arrive with its velocity."""
         p, _, _ = self.ref.state(t)
         p1 = np.asarray(p1, float)
+        if not self.m.fixed_pads:  # over a moving deck only the height is planned; the horizontal reference IS the deck (step)
+            p1, follow = np.array([p[0], p[1], p1[2]]), False
         d = p1 - p
         T = max(
             trj.duration(math.hypot(d[0], d[1]), vmax_xy, self.p["amax_xy"]),
@@ -183,6 +192,18 @@ class Flight:
             return pz, vz
         return self.m.dz_m, 0.0
 
+    def _window_open(self, t):
+        """May the final sink start? Always, unless a deck motion predictor is running (DeckState.ready) and `use_window`: then when it names a quiet window starting now, or after `window_wait_s`
+        at the hold point (a sea that never goes quiet is landed on anyway: the touchdown monitors report what that costs)."""
+        d = self.deck
+        if d is None or not self.p["use_window"] or d.ready is None:
+            return True
+        if self.t_gate is None:
+            self.t_gate = t
+        return (
+            d.window is not None and d.window - t < 0.3
+        ) or t - self.t_gate > self.p["window_wait_s"]
+
     def _target_xy(self, t, lead=0.0):
         """(horizontal position, velocity) of the landing point at time t + lead: the surveyed pad, or the deck as the datalink last reported it, extrapolated."""
         if self.deck is not None:
@@ -199,6 +220,10 @@ class Flight:
             self.deck = deck
         self.vbat += 0.05 * (vbat - self.vbat) if self.vbat > 1 else (vbat - self.vbat)
         if self.state == "PAD":
+            if deck is not None and deck.omega_b is not None:
+                # on a moving deck the gyro bias is the gyro less the deck's own rotation, and the accelerometers' mean points along the vertical in the deck frame, both from the datalink
+                gyro = np.asarray(gyro, float) - deck.omega_b
+                accel = float(np.linalg.norm(accel)) * deck.up_b
             e.calibrate(gyro, accel, baro, gnss, lidar)
             if t >= p["t_cal"] and e.ready():
                 e.finish()
@@ -264,7 +289,20 @@ class Flight:
             self.p_ref = np.array([0.0, 0.0, 0.0])
             if pos[2] > 0.04:
                 self.ref.start(t, pos, vel)
-                self._plan(t, np.array([0.0, 0.0, m.alt_m]), p["vmax_xy"], p["vmax_up"])
+                if (
+                    not m.fixed_pads and self.deck is not None
+                ):  # lifting off a moving deck: climb over it
+                    self._plan(
+                        t,
+                        np.array([*txy, m.alt_m]),
+                        p["vmax_xy"],
+                        p["vmax_up"],
+                        follow=True,
+                    )
+                else:
+                    self._plan(
+                        t, np.array([0.0, 0.0, m.alt_m]), p["vmax_xy"], p["vmax_up"]
+                    )
                 self._go("CLIMB", t)
             elif t - self.t_state > 6.0:
                 self.events.append((round(t, 3), "fault: no lift-off"))
@@ -291,21 +329,33 @@ class Flight:
                 t, np.array([*txy, z_fin]), p["vmax_xy"], p["vmax_down"], follow=True
             )
             self._go("DESCENT", t)
-        elif self.state == "DESCENT" and self.ref.done(t) and abs(pos[2] - z_fin) < 0.5:
+        elif (
+            self.state == "DESCENT"
+            and self.ref.done(t)
+            and abs(pos[2] - z_fin) < 0.5
+            and self._window_open(t)
+        ):
             self.ref.start(t, np.array([*txy, pos[2]]))
             self._go("FINAL", t)
         elif self.state == "ABORT_LAND":
             if t - self.t_state > 0.5:
                 self.ref.start(t, np.array([*self.target, pos[2]]))
         p_ref, v_ref, a_ref = self.ref.update(t)
+        ship = not m.fixed_pads
         if self.deck is not None and self.state in (
             "HOVER",
             "DESCENT",
             "TRANSIT",
+            *(("CLIMB",) if ship else ()),
         ):  # follow the deck's drift on top of the planned path
             p_ref = np.array([p_ref[0], p_ref[1], p_ref[2]])
-            if self.state == "HOVER":
+            if self.state == "HOVER" or ship:
                 p_ref[:2], v_ref[:2] = txy, vtxy
+            if self.state == "DESCENT" and self.ref.done(
+                t
+            ):  # waiting over the deck for a quiet window: hold station on it
+                p_ref, v_ref = np.array([*txy, z_fin]), np.array([*vtxy, vzg])
+                a_ref = np.zeros(3)
         if self.state in ("FINAL", "ABORT_LAND"):
             h = pos[2] - zg if self.state == "FINAL" else e.height_above_ground()
             sink = min(p["v_sink_max"], max(p["v_sink_min"], p["k_sink"] * h))

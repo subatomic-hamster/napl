@@ -11,6 +11,10 @@ import numpy as np
 import pytest
 from napl import params as nparams
 
+# the vessel's ~40 wires take minutes to route cold; wireroute caches them on disk (the same cache as test_ship / test_asv)
+os.environ.setdefault(
+    "NAPL_ROUTE_CACHE", str(Path(tempfile.gettempdir()) / "napl-route-cache-asv")
+)
 REPO = Path(__file__).resolve().parents[2]
 HOPPER, LAND = REPO / "examples" / "hopper", REPO / "examples" / "hopper-land"
 needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
@@ -29,9 +33,11 @@ CLASH = (
     "landest",
     "landflight",
     "landdeck",
+    "landship",
     "landhop",
     "landmc",
-)
+    "ship",
+)  # `ship`: examples/ship (landship imports its ShipPilot)
 SCEN = {
     "mesa/down": "hopperland-mesa-down",
     "mesa/up": "hopperland-mesa-up",
@@ -40,23 +46,25 @@ SCEN = {
     "rain/rain25": "hopperland-rain25",
     "rain/rain100": "hopperland-rain100",
     "deck/scripted": "hopperland-deck-scripted",
+    "osv/underway": "hopperland-osv-underway",
 }
 toml = lambda k: LAND / f"{k}.scenario.toml"
-lv = ld = lh = lm = None
+lv = ld = lh = lm = lsh = None
 
 
 @pytest.fixture(scope="module", autouse=True)
 def _land_modules():
     """examples/hopper and examples/hopper-land share module names with other examples: resolve them to these two directories for this module's tests only."""
-    global lv, ld, lh, lm
+    global lv, ld, lh, lm, lsh
     saved = {n: sys.modules.pop(n) for n in CLASH if n in sys.modules}
     sys.path[:0] = [str(LAND), str(HOPPER)]
     import landdeck
     import landhop
     import landmc
+    import landship
     import landveh
 
-    lv, ld, lh, lm = landveh, landdeck, landhop, landmc
+    lv, ld, lh, lm, lsh = landveh, landdeck, landhop, landmc, landship
     yield
     for p in (str(LAND), str(HOPPER)):
         sys.path.remove(p)
@@ -176,6 +184,48 @@ def test_a_scripted_deck_landing_is_judged_against_the_moving_deck(tmp_path):
     res = r["res"]
     assert res["landed"] == 1 and not res["abort"]
     assert res["td_speed"] < 0.5 and res["td_tilt"] < 5.0 and res["td_dist"] < 0.5
+
+
+def test_the_prefix_proxy_maps_the_hoppers_paths_into_a_composed_scene():
+    class Rec:
+        tick = 7
+
+        def __init__(self):
+            self.calls = []
+
+        def query(self, path, attr):
+            self.calls.append(("q", path, attr))
+
+        def set(self, path, attr, value):
+            self.calls.append(("s", path, attr))
+
+    rec = Rec()
+    sim = lsh.PrefixSim(rec)
+    for path in ("/world/frame", "/devices/imu", "/devices/air", "/devices/servo3"):
+        sim.query(path, "x")
+    sim.set("/devices/esc", "throttle", [0.1])
+    assert [c[1] for c in rec.calls] == [
+        "/world/hopper_frame",
+        "/devices/hopper_imu",
+        "/devices/air",  # the scene's, not the vehicle's
+        "/devices/hopper_servo3",
+        "/devices/hopper_esc",
+    ]
+    assert sim.tick == 7
+
+
+@needs_kernel
+def test_a_hop_off_and_back_onto_the_underway_vessels_helipad(tmp_path):
+    """The deck state comes from RelGnss + DeckLink + DeckPredictor (napl.cuas.relnav), the flight lands on the heaving, rolling, moving 3 m pad."""
+    r = _fly("osv/underway", {}, tmp_path)
+    res = r["res"]
+    assert res["landed"] == 1 and not res["abort"] and res["state"] == "LANDED"
+    assert res["td_speed"] < 0.5 and res["td_tilt"] < 5.0 and res["td_dist"] < 0.5
+    assert r["fl"].deck is not None and r["fl"].deck.ready  # the predictor ran
+    z = [row[lh.COLS.index("z_m")] for row in r["rows"]]
+    assert max(z) > 11.0
+    x = [row[lh.COLS.index("x_m")] for row in r["rows"]]
+    assert max(x) > 20.0  # the vessel was underway: the hopper flew along with it
 
 
 # ------------------------------------------------------------------------------------------------------------------------------- MC helpers
