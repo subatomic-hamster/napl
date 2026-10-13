@@ -9,8 +9,8 @@ Everything is driven by `tools/record_skydio.py`; it reuses `tools/record_turret
 | segment | what | source of truth |
 |---|---|---|
 | Build | `assemblies/skydio.toml` (X500 V2 + D435i + Pi 5 + regulator) opened in the viewer, parts revealed in six build stages, orbiting camera, mass + DRC | the finished design (BROWSER eye hides / shows parts), not placed one by one |
-| Wiring | three pin-level WIRING sheets (power, motors / PWM, companion computer + crossed UART), then the 21 wires as tubes in 3D | `flatten.begin` on the assembly's own wires |
-| Program | PROGRAM page on `mapping.py`, `planner.py`, `fly.py`, a scenario file; a pipeline card | the files |
+| Wiring | three pin-level WIRING sheets (power, motors / PWM, companion computer + crossed UART) on the full-page canvas: `ui.wire_pick` ticks the components in the Wire Components picker (name-only pinout preview), `flatten.begin`, legend + controls top-left, zoom % in the top bar, `ui.wire_view panel fold / open`, then pm02, pdb and the four ESCs are hidden (`ui.visibility`): their cards and wires vanish in 2D and the tubes in 3D, then shown again; finally the 21 wires as tubes in 3D | `flatten.begin` on the assembly's own wires |
+| Program | the PROGRAM IDE driven by `prog.ui`: `planner.py` highlighted, find / replace / find in files windows, a pin hover tooltip in `build_design.py` (`pdb.out1`), typing in an untracked `examples/skydio/_scratch.py`, the TERMINAL tab (`ls`, `python -c`), Run slot BENCH on `esc1` (OUTPUT table, PASS chip), then FULL SIM on `follow.scenario.toml`: the window's own World flies the scenario live on SIMULATE (LIVE label, the viewer's own chase camera, not the director), back on PROGRAM the chip and the monitors; a pipeline card | the files, the real Run slot |
 | Simulate | goal (seed 1) and follow (seed 1) `napl program` runs, replayed (`replay.naplog` on a fresh World, final hash checked), directed camera (orbit, chase, side, tripod pans, pair), HUD | the run's `trace.csv`, `telemetry.jsonl`, `depth.npz` |
 | Result | the runs' own numbers + the README's Monte Carlo and PX4 figures (quoted, not rerun) | `summary.json`, `result.json`, README |
 
@@ -24,8 +24,12 @@ Slow motion: 1.5 s around the closest pass to an obstacle in each run (minimum t
 ## Commands (from the worktree; `export NAPL_REMOTE_DIR=/workspace/wt/napl-skydio UV_CACHE_DIR=/workspace/wt/napl/uv-cache`; `O=$NAPL_REMOTE_DIR/out/skydio`)
 
 ```sh
-# 0. host setup: current kernel build + editable install; a throwaway venv with Pillow + numpy for the encode / png steps
-tools/remote.sh run --slots 2 'cmake --preset dev && cmake --build --preset dev && PATH=/workspace/wt/napl/env/bin:$PATH uv pip install -e ".[dev,px4]"'
+# 0. host setup: current kernel build + editable install; a throwaway venv with Pillow + numpy for the encode / png steps.
+#    The editable install REBUILDS the extension and installs its own copy under .venv: give it NAPL_SCCACHE=OFF too, or stale sccache objects
+#    (after a changed solver.h) segfault in Sim.start_log and every napl program run fails.
+tools/remote.sh run --slots 2 'cmake --preset dev -DNAPL_SCCACHE=OFF && cmake --build --preset dev && PATH=/workspace/wt/napl/env/bin:$PATH uv pip install -e ".[dev,px4]" --config-settings=cmake.define.NAPL_SCCACHE=OFF'
+# the Program segment types into examples/skydio/_scratch.py (untracked, one comment line): create it locally before the first remote.sh call, delete it after
+# the Program segment's FULL SIM step needs the viewer's Backend.sim (set by tools/record_turret.py _build) and takes about 45 s wall for follow
 python3 -m venv $NAPL_REMOTE_DIR/vidvenv && $NAPL_REMOTE_DIR/vidvenv/bin/pip install pillow numpy
 # 1. the scenarios (CPU, ~40 s each): PASS + replay match; symlink the run dirs as $O/goal and $O/follow
 tools/remote.sh run ".venv/bin/napl program examples/skydio/goal.scenario.toml --runs-dir $O/runs"      # hash efb57e183637ae9d
