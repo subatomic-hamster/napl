@@ -174,7 +174,9 @@ def osv_hull(c, **_):
     bottom = loft(low)
     side = loft(up)
     poly = [(x, y) for x, y in outline] + [(x, -y) for x, y in reversed(outline)]
-    deck = extrude(poly[::-1], depth, depth + 0.006)  # ccw outline
+    deck = extrude(
+        poly[::-1], depth - 0.006, depth
+    )  # ccw outline; the top is the deck plane, so parts and wires lying on the deck are not inside the slab
     fenders = []
     for sg in (1, -1):
         rings = []

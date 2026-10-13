@@ -110,7 +110,7 @@ params = { mass = { value = 0.046, unit = "kg", fidelity = "estimated", rational
 id = "reg5"
 part = "pololu-d24v50f5"
 group = "power"
-pos = [0.4, -0.1, 1.7009999999999998]
+pos = [0.4, -0.1, 1.704]
 rpy = [0.0, 0.0, 0.0]
 params = { mass = { value = 0.003, unit = "kg", fidelity = "datasheet", src = "https://www.pololu.com/product/2851/specs", quote = "Size: 0.7\" x 0.8\" x 0.35\" Weight: 3.0 g" } }
 
@@ -118,7 +118,7 @@ params = { mass = { value = 0.003, unit = "kg", fidelity = "datasheet", src = "h
 id = "reg12"
 part = "pololu-d24v10f12"
 group = "power"
-pos = [0.4, -0.5, 1.7009999999999998]
+pos = [0.4, -0.5, 1.704]
 rpy = [0.0, 0.0, 0.0]
 params = { mass = { value = 0.0025, unit = "kg", fidelity = "estimated", src = "https://www.pololu.com/product/2851/specs", quote = "Size: 0.7\" x 0.8\" x 0.35\" Weight: 2.5 g (estimated from the D24V50F5 sibling)", rationale = "The D24V10F12 is the smaller sibling of the D24V50F5 (3.0 g); no weight on the product page, 2.5 g taken." } }
 
@@ -134,8 +134,8 @@ params = { telem_cable_length = { value = 1.2, unit = "m", fidelity = "estimated
 id = "hbat"
 part = "cnhl-6200mah-6s-90c-xt90"
 group = "power"
-pos = [3.2, -0.9, 1.7249999999999999]
-rpy = [0.0, 0.0, 0.0]
+pos = [3.3, -0.1, 1.7249999999999999]
+rpy = [0.0, 0.0, 3.141592653589793]
 
 [[instances]]
 id = "rtk_board"
@@ -313,7 +313,7 @@ name = "hbat-to-reg5"
 from = "hbat.power_out"
 to = "reg5.vin"
 part = "awg-18-silicone-wire"
-length = { value = 1.5, unit = "m", fidelity = "estimated", rationale = "House pack at x = 3.2 m, 5 V regulator at x = 0.4 m, along the cabin wall: 2.8 m. Rating: 5 A at 25 V needs 14-16 AWG; the library's thinnest wire part is 18 AWG (16 A), used for the bookkeeping." }
+length = { value = 1.5, unit = "m", fidelity = "estimated", rationale = "House pack at x = 3.3 m, 5 V regulator at x = 0.4 m, along the centre aisle: 2.9 m. Rating: 5 A at 25 V needs 14-16 AWG; the library's thinnest wire part is 18 AWG (16 A), used for the bookkeeping." }
 conductors = 2
 
 [[wires]]
@@ -338,6 +338,8 @@ from = "reg5.vout"
 to = "fc.power1"
 part = "awg-18-silicone-wire"
 length = { value = 1.5, unit = "m", fidelity = "estimated", rationale = "Regulator at y = -0.1 m, Pixhawk at y = 1.0 m on the same shelf: 1.1 m plus slack." }
+from_pins = ["IO.VOUT", "IO.GND2"]
+to_pins = ["POWER1.1", "POWER1.5"]
 conductors = 2
 
 [[wires]]
@@ -410,6 +412,8 @@ from = "pi.gpio_uart"
 to = "fc.telem2"
 part = "awg-18-silicone-wire"
 length = { value = 1.0, unit = "m", fidelity = "estimated", rationale = "Pi 5 UART header (TX / RX / GND) to the Pixhawk 6C TELEM2 (MAVLink companion link): 0.55 m apart on the shelf, 1.0 m with slack." }
+from_pins = ["J8.8", "J8.10", "J8.6"]
+to_pins = ["TELEM2.3", "TELEM2.2", "TELEM2.6"]
 
 [[wires]]
 name = "mru-to-pi"
