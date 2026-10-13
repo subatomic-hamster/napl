@@ -13,7 +13,7 @@ program root and confined to it (no absolute paths, no `..`, no symlink escapes)
     prog.define {path,line,col,text?}          -> {path,line,col} | {external} | {}          (python, jedi)
     prog.rename {path,line,col,new}            -> {edits:[{path,line,col,end_line,end_col,text}]}; the files are written here
     prog.hover {path,line,col,text?}           -> {entity?, markdown?, pins?:[{component,port,pin,connects:[{component,port,pin}]}]}
-    prog.ui {cmd, ...}                         -> {}   (scripts the window: open / type / cmd / term / hover / dock; screenshot tools)
+    prog.ui {cmd, ...}                         -> {}   (scripts the window: open / type / find / replace / search / goto / define / rename ...; screenshot tools)
     term.open {cwd?}                        -> {id};  term.write {id,data};  term.read {id} -> {data, alive};  term.kill {id}
 """
 
@@ -35,6 +35,10 @@ from pathlib import Path, PurePosixPath
 
 from .library import DesignError
 
+UI_CMDS = {
+    "open", "type", "cmd", "term", "hover", "dock", "find", "find_next", "find_prev", "replace", "replace_all", "search", "goto",
+    "define", "rename", "quick_open",
+}  # fmt: skip
 SKIP_DIRS = {"__pycache__", "node_modules", "build", "dist", "venv", "env"}
 BINARY_EXT = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm", ".mkv", ".avi", ".npz", ".npy", ".so", ".o", ".a",
@@ -290,9 +294,11 @@ class Prog:
     # ---- scripting the window --------------------------------------------------------------------------------------------
     def op_prog_ui(self, a):
         """Queue a window event for the PROGRAM page (what a person would click / type): cmd = open {path,line,col,len} |
-        type {text} | cmd {name} | term {text} | hover {line,col} | dock {name}. Screenshot tools and tests drive the page with it."""
+        type {text} | cmd {name} | term {text} | hover {line,col} | dock {name} | find {text,replace?,case?,word?,regex?} |
+        find_next | find_prev | replace | replace_all | search {text,case?,word?,regex?,send?} (find in files) | goto {line} |
+        define (F12) | rename {new} (F2) | quick_open {text,pick?}. Screenshot tools and tests drive the page with it."""
         cmd = str(a.get("cmd", ""))
-        if cmd not in ("open", "type", "cmd", "term", "hover", "dock"):
+        if cmd not in UI_CMDS:
             raise DesignError(f"prog.ui: unknown cmd {cmd!r}")
         if cmd == "open":
             self.confine(a["path"], True)

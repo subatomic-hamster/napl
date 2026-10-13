@@ -214,6 +214,26 @@ def test_terminal_cwd_is_confined(be):
     assert ok(be, "term.open", cwd="sub")["cwd"].endswith("sub")
 
 
+def test_ui_script_commands_queue_window_events(be):
+    be.events.clear()
+    for cmd, args in [
+        ("find", {"text": "x", "replace": "y", "case": True}),
+        ("find_next", {}),
+        ("replace_all", {}),
+        ("search", {"text": "planner", "send": False}),
+        ("goto", {"line": 3}),
+        ("define", {}),
+        ("rename", {"new": "route"}),
+        ("quick_open", {"text": "pl", "pick": True}),
+    ]:
+        ok(be, "prog.ui", cmd=cmd, **args)
+    assert [e["cmd"] for e in be.events] == [
+        "prog_" + c
+        for c in ["find", "find_next", "replace_all", "search", "goto", "define", "rename", "quick_open"]
+    ]
+    assert not ask(be, "prog.ui", cmd="rm_rf")["ok"]
+
+
 def test_ops_are_not_mcp_tools():
     src = (REPO / "python" / "napl" / "mcp_server.py").read_text()
     assert "prog." not in src and "term." not in src

@@ -432,10 +432,11 @@ TEST(viewer_design, program_page_opens_a_file_types_and_saves_through_the_design
   NEED_DISPLAY();
   std::vector<std::string> seen;
   std::string written;
+  std::vector<std::string> writes;
   int polls = 0;
   Host h(pendulum(), session());
   ViewerOptions o;
-  o.frames = 240;
+  o.frames = 420;
   o.width = 960;
   o.height = 540;
   o.design_api = [&](const std::string& req) -> std::string {
@@ -448,14 +449,20 @@ TEST(viewer_design, program_page_opens_a_file_types_and_saves_through_the_design
       if (polls == 5) return R"({"ok":true,"result":{"events":[{"cmd":"prog_open","path":"plan.py","line":0,"col":0}]}})";
       if (polls == 9) return R"({"ok":true,"result":{"events":[{"cmd":"prog_type","text":"# edited\n"}]}})";
       if (polls == 12) return R"({"ok":true,"result":{"events":[{"cmd":"prog_cmd","name":"save"},{"cmd":"prog_term","text":"echo hi"}]}})";
+      if (polls == 16) return R"({"ok":true,"result":{"events":[{"cmd":"prog_find","text":"edited","replace":"changed"}]}})";
+      if (polls == 20) return R"({"ok":true,"result":{"events":[{"cmd":"prog_replace_all"}]}})";
+      if (polls == 24) return R"({"ok":true,"result":{"events":[{"cmd":"prog_cmd","name":"save"}]}})";
+      if (polls == 27) return R"({"ok":true,"result":{"events":[{"cmd":"prog_search","text":"plan","send":false}]}})";  // the as-you-type search must send it
       return R"({"ok":true,"result":{"events":[]}})";
     }
     if (tool == "prog.files") return R"({"ok":true,"result":{"root":"/work/prog","files":["plan.py","sub/n.toml"]}})";
     if (tool == "prog.read") return R"({"ok":true,"result":{"text":"def plan(x):\n    return x + 1\n"}})";
     if (tool == "prog.write") {
       written = j.at("args").s("text");
+      writes.push_back(written);
       return R"({"ok":true,"result":{}})";
     }
+    if (tool == "prog.search") return R"({"ok":true,"result":{"matches":[{"path":"plan.py","line":0,"col":4,"text":"def plan(x):"}],"truncated":false}})";
     if (tool == "prog.check") return R"({"ok":true,"result":{"problems":[]}})";
     if (tool == "term.open") return R"({"ok":true,"result":{"id":7,"cwd":"/work/prog"}})";
     if (tool == "term.read") return R"({"ok":true,"result":{"data":"\u001b[32mhi\u001b[0m\r\n","alive":true}})";
@@ -471,8 +478,10 @@ TEST(viewer_design, program_page_opens_a_file_types_and_saves_through_the_design
   const auto count = [&](const std::string& s) { return std::count(seen.begin(), seen.end(), s); };
   EXPECT_GE(count("prog.files"), 1);
   EXPECT_EQ(count("prog.read"), 1);
-  EXPECT_EQ(count("prog.write"), 1);
-  EXPECT_EQ(written, "# edited\ndef plan(x):\n    return x + 1\n") << "the typed text did not reach prog.write (escapes of newlines?)";
+  ASSERT_EQ(writes.size(), 2u);
+  EXPECT_EQ(writes[0], "# edited\ndef plan(x):\n    return x + 1\n") << "the typed text did not reach prog.write (escapes of newlines?)";
+  EXPECT_EQ(writes[1], "# changed\ndef plan(x):\n    return x + 1\n") << "prog_find + prog_replace_all did not edit the buffer";
+  EXPECT_GE(count("prog.search"), 1) << "find in files did not search as the query was typed";
   EXPECT_GE(count("prog.check"), 1);
   EXPECT_GE(count("term.read"), 2);   // the shell is polled while the page is open
   EXPECT_EQ(count("term.write"), 1);  // prog_term typed a line
