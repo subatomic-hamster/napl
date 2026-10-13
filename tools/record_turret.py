@@ -441,6 +441,7 @@ def _build(a):
         sim = Sim.load(
             blank, host=True
         )  # the window opens on an empty floor; the first drop loads the first real model
+    b.sim = sim  # `run.start full` runs the scenario in the window's own World
     t0 = time.time()
     frames, timeline, stop = [], [], threading.Event()
 

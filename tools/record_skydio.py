@@ -76,22 +76,20 @@ SHEETS = [  # (title, why, instances)
      "Sheet 3. A tap on PDB output 1 into the 5 V regulator, the regulator to the Pi 5 USB-C power input, the Pi's USB 3 port to the D435i, and the Pi GPIO UART (GPIO14 / 15 / GND) crossed to the Pixhawk TELEM2 for MAVLink. GPS and the radio sit on their own Pixhawk ports.",
      ["pdb", "reg", "pi", "cam", "fc", "gps", "sik"]),
 ]  # fmt: skip
-SRC_PAGES = [  # (title, why, file, [scroll fraction or regex])
-    ("Mapping: depth image to a voxel map and a distance field", "examples/skydio/mapping.py. Each 160 x 90 depth frame is back-projected with the estimated camera pose, carved into a rolling log-odds voxel grid (0.2 m) and turned into a Euclidean distance field. The planner reads only this map, never an obstacle position.", "examples/skydio/mapping.py", [0.0, r"def distance|def clearance"]),
-    ("Planner: sampled motion primitives, flown only if the braking stop is safe", "examples/skydio/planner.py. 400+ velocity-ramp primitives per replan; one is flown only if its whole path including the braking tail stays clear of occupied voxels and inside space the camera has already seen to be free.", "examples/skydio/planner.py", [0.0, r"def plan|def _safe"]),
-    ("The flight loop and the two missions", "examples/skydio/fly.py. Takeoff, a 1 s mapping hover, then every replan: depth to map, estimate, detector (follow), planner, setpoints to the controller. The scenario files judge trace.csv and re-check the replay hash.", "examples/skydio/fly.py", [0.0, r"def step"]),
-    ("A scenario file: the monitors the run is judged on", "examples/skydio/follow.scenario.toml: zero contacts, clearance, the strict 3-8 m follow band, subject tracked.", "examples/skydio/follow.scenario.toml", [0.0, 0.5]),
-]  # fmt: skip
+SCRATCH = "_scratch.py"  # untracked file under examples/skydio for the typing demo (created before the capture, removed after: docs/skydio/video.md)
+BENCH_WAIT = 10.0  # seconds the bench run is left to finish on screen
+FULL_WAIT = 72.0  # seconds the live follow run is left to fly on screen
 
 
-def _scroll(path, pat):
+def _line(path, pat):
+    """0-based line of the first line of `path` matching the regex."""
     import re
 
-    if isinstance(pat, float):
-        return pat
-    lines = (REPO / path).read_text().splitlines()
-    k = next((i for i, ln in enumerate(lines) if re.search(pat, ln)), 0)
-    return round(max(0, k - 3) / max(1, len(lines) - 40), 3)
+    return next(
+        i
+        for i, ln in enumerate((REPO / path).read_text().splitlines())
+        if re.search(pat, ln)
+    )
 
 
 def cmd_oplog(a):
@@ -189,10 +187,31 @@ def cmd_oplog(a):
             cpath.write_text(json.dumps(cached))
         reqs = [
             R("ui.mode", 1.4, name="wiring"),
-            R("select", 1.0, instances=inst),
+            R(
+                "ui.wire_pick", 3.2, instances=inst
+            ),  # tick the components in the Wire Components picker; the name-only pinout preview follows
             R("flatten.begin", 3.0, instances=inst, ports=ports),
             R("ui.wire_view", 3.0, fit=True),
         ]
+        if (
+            n == 1
+        ):  # fold / open the right panel; hide a part: its card and wires vanish in 2D and in 3D; show it again
+            reqs += [
+                R("ui.wire_view", 2.0, panel="fold"),
+                R("ui.wire_view", 2.0, panel="open"),
+                R(
+                    "ui.visibility",
+                    3.0,
+                    instances=["pm02", "pdb", "esc1", "esc2", "esc3", "esc4"],
+                    visible=False,
+                ),
+                R("ui.mode", 1.0, name="build"),
+                R("ui.view", 0.3, emphasise_wires=True),
+                R("ui.camera", 4.0, preset="iso"),
+                R("ui.visibility", 3.5, visible=True),
+                R("ui.mode", 1.5, name="wiring"),
+                R("ui.wire_view", 1.5, fit=True),
+            ]
         reqs += [
             R("ui.wire_view", 4.4, zoom=0.9, center=c, seconds=2.4)
             for c in cached[title]
@@ -205,9 +224,40 @@ def cmd_oplog(a):
                       why="In 3D each conductor is a tube with its gauge's diameter, leaving its connector along the connector axis and routed through free space (a distance field of the assembly), never through a part.",
                       reqs=[R("ui.mode", 1.2, name="build"), R("ui.view", 0.5, emphasise_wires=True), R("select", 0.5, instances=[]), R("ui.camera", 1.2, preset="iso"),
                             R("camera.orbit", 8.5, yaw_deg=300, pitch_deg=12, seconds=8.0, relative=True)]))  # fmt: skip
-    for title, why, f, pats in SRC_PAGES:
-        steps.append(dict(seg="PROGRAM", title=title, why=why, speed=1.0, dwell=0.4,
-                          reqs=[R("ui.mode", 1.0, name="program")] + [R("ui.program", 4.2, file=f, scroll=_scroll(f, p)) for p in pats]))  # fmt: skip
+    U = lambda wait, **kw: R("prog.ui", wait, **kw)
+    C = lambda wait, name: U(wait, cmd="cmd", name=name)
+    pl = _line("examples/skydio/planner.py", r"^class Planner")
+    hl = _line("examples/skydio/build_design.py", r'd\.wire\("pdb\.out1"')
+    hc = (REPO / "examples/skydio/build_design.py").read_text().splitlines()[hl].index(
+        "pdb.out1"
+    ) + 4
+    P = lambda title, why, *reqs, speed=1.0: steps.append(
+        dict(
+            seg="PROGRAM", title=title, why=why, speed=speed, dwell=0.5, reqs=list(reqs)
+        )
+    )
+    P("PROGRAM is an IDE: explorer, tabs, syntax colouring",
+      "examples/skydio/planner.py in the PROGRAM page: file explorer, tabs, Python syntax colouring. The program is the design's own code; the design TOML next to it is read-only here.",
+      R("ui.mode", 1.5, name="program"), U(4.5, cmd="open", path="planner.py", line=pl, col=6, len=7))  # fmt: skip
+    P("Find, replace and find in files",
+      "Ctrl+F finds the selected symbol in the open file; Ctrl+H opens replace; Ctrl+Shift+F searches every file of the program (F12 / F2 go to definition and rename through jedi; keyboard only, not shown).",
+      C(3.0, "find"), C(2.5, "replace"), C(3.0, "find_in_files"), U(0.5, cmd="dock", name="search"))  # fmt: skip
+    P("Hover a pin: the tooltip names the part and the pin",
+      "A pin reference in build_design.py (here pdb.out1) shows the part's pin tooltip on hover.",
+      U(1.5, cmd="open", path="build_design.py", line=hl, col=hc), U(4.0, cmd="hover", line=hl, col=hc), U(0.3, cmd="hover", line=-1))  # fmt: skip
+    P("Edit in a scratch file, then a real shell in the TERMINAL tab",
+      "Typed text lands in the editor tab; the TERMINAL tab is a pty shell in the program folder.",
+      U(1.0, cmd="open", path=SCRATCH, line=0, col=0), U(3.0, cmd="type", text="# pdb.out1 feeds esc1: 20 A XT30 lead\n"),
+      U(0.5, cmd="dock", name="terminal"), U(1.2, cmd="term", text="ls"), U(2.0, cmd="term", text='python -c "print(sum(range(5)))"'))  # fmt: skip
+    P("Run slot, BENCH: the ESC model on the bench",
+      "BENCH runs the selected component's device model on a bench plus the pytest files tied to the open file (none for README.md, so the run stays short); the OUTPUT tab streams the table and the chip shows PASS.",
+      U(0.5, cmd="open", path="README.md", line=0, col=0), U(0.5, cmd="dock", name="output"), C(0.8, "bench"), C(1.0, "target:esc1"), C(BENCH_WAIT, "run"))  # fmt: skip
+    P("Run slot, FULL SIM: follow.scenario.toml flies live in SIMULATE",
+      "FULL SIM runs the scenario in the window's own simulation: the page switches to SIMULATE with the LIVE label and a chase camera; the monitors judge the run and the replay hash is re-checked.",
+      C(0.8, "full"), C(1.0, "target:follow.scenario.toml"), C(FULL_WAIT, "run"), speed=1.5)  # fmt: skip
+    P("Run slot result: the chip, and the monitors' verdict in OUTPUT",
+      "When the scenario ends the Run slot shows the verdict chip and OUTPUT lists the monitors, the state hash and whether the replay matched.",
+      R("ui.mode", 1.0, name="program"), U(6.0, cmd="dock", name="output"))  # fmt: skip
     Path(a.out).write_text(
         json.dumps(
             {
@@ -832,13 +882,13 @@ CHAPTERS = {
     "wiring": (
         "2  Wiring",
         [
-            "Pin-level wiring sheets of the real assembly: battery, power module, PDB, four ESCs and motors, the Pixhawk, and the companion computer (regulator, Pi 5, D435i USB, the crossed UART to TELEM2). Then the same wires as tubes in 3D."
+            "Pin-level wiring sheets of the real assembly on the full-page canvas: tick components in the Wire Components picker (name-only pinout preview), flatten, fold the right panel, hide a part and its card and wires vanish in 2D and in 3D. Battery, power module, PDB, four ESCs and motors, the Pixhawk, the companion computer (regulator, Pi 5, D435i USB, the crossed UART to TELEM2). Then the same wires as tubes in 3D."
         ],
     ),
     "program": (
         "3  Program",
         [
-            "The autonomy in code: depth-to-map, the primitive planner, the flight loop, and the scenario file the run is judged on."
+            "The PROGRAM page is an IDE for the autonomy code: explorer, tabs, syntax colouring, find / replace, find in files, pin hover tooltips and a pty terminal. The Run slot benches a component (BENCH) or flies a scenario live in SIMULATE (FULL SIM) with the monitors' verdict as a chip."
         ],
     ),
 }
