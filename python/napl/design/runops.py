@@ -11,7 +11,8 @@ throttle sweep, servo step response, battery sag under load, sensor noise readou
 (test_<name>.py, or a test that imports it). Result {pass, metrics}. A component without a device model says so and only runs the tests.
 mode "full": the scenario's program (napl program semantics) against the VIEWER's own World, in real time (napl.program.run(live=...)):
 the scenario model is loaded into the Sim the window shows, the program process drives it (napl.attach), the replay log, monitors and
-pass / fail are kept. Afterwards the design's own model is loaded back. Result = the run's result.json (+ run_dir).
+pass / fail are kept. The final scene STAYS in the window (the verdict is shown there); run.restore loads the design's own model
+back when the window leaves for the design pages. Result = the run's result.json (+ run_dir).
 
 Paths are relative to the program root (the IDE's: Prog.root) and confined to it. This runs USER CODE (the scenario's program, the tests):
 like `napl program` it is deliberately not an MCP tool; only the viewer's Backend serves it.
@@ -319,7 +320,7 @@ class Runs:
     def _chase(self, sim, over):
         """Chase camera for a live run: the scenario's scene is far bigger than the design, so the window's own framing shows a
         speck. Follows the root part's body (the design's root instance id is the end of its body name) from behind and above."""
-        path, t0 = None, time.monotonic()
+        path, st = None, {}
         while not over.wait(0.25):
             if sim.tick < 300:  # the scenario model is not stepping yet
                 continue
@@ -344,12 +345,77 @@ class Runs:
                 p = [float(x) for x in sim.query(path, "pos")[0]]
             except (KeyError, ValueError, RuntimeError):
                 continue
+            eye = self._chase_eye(sim, np.array(p), st)
+            look = np.array(p) if st.get("look") is None else st["look"]
+            st["look"] = look + 0.5 * (np.array(p) - look)
             self._ui(
                 "camera.fly",
-                eye=[p[0] - 4.0, p[1] - 4.0, p[2] + 3.5],
-                look=p,
+                eye=[float(x) for x in eye],
+                look=[float(x) for x in st["look"]],
                 seconds=0.3,
+                chase=True,  # the window drops these while FOLLOW is off (the user took the camera)
             )
+
+    @staticmethod
+    def _chase_eye(sim, p, st):
+        """The camera position for a vehicle at p: keep the current azimuth while its line of sight (sim.raycast from the vehicle to
+        the eye) is clear, else the nearest clear azimuth (then a shorter arm, then a spring arm pulled in before the blocker); eased toward the target."""
+        az0 = st.setdefault("az", math.atan2(-4.0, -4.0))
+        arms = (
+            (4.5, 3.0),
+            (3.5, 2.6),
+            (2.6, 2.0),
+            (2.4, 0.9),
+        )  # (horizontal m, height m)
+
+        def free_len(
+            e,
+        ):  # how far from p towards the eye e the line of sight is clear (0 = the eye is under the ground)
+            u = e - p
+            n = float(np.linalg.norm(u))
+            if e[2] < 0.8:
+                return 0.0
+            try:
+                hit = float(sim.raycast(p + 0.4 * u / n, [u])[0])
+            except (ValueError, RuntimeError):
+                return n
+            return n if hit < 0 else min(n, hit + 0.4)
+
+        def pulled_in(
+            e, free
+        ):  # a spring arm: the eye brought in to just before the blocker (never closer than 0.8 m)
+            return p + (e - p) * max(free - 0.5, 0.8) / np.linalg.norm(e - p)
+
+        tgt, best = None, (-1.0, None, az0)
+        for arm in arms:
+            for da in (0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6, 2.4, -2.4, math.pi):
+                e = p + [
+                    arm[0] * math.cos(az0 + da),
+                    arm[0] * math.sin(az0 + da),
+                    arm[1],
+                ]
+                free = free_len(e)
+                if free > np.linalg.norm(e - p) - 0.3:  # clear all the way to the eye
+                    st["az"], tgt = az0 + da, e
+                    break
+                if free > best[0]:
+                    best = (free, e, az0 + da)
+            if tgt is not None:
+                break
+        if (
+            tgt is None
+        ):  # boxed in: the longest line of sight, the camera pulled in before its blocker
+            free, e, st["az"] = best
+            tgt = pulled_in(e, free)
+        eye = st.get("eye")
+        eye = tgt if eye is None else eye + 0.4 * (tgt - eye)
+        free = free_len(
+            eye
+        )  # the eased camera has not been through a tree: check where it actually is
+        st["eye"] = (
+            eye if free > np.linalg.norm(eye - p) - 0.3 else pulled_in(eye, free)
+        )
+        return st["eye"]
 
     # ---- bench: the component's device model, then the tests tied to the open file ---------------------------------
     def _bench(self, run, iid, mine, all_devs, xml, files):
