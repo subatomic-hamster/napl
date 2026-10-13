@@ -1,0 +1,165 @@
+# napl program examples/skydio-land/summit/summit.scenario.toml --runs-dir <dir>
+# Summit landing at ~3200 m: the Skydio-style quadrotor (assemblies/skydio-land.toml) takes off from a pad on the crest of a seeded mountain ridge, follows the ground 100 m
+# up the crest with its depth camera + downward lidar + RTK rover fix (the base is open sky), and lands on the summit pad (3.5 m radius) in a cross-ridge wind with
+# ridge acceleration, lee turbulence and a gust FRONT (1-cos, 5 m/s, passes at t = 100 s). The air is 73 % of sea-level density: the thrust margin is 2.6 -> ~1.9.
+# In ~35 % of the seeds the summit pad holds three boulders: the survey rejects it and the vehicle lands on the saddle pad 45 m along the crest.
+name = "skyland-summit"
+
+[land]
+family = "summit"
+rtk = true                     # open sky: a 10 Hz RTK fix (2-3 cm) on top of VIO + baro + IMU
+terrain_following = true       # the downward lidar sets the ground reference the planner's altitude band follows
+origin_alt = 3200.0            # m MSL of the take-off pad
+wind_az_deg = 0.0              # the wind blows toward +x: across the ridge, from the windward (-x) face over the crest
+wind_jitter_deg = 20.0
+cruise_h = 3.0
+band_hi = 12.0
+map_z_lo = -16.0
+map_z_hi = 44.0
+
+[land.wind_field]
+z0 = 0.01                      # bare rock and snow: roughness length 1 cm
+ridge_gain = 1.0
+lee_turb = 2.0
+lee_down = 0.2
+
+[model]
+script = "summit.py"           # build(out): land_scene.build_for
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../land_fly.py", "{dir}/summit.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain (ridge, crest undulation, surface detail, boulders), the wind azimuth, the turbulence, the hazard draw and the sensor noise: one seed, one flight."
+
+[[parameters]]
+name = "wind_ms"
+type = "float"
+default = 6.0
+min = 0.0
+max = 14.0
+unit = "m/s"
+group = "environment"
+label = "Mean wind (10 m)"
+doc = "Steady wind at 10 m above the ground; the terrain wind field adds the ridge acceleration and the lee."
+
+[[parameters]]
+name = "turbulence_ms"
+type = "float"
+default = 2.0
+min = 0.0
+max = 8.0
+unit = "m/s"
+group = "environment"
+label = "Dryden level W20"
+doc = "MIL-F-8785C turbulence intensity parameter: wind speed at 6.1 m."
+
+[[parameters]]
+name = "gust_ms"
+type = "float"
+default = 5.0
+min = 0.0
+max = 12.0
+unit = "m/s"
+group = "environment"
+label = "Gust front"
+doc = "Peak of a 1-cos gust front of 20 m length moving with the mean wind; 0 = none."
+
+[[parameters]]
+name = "gust_t_s"
+type = "float"
+default = 100.0
+min = 0.0
+max = 400.0
+unit = "s"
+group = "environment"
+label = "Gust front time"
+
+[[parameters]]
+name = "hazard"
+type = "choice"
+choices = ["auto", "yes", "no"]
+default = "auto"
+group = "mission"
+label = "Boulders on the summit pad"
+doc = "auto: drawn from the seed (about 35 %); yes / no force it."
+
+[[parameters]]
+name = "t_max_s"
+type = "float"
+default = 360.0
+min = 60.0
+max = 600.0
+unit = "s"
+group = "run"
+label = "Longest flight"
+
+[limits]
+wall_s = 1200
+cpu_s = 1200
+address_space_mb = 16384
+
+# --- monitors: columns of <run dir>/trace.csv ------------------------------------------------------------------------------------------
+[[monitors]]
+name = "no_collision"
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_crash"                            # only the two landing legs touch the ground once airborne
+column = "crash"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "clearance_positive"                  # exact distance to the nearest boulder / terrain surface minus the 0.40 m airframe sphere (not counted during the landing itself)
+column = "clearance_m"
+op = "always"
+lo = 0.05
+
+[[monitors]]
+name = "lands_within_300s"
+column = "landed"
+op = "eventually"
+lo = 1
+to = 300
+
+[[monitors]]
+name = "touchdown_vertical_speed"
+column = "td_speed_ms"
+op = "final"
+hi = 1.0
+
+[[monitors]]
+name = "touchdown_tilt"
+column = "td_tilt_deg"
+op = "final"
+hi = 12
+
+[[monitors]]
+name = "on_a_safe_zone"                      # horizontal distance of the touchdown to the nearest TRUTH-safe pad centre
+column = "td_dist_m"
+op = "final"
+hi = 5.0
+
+[[monitors]]
+name = "on_a_safe_spot"                      # TRUTH: the detector's thresholds (slope, roughness, rises, drop-offs) on the exact surface at the touchdown point
+column = "td_safe"
+op = "final"
+lo = 1
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45
