@@ -59,8 +59,29 @@ def _cyl(wb, name, c, r, hh, rgba):
     )
 
 
-def build_spec(out, spec: enc.Spec, seed=None, visual=False):
-    """Compose and post-process the scene of `spec` into `out`/scene.xml -> path. seed = device seed (default spec.seed)."""
+def add_landing_pad(hull):
+    """A small landing pad on the 1.2 m ASV's hull body (calm-water landings of a small multirotor, hopper or Skydio; only the scenes that ask for it, `build_spec(pad=True)`):
+    a 0.75 x 0.90 m plate 0.50 m above the keel plane (0.30 m over the deck) on four posts, aft of the masts, x from -0.525 to 0.225, centred on the centreline. The plate is
+    a collision geom (contype 0 / conaffinity 1, geom group 3 so the lander's rays and the lidar see it, friction 0.9, 1 kg) with a drawn copy (group 4) and a white ring."""
+    z = 0.50
+    ET.SubElement(hull, "geom", name="landing_pad", type="box", pos=_fmt((-0.15, 0.0, z)), size=_fmt((0.375, 0.45, 0.005)), contype="0", conaffinity="1",
+                  group="3", friction="0.9 0.005 0.0001", priority="1", mass="1.0", rgba="0.25 0.27 0.30 1")  # fmt: skip
+    ET.SubElement(hull, "geom", name="landing_pad_plate", type="box", pos=_fmt((-0.15, 0.0, z)), size=_fmt((0.375, 0.45, 0.005)), contype="0", conaffinity="0",
+                  group="4", mass="0.001", rgba="0.25 0.27 0.30 1")  # fmt: skip
+    ET.SubElement(hull, "geom", name="landing_pad_ring", type="cylinder", pos=_fmt((-0.15, 0.0, z + 0.0055)), size=_fmt((0.32, 0.0005)), contype="0", conaffinity="0",
+                  group="4", mass="0.001", rgba="0.95 0.95 0.95 1")  # fmt: skip
+    ET.SubElement(hull, "geom", name="landing_pad_ring_in", type="cylinder", pos=_fmt((-0.15, 0.0, z + 0.0062)), size=_fmt((0.27, 0.0005)), contype="0", conaffinity="0",
+                  group="4", mass="0.001", rgba="0.25 0.27 0.30 1")  # fmt: skip
+    for i, (x, y) in enumerate(
+        ((-0.5, 0.42), (-0.5, -0.42), (0.2, 0.42), (0.2, -0.42))
+    ):
+        ET.SubElement(hull, "geom", name=f"landing_pad_post{i}", type="cylinder", pos=_fmt((x, y, 0.5 * (0.2 + z))), size=_fmt((0.01, 0.5 * (z - 0.2))), contype="0",
+                      conaffinity="0", group="4", mass="0.001", rgba="0.6 0.6 0.62 1")  # fmt: skip
+
+
+def build_spec(out, spec: enc.Spec, seed=None, visual=False, pad=False):
+    """Compose and post-process the scene of `spec` into `out`/scene.xml -> path. seed = device seed (default spec.seed). `pad=True` adds `add_landing_pad` to the ASV
+    (off by default: the scenarios and their hashes are unchanged)."""
     out = Path(out)
     seed = int(spec.seed if seed is None else seed)
     veh = [Vehicle("asv", "asv", pos=(0.0, 0.0, 0.0), yaw=0.0)]
@@ -120,6 +141,10 @@ def build_spec(out, spec: enc.Spec, seed=None, visual=False):
         _cyl(wb, name, (x, y, 0.25), enc.BUOY_R, enc.BUOY_H + 0.25, rgba)
     for o in spec.obstacles:  # floating obstacles on the route: a drum (r 0.4 m) with a mast stub, 1 m above the water
         _cyl(wb, o.name, (o.pos[0], o.pos[1], 0.35), 0.4, 0.65, (0.9, 0.55, 0.1, 1))
+    if pad:
+        add_landing_pad(
+            next(b for b in wb.findall("body") if b.get("name") == "asv_hull")
+        )
     # cabin blocks on the traffic hulls
     for b in wb.findall("body"):
         n = b.get("name", "")
