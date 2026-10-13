@@ -129,6 +129,10 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
   const bool field = !dv.wfield.cfg.empty();  // wind per point (windfield.cpp) instead of the one uniform vector
   double wind[3];
   wind_at(dv, wind);
+  step_rain(m, d, dv, wind);  // rain.cpp: LWC / fall speed of this tick, catch force + film weight on the film body
+  const bool wet = rain_rate(dv) > 0;
+  int n_wet = 0;
+  double s_loss_sum = 0.0;
 
   // Rotors. All velocities in the world frame, rotor CoM (xipos); xfrc_applied acts at xipos.
   for (std::size_t r = 0; r < dv.rotor.cfg.size(); ++r) {
@@ -176,9 +180,22 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
       fq = interp(c.re_x, c.re_fq, x);
     }
     const double healthy = 1.0 - s.damage;  // F3 prop damage: fraction of thrust and torque lost (0 = x * 1.0, bitwise unchanged)
-    const double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy * imm * (s_dir < 0 ? c.rev_thrust : 1.0);
-    const double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter * healthy * imm;
+    double thrust = s_dir * interp(c.j, c.ct, adv) * ft * rho * n * n * d4 * ge * healthy * imm * (s_dir < 0 ? c.rev_thrust : 1.0);
+    double q_aero = interp(c.j, c.cq, adv) * fq * rho * n * n * d4 * c.diameter * healthy * imm;
     double* xf = d->xfrc_applied + 6 * c.bid;
+    if (wet && !c.water) {  // rain (rain.cpp, docs/models.md "Rain"): wetted blades lose lift / gain drag, drops hit the disk
+      const RainState& rs = dv.rain.st[0];
+      const double x = rs.lwc / 23.0;
+      const double kt = std::max(0.5, 1.0 - c.rain_kt * x);
+      thrust *= kt;
+      q_aero *= 1.0 + c.rain_kq * x;
+      s_loss_sum += 1.0 - kt;
+      ++n_wet;
+      // Momentum of the drops stopped by the disk: u = drop velocity - hub velocity along the axis; half of the disk intercepts (estimate).
+      const double u_ax = (wind[0] - vel[3]) * ax[0] + (wind[1] - vel[4]) * ax[1] + (wind[2] - rs.v_fall - vel[5]) * ax[2];
+      const double f_drop = 0.5 * rs.lwc * 1e-3 * (0.25 * kPi * c.diameter * c.diameter) * std::abs(u_ax) * u_ax;
+      for (int i = 0; i < 3; ++i) xf[i] += f_drop * ax[i];
+    }
     for (int i = 0; i < 3; ++i) {
       xf[i] += thrust * ax[i] - c.k_h * std::abs(w) * vperp[i];
       xf[3 + i] += -sgn(w) * q_aero * ax[i];
@@ -189,6 +206,8 @@ void step_forces(const mjModel* m, mjData* d, Devices& dv) {
     }
     s.omega = w; s.thrust = thrust; s.torque = q_aero; s.advance_ratio = adv; s.ge_ratio = c.water ? imm : ge; s.rho = rho;  // damage is an input: keep
   }
+
+  if (n_wet > 0) dv.rain.st[0].thrust_loss = s_loss_sum / n_wet;
 
   // Body drag.
   for (std::size_t b = 0; b < dv.drag.cfg.size(); ++b) {

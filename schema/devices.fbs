@@ -155,6 +155,10 @@ table Rotor {
   // Thrust factor in reverse spin (foils are asymmetric: T200 3.71 kgf forward, 2.92 kgf reverse at 12 V). Multiplies the thrust only
   // (the torque is the mirrored table). 1 = symmetric (default, bitwise unchanged).
   rev_thrust: double = 1.0;
+  // Rain (only with a Rain device and rate > 0; docs/models.md "Rain"): thrust x (1 - rain_kt LWC / 23 g/m^3), aero torque x
+  // (1 + rain_kq LWC / 23 g/m^3), LWC = liquid water content of the rain. First-order estimates, not rotor measurements.
+  rain_kt: double = 0.10;
+  rain_kq: double = 0.15;
 }
 
 // Jet vane: a flat plate on a hinge in the exhaust of a Rotor (a ducted fan, a slipstream), the thrust-vectoring surface of a
@@ -434,6 +438,26 @@ table Rangefinder {
   resolution: double; dropout: double;
   ray_groups: uint = 63;
   seed: uint64;
+  // Rain (only with a Rain device and rate > 0; docs/models.md "Rain"): extinction alpha = rain_a R^rain_b (1/m, R in mm/h;
+  // Marshall-Palmer drops, Q_ext = 2), two-way loss 8.686 alpha r dB, detection logistic of (rain_margin_db + 20 log10(max/r) - loss),
+  // range sigma x 10^(loss/20); false near returns from drops: beam diameter rain_beam (m), zone to rain_zone (m), detectable
+  // fraction rain_det. Defaults: a 905 nm-class lidar / ToF; rain_det = 0 turns the false returns off.
+  rain_a: double = 1.82e-4; rain_b: double = 0.63; rain_margin_db: double = 6.0;
+  rain_beam: double = 0.02; rain_zone: double = 1.5; rain_det: double = 0.01;
+  // Water film on the sensor window / wet targets: extra two-way loss rain_window_db (dB at 25 mm/h, x sqrt(R / 25)), an estimate.
+  rain_window_db: double = 1.5;
+}
+
+// Rain: precipitation of the whole scene (needs an Environment for the wind the drops drift with; rotors, rangefinders and the
+// film body read it). `rate` mm/h is settable at run time (0 = dry: every effect off, nothing changes bitwise). Marshall-Palmer
+// drops; LWC = 0.072 R^0.88 g/m^3; fall speed v = R / LWC (so the mass flux equals the rain rate). The `body` (a vehicle root) catches
+// rain: momentum force LWC A |u| u (u = drop velocity - body velocity, drops drift with the wind) at its CoM, and a water film
+// that adds weight: dm/dt = collect_eff LWC A |u| - m / film_tau, m <= 1000 kg/m^3 film_depth wet_area.
+table Rain {
+  name: string (required); parts: [string];
+  rate: double;
+  body: string; catch_area: double; wet_area: double;
+  film_depth: double = 3e-4; film_tau: double = 20.0; collect_eff: double = 0.3;
 }
 
 table Devices {
@@ -445,6 +469,7 @@ table Devices {
   solid_motors: [SolidMotor]; airframes: [Airframe]; seas: [Sea]; vessels: [Vessel]; rangefinders: [Rangefinder];
   jet_vanes: [JetVane];
   wind_fields: [WindField];
+  rains: [Rain];
 }
 
 root_type Devices;

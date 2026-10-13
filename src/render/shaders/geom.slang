@@ -4,6 +4,8 @@
 //   vsShadow        depth only, from the sun
 //   vsSky/fsSky     full-screen procedural sky (gradient, warm horizon, sun, noise clouds)
 //   vsEdge/fsEdge   CAD-style crease lines: each segment is a screen-space quad of constant pixel width
+//   vsRain/fsRain   rain streaks: instanced screen-space quads (instance = one drop in a world-fixed periodic box around the camera,
+//                   moving with the drop velocity), alpha-blended, depth-tested against the scene
 // The CPU builds everything camera-relative in double (see renderer.cpp); here all values are small-magnitude floats.
 struct Scene {
   float4 view_r, view_u, view_f;  // camera basis rows (xyz)
@@ -16,6 +18,9 @@ struct Scene {
   float4 fog;                     // x: haze density (1/m), y: style (0 outdoor, 1 studio), z: edge width (px), w: ambient scale
   float4 vp;                      // viewport w, h; shadows enabled; shadow texel size in metres
   float4 camf;                    // camera position mod 10 (xy), z; 1/shadow-map size in w
+  float4 wx;                      // weather: x overcast 0..1, y streak alpha, z streak length (m), w sim time (s); all 0 = clear
+  float4 rainv;                   // drop velocity xyz (m/s, world; z < 0 falls), w: streak box edge (m)
+  float4 rcam;                    // camera position mod rainv.w (xyz)
 };
 struct Draw {
   float4 rot[3];  // columns of world-from-geom rotation
@@ -135,15 +140,18 @@ float4 fsSky(float4 frag : SV_Position) : SV_Target0 {
     const float3 L = sc.sun_dir.xyz;
     const float sd = saturate(dot(dir, L));
     c += float3(1.0, 0.72, 0.42) * (0.55 * pow(sd, 6.0) + 0.5 * pow(sd, 48.0)) * sc.sun_dir.w;  // warm glare
-    c += float3(1.0, 0.95, 0.85) * smoothstep(0.9993, 0.9998, sd) * 4.0;
+    c += float3(1.0, 0.95, 0.85) * smoothstep(0.9993, 0.9998, sd) * 4.0 * (1.0 - sc.wx.x);
     if (dir.z > 0.0) {  // clouds: fbm on a plane overhead, fading into the haze toward the horizon
       const float2 uv = dir.xy / (dir.z + 0.12) * 1.3 + sc.camf.xy * 0.004;
       const float n = fbm(uv);
-      const float cov = smoothstep(0.50, 0.80, n) * smoothstep(0.0, 0.16, dir.z);
+      float cov = smoothstep(0.50, 0.80, n) * smoothstep(0.0, 0.16, dir.z);
       const float lit = saturate(0.55 + (n - fbm(uv + L.xy * 0.12)) * 3.0);
       float3 cc = lerp(float3(0.66, 0.70, 0.80), float3(1.0, 0.97, 0.93), lit);
       cc = lerp(sc.sky_hor.rgb, cc, smoothstep(0.0, 0.4, dir.z));  // low clouds take the horizon's warm glow
-      c = lerp(c, cc, cov * 0.92);
+      // overcast (rain): a complete grey deck, darker where it is thick, lighter toward the horizon
+      cov = lerp(cov, smoothstep(0.0, 0.08, dir.z), sc.wx.x);
+      cc = lerp(cc, lerp(sc.sky_hor.rgb, sc.sky_mid.rgb * (0.78 + 0.5 * n), smoothstep(0.0, 0.5, dir.z)), sc.wx.x);
+      c = lerp(c, cc, cov * lerp(0.92, 1.0, sc.wx.x));
     }
   }
   return float4(to_srgb(c), 1);
@@ -170,7 +178,8 @@ float4 water_shade(VsOut i, Draw d) {
   const float ndl = saturate(dot(N, L));
   const float3 deep = to_lin(max(d.color.rgb, float3(0.05, 0.30, 0.38))) * 2.0;  // never darker than a blue-green sea, whatever the scene's plane colour  // the colour is the water's depth tint seen through a metre or two of it, brighter than a painted surface of that colour
   const float zw = i.rel.z + sc.camf.z;
-  const float3 body_col = lerp(deep, to_lin(float3(0.10, 0.45, 0.42)), 0.55 * smoothstep(-0.1, 0.55, zw));
+  float3 body_col = lerp(deep, to_lin(float3(0.10, 0.45, 0.42)), 0.55 * smoothstep(-0.1, 0.55, zw));
+  body_col = lerp(body_col, to_lin(float3(0.20, 0.27, 0.29)), 0.75 * sc.wx.x);  // overcast (rain): a grey-green sea, no turquoise
   // the water keeps its own blue-green under any sky colour: the ambient is the sky's brightness, not its tint (a dusk sky would turn it brown)
   const float3 hemi_c = lerp(sc.ground.rgb, sc.sky_mid.rgb, 0.8) * sc.fog.w;
   const float3 hemi = float3(1, 1, 1) * (0.25 + 0.75 * dot(hemi_c, float3(0.3333, 0.3333, 0.3333)));
@@ -183,7 +192,7 @@ float4 water_shade(VsOut i, Draw d) {
   const float nh = saturate(dot(N, H));
   col += sc.sun_col.rgb * (F + 0.04) * (pow(nh, 900.0) * 1.8 + pow(nh, 120.0) * 0.12) * ndl;
   const float haze = 1.0 - exp(-dist * sc.fog.x * 1.2);  // melts into the horizon like the ground, keeping some of its own colour
-  col = lerp(col, lerp(sc.sky_hor.rgb, float3(0.03, 0.14, 0.20) * sc.fog.w * 3.0 + body_col * 1.5, 0.75), saturate(haze) * 0.7);
+  col = lerp(col, lerp(sc.sky_hor.rgb, float3(0.03, 0.14, 0.20) * sc.fog.w * 3.0 + body_col * 1.5, lerp(0.75, 0.1, sc.wx.x)), saturate(haze) * lerp(0.7, 0.9, sc.wx.x));
   return float4(to_srgb(col), 1);
 }
 
@@ -281,3 +290,54 @@ float4 vsEdge(VsIn i, uint vid : SV_VertexID) : SV_Position {
 }
 [shader("fragment")]
 float4 fsEdge() : SV_Target0 { return float4(to_srgb(float3(0.012, 0.014, 0.02)), 1); }
+
+// ---- rain streaks ----------------------------------------------------------------------------------------------------
+// One instance = one drop. Its start point is a hash of the instance id in a box of edge rainv.w; it moves with the drop velocity
+// (wind drift + fall) and the box wraps around the camera, so the drops are fixed in the world (parallax and speed are right) and
+// the streak count is the same everywhere. The streak is a screen-space quad of >= 1.4 px, from the drop to a point sc.wx.z metres
+// up its path (the exposure length), pulled to the near plane when it crosses it.
+struct RainOut {
+  float4 clip : SV_Position;
+  float a : TEXCOORD0;
+};
+uint pcg(uint v) {
+  const uint s = v * 747796405u + 2891336453u;
+  const uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+[shader("vertex")]
+RainOut vsRain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
+  RainOut o;
+  const float edge = sc.rainv.w;
+  const uint h0 = pcg(iid * 3u + 1u), h1 = pcg(h0 + 7u), h2 = pcg(h1 + 13u), h3 = pcg(h2 + 29u);
+  const float3 b = float3(h0, h1, h2) * (edge / 4294967296.0);
+  float3 r = b + sc.rainv.xyz * sc.wx.w - sc.rcam.xyz;
+  r -= edge * floor(r / edge + 0.5);  // nearest periodic image to the camera
+  const float3 dirv = normalize(sc.rainv.xyz);
+  const float3 pa = r, pb = r - dirv * sc.wx.z * (0.7 + 0.6 * float(h3 >> 8u) / 16777216.0);
+  float4 ca = clip_of(pa), cb = clip_of(pb);
+  const uint k = vid % 6;
+  const bool at_b = (k == 1 || k == 2 || k == 4);
+  const float side = (k == 2 || k == 4 || k == 5) ? 1.0 : -1.0;
+  const float nearw = 0.1;
+  o.a = 0.0;
+  o.clip = float4(0, 0, -2, 1);
+  if (ca.w < nearw && cb.w < nearw) return o;
+  if (ca.w < nearw) ca = lerp(ca, cb, (nearw - ca.w) / (cb.w - ca.w));
+  if (cb.w < nearw) cb = lerp(cb, ca, (nearw - cb.w) / (ca.w - cb.w));
+  const float2 sa = ca.xy / ca.w * sc.vp.xy * 0.5, sb = cb.xy / cb.w * sc.vp.xy * 0.5;
+  float2 d2 = sb - sa;
+  d2 = length(d2) > 1e-6 ? normalize(d2) : float2(0, 1);
+  const float2 off = float2(-d2.y, d2.x) * side * 0.75 / sc.vp.xy * 2.0;  // 0.75 px half width -> ndc
+  float4 c = at_b ? cb : ca;
+  c.xy += off * c.w;
+  o.clip = c;
+  const float dist = length(pa);
+  o.a = sc.wx.y * (0.45 + 0.55 * float(h3 & 255u) / 255.0) * smoothstep(0.5 * edge, 0.25 * edge, dist) * (at_b ? 0.35 : 1.0) * smoothstep(0.1, 0.8, dist);
+  return o;
+}
+[shader("fragment")]
+float4 fsRain(RainOut i) : SV_Target0 {
+  const float3 col = lerp(sc.sky_hor.rgb, float3(0.92, 0.95, 1.0), 0.55);
+  return float4(to_srgb(col), i.a);
+}

@@ -564,6 +564,15 @@ std::vector<float> hfield_mesh(const mjModel* m, int id) {
 }
 }  // namespace
 
+Weather MujocoSolver::weather() const {
+  Weather w;
+  if (!dev_ || dev_->rain.st.empty()) return w;
+  w.rain = dev_->rain.st[0].rate;
+  w.time = d_->time;
+  devs::wind_at(*dev_, w.wind);
+  return w;
+}
+
 std::vector<GeomVisual> MujocoSolver::visuals() const {
   std::vector<GeomVisual> out(static_cast<std::size_t>(m_->ngeom));
   for (int g = 0; g < m_->ngeom; ++g) {

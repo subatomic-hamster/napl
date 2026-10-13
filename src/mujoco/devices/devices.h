@@ -74,6 +74,7 @@ struct RotorCfg {
   double rev_thrust = 1.0;                 // thrust factor in reverse spin (schema Rotor.rev_thrust)
   std::vector<double> re_x, re_ft, re_fq;  // optional Reynolds factors over x = |n| D^2 (empty = off)
   std::string stator_body; double swirl_recovery = 0;  // EDF stator: share of the fan's torque handed to stator_body (schema Rotor)
+  double rain_kt = 0.10, rain_kq = 0.15;               // rain: thrust loss / torque rise per 23 g/m^3 of LWC (schema Rotor)
   int bid = -1, jnt = -1, dof = -1, stator_bid = -1;  // resolved by bind()
 };
 struct EnvCfg {
@@ -140,11 +141,16 @@ struct VesselCfg {
   bool has_a = false, heading_frame = false;  // heading_frame: surge / sway / heave damping and added mass in the yaw-only frame (schema Vessel)
   int bid = -1;
 };
+struct RainCfg {
+  Meta meta; double rate0; std::string body; double catch_area, wet_area, film_depth, film_tau, collect_eff;
+  int bid = -1;  // body, resolved by bind() (-1: no film)
+};
 struct RangefinderCfg {
   Meta meta; std::string site; double rate_hz, fov_h, fov_v, min_r, max_r, s0, s1, s2, res, dropout; std::string proj;
   int n_h, n_v; unsigned ray_groups; std::uint64_t seed;
   bool pinhole = true;
-  std::vector<double> dir;    // n_v * n_h unit rays in the site frame (row-major), 3 doubles each
+  double rain_a = 1.82e-4, rain_b = 0.63, rain_margin_db = 6.0, rain_beam = 0.02, rain_zone = 1.5, rain_det = 0.01, rain_window_db = 1.5;  // schema Rangefinder
+  std::vector<double> dir;   // n_v * n_h unit rays in the site frame (row-major), 3 doubles each
   std::vector<double> scale;  // range -> output factor per pixel (pinhole: 1 / |unnormalised ray| = z-depth per metre; spherical: 1)
   double cutoff = 0;  // Euclidean ray length that can still give an output <= max_r
   int sid = -1, body = -1, period = 0;
@@ -284,6 +290,10 @@ struct WindState {
   double wind_ref[3], hag, ground, lee;
 };
 
+// Rain (rain.cpp). rate: input (mm/h). Outputs of the last tick: lwc (g/m^3), v_fall (m/s), film_mass (kg; also the film's state),
+// force (N, world: the catch force and the film's weight on the body), thrust_loss (mean fractional thrust loss of the air rotors).
+struct RainState { double rate, lwc, v_fall, film_mass, force[3], thrust_loss; };
+
 template <class C, class S> struct Group {
   using Cfg = C;
   using State = S;
@@ -313,11 +323,12 @@ struct Devices {
   Group<VesselCfg, VesselState> vessel;
   Group<RangefinderCfg, RangefinderState> range;
   Group<JetVaneCfg, JetVaneState> vane;
-  Group<WindFieldCfg, WindState> wfield;  // 0 or 1 element; last group: older state layouts and hashes are unchanged
+  Group<WindFieldCfg, WindState> wfield;  // 0 or 1 element; appended after the older groups: their state layouts and hashes are unchanged
+  Group<RainCfg, RainState> rain;  // 0 or 1 element; last group: models without rain keep their state layout and hashes
   int n_nodes = 0;  // highest node id used
   struct Slot {
     enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss, launcher, camera, motor, airframe, sea,
-                vessel, range, vane, wfield } type;
+                vessel, range, vane, wfield, rain } type;
     int i;
   };
   std::vector<Slot> slots;  // prim order: type by type, config order within a type
@@ -369,6 +380,10 @@ void step_launchers(const mjModel* m, mjData* d, Devices& dv);
 void prepare_motors(mjModel* m, Devices& dv);
 void step_motors(const mjModel* m, mjData* d, Devices& dv);
 void step_airframes(const mjModel* m, mjData* d, Devices& dv);
+// Rain (rain.cpp): the rate in effect (0 without a rain device) and, in the force phase, the rain state of this tick (LWC, fall speed,
+// film mass, the catch force on the film body). The rotor and rangefinder effects live in aero.cpp / rangefinder.cpp.
+double rain_rate(const Devices& dv);
+void step_rain(const mjModel* m, mjData* d, Devices& dv, const double wind[3]);
 // Jet vanes (vane.cpp): plates in the exhaust of a rotor, after the rotor forces of the same tick.
 void step_vanes(const mjModel* m, mjData* d, Devices& dv);
 

@@ -27,9 +27,12 @@ struct RenderStyle {
   bool edges = false;   // dark crease edges (CAD look)
   bool tubes = true;    // draw cables (TubeVisual)
   float wire_px = 0;    // > 0: cables are never thinner than this many pixels on screen (the data keeps their true diameter); 0: ~1.4 px floor
+  // Weather override: rain rate in mm/h (< 0: take it from the scene's rain device, via Solver::weather()) and overcast 0..1
+  // (< 0: derived from the rain rate). 0 / 0 = the clear look. Rain: overcast sky, dim sun, denser haze, wet ground, streaks.
+  float rain = -1, overcast = -1;
 };
-// "studio,edges,noshadows,nowires,boldwires" (comma separated; "outdoor" "shadows" "noedges" "wires" "plainwires" are the opposites)
-// applied on top of `base`; "boldwires" = cables at least 4 px wide on screen.
+// "studio,edges,noshadows,nowires,boldwires,rain=25,overcast=0.6" (comma separated; "outdoor" "shadows" "noedges" "wires" "plainwires"
+// are the opposites) applied on top of `base`; "boldwires" = cables at least 4 px wide on screen.
 // Unknown words throw std::invalid_argument.
 RenderStyle parse_render_style(const std::string& words, RenderStyle base = {});
 // Process-wide default every Renderer / WindowRenderer starts with and re-reads per frame unless it was given its own
@@ -54,6 +57,7 @@ class Renderer {
   void set_scene(std::span<const GeomVisual> visuals);
   void set_tubes(std::span<const TubeVisual> tubes);  // the cables of the next draw() (copied)
   void set_style(const RenderStyle& s);               // overrides the process default
+  void set_weather(const Weather& w);                 // the rain look of the next draw() (render(solver) sets it from the solver)
   // Throws std::invalid_argument for bad sizes / a pose count that differs from the scene.
   Image draw(std::span<const GeomPose> poses, const Camera& cam, int width, int height);
   // Convenience: re-uploads the scene only if solver.visuals() changed since the last call; takes the cables from it.

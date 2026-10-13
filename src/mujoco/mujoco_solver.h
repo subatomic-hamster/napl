@@ -29,6 +29,7 @@ class MujocoSolver final : public Solver {
   void restore(std::span<const std::byte> bytes) override;
   std::unique_ptr<Solver> clone() const override;
   std::uint64_t state_hash() const override;
+  Weather weather() const override;
   std::vector<GeomVisual> visuals() const override;
   std::vector<GeomPose> poses() const override;
   std::vector<TubeVisual> tubes() const override { return collect_tubes(nullptr); }

@@ -52,9 +52,16 @@ struct GeomPose {
   double rot[9];
 };
 
+// The weather a renderer shows (a pure read of the scene's rain device; all zero = the clear look, unchanged): rain rate mm/h,
+// the wind the drops drift with (m/s, world), sim time s (so streaks move with the simulation, not the wall clock).
+struct Weather {
+  double rain = 0, wind[3] = {0, 0, 0}, time = 0;
+};
+
 class Solver {
  public:
   virtual ~Solver() = default;
+  virtual Weather weather() const { return {}; }
 
   virtual double dt() const = 0;
   // Advance up to n steps; stops early on divergence. Returns steps actually taken.
