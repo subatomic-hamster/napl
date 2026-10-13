@@ -381,7 +381,17 @@ struct State {
   bool q_case = false, q_word = false, q_regex = false, q_focus = false, q_flight = false;
   std::vector<Match> matches;
   bool truncated = false;
-  std::string q_error;
+  std::string q_error, q_sent, q_seen;  // q_sent: the query the results belong to; q_seen/q_t: typing debounce
+  double q_t = 0;
+  // find / replace bar: docked above the editor (the widget's own floating one is never opened). Matches are per line.
+  struct FM {
+    int line, col, len;  // col / len in code points
+  };
+  bool f_open = false, f_repl = false, f_focus = false, f_case = false, f_word = false, f_re = false, f_goto = false, f_from_set = false;
+  char f_q[256] = {0}, f_r[256] = {0};
+  std::vector<FM> f_m;
+  int f_cur = -1, f_from_line = 0, f_from_col = 0;
+  std::string f_err, f_key;
   // hover
   std::string hover_key;
   Hover hover;
@@ -535,9 +545,144 @@ struct State {
     req("prog.rename", "prog.rename",
         "{\"path\":" + q_(b.path) + ",\"line\":" + std::to_string(rename_line) + ",\"col\":" + std::to_string(rename_col) + ",\"new\":" + q_(nw) + "}");
   }
+  std::string q_key() const { return std::string(q) + (q_case ? "|c" : "|i") + (q_word ? "w" : "-") + (q_regex ? "r" : "-"); }
+
+  // ---- find / replace in the open file --------------------------------------------------------------------------------------
+  static bool word_ch(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || (static_cast<unsigned char>(c) & 0x80); }
+  static int cps(const std::string& s, std::size_t from, std::size_t to) {  // code points in s[from, to)
+    int n = 0;
+    for (std::size_t i = from; i < to && i < s.size(); ++i) n += (static_cast<unsigned char>(s[i]) & 0xC0) != 0x80;
+    return n;
+  }
+  void find_open(Buffer* b, bool repl) {
+    f_open = true, f_focus = true;
+    if (repl && b && !b->ro) f_repl = true;
+    if (b && b->ed.CurrentCursorHasSelection()) {
+      const std::string t = b->ed.GetCursorText(0);
+      if (t.find('\n') == std::string::npos && t.size() < sizeof f_q) std::snprintf(f_q, sizeof f_q, "%s", t.c_str());
+    } else if (b && !f_q[0]) {
+      std::snprintf(f_q, sizeof f_q, "%s", word_at_cursor(*b).c_str());
+    }
+    f_key.clear(), f_goto = true;
+  }
+  void find_close(Buffer* b) {
+    f_open = false, f_m.clear(), f_cur = -1;
+    if (b) b->ed.SetFocus();
+  }
+  void goto_match(Buffer& b, int i) {
+    if (i < 0 || i >= static_cast<int>(f_m.size())) return;
+    const FM& m = f_m[static_cast<std::size_t>(i)];
+    const TextEditor::DocPos a(static_cast<std::size_t>(m.line), static_cast<std::size_t>(m.col));
+    b.ed.SelectRegion(a, TextEditor::DocPos(a.line, a.index + static_cast<std::size_t>(m.len)));
+    if (!b.ed.IsDocPosVisible(a)) b.ed.ScrollToLine(a.line, TextEditor::Scroll::alignMiddle);
+    f_cur = i;
+  }
+  // first match at or after (line, col); wraps; -1 when there are none
+  int match_from(int line, int col) const {
+    for (std::size_t i = 0; i < f_m.size(); ++i)
+      if (f_m[i].line > line || (f_m[i].line == line && f_m[i].col >= col)) return static_cast<int>(i);
+    return f_m.empty() ? -1 : 0;
+  }
+  void find_update(Buffer& b) {
+    if (!f_open || !b.loaded) return;
+    const std::string key = b.path + "|" + std::to_string(b.ed.GetUndoIndex()) + "|" + std::to_string(b.ed.GetLineCount()) + "|" + f_q + (f_case ? "|c" : "|i") +
+                            (f_word ? "w" : "-") + (f_re ? "r" : "-");
+    if (key == f_key) return;
+    f_key = key;
+    f_m.clear(), f_err.clear(), f_cur = -1;
+    if (f_q[0]) {
+      const std::string text = b.ed.GetText();
+      std::regex rx;
+      if (f_re) {
+        try {
+          rx = std::regex(f_q, f_case ? std::regex::ECMAScript : (std::regex::ECMAScript | std::regex::icase));
+        } catch (const std::regex_error&) {
+          f_err = "invalid regular expression";
+        }
+      }
+      const std::string needle = f_case ? std::string(f_q) : lower(f_q);
+      std::size_t pos = 0;
+      int ln = 0;
+      while (f_err.empty() && pos <= text.size() && f_m.size() < 5000) {
+        std::size_t nl = text.find('\n', pos);
+        if (nl == std::string::npos) nl = text.size();
+        std::string line = text.substr(pos, nl - pos);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const auto add = [&](std::size_t p, std::size_t n) {
+          if (n == 0 || (f_word && ((p > 0 && word_ch(line[p - 1])) || (p + n < line.size() && word_ch(line[p + n]))))) return;
+          f_m.push_back({ln, cps(line, 0, p), cps(line, p, p + n)});
+        };
+        if (f_re) {
+          for (std::sregex_iterator it(line.begin(), line.end(), rx), end; it != end; ++it) add(static_cast<std::size_t>(it->position()), static_cast<std::size_t>(it->length()));
+        } else {
+          const std::string hay = f_case ? line : lower(line);
+          for (std::size_t p = hay.find(needle); p != std::string::npos; p = hay.find(needle, p + needle.size())) add(p, needle.size());
+        }
+        pos = nl + 1;
+        ++ln;
+      }
+    }
+    if (f_m.empty()) return;
+    int l = 0, c = 0;
+    if (f_from_set) l = f_from_line, c = f_from_col, f_from_set = false;
+    else {
+      const TextEditor::DocPos p = b.ed.GetMainCursorSelection().start;
+      l = static_cast<int>(p.line), c = static_cast<int>(p.index);
+    }
+    f_cur = match_from(l, c);
+    if (f_goto) goto_match(b, f_cur), f_goto = false;
+  }
+  void find_step(Buffer& b, int dir) {
+    if (f_m.empty()) return;
+    const int n = static_cast<int>(f_m.size());
+    const TextEditor::DocSelection sel = b.ed.GetMainCursorSelection();
+    const int at = match_from(static_cast<int>(sel.start.line), static_cast<int>(sel.start.index));
+    const bool on = f_cur >= 0 && f_m[static_cast<std::size_t>(f_cur)].line == static_cast<int>(sel.start.line) &&
+                    f_m[static_cast<std::size_t>(f_cur)].col == static_cast<int>(sel.start.index);
+    int t = on ? f_cur + dir : (dir > 0 ? at : at - 1);
+    goto_match(b, ((t % n) + n) % n);
+  }
+  std::string replacement(Buffer& b, const FM& m) {
+    if (!f_re) return f_r;
+    const TextEditor::DocPos a(static_cast<std::size_t>(m.line), static_cast<std::size_t>(m.col));
+    const std::string hit = b.ed.GetSectionText(a, TextEditor::DocPos(a.line, a.index + static_cast<std::size_t>(m.len)));
+    try {
+      return std::regex_replace(hit, std::regex(f_q, f_case ? std::regex::ECMAScript : (std::regex::ECMAScript | std::regex::icase)), std::string(f_r),
+                                std::regex_constants::format_first_only);
+    } catch (const std::regex_error&) {
+      return f_r;
+    }
+  }
+  void replace_one(Buffer& b) {
+    if (b.ro || f_m.empty()) return;
+    int i = f_cur;
+    const TextEditor::DocSelection sel = b.ed.GetMainCursorSelection();
+    if (i < 0 || f_m[static_cast<std::size_t>(i)].line != static_cast<int>(sel.start.line) || f_m[static_cast<std::size_t>(i)].col != static_cast<int>(sel.start.index))
+      return goto_match(b, match_from(static_cast<int>(sel.start.line), static_cast<int>(sel.start.index)));  // first press selects the match, the next replaces it
+    const FM m = f_m[static_cast<std::size_t>(i)];
+    const std::string rep = replacement(b, m);
+    const TextEditor::DocPos a(static_cast<std::size_t>(m.line), static_cast<std::size_t>(m.col));
+    b.ed.ReplaceSectionText(a, TextEditor::DocPos(a.line, a.index + static_cast<std::size_t>(m.len)), rep);
+    f_from_set = true, f_from_line = m.line, f_from_col = m.col + cps(rep, 0, rep.size());
+    f_goto = true, f_key.clear();
+  }
+  void replace_all(Buffer& b) {
+    if (b.ro || f_m.empty()) return;
+    const std::vector<FM> ms = f_m;
+    std::vector<std::string> reps;
+    for (const FM& m : ms) reps.push_back(replacement(b, m));
+    for (std::size_t i = ms.size(); i-- > 0;) {  // bottom-up: earlier positions stay valid
+      const TextEditor::DocPos a(static_cast<std::size_t>(ms[i].line), static_cast<std::size_t>(ms[i].col));
+      b.ed.ReplaceSectionText(a, TextEditor::DocPos(a.line, a.index + static_cast<std::size_t>(ms[i].len)), reps[i]);
+    }
+    say("replaced " + std::to_string(ms.size()) + " occurrence(s)");
+    f_key.clear();
+  }
+
   void search_files() {
     if (!q[0]) return;
     q_flight = true;
+    q_sent = q_key();
     req("prog.search", "prog.search",
         "{\"query\":" + q_(q) + ",\"case\":" + (q_case ? "true" : "false") + ",\"word\":" + (q_word ? "true" : "false") + ",\"regex\":" +
             (q_regex ? "true" : "false") + "}");
@@ -614,16 +759,124 @@ struct State {
     ImGui::PopFont();
   }
 
+  float find_h() const { return f_open ? (f_repl ? 68.f : 38.f) : 0.f; }
+  void find_bar(Buffer* b, ImVec2 pos, float w) {
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kPanel);
+    ImGui::BeginChild("##find", {w, find_h()}, false, ImGuiWindowFlags_NoScrollbar);
+    ImGui::PushFont(nullptr, 13.f);
+    ImGui::SetCursorPos({10, 7});
+    if (ImGui::SmallButton(f_repl ? "v" : ">")) f_repl = !f_repl;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("show / hide replace");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(std::min(300.f, w * 0.35f));
+    if (f_focus) ImGui::SetKeyboardFocusHere(), f_focus = false;
+    const bool enter = ImGui::InputTextWithHint("##fq", "find", f_q, sizeof f_q, ImGuiInputTextFlags_EnterReturnsTrue);
+    if (enter) {
+      if (b) find_step(*b, ImGui::GetIO().KeyShift ? -1 : 1);
+      ImGui::SetKeyboardFocusHere(-1);
+    }
+    const bool in_find = ImGui::IsItemActive();
+    const auto tog = [&](const char* l, bool* v, const char* tip) {
+      ImGui::SameLine();
+      ImGui::PushStyleColor(ImGuiCol_Button, *v ? theme::kAccent : theme::kRaised);
+      if (ImGui::SmallButton(l)) *v = !*v;
+      ImGui::PopStyleColor();
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+    };
+    tog("Aa", &f_case, "match case");
+    tog("W", &f_word, "whole word");
+    tog(".*", &f_re, "regular expression");
+    ImGui::SameLine(0, 14);
+    ImGui::AlignTextToFramePadding();
+    if (!f_err.empty()) ImGui::TextColored(theme::kErr, "%s", f_err.c_str());
+    else if (!f_q[0]) ImGui::TextDisabled("type to search");
+    else if (f_m.empty()) ImGui::TextColored(theme::kErr, "no results");
+    else ImGui::Text("%d of %zu%s", f_cur + 1, f_m.size(), f_m.size() >= 5000 ? "+" : "");
+    ImGui::SameLine(0, 14);
+    if (ImGui::SmallButton("<") && b) find_step(*b, -1);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("previous match (Shift+Enter)");
+    ImGui::SameLine();
+    if (ImGui::SmallButton(">") && b) find_step(*b, 1);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("next match (Enter)");
+    ImGui::SameLine(w - 34);
+    if (ImGui::SmallButton("x")) find_close(b);
+    if (f_repl) {
+      ImGui::SetCursorPos({10 + ImGui::GetFrameHeight() * 0.9f + 6, 39});
+      ImGui::SetNextItemWidth(std::min(300.f, w * 0.35f));
+      ImGui::InputTextWithHint("##fr", "replace", f_r, sizeof f_r);
+      const bool no = !b || b->ro || f_m.empty();
+      ImGui::SameLine();
+      ImGui::BeginDisabled(no);
+      if (ImGui::SmallButton("Replace") && b) replace_one(*b);
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Replace all") && b) replace_all(*b);
+      ImGui::EndDisabled();
+      if (no && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", !b || b->ro ? "this file is read-only" : f_q[0] ? "nothing to replace: no match" : "type what to find first");
+    }
+    if ((in_find || (f_repl && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))) && ImGui::IsKeyPressed(ImGuiKey_Escape)) find_close(b);
+    ImGui::PopFont();
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+  }
+
+  // every match of the find bar in the visible rows, over the editor (the widget has no API for this: the glyph grid is found by
+  // probing its hit test, which also tracks scrolling). Not drawn while the file is scrolled sideways.
+  void draw_matches(Buffer& b, ImVec2 pos, ImVec2 size) {
+    TextEditor& ed = b.ed;
+    if (f_m.empty() || ed.GetFirstVisibleColumn() > 0 || ed.GetLineCount() < 2 || ImGui::IsPopupOpen("##pop")) return;
+    const float cw = ed.GetGlyphWidth(), lh = ed.GetLineHeight();
+    const std::size_t fvr = ed.GetFirstVisibleRow(), lvr = std::min(ed.GetLastVisibleRow(), ed.GetLineCount() - 1);
+    if (fvr + 2 > ed.GetLineCount()) return;
+    const float mx = pos.x + size.x * 0.5f;
+    float yt = -1.f;  // top of row fvr+1: the first y whose hit test says that line
+    for (float y = pos.y - lh; y < pos.y + 2 * lh; y += 0.5f)
+      if (ed.GetDocPosAtMousePos({mx, y}).line >= fvr + 1) {
+        yt = y;
+        break;
+      }
+    if (yt < 0) return;
+    const auto top = [&](std::size_t line) { return yt + (static_cast<float>(line) - static_cast<float>(fvr + 1)) * lh; };
+    float x0 = -1.f;  // left edge of column 0: the first x over a glyph on a non-empty row
+    for (std::size_t l = fvr; l <= lvr && x0 < 0; ++l) {
+      if (ed.GetLineText(l).empty()) continue;
+      for (float x = pos.x; x < pos.x + size.x * 0.6f; x += 0.25f)
+        if (ed.IsMousePosOverGlyph({x, top(l) + lh * 0.5f})) {
+          x0 = x;
+          break;
+        }
+    }
+    if (x0 < 0) return;
+    x0 += cw;  // the widget truncates (x - left) / cw toward zero, so column 0 also answers for the glyph-wide strip before it
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->PushClipRect(pos, {pos.x + size.x - 12, pos.y + size.y - 12}, true);
+    auto it = std::lower_bound(f_m.begin(), f_m.end(), static_cast<int>(fvr), [](const FM& m, int l) { return m.line < l; });
+    for (; it != f_m.end() && static_cast<std::size_t>(it->line) <= lvr; ++it) {
+      const auto v0 = ed.DocPos2VisPos({static_cast<std::size_t>(it->line), static_cast<std::size_t>(it->col)}).column;
+      const auto v1 = ed.DocPos2VisPos({static_cast<std::size_t>(it->line), static_cast<std::size_t>(it->col + it->len)}).column;
+      const ImVec2 a{x0 + static_cast<float>(v0) * cw, top(static_cast<std::size_t>(it->line)) - 1.f}, c{x0 + static_cast<float>(v1) * cw, a.y + 16.f};  // the glyphs sit at the top of the (taller) row
+      const bool cur = static_cast<int>(it - f_m.begin()) == f_cur;
+      dl->AddRectFilled(a, c, cur ? IM_COL32(255, 150, 20, 120) : IM_COL32(255, 205, 60, 70), 2.f);
+      if (cur) dl->AddRect(a, c, IM_COL32(255, 170, 40, 230), 2.f);
+    }
+    dl->PopClipRect();
+  }
+
   void shortcuts(Buffer* b) {
     const auto chord = [](ImGuiKeyChord c) { return ImGui::IsKeyChordPressed(c, ImGuiInputFlags_None); };
+    const auto lock = [](ImGuiKey k) { ImGui::SetKeyOwner(k, ImGuiKeyOwner_NoOwner, ImGuiInputFlags_LockThisFrame); };  // hide it from the widget this frame
     if (chord(ImGuiMod_Ctrl | ImGuiKey_S) && b) save(*b);
     else if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S)) save_all();
     else if (chord(ImGuiMod_Ctrl | ImGuiKey_P)) pop = Pop::Quick, pop_open = true, pop_text[0] = 0, pop_sel = 0;
-    else if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_F)) focus_search(b);
+    else if (chord(ImGuiMod_Ctrl | ImGuiKey_F) && b) find_open(b, false), lock(ImGuiKey_F);  // the widget's own find window never opens
+    else if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_F)) focus_search(b), lock(ImGuiKey_F);
+    else if (chord(ImGuiKey_F3) && b && f_open) find_step(*b, 1);
+    else if (chord(ImGuiMod_Shift | ImGuiKey_F3) && b && f_open) find_step(*b, -1);
     else if (chord(ImGuiMod_Ctrl | ImGuiKey_G) && b) {
       pop = Pop::Goto, pop_open = true, pop_text[0] = 0;
       ImGui::SetKeyOwner(ImGuiKey_G, ImGuiKeyOwner_NoOwner, ImGuiInputFlags_LockThisFrame);  // the editor's own Ctrl+G is "find next"
-    } else if (chord(ImGuiMod_Ctrl | ImGuiKey_H) && b && !b->ro) b->ed.OpenFindReplaceWindow();
+    } else if (chord(ImGuiMod_Ctrl | ImGuiKey_H) && b) find_open(b, true);
     else if (chord(ImGuiMod_Ctrl | ImGuiKey_W)) close_tab(active, false);
     else if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_T) && !closed.empty()) {
       const std::string p = closed.back();
@@ -662,6 +915,7 @@ struct State {
     if (ImGui::SmallButton("R")) files_wanted = true;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("refresh the file list");
     if (!root.empty()) {
+      ImGui::SetCursorPosX(10);  // flush with the caption and the tree below
       ImGui::PushStyleColor(ImGuiCol_Text, theme::kDim);
       ImGui::PushFont(theme::mono(), 12.f);
       ImGui::TextUnformatted(root.substr(root.rfind('/') == std::string::npos ? 0 : root.rfind('/') + 1).c_str());
@@ -670,7 +924,7 @@ struct State {
       if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", root.c_str());
     }
     ImGui::BeginChild("##tree", {0, 0}, false);
-    ImGui::Indent(8);
+    ImGui::Indent(10);
     if (ImGui::Selectable("design.toml  (read-only)", cur() && cur()->path == "@design")) open("@design");
     ImGui::Separator();
     if (files_err) ImGui::TextColored(theme::kErr, "%s", files_error.c_str());
@@ -836,6 +1090,7 @@ struct State {
     b->ed.Render(("##ed" + b->path).c_str(), size);
     ImGui::PopFont();
     if (hover_on) hold_mouse(*b, pos, size);
+    if (f_open) draw_matches(*b, pos, size);
     if (b->ext_scroll >= 0.f && b->ed.GetLineCount() > 1) {
       b->ed.ScrollToLine(static_cast<std::size_t>(b->ext_scroll * static_cast<float>(b->ed.GetLineCount() - 1)), TextEditor::Scroll::alignTop);
       b->ext_scroll = -1.f;
@@ -1045,7 +1300,7 @@ struct State {
         ImGui::SameLine();
         const auto tog = [&](const char* l, bool* v, const char* tip) {
           ImGui::PushStyleColor(ImGuiCol_Button, *v ? theme::kAccent : theme::kRaised);
-          if (ImGui::SmallButton(l)) *v = !*v, q_flight = false;
+          if (ImGui::SmallButton(l)) *v = !*v;
           ImGui::PopStyleColor();
           if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
           ImGui::SameLine();
@@ -1054,6 +1309,22 @@ struct State {
         tog("W", &q_word, "whole word");
         tog(".*", &q_regex, "regular expression");
         if ((ImGui::SmallButton("Search") || enter) && q[0]) search_files();
+        // as you type: once the query / options have been still for 250 ms (and on open, when a query was prefilled)
+        const std::string key = q_key();
+        if (key != q_seen) q_seen = key, q_t = ImGui::GetTime();
+        if (!q[0]) {
+          if (!matches.empty()) matches.clear();
+          q_sent.clear();
+        } else if (key != q_sent && !q_flight && ImGui::GetTime() - q_t > 0.25) {
+          search_files();
+        }
+        ImGui::SameLine(0, 16);
+        {
+          std::set<std::string> fs;
+          for (const Match& m : matches) fs.insert(m.path);
+          if (q[0] && key == q_sent && !q_flight) ImGui::TextDisabled("%zu result(s) in %zu file(s)", matches.size(), fs.size());
+          else if (q[0]) ImGui::TextDisabled("searching ...");
+        }
         ImGui::SetCursorPos({0, 62});
         ImGui::BeginChild("##res", {inner.x, inner.y - 30}, false);
         if (!q_error.empty()) ImGui::TextColored(theme::kErr, "%s", q_error.c_str());
@@ -1171,12 +1442,14 @@ void ProgramUi::draw(const std::deque<std::string>& log, bool has_backend) {
   s.splitter("##sv", {org.x + ex, org.y}, {sp, sz.y}, true, &d);
   s.exp_w += d;
   const float x0 = org.x + ex + sp, w = sz.x - ex - sp, th = 36.f, tabs_h = 30.f;
-  const float body_h = sz.y - th - tabs_h - s.bot_h - sp;
   s.toolbar(b, {x0, org.y}, w, th);
   s.editor_tabs({x0, org.y + th}, w, tabs_h);
   b = s.cur();
-  s.editor_body(b, {x0, org.y + th + tabs_h}, {w, body_h});
-  s.splitter("##sh", {x0, org.y + th + tabs_h + body_h}, {w, sp}, false, &d);
+  if (b) s.find_update(*b);
+  const float fh = s.find_h(), body_h = sz.y - th - tabs_h - fh - s.bot_h - sp;
+  if (s.f_open) s.find_bar(b, {x0, org.y + th + tabs_h}, w);
+  s.editor_body(b, {x0, org.y + th + tabs_h + fh}, {w, body_h});
+  s.splitter("##sh", {x0, org.y + th + tabs_h + fh + body_h}, {w, sp}, false, &d);
   s.bot_h -= d;
   s.dock_area({x0, org.y + sz.y - s.bot_h}, {w, s.bot_h}, log);
   s.popups(s.cur(), {x0 + w * 0.5f, org.y + th + tabs_h + 10});
@@ -1340,8 +1613,8 @@ void ProgramUi::command(const std::string& c) {
   Buffer* b = s.cur();
   if (c == "save" && b) s.save(*b);
   else if (c == "save_all") s.save_all();
-  else if (c == "find" && b) b->ed.OpenFindReplaceWindow();
-  else if (c == "replace" && b && !b->ro) b->ed.OpenFindReplaceWindow();
+  else if (c == "find" && b) s.find_open(b, false);
+  else if (c == "replace" && b) s.find_open(b, true);
   else if (c == "goto_line" && b) s.pop = State::Pop::Goto, s.pop_open = true, s.pop_text[0] = 0;
   else if (c == "quick_open") s.pop = State::Pop::Quick, s.pop_open = true, s.pop_text[0] = 0, s.pop_sel = 0;
   else if (c == "find_in_files") s.focus_search(b);
@@ -1369,7 +1642,38 @@ void ProgramUi::script(const Json& e) {
   else if (cmd == "prog_cmd") command(e.s("name"));
   else if (cmd == "prog_term" && !s.terms.empty()) s.term_send(*s.terms[static_cast<std::size_t>(s.term_cur)], e.s("text") + "\n");
   else if (cmd == "prog_hover") s.hover_on = e.n("line", -1) >= 0, s.hover_line = static_cast<int>(e.n("line")), s.hover_col = static_cast<int>(e.n("col"));
-  else if (cmd == "prog_dock") {
+  else if (cmd == "prog_find" && b) {  // type into the find (and replace) fields
+    s.find_open(b, e.at("replace").kind == Json::Str);
+    std::snprintf(s.f_q, sizeof s.f_q, "%s", e.s("text").c_str());
+    if (e.at("replace").kind == Json::Str) std::snprintf(s.f_r, sizeof s.f_r, "%s", e.s("replace").c_str());
+    s.f_case = e.at("case").num != 0, s.f_word = e.at("word").num != 0, s.f_re = e.at("regex").num != 0;
+    s.f_key.clear(), s.f_goto = true, s.f_focus = false;
+  } else if (cmd == "prog_find_next" && b) s.find_step(*b, 1);
+  else if (cmd == "prog_find_prev" && b) s.find_step(*b, -1);
+  else if (cmd == "prog_replace" && b) s.replace_one(*b);
+  else if (cmd == "prog_replace_all" && b) s.replace_all(*b);
+  else if (cmd == "prog_search") {  // find in files: type the query (send:false = leave it to the as-you-type search)
+    s.dock = Dock::Search;
+    std::snprintf(s.q, sizeof s.q, "%s", e.s("text").c_str());
+    s.q_case = e.at("case").num != 0, s.q_word = e.at("word").num != 0, s.q_regex = e.at("regex").num != 0;
+    if (e.at("send").kind != Json::Bool || e.at("send").num != 0) s.search_files();
+  } else if (cmd == "prog_goto" && b && b->loaded) {
+    const std::size_t l = static_cast<std::size_t>(std::max(1.0, e.n("line")) - 1);
+    b->ed.SetCursor(TextEditor::DocPos(l, 0));
+    b->ed.ScrollToLine(l, TextEditor::Scroll::alignMiddle);
+    b->ed.SetFocus();
+  } else if (cmd == "prog_define" && b) s.do_define(*b);
+  else if (cmd == "prog_rename" && b) s.run_rename(*b, e.s("new"));
+  else if (cmd == "prog_quick_open") {  // the palette with `text` typed; pick = open the best match instead of showing it
+    s.pop_sel = 0;
+    std::snprintf(s.pop_text, sizeof s.pop_text, "%s", e.s("text").c_str());
+    const std::string* best = nullptr;
+    int bs = 1 << 30;
+    for (const std::string& f : s.files)
+      if (const int sc = fuzzy(f, s.pop_text); sc >= 0 && sc < bs) bs = sc, best = &f;
+    if (e.at("pick").num != 0 && best) s.open(*best);
+    else s.pop = State::Pop::Quick, s.pop_open = true;
+  } else if (cmd == "prog_dock") {
     const std::string n = e.s("name");
     s.dock = n == "problems" ? Dock::Problems : n == "search" ? Dock::Search : n == "output" ? Dock::Output : n == "log" ? Dock::Log : Dock::Terminal;
   }
