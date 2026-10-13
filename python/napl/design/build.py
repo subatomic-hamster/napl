@@ -27,6 +27,7 @@ from .snap import (
 from .wireroute import world_geoms
 from .wiretubes import wire_tubes
 
+LANDING_GROUP = 3  # MJCF geom group of a landing surface (shape key `landing = true`): ray-visible, unlike VEHICLE_GROUP
 POINT_MASS_RADIUS = 1e-3  # m: size of the placeholder sphere that carries the mass of a part without geometry (numerical, not physical)
 ESTIMATED_TOL = (
     0.5  # default relative mass tolerance of an `estimated` mass with no mass_tol
@@ -143,6 +144,9 @@ def part_shapes(lib: Library, part) -> list:
             "solref": s.get(
                 "solref"
             ),  # optional [timeconst s, damping ratio]: a soft contact (landing-leg foot)
+            "landing": bool(
+                s.get("landing")
+            ),  # optional: a landing surface (deck / pad), see geom_xml
         }
         if kind == "mesh":
             p = lib.root / str(s.get("mesh", ""))
@@ -774,7 +778,12 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True, route=True):
             s += f' friction="{vec(g["friction"])}" priority="1"'
         if g.get("solref"):
             s += f' solref="{vec(g["solref"])}"'
-        s += f' mass="{f(g["mass"])}" contype="{1 if g["collide"] else 0}" conaffinity="0" group="{VEHICLE_GROUP}"/>'
+        if g.get(
+            "landing"
+        ):  # a landing surface: other vehicles' geoms (contype 1) land on it (conaffinity 1); group 3, so rangefinders and rotor rays see it (they skip VEHICLE_GROUP)
+            s += f' mass="{f(g["mass"])}" contype="0" conaffinity="1" group="{LANDING_GROUP}"/>'
+        else:
+            s += f' mass="{f(g["mass"])}" contype="{1 if g["collide"] else 0}" conaffinity="0" group="{VEHICLE_GROUP}"/>'
         geoms[g["name"]] = g["part"]
         return s
 

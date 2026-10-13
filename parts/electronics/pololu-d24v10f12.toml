@@ -57,6 +57,7 @@ id = "IO"
 name = "5 solder pads on a 0.1 in grid"
 type = "pad-1x5-2.54mm"
 gender = "neutral"
+joinable = true   # bare solder pads: several wires may be soldered to one pad
 pos = [0.0, -0.0065, 0.0]
 axis = [0.0, -1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
