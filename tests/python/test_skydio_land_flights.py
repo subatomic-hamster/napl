@@ -23,14 +23,14 @@ needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 
 # scenario (path under examples/skydio-land) -> golden state hash (seed = the scenario's default)
 GOLDEN = {
-    "forest/clearing": None,
-    "rain/rain25": None,
-    "rain/rain100": None,
-    "summit/summit": None,
-    "ledge/ledge": None,
-    "mesa_brink/mesa_brink": None,
-    "deck/osv": None,
-    "deck/asv": None,
+    "forest/clearing": "038fa2d363a24d5d",
+    "rain/rain25": "71a66a806d2cd638",
+    "rain/rain100": "71ce2471592209e5",
+    "summit/summit": "79317ded795275e8",
+    "ledge/ledge": "777bb343889a8d75",
+    "mesa_brink/mesa_brink": "6871181af1b16932",
+    "deck/osv": "56be8fda55e8b952",
+    "deck/asv": "e05595b215d5c2e5",
 }
 
 
