@@ -436,7 +436,9 @@ opens read-only (`design.toml` in the explorer). The ops are `prog.*` / `term.*`
 run or change user code, so they exist only on the in-process window path and are not MCP tools. `ui.program {file, scroll}` (a Backend
 op) still shows any source file of the repository read-only (the turret / swarm programs, a scenario) and scrolls to a fraction of it;
 `ui.program {}` returns to the design. The recorded end-to-end demo (`tools/record_turret.py`, `docs/showcase/turret/README.md`) uses it.
-`prog.ui {cmd, ...}` scripts the page (open / type / cmd / term / hover / dock) for screenshots and tests. The strip at the top right of the
+Ctrl+F opens a find bar docked above the code (n of m, every match highlighted, Replace / Replace all; Ctrl+H adds the replace row), and
+find in files searches as you type. `prog.ui {cmd, ...}` scripts the page (open / type / cmd / term / hover / dock, plus find / find_next /
+find_prev / replace / replace_all / search / goto / define (F12) / rename {new} (F2) / quick_open) for screenshots and tests. The strip at the top right of the
 editor (`ProgramUi::run_slot`) is where the Run / Test controls live.
 
 ### Build and the mass budget

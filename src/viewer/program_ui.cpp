@@ -848,13 +848,14 @@ struct State {
         }
     }
     if (x0 < 0) return;
+    x0 += cw;  // the widget truncates (x - left) / cw toward zero, so column 0 also answers for the glyph-wide strip before it
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     dl->PushClipRect(pos, {pos.x + size.x - 12, pos.y + size.y - 12}, true);
     auto it = std::lower_bound(f_m.begin(), f_m.end(), static_cast<int>(fvr), [](const FM& m, int l) { return m.line < l; });
     for (; it != f_m.end() && static_cast<std::size_t>(it->line) <= lvr; ++it) {
       const auto v0 = ed.DocPos2VisPos({static_cast<std::size_t>(it->line), static_cast<std::size_t>(it->col)}).column;
       const auto v1 = ed.DocPos2VisPos({static_cast<std::size_t>(it->line), static_cast<std::size_t>(it->col + it->len)}).column;
-      const ImVec2 a{x0 + static_cast<float>(v0) * cw, top(static_cast<std::size_t>(it->line))}, c{x0 + static_cast<float>(v1) * cw, a.y + lh};
+      const ImVec2 a{x0 + static_cast<float>(v0) * cw, top(static_cast<std::size_t>(it->line)) - 1.f}, c{x0 + static_cast<float>(v1) * cw, a.y + 16.f};  // the glyphs sit at the top of the (taller) row
       const bool cur = static_cast<int>(it - f_m.begin()) == f_cur;
       dl->AddRectFilled(a, c, cur ? IM_COL32(255, 150, 20, 120) : IM_COL32(255, 205, 60, 70), 2.f);
       if (cur) dl->AddRect(a, c, IM_COL32(255, 170, 40, 230), 2.f);
