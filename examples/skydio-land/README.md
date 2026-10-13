@@ -3,7 +3,7 @@
 `examples/skydio-land` is the Skydio-style vision-only quadrotor of `examples/skydio` (Holybro X500 V2, Pixhawk 6C, RealSense D435i, Raspberry Pi 5; ESKF on IMU + VIO + baro, voxel map,
 sampled-primitive planner, `cuas.flyer.Flyer`) taught to LAND: in other places than it took off, avoiding obstacles, in different environments. Nothing of `examples/skydio` or
 `assemblies/skydio.toml` is edited: the code imports it (`Skydio`, `mapping`, `planner`, the forest) and `git diff` against the parent branch is empty for those paths (test
-`test_the_originals_are_untouched`).
+`test_the_original_assembly_is_untouched`).
 
 ```
 tools/remote.sh run '.venv/bin/napl program examples/skydio-land/summit/summit.scenario.toml --runs-dir build/runs'    # one scenario: PASS + replay hash match
