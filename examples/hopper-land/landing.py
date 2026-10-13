@@ -26,7 +26,7 @@ HIDDEN = dict(
     rain_mmh=0.0, rain_t_on_s=5.0, rain_ramp_s=10.0, hold_s=3.0,
     deck_y_m=6.0, deck_vx_ms=0.0, deck_vy_ms=0.0, deck_heave_m=0.3, deck_heave_s=8.0, deck_roll_deg=2.0, deck_roll_s=9.0, deck_pitch_deg=1.0, deck_pitch_s=7.0,
     deck_rate_hz=10.0, deck_latency_s=0.1, deck_sigma_pos_m=0.03,
-    hs_m=0.5, tp_s=0.0, wave_dir_deg=180.0, ship_speed_ms=2.0, ship_t_start_s=2.0, window_s=3.0, window_vz_ms=0.25, window_tilt_deg=3.0, use_window=1.0, window_wait_s=20.0, ship_link_latency_s=0.08, deck_hold_h=0.45, deck_vz_hold=0.15,
+    hs_m=0.5, tp_s=0.0, wave_dir_deg=180.0, ship_speed_ms=2.0, ship_t_start_s=2.0, window_s=3.0, window_vz_ms=0.25, window_tilt_deg=3.0, use_window=1.0, window_wait_s=20.0, ship_link_latency_s=0.08, deck_hold_h=0.45, deck_vz_hold=0.15, hold_horizon_s=1.8, hold_lead_s=0.9, hold_max_s=12.0,
 )  # fmt: skip
 
 

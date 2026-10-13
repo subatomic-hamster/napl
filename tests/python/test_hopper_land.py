@@ -105,6 +105,26 @@ def test_deck_state_extrapolates_at_constant_velocity():
     p, v = s.predict(4.0)
     assert p == pytest.approx([2.0, 0.0, 0.7]) and v == pytest.approx([0.5, -1.0, 0.1])
     assert s.predict_z(3.0)[0] == pytest.approx(0.6)
+    assert s.vz_max_ahead(2.0, 1.5) == pytest.approx(
+        0.1
+    )  # no forecast: the current rate
+
+
+def test_deck_state_forecast_gives_height_rate_and_the_worst_rise_ahead():
+    t = np.linspace(10.0, 14.0, 41)
+    z = 0.4 * np.sin(
+        2 * np.pi * (t - 10.0) / 4.0
+    )  # heave, 4 s period: rising at 10, crest at 11, falling at 12
+    s = ld.DeckState(10.0, np.zeros(3), np.zeros(3), zs=(t, z, np.gradient(z, t)))
+    assert s.predict_z(11.0)[0] == pytest.approx(0.4, abs=1e-3)  # crest
+    assert s.predict_z(12.0)[1] == pytest.approx(-0.2 * np.pi, abs=0.02)  # mid-way down
+    assert s.vz_max_ahead(11.0, 1.0) == pytest.approx(
+        0.0, abs=0.02
+    )  # [11, 12]: from the crest down, the rate only falls
+    assert s.vz_max_ahead(10.0, 1.0, lead=0.0) == pytest.approx(
+        0.2 * np.pi, abs=0.02
+    )  # rising at the start
+    assert s.vz_max_ahead(11.5, 1.0, lead=0.5) < 0.0  # [12.0, 12.5]: sinking
 
 
 # ------------------------------------------------------------------------------------------------------------------------ scenario files
@@ -185,8 +205,7 @@ def test_a_scripted_deck_landing_is_judged_against_the_moving_deck(tmp_path):
     r = _fly("deck/scripted", {}, tmp_path)
     res = r["res"]
     assert res["landed"] == 1 and not res["abort"]
-    # gear limit 1.0 m/s here (the MC success criterion is 0.5 m/s, and 52 % of the 60 report seeds meet it: README.md)
-    assert res["td_speed"] < 1.0 and res["td_tilt"] < 5.0 and res["td_dist"] < 0.5
+    assert res["td_speed"] < 0.5 and res["td_tilt"] < 5.0 and res["td_dist"] < 0.5
 
 
 def test_the_prefix_proxy_maps_the_hoppers_paths_into_a_composed_scene():
@@ -217,11 +236,44 @@ def test_the_prefix_proxy_maps_the_hoppers_paths_into_a_composed_scene():
     assert sim.tick == 7
 
 
+def _scenario_flight(key, tmp):
+    """The flight `napl program <key>.scenario.toml` runs (the file's own defaults and seed): its state hash is the scenario's golden hash."""
+    p = lh.landing.resolve(toml(key))
+    model, h, info = lh.prepare(p["seed"], p, tmp / "m")
+    return lh.fly(p["seed"], p, model, h, info, run_dir=tmp, log=True, telemetry=False)
+
+
+# `napl program` state hashes of the scenarios at their default seeds (replay match True, every monitor passes), recorded on hfbox
+GOLDEN = {
+    "mesa/down": "1141177c6952f2d1",
+    "mesa/up": "af6c0c3909a78c26",
+    "ridge/summit": "b069580b8ea7ff8f",
+    "ledge/lee": "e7df119107672e7f",
+    "rain/rain25": "72c0e571c7494251",
+    "rain/rain100": "5bf68de937caf815",
+    "deck/scripted": "e1fcf677cb660720",
+    "osv/underway": "1694beb4938eeaaa",
+}
+
+
+@needs_kernel
+@pytest.mark.parametrize("key", [k for k in GOLDEN if k != "osv/underway"])
+def test_the_scenarios_replay_to_their_golden_state_hash_and_pass_their_limits(
+    key, tmp_path
+):
+    r = _scenario_flight(key, tmp_path)
+    res = r["res"]
+    assert res["landed"] == 1 and not res["abort"] and res["state"] == "LANDED", res[
+        "events"
+    ]
+    assert res["td_speed"] < 0.5 and res["td_tilt"] < 5.0 and res["td_dist"] < 0.5
+    assert f"{r['sim'].state_hash():016x}" == GOLDEN[key]
+
+
 @needs_kernel
 def test_a_hop_off_and_back_onto_the_underway_vessels_helipad(tmp_path):
-    """The deck state comes from RelGnss + DeckLink + DeckPredictor (napl.cuas.relnav), the flight lands on the heaving, rolling, moving 3 m pad."""
-    # seed 3 is the scenario's default: a flight that lands (seeds 1, 2, 5, 6 of the first six miss a limit; the MC rate is 20 %, README.md)
-    r = _fly("osv/underway", {}, tmp_path, seed=3)
+    """The deck state comes from RelGnss + DeckLink + DeckPredictor (napl.cuas.relnav), the flight lands on the heaving, rolling, moving 3 m pad (the scenario's default seed, 1)."""
+    r = _scenario_flight("osv/underway", tmp_path)
     res = r["res"]
     assert res["landed"] == 1 and not res["abort"] and res["state"] == "LANDED"
     assert res["td_speed"] < 0.5 and res["td_tilt"] < 5.0 and res["td_dist"] < 0.5
@@ -230,6 +282,7 @@ def test_a_hop_off_and_back_onto_the_underway_vessels_helipad(tmp_path):
     assert max(z) > 11.0
     x = [row[lh.COLS.index("x_m")] for row in r["rows"]]
     assert max(x) > 20.0  # the vessel was underway: the hopper flew along with it
+    assert f"{r['sim'].state_hash():016x}" == GOLDEN["osv/underway"]
 
 
 # ------------------------------------------------------------------------------------------------------------------------------- MC helpers
@@ -256,6 +309,30 @@ def test_mc_summary_counts_failures_by_cause_with_a_wilson_interval():
     assert lo < 8 / 11 < hi
     with pytest.raises(ValueError):
         lm.summarize([])
+
+
+# The pass-rate floor each family asserts on its first report seeds (held out: 21000..., never used to pick a parameter): (parameter pick, seeds flown, successes required). The floors sit below the
+# 60-seed MC rate of README.md (a small sample, so a floor of about the rate's lower confidence bound), not at it: they catch a regression, they do not restate the rate.
+FLOORS = {
+    "mesa_down": ({}, 5, 4),  # MC 100 %
+    "mesa_up": ({}, 5, 4),  # 93 %
+    "rain25": ({}, 5, 4),  # 100 %
+    "rain100": ({}, 5, 4),  # 100 %
+    "deck": ({}, 5, 4),  # 98 %
+    "ridge": ({"k_dob": 1.0}, 5, 3),  # 75 %
+    "ledge": ({"k_dob": 0.7}, 5, 3),  # 80 %
+    "osv": ({}, 3, 2),  # 80 % (Hs 0.5 m, vessel at 2 m/s; ~2 min per flight)
+}
+
+
+@needs_kernel
+@pytest.mark.parametrize("fam", list(FLOORS))
+def test_monte_carlo_pass_rate_floor_on_held_out_seeds(fam):
+    pick, n, need = FLOORS[fam]
+    over = {"disperse": True, "wind_fixed": False, **pick}
+    res = [lm.one((lm.TEST_BASE + i, over, fam)) for i in range(n)]
+    k = sum(lm.ok(r) for r in res)
+    assert k >= need, (fam, k, n, [lm.why(r) for r in res if not lm.ok(r)])
 
 
 # ---------------------------------------------------------------------------------------------------------------- the PROGRAM page Run slot

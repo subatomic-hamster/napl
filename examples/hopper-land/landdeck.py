@@ -43,13 +43,28 @@ class DeckState:
         None  # the vertical in the deck's body frame (unit): where the accelerometers' mean points on a still deck
     )
 
+    zs: tuple | None = (
+        None  # (times, heights, rates) arrays of the surface point in this frame: a motion predictor's forecast (landship: relnav.DeckPredictor); None: constant velocity
+    )
+
     def predict(self, t):
-        """(position, velocity) at time t: constant-velocity extrapolation from the sample (heave is slow against the link's latency)."""
-        return self.pos + self.vel * (t - self.t), self.vel
+        """(position, velocity) at time t: constant-velocity extrapolation from the sample (the link's latency is short against the heave); the vertical part from the forecast `zs` where it covers t."""
+        p, v = self.pos + self.vel * (t - self.t), self.vel
+        if self.zs is not None and self.zs[0][0] <= t <= self.zs[0][-1]:
+            p, v = p.copy(), v.copy()
+            p[2], v[2] = (float(np.interp(t, self.zs[0], q)) for q in self.zs[1:])
+        return p, v
 
     def predict_z(self, t):
         p, v = self.predict(t)
         return float(p[2]), float(v[2])
+
+    def vz_max_ahead(self, t, horizon, lead=0.0):
+        """The largest upward speed of the surface over [t + lead, t + horizon] (m/s) from the forecast; the current rate when there is none."""
+        if self.zs is None or self.zs[0][-1] < t:
+            return self.predict_z(t)[1]
+        m = (self.zs[0] >= t + lead) & (self.zs[0] <= t + horizon)
+        return float(np.max(self.zs[2][m])) if m.any() else self.predict_z(t)[1]
 
 
 class ScriptedDeck:

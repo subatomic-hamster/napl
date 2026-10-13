@@ -137,6 +137,7 @@ class ShipLink:
             3
         )  # set by the harness: true world position of the hopper frame
         self.n_states = 0
+        self.off = None  # low-passed (hopper's estimated deck height - the datalink's pad height), m
 
     def _est_at(self, t):
         h = self.hist
@@ -196,6 +197,27 @@ class ShipLink:
                 tilt_max=math.radians(float(self.p["window_tilt_deg"])),
                 t_now=t,
             )
+        zs = None
+        if ready:  # the pad height's forecast (AR model): the flight computer reads the deck's height and rate now, and ahead, from it instead of the rate of the older datalink sample held constant
+            pr = self.pred.predict(3.0, ("h",))
+            if pr is not None:
+                # the series is the datalink's pad height (history + AR forecast) in the hopper's frame: the offset between the two (the hopper's height error, a few cm of RTK / estimator noise) is
+                # low-passed (tau ~1.5 s), and the rate is a 0.5 s moving average of the series' own slope -- splicing the raw RTK height onto the forecast made the rate jump by 0.3 m/s per fix
+                raw = pos[2] - pad[2]
+                self.off = (
+                    raw if self.off is None else self.off + 0.08 * (raw - self.off)
+                )
+                t_h, h_h = self.pred._uniform(
+                    "h"
+                )  # ponytail: the predictor's own resampled history (private), a public accessor if relnav grows one
+                t_f = np.concatenate([t_h[-8:], pr[0]])
+                z_f = np.concatenate([h_h[-8:], pr[1]["h"]]) + self.off
+                v_f = np.convolve(
+                    np.pad(np.gradient(z_f, t_f), 2, mode="edge"),
+                    np.ones(5) / 5,
+                    "valid",
+                )
+                zs = (t_f, z_f, v_f)
         self.n_states += 1
         return DeckState(
             te,
@@ -206,4 +228,5 @@ class ShipLink:
             0.05,
             ready,
             window,
+            zs=zs,
         )

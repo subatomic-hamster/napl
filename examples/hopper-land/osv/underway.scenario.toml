@@ -24,7 +24,7 @@ cpu_s = 1500
 [[parameters]]
 name = "seed"
 type = "int"
-default = 3
+default = 1
 min = 1
 max = 1000000
 group = "run"

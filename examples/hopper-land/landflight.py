@@ -11,6 +11,7 @@
 
 import math
 import sys
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,7 +33,7 @@ G = veh.G
 W = veh.MASS * G
 DEFAULTS = dict(
     BASE_DEFAULTS, k_dob=0.7, margin_min=landveh.MARGIN_MIN, v_sink_min=0.25, z_final=2.0, t_max_s=160.0, abort_off_m=12.0,
-    use_window=1.0, window_wait_s=20.0, deck_hold_h=0.45, deck_vz_hold=0.15,
+    use_window=1.0, window_wait_s=20.0, deck_hold_h=0.45, deck_vz_hold=0.15, hold_horizon_s=1.8, hold_lead_s=0.9, hold_max_s=12.0,
 )  # fmt: skip
 
 
@@ -139,6 +140,9 @@ class Flight:
         self.hold_until = 0.0
         self.sink = 0.0
         self.t_touch = 0.0
+        self.h_hist = deque(
+            maxlen=25
+        )  # the last 0.1 s of height above the surface (touchdown test)
         self.margin = float("nan")
         self.deck = None  # landdeck.DeckState (latest)
         self.t_last = 0.0
@@ -364,8 +368,14 @@ class Flight:
                     e.pad_lidar and e.agl_age < 0.1
                 ):  # over the deck: the height above it is what the lidar reads, not the difference of two filtered heights
                     h = max(e.agl - veh.H_STAND, 0.0)
-                # a deck rising fast would hit the fan-off hopper and throw it: hold `deck_hold_h` above it until it is no longer rising (crest passed)
-                hold = h < p["deck_hold_h"] + 0.3 and vzg > p["deck_vz_hold"]
+                # a deck rising fast would hit the fan-off hopper and throw it: hold `deck_hold_h` above it until the forecast says it will not rise faster than `deck_vz_hold` for the next `hold_horizon_s`
+                # (the time the last sink takes), or `hold_max_s` after FINAL started (a sea that never goes quiet is landed on anyway)
+                hold = (
+                    h < p["deck_hold_h"] + 0.3
+                    and self.deck.vz_max_ahead(t, p["hold_horizon_s"], p["hold_lead_s"])
+                    > p["deck_vz_hold"]
+                    and t - self.t_state < p["hold_max_s"]
+                )
             sink = min(p["v_sink_max"], max(p["v_sink_min"], p["k_sink"] * h))
             if hold:
                 sink = min(0.6, max(-0.6, h - p["deck_hold_h"]))
@@ -381,7 +391,14 @@ class Flight:
             v_ref = np.array([*(vtxy if self.state == "FINAL" else (0.0, 0.0)), vz_ref])
             a_ref = np.zeros(3)
             hold_int = h < 0.15
-            if h < 0.02 and not hold:
+            # touchdown = the height averaged over 0.1 s is at the feet: one lidar sample (sigma ~3 cm) below 2 cm cut the fan 9 cm above the deck and let the hopper fall on it at 0.55 m/s
+            # (seed 21001 of the scripted deck; the original's single-sample test did the same on terrain, where the slower sink hid it)
+            self.h_hist.append(h)
+            if (
+                len(self.h_hist) == self.h_hist.maxlen
+                and sum(self.h_hist) / len(self.h_hist) < 0.03
+                and not hold
+            ):
                 self.t_touch = t
                 self._go("TOUCHDOWN", t)
         if self.state == "TOUCHDOWN":
