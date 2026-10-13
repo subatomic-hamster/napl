@@ -128,13 +128,29 @@ def test_component_without_device_model_runs_only_the_tests(tmp_path):
     )["run_id"]
     r, out = finish(b, rid, timeout=600)
     assert "no device model" in out and r["result"]["metrics"] == {}
-    assert sorted(r["result"]["tests"]) == [
-        "test_bar.py",
-        "test_foo.py",
-    ]  # test_<name>.py + a test that imports it
-    assert r["result"]["tests_pass"] and r["result"]["pass"] and "2 passed" in out, out[
+    assert r["result"]["tests"] == [
+        "test_foo.py"
+    ]  # test_<name>.py targets foo.py; test_bar.py merely imports it
+    assert r["result"]["tests_pass"] and r["result"]["pass"] and "1 passed" in out, out[
         -800:
     ]
+    assert "budget" in out  # the terminal says what runs and how long it may take
+
+    # no test_<stem>.py: the importers run narrowed with -k <stem> (a big suite that merely imports the module is not the bench)
+    (prog / "baz.py").write_text("Y = 2\n")
+    (prog / "test_suite.py").write_text(
+        "import baz\n\n\ndef test_baz_y():\n    assert baz.Y == 2\n\n\ndef test_unrelated_slow():\n    raise SystemExit('must not run')\n"
+    )
+    rid = ask(
+        b, "run.start", {"mode": "bench", "component": inst, "files": ["baz.py"]}
+    )["run_id"]
+    r, out = finish(b, rid, timeout=600)
+    assert (
+        r["result"]["tests"] == ["test_suite.py"]
+        and "-k baz" in out
+        and "1 passed" in out
+        and "1 deselected" in out
+    ), out[-800:]
 
 
 def test_root_is_the_ides_program_root(tmp_path):
@@ -224,8 +240,12 @@ def test_full_run_live_matches_napl_program_hash(tmp_path, monkeypatch, mission)
     )  # same bits as `napl program`
     assert "PASS" in out and (Path(res["run_dir"]) / "replay.naplog").exists()
     assert (
-        b.sim.tick == 0
-    )  # the window's World was loaded back to the design's own model afterwards
+        b.sim.tick > 0 and b.runs.held
+    )  # the run's final scene stays in the window (the verdict is visible there)
+    assert (
+        ask(b, "run.restore")["restored"] and b.sim.tick == 0
+    )  # the window left SIMULATE: the design's own model is back
+    assert not ask(b, "run.restore")["restored"]
 
 
 @needs_kernel

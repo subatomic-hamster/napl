@@ -11,8 +11,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(NAPL_SCCACHE "Use sccache as compiler launcher when found" ON)
 find_program(NAPL_SCCACHE_EXE sccache)
 if(NAPL_SCCACHE AND NAPL_SCCACHE_EXE)
-  set(CMAKE_C_COMPILER_LAUNCHER ${NAPL_SCCACHE_EXE})
-  set(CMAKE_CXX_COMPILER_LAUNCHER ${NAPL_SCCACHE_EXE})
+  # Never reuse a stale object after a header change (a src/core/solver.h edit once served old objects -> segfaults): sccache's
+  # direct mode keys on a manifest of the headers of an EARLIER compile of the same source, and one shared server (config read at
+  # its start) served every worktree. SCCACHE_DIRECT=false = always run the preprocessor and key on its output, which cannot be
+  # stale. Each checkout gets its own server (a port from the source dir; tools/remote.sh starts the same one) so a server another
+  # checkout started in direct mode is never reused.
+  string(MD5 _sc_hash "${CMAKE_SOURCE_DIR}")
+  string(SUBSTRING "${_sc_hash}" 0 2 _sc_hex)
+  math(EXPR _sc_port "4300 + 0x${_sc_hex}")  # 4300..4555
+  set(_sc_launcher ${CMAKE_COMMAND} -E env SCCACHE_DIRECT=false SCCACHE_SERVER_PORT=${_sc_port} ${NAPL_SCCACHE_EXE})
+  set(CMAKE_C_COMPILER_LAUNCHER ${_sc_launcher})
+  set(CMAKE_CXX_COMPILER_LAUNCHER ${_sc_launcher})
 endif()
 
 # Determinism (plan Risk 1): no FMA contraction, no fast-math. Set before deps so they inherit it.
