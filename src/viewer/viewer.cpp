@@ -1558,6 +1558,7 @@ class Viewer {
               if (vis) hidden_.erase(i->id);
               else hidden_.insert(i->id);
               hidden_dirty_ = true;
+              dreq("quiet", design::request("ui.visibility", "{\"instances\":[" + q(i->id) + "],\"visible\":" + (vis ? "true" : "false") + "}"), true);  // flatten.state flags it
             }
           }
           ImGui::TreePop();
@@ -2202,15 +2203,10 @@ class Viewer {
 
   // ---------------------------------------- WIRING / SIMULATE / PROGRAM ------------------------------------------------------
   void wiring_page(float W, float H) {
-    const float lw = flat_.active() ? 0.f : 300.f;  // the flattened canvas takes the whole page; the autowire panel belongs to the picker
-    if (lw > 0) {
-      begin_pane("##wiring_side", {0, kTop}, {lw, H - kTop - kStatus});
-      theme::caption("AUTOWIRE");
-      wiring_tab(sel_instance());
-      ImGui::End();
-    }
     flat_.set_tooltips(tip_mode_);
-    const ImVec2 pos{lw, kTop}, size{W - lw, H - kTop - kStatus};
+    flat_.autowire_ui = [this] { wiring_tab(sel_instance()); };  // the picker folds AUTOWIRE behind a button of its action row
+    flat_.autowire_n = static_cast<int>(decisions_.size());
+    const ImVec2 pos{0, kTop}, size{W, H - kTop - kStatus};
     begin_pane("##wire2d", pos, size, true);
     ImGui::SetCursorPos({0, 0});
     flat_.page(size, dstate_, sel_.empty() ? "" : sel_.back(), hidden_);  // the picker, or the flattened canvas (wire2d.cpp)

@@ -304,6 +304,9 @@ class UiOps:
             if bad or not isinstance(want, list):
                 raise DesignError(f"ui.visibility: unknown instance(s) {bad}")
             vis = bool(a.get("visible", True))
+            self.hidden = (
+                self.hidden - set(want) if vis else self.hidden | set(want)
+            )  # what flatten.state marks `hidden` (the window keeps its own copy)
             self._event(cmd="visibility", instances=list(want), visible=vis)
             return self._ok({"instances": list(want), "visible": vis})
         if tool == "ui.measure":

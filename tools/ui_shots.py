@@ -44,6 +44,24 @@ PICK = {
         "mot2.phase",
     ],
 }
+SKYDIO_PICK = {
+    "instances": [
+        "bat",
+        "pm02",
+        "pdb",
+        "esc1",
+        "esc2",
+        "esc3",
+        "esc4",
+        "mot1",
+        "mot2",
+        "mot3",
+        "mot4",
+        "fc",
+        "gps",
+        "sik",
+    ]
+}
 TURRET_PICK = {
     "instances": ["pi", "adapter", "camera", "psu5", "psu", "pan"],
     "ports": [
@@ -139,7 +157,13 @@ def _ui(scene, out, fb):
     d = Design.open(
         REPO
         / "assemblies"
-        / ("turret.toml" if scene in ("wiring-turret", "pages") else "x500v2.toml")
+        / (
+            "turret.toml"
+            if scene in ("wiring-turret", "pages")
+            else "skydio.toml"
+            if scene == "p10-skydio"
+            else "x500v2.toml"
+        )
     )
     scenes = (
         ["wiring", "build-tooltip", "library"]
@@ -264,6 +288,29 @@ def _ui(scene, out, fb):
                     call("ui.visibility", {"visible": True})
                     time.sleep(1.5)
                     grab("p9-shown-3d")
+                    call("flatten.end")
+                elif (
+                    s in ("p10", "p10-skydio")
+                ):  # P10: picker with AUTOWIRE, the canvas right after flatten, 66 % and 100 %
+                    pick = (SKYDIO_PICK if s == "p10-skydio" else PICK)["instances"]
+                    call("ui.wire_pick", {"instances": pick})
+                    time.sleep(2.5)
+                    grab(f"{s}-picker")
+                    call("flatten.begin", {"instances": pick})
+                    time.sleep(1.2 if s == "p10-skydio" else 0.35)
+                    grab(
+                        f"{s}-first-frame"
+                    )  # already laid out: fading in, nothing pops
+                    time.sleep(3)
+                    call("ui.wire_view", {"fit": True})
+                    time.sleep(0.8)
+                    grab(f"{s}-fit")
+                    call("ui.wire_view", {"zoom": 0.66})
+                    time.sleep(0.8)
+                    grab(f"{s}-66")
+                    call("ui.wire_view", {"zoom": 1.0})
+                    time.sleep(0.8)
+                    grab(f"{s}-100")
                     call("flatten.end")
                 elif s == "wiring":
                     call("ui.mode", {"name": "wiring"})

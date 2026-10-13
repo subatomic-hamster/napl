@@ -62,6 +62,7 @@ class Backend(UiOps):
         self.log = []  # [(request dict, reply dict)] of every request, for tests and replay of a UI session
         self._cache = None  # (design, rev, state)
         self.flat = Flatten()  # the 2D wiring mode (wire2d.py): the flatten.* tools
+        self.hidden = set()  # instances switched off with the eye (ui.visibility); flatten.state flags their cards and wires
         self.runs = Runs(self)  # run.* (runops.py)
         self.sim = None  # the host=True Sim the window shows: set by whoever calls Sim.show(design=this); `run.start full` runs in it
         # UI state + the events the window should show (mode switch, typing, ghost flight, guide flash ...): every ui.* /
