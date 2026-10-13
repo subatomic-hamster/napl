@@ -6,6 +6,7 @@ base station, a deck datalink radio, a motion sensor on the deck, navigation lig
 Every edit is one `Design` call (the same ops as the MCP `design_*` tools and the viewer); the DRC delta of each is printed. Needs no kernel.
 The result is committed as assemblies/osv.toml (comments are not kept by `Design.save`; the header below is added back)."""
 
+import math
 import sys
 import tomllib
 from pathlib import Path
@@ -73,10 +74,10 @@ def main(out):
     items = [
         ("holybro-pixhawk-6c", "fc", [0.4, 1.0, DECK + 0.001], "avionics"),
         ("raspberry-pi-5", "pi", [0.4, 0.45, DECK + 0.001], "compute"),
-        ("pololu-d24v50f5", "reg5", [0.4, -0.1, DECK + 0.001], "power"),
-        ("pololu-d24v10f12", "reg12", [0.4, -0.5, DECK + 0.001], "power"),
+        ("pololu-d24v50f5", "reg5", [0.4, -0.1, DECK + 0.004], "power"),  # on 3 mm standoffs: the wires leaving the underside pads must not graze the deck
+        ("pololu-d24v10f12", "reg12", [0.4, -0.5, DECK + 0.004], "power"),
         ("holybro-sik-telemetry-radio-v3", "sik", [0.4, -1.0, DECK + 0.001], "avionics"),
-        ("cnhl-6200mah-6s-90c-xt90", "hbat", [3.2, -0.9, DECK + 0.025], "power"),
+        ("cnhl-6200mah-6s-90c-xt90", "hbat", [3.3, -0.1, DECK + 0.025], "power"),
         ("sparkfun-gps-rtk-sma-16481", "rtk_board", [3.0, 0.0, DECK + 0.001], "avionics"),
         ("holybro-m8n-gps", "gps", [1.0, 0.5, roof], "avionics"),
         ("aqua-signal-series-25-led-nav-light", "light_mast", [3.0, 0.0, roof], "lights"),
@@ -85,7 +86,14 @@ def main(out):
         ("aqua-signal-series-25-led-nav-light", "light_stern", [-6.1, 0.0, DECK + 0.001], "lights"),
     ]  # fmt: skip
     for part, iid, pos, grp in items:
-        d.add(part, id=iid, pos=pos, rpy=[0, 0, 0], group=grp)
+        # the house battery's XT90 lead points aft, at the regulators it feeds (facing the front wall it had to U-turn round the pack)
+        d.add(
+            part,
+            id=iid,
+            pos=pos,
+            rpy=[0, 0, math.pi if iid == "hbat" else 0],
+            group=grp,
+        )
     step("rtk antenna", d.add("ublox-ann-mb-00", id="rtk_ant", to="house.roof_seat", port="base", group="avionics", mate="house--rtk-ant"))  # fmt: skip
     for iid, c in (
         ("light_port", "red"),
@@ -129,16 +137,16 @@ def main(out):
         d.wire(f"bat{k}.power_out", f"ctrl{k}.power_in", hv, est(5.5, f"Battery {k} is in the wheelhouse (x = 1.8 m), its inverter at x = -1.3 m on the aft deck: 3.1 m along the deck plus 2.4 m of routing and service loops.") , conductors=2, name=f"bat{k}-to-ctrl{k}")  # fmt: skip
         d.wire(f"ctrl{k}.motor_out", f"drive{k}.phase", hv, est(5.5, f"Inverter {k} at x = -1.3 m on the deck, the drive on the transom at x = -5.3 m, 0.32 m above the keel: 4 m along the deck, 1.4 m down the transom, 0.3 m slack."), conductors=3, name=f"ctrl{k}-to-drive{k}")  # fmt: skip
         d.wire(f"fc.pwm{k}", f"ctrl{k}.signal", sig, est(3.5, "Pixhawk on the cabin bulkhead (x = 0.4 m), inverter at x = -1.3 m, across the doorway: 1.7 m plus 1.8 m routing."), name=f"fc-pwm{k}", from_pins=[f"FMU_PWM.{1 + k}", "FMU_PWM.10"], to_pins=["CTL.1", "CTL.2"])  # fmt: skip
-    d.wire("hbat.power_out", "reg5.vin", sig, est(1.5, "House pack at x = 3.2 m, 5 V regulator at x = 0.4 m, along the cabin wall: 2.8 m. Rating: 5 A at 25 V needs 14-16 AWG; the library's thinnest wire part is 18 AWG (16 A), used for the bookkeeping."), conductors=2, name="hbat-to-reg5")  # fmt: skip
+    d.wire("hbat.power_out", "reg5.vin", sig, est(1.5, "House pack at x = 3.3 m, 5 V regulator at x = 0.4 m, along the centre aisle: 2.9 m. Rating: 5 A at 25 V needs 14-16 AWG; the library's thinnest wire part is 18 AWG (16 A), used for the bookkeeping."), conductors=2, name="hbat-to-reg5")  # fmt: skip
     d.wire("reg5.vin", "reg12.vin", sig, est(0.5, "The 12 V regulator's input pads are soldered to the 5 V regulator's input pads 0.4 m away on the shelf (a parallel tap on the house pack's feed)."), conductors=2, name="reg5-to-reg12")  # fmt: skip
     d.wire("reg5.vout", "pi.power_in", sig, est(0.6, "Regulator and Pi are 0.55 m apart on the bulkhead shelf."), conductors=2, name="reg5-to-pi")  # fmt: skip
-    d.wire("reg5.vout", "fc.power1", sig, est(1.5, "Regulator at y = -0.1 m, Pixhawk at y = 1.0 m on the same shelf: 1.1 m plus slack."), conductors=2, name="reg5-to-fc")  # fmt: skip
+    d.wire("reg5.vout", "fc.power1", sig, est(1.5, "Regulator at y = -0.1 m, Pixhawk at y = 1.0 m on the same shelf: 1.1 m plus slack."), conductors=2, name="reg5-to-fc", from_pins=["IO.VOUT", "IO.GND2"], to_pins=["POWER1.1", "POWER1.5"])  # fmt: skip
     d.wire("reg5.vout", "mru.power_in", sig, est(3.0, "5 V lead from the shelf (x = 0.4 m) out of the aft door to the MRU on the deck (x = -0.6 m): 1.0 m plus 2 m of routing along the bulkhead."), conductors=2, name="reg5-to-mru", from_pins=["IO.VOUT", "IO.GND2"], to_pins=["J1.1", "J1.5"])  # fmt: skip
     for iid in ("light_mast", "light_port", "light_stbd", "light_stern"):
         d.wire("reg12.vout", f"{iid}.power_in", sig, est(8.0, "12 V distribution from the cabin shelf to the light (roof 3.8 m up, 3 m forward, or 6.5 m aft to the stern light), routed along the cabin wall and gunwale; the lights' own 3 m pigtails are inside their mass."), conductors=2, name=f"reg12-to-{iid}", included_in=iid)  # fmt: skip
     d.wire("gps.gps_out", "fc.gps1", sig, "gps.cable_length", name="gps-to-fc", included_in="gps")  # fmt: skip
     d.wire("sik.telem", "pi.j8", sig, "sik.telem_cable_length", name="sik-to-pi", from_pins=["TELEM.1", "TELEM.2", "TELEM.3", "TELEM.6"], to_pins=["J8.2", "J8.24", "J8.21", "J8.25"], included_in="sik")  # fmt: skip
-    d.wire("pi.gpio_uart", "fc.telem2", sig, est(1.0, "Pi 5 UART header (TX / RX / GND) to the Pixhawk 6C TELEM2 (MAVLink companion link): 0.55 m apart on the shelf, 1.0 m with slack."), name="pi-to-fc")  # fmt: skip
+    d.wire("pi.gpio_uart", "fc.telem2", sig, est(1.0, "Pi 5 UART header (TX / RX / GND) to the Pixhawk 6C TELEM2 (MAVLink companion link): 0.55 m apart on the shelf, 1.0 m with slack."), name="pi-to-fc", from_pins=["J8.8", "J8.10", "J8.6"], to_pins=["TELEM2.3", "TELEM2.2", "TELEM2.6"])  # fmt: skip
     d.wire("mru.uart", "pi.j8", sig, est(3.0, "MRU on the deck (x = -0.6 m) to the Pi on the cabin bulkhead (x = 0.4 m): 1.0 m plus 2 m of routing."), name="mru-to-pi", from_pins=["J1.8", "J1.9", "J1.5"], to_pins=["J8.29", "J8.7", "J8.39"])  # fmt: skip
     d.wire("rtk_board.usb", "pi.usb", sig, "rtk_board.cable_length", name="rtk-to-pi", from_pins=["USBC.A4", "USBC.A7", "USBC.A6", "USBC.A1"], to_pins=["USB1.1", "USB1.2", "USB1.3", "USB1.4"], included_in="rtk_board")  # fmt: skip
     d.wire("rtk_ant.rf", "rtk_board.antenna", sig, "rtk_ant.cable_length", name="ant-to-rtk", included_in="rtk_ant")  # fmt: skip
