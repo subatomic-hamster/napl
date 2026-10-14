@@ -378,14 +378,14 @@ def cmd_oplog(a):
     P("Hover a pin: the tooltip names the part and the pin", "A pin reference in build_design.py (here the TF-Luna's power input) shows the part's pin tooltip on hover.",
       U(1.5, cmd="open", path="build_design.py", line=hl, col=hc), U(4.5, cmd="hover", line=hl, col=hc), U(0.3, cmd="hover", line=-1))  # fmt: skip
     P("Edit, rename a symbol, and a real shell in the TERMINAL tab", "A scratch file in the program folder: type a line, rename `descent_rate` with F2 (jedi renames every use), then the TERMINAL tab is a pty shell in the program folder.",
-      U(1.0, cmd="open", path=SCRATCH, line=2, col=4, len=0), U(3.0, cmd="type", text="# slower than the real program: a demo\n"), U(1.0, cmd="open", path=SCRATCH, line=0, col=4, len=12), U(3.0, cmd="rename", new="sink_rate"),
+      U(1.0, cmd="open", path=SCRATCH, line=2, col=0, len=0), U(3.0, cmd="type", text="    # slower than the real program: a demo\n"), U(1.0, cmd="open", path=SCRATCH, line=0, col=4, len=12), U(3.0, cmd="rename", new="sink_rate"),
       U(0.5, cmd="dock", name="terminal"), U(1.2, cmd="term", text="ls"), U(2.4, cmd="term", text="python _scratch.py"))  # fmt: skip
     P("Run slot, BENCH: the TF-Luna model on the bench", "BENCH runs the selected component's device model on a bench (a 1 x 1 rangefinder: the noise readout at several ranges) plus the pytest files tied to the open file (none for README.md); the OUTPUT tab streams the table and the chip shows PASS.",
       U(0.5, cmd="open", path="README.md", line=0, col=0), U(0.5, cmd="dock", name="output"), C(0.8, "bench"), C(1.0, "target:lidar"), C(BENCH_WAIT, "run"))  # fmt: skip
     P("Run slot, the scenarios: every folder of the combo", "The Run slot lists every *.scenario.toml under the program root; the folders group them: forest, rain, summit, ledge, mesa_brink, deck. Step through them.",
       C(0.8, "full"), *[C(1.2, f"target:{s}") for s in SCENARIOS], speed=1.2)  # fmt: skip
     P("Run slot, FULL SIM: forest/clearing flies live in SIMULATE", "FULL SIM runs the scenario in the window's own simulation, in real time: the page switches to SIMULATE with the LIVE label and a chase camera; the monitors judge the run and the replay hash is re-checked.",
-      C(0.8, "full"), C(1.0, f"target:{SCENARIOS[0]}"), C(0.5, "run"), U(FULL_WAIT, cmd="dock", name="output"), speed=FULL_SPEED)  # fmt: skip
+      C(0.8, "full"), C(1.0, f"target:{SCENARIOS[0]}"), C(0.5, "run"), R("ui.mode", FULL_WAIT, name="simulate"), speed=FULL_SPEED)  # fmt: skip
     P("Run slot result: the chip, and the monitors' verdict in OUTPUT", "When the scenario ends the Run slot shows the verdict chip and OUTPUT lists the monitors, the state hash and whether the replay matched.",
       R("ui.mode", 1.0, name="program"), U(6.0, cmd="dock", name="output"))  # fmt: skip
     Path(a.out).write_text(
@@ -405,9 +405,7 @@ SCENARIOS = [  # (Run slot path under examples/skydio-land)
     "ledge/ledge.scenario.toml", "mesa_brink/mesa_brink.scenario.toml", "deck/osv.scenario.toml", "deck/asv.scenario.toml",
 ]  # fmt: skip
 BENCH_WAIT = 12.0  # s the bench run is left to finish on screen
-FULL_WAIT = (
-    150.0  # s the live forest run is left to fly (wall); the step is played fast
-)
+FULL_WAIT = 380.0  # s the live forest run is left to fly (wall; 171 sim s take about 230 s with the window rendering, then napl-replay checks the 30 MB log); the step is played fast
 FULL_SPEED = 6.0
 
 
@@ -557,13 +555,23 @@ class LandRun:
         s = self.summary
         for j in np.nonzero(np.diff(z) > 0)[0]:
             k = int(z[j])
-            asm = s["assessments"][k] if k < len(s["assessments"]) else {}
-            why = (
-                asm.get("why")
-                or asm.get("reason")
-                or ", ".join(asm.get("reasons", []))
-                or "unsafe"
+            asm = next(
+                (
+                    a
+                    for a in s["assessments"]
+                    if a["zone"] == self.zones[k]["name"] and not a["ok"]
+                ),
+                {},
             )
+            why = asm.get("reason") or "unsafe"
+            if asm.get(
+                "reasons"
+            ):  # the onboard map's own cell counts, e.g. "rough (obstacle 17, rough 32)"
+                why += (
+                    " ("
+                    + ", ".join(f"{n} {c}" for n, c in asm["reasons"].items())
+                    + ")"
+                )
             t = float(tr["t"][j + 1])
             ev.append(
                 (
@@ -925,7 +933,7 @@ def hud(w, run, m, base, fpv, sim_t):
             )
             dr.text((26, y + 4), sub, font=F["m"], fill=(255, 255, 255, 255))
             y += 32
-    rows = [("SPEED", f"{run.at('speed', sim_t):5.1f} m/s"), ("HEIGHT ABOVE DECK" if run.deck else "HEIGHT ABOVE GROUND", f"{run.at('agl_m', sim_t):5.1f} m"),
+    rows = [("SPEED", f"{run.at('speed', sim_t):5.1f} m/s"), ("HEIGHT ABOVE DECK" if run.deck else "HEIGHT ABOVE GROUND", f"{max(run.at('agl_m', sim_t), 0.0):5.1f} m"),
             ("TILT", f"{run.at('tilt_deg', sim_t):5.1f} deg"), ("ESTIMATE ERROR", f"{run.at('est_err_m', sim_t):5.2f} m"),
             ("PAD" if run.deck else "ZONE", "deck" if run.deck else f"{zi + 1} of {len(run.zones)}: {zn['name']}")]  # fmt: skip
     if run.deck:
