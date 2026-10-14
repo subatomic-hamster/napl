@@ -276,6 +276,21 @@ def test_full_run_live_matches_napl_program_hash(tmp_path, monkeypatch, mission)
 
 
 @needs_kernel
+def test_live_replay_check_covers_the_windows_own_design_load(tmp_path, monkeypatch):
+    """The viewer's World logs the design's own LoadModel (the window reloading the design) before the run's: the replay
+    check must replay those under the Sim's root, not the run's model folder (it said 'replay diverged ... permission_denied')."""
+    b = live_backend(tmp_path, monkeypatch)
+    xml = b.state(b.get_design())["xml"]
+    assert b.sim.call({"cmd_type": "LoadModel", "cmd": {"path": str(xml)}})["ok"]
+    rid = ask(b, "run.start", {"mode": "full", "scenario": "goal.scenario.toml"})[
+        "run_id"
+    ]
+    r, out = finish(b, rid, timeout=900)
+    res = r["result"]
+    assert r["state"] == "done" and res["replay"]["match"], out[-1500:]
+
+
+@needs_kernel
 def test_stop_mid_run_kills_the_program_group(tmp_path, monkeypatch):
     b = live_backend(tmp_path, monkeypatch)
     rid = ask(

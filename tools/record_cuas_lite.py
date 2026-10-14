@@ -1241,7 +1241,13 @@ def _build_frames(w, root, speedup, chapters_over=None):
         prev = s["t1"]
     if ts[-1] > prev:
         segs.append((prev, ts[-1], 1.0, None))
-    chap = {"CAD": "build", "BUILD": "build", "WIRING": "wiring", "PROGRAM": "program"}
+    chap = {
+        "CAD": "build",
+        "BUILD": "build",
+        "LIBRARY": "build",  # the Library page (a part dragged in) is part of the build
+        "WIRING": "wiring",
+        "PROGRAM": "program",
+    }
     chapters = {
         "build": (
             "1  Build",
