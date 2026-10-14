@@ -84,8 +84,10 @@ All eight tables are from the same code (the touchdown metric and test below inc
 | no quiet-window wait / no deck-rise hold | 75 % / 62.5 % | the gates are worth it |
 | deck link 0.3 s late | 37.5 % [19, 61] | speed 6, distance 3 |
 | wind x2 (4 m/s) | 75.0 % [51, 90] | speed 3, abort 1 |
-Reading: up to Hs 0.5 m, head seas, vessel stopped to 2 m/s, the landing works 75-94 % (target >= 90 % is met only for the vessel stopped; underway it is ~80-88 % with
-n = 16-40, intervals overlap 90 %). From Hs 1.0 m the hopper lands 40-50 % (deck roll / pitch at contact over 5 deg: the legs-vs-deck tilt monitor, and the thrust
+Larger samples (n = 40, Hs 0.5 m, own run each): vessel stopped 87.5 % [74, 95], vessel 1 m/s 80.0 % [65, 90], vessel 2 m/s 80.0 % [65, 90] (the default test above).
+Residual failures there are tails, not one mechanism: touchdown speed 0.5-0.6 m/s marginal misses, 0.4-0.55 m off the pad centre (pass < 0.5 m), one lateral excursion that lost the deck
+(lidar gate off, height estimate 0.4 m high, 33 deg tilt at contact), and one abort AT LIFT-OFF (tilt > limit 3.7 s after spool-up on the rolling deck: take-off has no quiet-window gate).
+Reading: up to Hs 0.5 m, head seas, vessel stopped to 2 m/s, the landing works 80-88 % (the >= 90 % target is NOT met; the 95 % intervals reach it only at the top). From Hs 1.0 m the hopper lands 40-50 % (deck roll / pitch at contact over 5 deg: the legs-vs-deck tilt monitor, and the thrust
 margin 2:1), beam seas and a 3.5 m/s vessel are not covered, a late deck link (0.3 s) kills it. Not tuned to pass. Aborting over a ship lands where the hopper is (in the sea): not handled.
 
 ## Estimates / simplifications (marked)
