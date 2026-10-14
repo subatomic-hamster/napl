@@ -1,0 +1,132 @@
+# napl program examples/skydio-land/forest/clearing.scenario.toml --runs-dir <dir>
+# Forest landing: the Skydio-style quadrotor (assemblies/skydio-land.toml: X500 V2 + D435i + Pi 5 + downward TF-Luna + RTK rover board) takes off at the origin of the
+# seeded forest of examples/skydio (wall with a doorway, arch, trees, poles, boulders), flies 58 m through it on its depth camera alone, and lands in a DIFFERENT clearing
+# in a seeded wind with Dryden turbulence. It is told two clearings (designated + alternate, a surveyed list) and finds out from its own sensors whether the designated one is
+# safe: a lidar survey at 3 m gives the slope, the flatness and the clear ring; the depth map gives trees and poles. In ~40 % of the seeds the designated clearing holds a
+# hazard (three boulders or a log): the zone is rejected and the alternate is flown to. land_fly.py OWNS the World; the runner judges trace.csv and re-runs the replay log.
+name = "skyland-forest-clearing"
+
+[land]
+family = "forest"
+rtk = false                    # no RTK fix under the canopy: odometry (VIO + baro + IMU) only
+terrain_following = false
+
+[model]
+script = "clearing.py"         # build(out): land_scene.build_for
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../land_fly.py", "{dir}/clearing.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the forest layout, the clearings, the hazard draw, the wind direction, the turbulence and the IMU / VIO / baro / lidar noise: one seed, one flight (same seed, same state hash)."
+
+[[parameters]]
+name = "wind_ms"
+type = "float"
+default = 2.0
+min = 0.0
+max = 10.0
+unit = "m/s"
+group = "environment"
+label = "Mean wind (10 m)"
+doc = "Steady wind at 10 m, direction drawn from the seed."
+
+[[parameters]]
+name = "turbulence_ms"
+type = "float"
+default = 1.5
+min = 0.0
+max = 8.0
+unit = "m/s"
+group = "environment"
+label = "Dryden level W20"
+doc = "MIL-F-8785C turbulence intensity parameter: wind speed at 6.1 m."
+
+[[parameters]]
+name = "hazard"
+type = "choice"
+choices = ["auto", "yes", "no"]
+default = "auto"
+group = "mission"
+label = "Hazard in the designated clearing"
+doc = "auto: drawn from the seed (about 40 %); yes / no force it."
+
+[[parameters]]
+name = "t_max_s"
+type = "float"
+default = 300.0
+min = 60.0
+max = 600.0
+unit = "s"
+group = "run"
+label = "Longest flight"
+
+[limits]
+wall_s = 900
+cpu_s = 900
+address_space_mb = 16384
+
+# --- monitors: columns of <run dir>/trace.csv ------------------------------------------------------------------------------------------
+[[monitors]]
+name = "no_collision"                        # the contact sensor airframe vs obstacles: zero contacts, ever
+column = "contact_steps"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "no_crash"                            # no part but the two landing legs touches the ground once airborne (tip-over, prop strike)
+column = "crash"
+op = "always"
+hi = 0
+
+[[monitors]]
+name = "clearance_positive"                  # exact distance to the nearest obstacle surface minus the 0.40 m airframe sphere
+column = "clearance_m"
+op = "always"
+lo = 0.05
+
+[[monitors]]
+name = "lands_within_240s"
+column = "landed"
+op = "eventually"
+lo = 1
+to = 240
+
+[[monitors]]
+name = "touchdown_vertical_speed"            # vertical speed at the first gear contact
+column = "td_speed_ms"
+op = "final"
+hi = 1.0
+
+[[monitors]]
+name = "touchdown_tilt"
+column = "td_tilt_deg"
+op = "final"
+hi = 12
+
+[[monitors]]
+name = "on_a_safe_zone"                      # horizontal distance from the touchdown point to the nearest TRUTH-safe zone's centre (a rejected hazard zone does not count); the pad is 2.5 m in radius
+column = "td_dist_m"
+op = "final"
+hi = 5.0
+
+[[monitors]]
+name = "on_a_safe_spot"                      # TRUTH: no tree, pole, boulder or log within 1.5 m of the touchdown point
+column = "td_safe"
+op = "final"
+lo = 1
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt_deg"
+op = "always"
+hi = 45
