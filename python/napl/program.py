@@ -555,6 +555,12 @@ def replay_hash(log, root=None):
     return int(m[1]), m[2]
 
 
+def _replay_root(sc, model):
+    """napl-replay's --root: the run's model folder, but a live run's log covers the viewer's whole session (its design loads too),
+    so those replay under the Sim's own root (live["root"])."""
+    return (sc.get("_live") or {}).get("root") or Path(model).parent
+
+
 def _group_alive(pgid):
     try:
         os.killpg(pgid, 0)
@@ -849,7 +855,7 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
         w = csv.writer(f)
         w.writerow(["wall_s", "tick", "t", *[m["name"] for m in mons]])
         w.writerows(rows)
-    rp = replay_hash(run_dir / "replay.naplog", Path(model).parent)
+    rp = replay_hash(run_dir / "replay.naplog", _replay_root(sc, model))
     res["replay"] = (
         {"available": False}
         if rp is None
@@ -909,7 +915,7 @@ def _native(sc, mons, run_dir, cwd, argv, env, log, res):
     )
     if fin.get("diverged"):
         res["monitors"].append({"name": "solver_diverged", "pass": False})
-    rp = replay_hash(run_dir / "replay.naplog", Path(model).parent)
+    rp = replay_hash(run_dir / "replay.naplog", _replay_root(sc, model))
     res["replay"] = {"available": False} if rp is None else dict(
         available=True, tick=rp[0], state_hash=rp[1], match=rp == (fin["tick"], fin["state_hash"]))  # fmt: skip
 

@@ -269,6 +269,7 @@ class Runs:
                 live=dict(
                     sim=sim,
                     stop=run.stop,
+                    root=self.b.out,  # the viewer's Sim root: its log also holds the design's own loads
                     on_dir=on_dir,
                     rate=getattr(self.b, "run_rate", None),
                 ),
