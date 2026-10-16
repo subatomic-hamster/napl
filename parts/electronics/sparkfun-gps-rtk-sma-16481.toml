@@ -13,6 +13,7 @@ url = "https://www.sparkfun.com/sparkfun-gps-rtk-sma-breakout-zed-f9p-qwiic.html
 # convergence < 10 s, moving-base RTK navigation update rate 8 Hz with GPS+GLO+GAL+BDS (10 Hz with fewer constellations), heading accuracy 0.4 deg (50 % at 30 m/s dynamics).
 # Part frame: origin at the board centre on its underside, x along the length, z up.
 [params]
+price = { value = 259.95, unit = "USD", src = "SP", fidelity = "datasheet" }  # SparkFun retail price seen 2026-10-16 (US, USD, ex shipping)
 mass                = { value = 0.0068, unit = "kg", src = "S1", fidelity = "datasheet" }
 length              = { value = 0.0435, unit = "m", src = "S1", fidelity = "datasheet" }
 width               = { value = 0.0432, unit = "m", src = "S1", fidelity = "datasheet" }
@@ -114,6 +115,13 @@ rationale = "Small red-blue breakout board with a ZED-F9P shield, an SMA jack an
 [[visual.elements]]
 gen = "board_generic"
 colors = { pcb = "soldermask-red" }
+
+[[sources]]
+id = "SP"
+url = "https://www.sparkfun.com/products/16481"
+title = "SparkFun GPS-RTK-SMA Breakout (ZED-F9P), product page price"
+accessed = "2026-10-16"
+quote = "$259.95 retail price (page fetch summary)"
 
 [[sources]]
 id = "S1"

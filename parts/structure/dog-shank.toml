@@ -1,0 +1,48 @@
+id = "dog-shank"
+name = "Dog shank (3D printed PLA): knee disc, 22 x 14 mm beam with lightening slot, foot socket"
+category = "frame.printed"
+vendor = "napl dog (own design)"
+part_number = "shank"
+url = "cad/dog/parts.py"
+
+# cad/dog/parts.py shank(), L_SHANK = 220 mm. Frame: origin on the knee axis (y), hangs along -z to the foot socket at z = -L_SHANK. Symmetric about the XZ plane: its own mirror.
+
+[mirror]
+symmetry = "xz"
+
+[params]
+infill_fraction = { value = 0.3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
+layer_height    = { value = 0.0002, unit = "m", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
+nozzle_diameter = { value = 0.0004, unit = "m", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
+wall_count      = { value = 3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
+length          = { value = 0.22, unit = "m", fidelity = "estimated", rationale = "Design value L_SHANK (cad/dog/params.py); the speed study sweeps 0.20-0.25 m." }
+mass            = { value = 0.0544, unit = "kg", fidelity = "derived", derivation = "Mesh volume 70.5 cm3 x PLA 1.24 g/cm3, shell + 30 % infill model, by cad/dog/build.py." }
+
+[geometry]
+shape = "mesh"
+mesh = "meshes/dog/dog-shank.stl"
+material = "pla"
+bbox_min = [-0.017, -0.017, -0.224]
+bbox_max = [0.017, 0.017, 0.015]
+
+[[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Knee axis (M3 clamp bolt hole through the disc)."
+
+[[ports]]
+name = "foot"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, -0.22]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Foot socket stub, 8.4 mm stud bore for the foot core."

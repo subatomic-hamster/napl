@@ -8,7 +8,7 @@ url = "https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/hardwar
 # The developer kit as bought: the 8 GB module (parts/electronics/nvidia-jetson-orin-nano-8gb-module.toml) on NVIDIA's reference carrier board, with heatsink and fan. Pin tables are the
 # carrier-board specification SP-11324-001 v1.0 (S1), Table 3-3 (J12), Tables 2-1 to 2-3 (USB) and section 3.8 (DC jack). Only the connectors a cuas-lite build wires are listed: the 40-pin header J12,
 # the DC jack J16, the USB-C port J5 and the two stacked USB-A connectors J6 / J7 (four USB-A ports). Not listed: the two 22-pin MIPI CSI connectors, the 12-pin button header, the fan header,
-# the CAN / PoE / RTC headers, the M.2 slots, DisplayPort and Ethernet.
+# the CAN / PoE / RTC headers (the optional CAN header J17 is an unpopulated footprint with 3.3 V CAN_TX / CAN_RX logic, S1 Table 3-5: the dog uses a USB CAN adapter instead), the M.2 slots and DisplayPort. The RJ45 jack J15 (the Mid-360 link) is listed.
 # Part frame: origin at the centre of the carrier board's underside, +x along the 100 mm side, +y along the 79 mm side, z up. The connector poses are placed on the product photos (the specification's
 # placement figures carry no dimensions), so they are estimates; the pin tables are not.
 # Mass: S5 (an NVIDIA forum answer; scope disputed in the thread, see the note on the param). The kit's included 19 V power supply is not part of it.
@@ -183,6 +183,33 @@ pose_rationale = "On the end of the board next to the USB / Ethernet block (prod
 pins = [
   { number = 1, name = "DC+", kind = "power", dir = "in", v_min = 9.0, v_max = 20.0, i_max = 3.5, note = "centre pin, positive (S1 section 3.8)" },
   { number = 2, name = "DC-", kind = "ground", note = "sleeve" },
+]
+
+# ---- Gigabit Ethernet RJ45 J15 (S1 Table 2-4): MDI pairs 0-3 on connector pins 1, 2, 3, 6, 7, 8, 9, 10 (the table's own numbering of the 18-pin RA jack with magnetics and LEDs).
+[[connectors]]
+id = "J15"
+name = "RJ45 Gigabit Ethernet jack"
+type = "rj45-1000base-t"
+port_type = "ethernet"
+gender = "female"
+pos = [0.047, 0.0, 0.0075]
+axis = [1.0, 0.0, 0.0]
+ref = [0.0, 1.0, 0.0]
+rows = 1
+cols = 10
+pitch = 0.001
+src = "S1"
+fidelity = "datasheet"
+pose_rationale = "On the USB / Ethernet end block (product photos); the specification's placement figure has no dimensions (positional estimate). The pin numbers are the carrier board's numbering of the jack's 20 terminals, NOT the 8P8C plug contact numbers."
+pins = [
+  { number = 1, name = "MDI0+", kind = "signal", dir = "io", note = "GPE_MDI0_P, module pin 186" },
+  { number = 2, name = "MDI0-", kind = "signal", dir = "io", note = "GPE_MDI0_N, module pin 184" },
+  { number = 3, name = "MDI1+", kind = "signal", dir = "io", note = "GPE_MDI1_P, module pin 192" },
+  { number = 6, name = "MDI1-", kind = "signal", dir = "io", note = "GPE_MDI1_N, module pin 190" },
+  { number = 7, name = "MDI2+", kind = "signal", dir = "io", note = "GPE_MDI2_P, module pin 198" },
+  { number = 8, name = "MDI2-", kind = "signal", dir = "io", note = "GPE_MDI2_N, module pin 196" },
+  { number = 9, name = "MDI3+", kind = "signal", dir = "io", note = "GPE_MDI3_P, module pin 204" },
+  { number = 10, name = "MDI3-", kind = "signal", dir = "io", note = "GPE_MDI3_N, module pin 202" },
 ]
 
 # ---- USB-C J5 (S1 Table 2-1): host, device and USB recovery. VBUS pins are A4/A9/B4/B9, grounds A1/A12/B1/B12.
