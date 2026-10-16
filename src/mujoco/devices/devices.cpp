@@ -672,9 +672,21 @@ Devices parse(const std::string& json) {
       sensor_ok(n, c.site, c.rate_hz);
       c.proj = rf->projection() ? rf->projection()->str() : "pinhole";
       if (c.proj.empty()) c.proj = "pinhole";
-      need(c.proj == "pinhole" || c.proj == "spherical", n, "projection must be 'pinhole' or 'spherical'");
+      need(c.proj == "pinhole" || c.proj == "spherical" || c.proj == "rosette", n, "projection must be 'pinhole', 'spherical' or 'rosette'");
       c.pinhole = c.proj == "pinhole";
+      c.rosette = c.proj == "rosette";
       c.fov_h = rf->fov_h(); c.fov_v = rf->fov_v(); c.n_h = rf->n_h(); c.n_v = rf->n_v();
+      if (c.rosette) {  // a 1 x rays_per_frame image; the elevation span replaces fov_v
+        c.fov_v_min = rf->fov_v_min(); c.fov_v_max = rf->fov_v_max();
+        need(std::isfinite(c.fov_v_min + c.fov_v_max) && c.fov_v_min >= -0.5 * kPi && c.fov_v_max <= 0.5 * kPi && c.fov_v_min < c.fov_v_max, n,
+             "rosette: need -pi/2 <= fov_v_min < fov_v_max <= pi/2");
+        need(rf->rays_per_frame() >= 1, n, "rosette: rays_per_frame must be >= 1");
+        c.n_h = rf->rays_per_frame(); c.n_v = 1; c.fov_v = c.fov_v_max - c.fov_v_min;
+        // R2 offsets: pattern_seed shifts the start of the sequence (seed 0 starts at 0.5, 0.5)
+        const double phi = 0.6180339887498949;
+        c.off1 = std::fmod(0.5 + static_cast<double>(rf->pattern_seed() % 1000003ull) * phi, 1.0);
+        c.off2 = std::fmod(0.5 + static_cast<double>(rf->pattern_seed() % 1000003ull) * phi * phi, 1.0);
+      }
       need(c.n_h >= 1 && c.n_v >= 1 && static_cast<long long>(c.n_h) * c.n_v <= 4000000, n, "n_h, n_v must be >= 1 (at most 4e6 rays)");
       need(std::isfinite(c.fov_h + c.fov_v) && c.fov_h > 0 && c.fov_v > 0, n, "fov_h, fov_v must be > 0");
       need(c.pinhole ? (c.fov_h < kPi && c.fov_v < kPi) : (c.fov_h <= 2.0 * kPi && c.fov_v <= kPi), n,
@@ -694,6 +706,13 @@ Devices parse(const std::string& json) {
                c.rain_window_db >= 0 && std::isfinite(c.rain_a + c.rain_b + c.rain_margin_db + c.rain_beam + c.rain_zone + c.rain_window_db),
            n, "rain_a, rain_b, rain_beam, rain_zone, rain_window_db >= 0, rain_det in [0, 1], rain_margin_db finite");
       const std::size_t cnt = static_cast<std::size_t>(c.n_h) * static_cast<std::size_t>(c.n_v);
+      if (c.rosette) {  // directions are generated per frame (rangefinder.cpp); the range is the output
+        c.scale.assign(cnt, 1.0);
+        c.cutoff = c.max_r;
+        slot(Devices::Slot::range, static_cast<int>(dv.range.cfg.size()));
+        dv.range.cfg.push_back(std::move(c));
+        continue;
+      }
       c.dir.resize(3 * cnt);
       c.scale.resize(cnt);
       const double tu = std::tan(0.5 * c.fov_h), tv = std::tan(0.5 * c.fov_v);

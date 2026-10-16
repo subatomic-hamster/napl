@@ -164,7 +164,7 @@ add_executable(napl_tests tests/cpp/test_smoke.cpp tests/cpp/test_determinism.cp
   tests/cpp/test_replay.cpp tests/cpp/test_host.cpp tests/cpp/test_shm.cpp tests/cpp/test_devices.cpp
   tests/cpp/test_launcher.cpp tests/cpp/test_rocket.cpp tests/cpp/test_vessel.cpp tests/cpp/test_rangefinder.cpp
   tests/cpp/test_jetvane.cpp tests/cpp/test_px4.cpp tests/cpp/test_terrain.cpp tests/cpp/test_rain.cpp
-  tests/cpp/test_qdd.cpp tests/cpp/test_foot_contact.cpp)
+  tests/cpp/test_qdd.cpp tests/cpp/test_foot_contact.cpp tests/cpp/test_rosette.cpp)
 add_dependencies(napl_tests napl_cli napl_shm_test_client napl_px4_bridge)  # test_replay / test_shm / test_px4 run these executables
 target_include_directories(napl_tests PRIVATE tests/cpp)
 target_link_libraries(napl_tests PRIVATE napl_core napl_mujoco mujoco napl_px4_deps GTest::gtest_main)

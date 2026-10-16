@@ -149,6 +149,8 @@ struct RangefinderCfg {
   Meta meta; std::string site; double rate_hz, fov_h, fov_v, min_r, max_r, s0, s1, s2, res, dropout; std::string proj;
   int n_h, n_v; unsigned ray_groups; std::uint64_t seed;
   bool pinhole = true;
+  bool rosette = false;                                     // projection "rosette": rays generated per frame (rangefinder.cpp), dir is empty
+  double fov_v_min = 0, fov_v_max = 0, off1 = 0, off2 = 0;  // rosette: elevation limits (rad), R2 sequence offsets in [0, 1) from pattern_seed
   double rain_a = 1.82e-4, rain_b = 0.63, rain_margin_db = 6.0, rain_beam = 0.02, rain_zone = 1.5, rain_det = 0.01, rain_window_db = 1.5;  // schema Rangefinder
   std::vector<double> dir;   // n_v * n_h unit rays in the site frame (row-major), 3 doubles each
   std::vector<double> scale;  // range -> output factor per pixel (pinhole: 1 / |unnormalised ray| = z-depth per metre; spherical: 1)
@@ -433,6 +435,8 @@ void sample_feet(const mjModel* m, mjData* d, Devices& dv);
 
 // Range sensors (rangefinder.cpp): post-step hook, samples the ones that are due from the kinematics of the tick just stepped.
 void sample_ranges(const mjModel* m, mjData* d, Devices& dv);
+// Rosette projection: unit direction (site frame, +x = up) of ray number `m` of the sensor's life (frame * rays_per_frame + k).
+void rosette_dir(const RangefinderCfg& c, std::uint64_t m, double out[3]);
 
 std::size_t state_bytes(const Devices& dv);
 void save_state(const Devices& dv, std::byte* out);

@@ -21,6 +21,9 @@ BARE_OK = {
     "count",
     "conductors",
     "dir",
+    "timeout_mode",  # qdd / foot_contact: enum selectors (0 / 1), not physical numbers
+    "mode",
+    "shape",  # foot_contact: geometry shape index
     "pos",
     "rpy",
     "color",

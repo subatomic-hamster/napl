@@ -24,7 +24,7 @@ double ke() { return 60.0 / (2.0 * kPi * kKv); }
 double r_at(double t) { return kR20 * (1 + kAlpha * (t - 20)); }
 
 struct Cfg {
-  double volts = 24, i_limit = 20, c_th = 150, r_th = 1.5, latency = 0, timeout = 0.05, kd_timeout = 2, cmd_hz = 1000, i0 = 0.05;
+  double volts = 24, i_limit = 20, c_th = 150, r_th = 1.5, latency = 0, timeout = 1e3, kd_timeout = 2, cmd_hz = 1000, i0 = 0.05;
   double derate_start = 60, t_max = 100;
   int mode = 0;
   std::string drop;  // a field to leave out (-> 0 -> the load must fail)
@@ -190,14 +190,16 @@ TEST(qdd, latency_delays_the_response_exactly) {
 
 // (e) CAN timeout: with frames arriving, no timeout; without, after timeout_s the driver damps (mode 0) or opens (mode 1).
 TEST(qdd, command_loss_engages_the_safe_mode) {
+  Cfg t50;
+  t50.timeout = 0.05;
   {
-    auto s = make();
+    auto s = make(t50);
     put(*s, "enable", 1);  // one frame at t = 0, then silence
     set_qvel(*s, 5.0);
     ASSERT_EQ(s->step(40), 40);
     EXPECT_EQ(get(*s, "timeout"), 0.0);
     EXPECT_EQ(get(*s, "tau_est"), 0.0);  // zero gains: nothing commanded
-    ASSERT_EQ(s->step(30), 30);          // 70 ms
+    ASSERT_EQ(s->step(15), 15);          // 55 ms
     EXPECT_EQ(get(*s, "timeout"), 1.0);
     const double dq = get(*s, "dq");
     ASSERT_GT(dq, 0.1);
@@ -209,7 +211,7 @@ TEST(qdd, command_loss_engages_the_safe_mode) {
     EXPECT_EQ(get(*s, "timeout"), 0.0);
   }
   {
-    auto s = make();
+    auto s = make(t50);
     put(*s, "enable", 1);
     for (int t = 0; t < 300; ++t) {  // a frame every 10 ms keeps it alive
       if (t % 10 == 0) put(*s, "kp", 0);
@@ -218,7 +220,7 @@ TEST(qdd, command_loss_engages_the_safe_mode) {
     }
   }
   {
-    Cfg c;
+    Cfg c = t50;
     c.mode = 1;
     auto s = make(c);
     put(*s, "tau_ff", 3);

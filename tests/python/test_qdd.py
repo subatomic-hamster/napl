@@ -66,11 +66,18 @@ def test_speed_limits_the_torque_and_command_loss_damps(tmp_path):
     s.set("/devices/q1", "enable", 1.0)
     w0 = 24 / (KE * N)
     taus = []
-    for f in (0.0, 0.5, 0.9, 1.0):
+    for f in (
+        0.0,
+        0.9,
+        0.97,
+        1.0,
+    ):  # 0 .. 0.9 w0 is current-limited at 24 V up to ~0.58 w0
         s.set("/world/link/out", "qvel", [f * w0])
         s.step(1)
         taus.append(val(s, "tau_est"))
-    assert taus[0] > taus[1] > taus[2] > 0 and abs(taus[3]) < 0.02 * taus[0]
+    assert (
+        taus[0] > taus[1] > taus[2] > 0 and abs(taus[3]) < 0.02 * taus[0]
+    )  # the voltage limit bites past 0.58 w0
     s2 = napl.Sim.load(bench(tmp_path))
     s2.set("/devices/q1", "enable", 1.0)
     s2.set("/world/link/out", "qvel", [5.0])
@@ -255,7 +262,9 @@ def test_built_assembly_loads_and_the_actuator_drives_its_joint(tmp_path):
     s.set("/devices/act", "kp", 10.0)
     s.set("/devices/act", "kd", 0.5)
     s.set("/devices/act", "p_des", 0.2)
-    s.step(1200)
+    for _ in range(120):  # a frame every 10 ms keeps the 50 ms CAN timeout away
+        s.set("/devices/act", "p_des", 0.2)
+        s.step(10)
     q = float(s.query("/devices/act", "q")[0][0])
     assert q == pytest.approx(0.2, abs=0.02)
     assert np.isfinite(float(s.query("/devices/foot", "force")[0][0]))

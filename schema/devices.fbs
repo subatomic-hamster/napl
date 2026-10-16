@@ -446,6 +446,14 @@ table Rangefinder {
   rain_beam: double = 0.02; rain_zone: double = 1.5; rain_det: double = 0.01;
   // Water film on the sensor window / wet targets: extra two-way loss rain_window_db (dB at 25 mm/h, x sqrt(R / 25)), an estimate.
   rain_window_db: double = 1.5;
+  // projection "rosette" (Livox Mid-360-like non-repetitive scan, SP2; docs/models.md "Rosette scan pattern"): ray m = frame * rays_per_frame + k of
+  // the sensor's life points along azimuth a = fov_h (u1 - 1/2), elevation e = fov_v_min + (fov_v_max - fov_v_min) u2, (u1, u2) = the R2
+  // low-discrepancy sequence (additive recurrence with the inverse powers of the plastic number) offset by pattern_seed, in the spherical frame
+  // of "spherical" (azimuth about site +x, elevation towards +x: +x is the sensor's up axis). The image is 1 x rays_per_frame (n_h, n_v,
+  // fov_v are ignored); a later frame continues the sequence, so successive frames fill the field of view without repeating.
+  fov_v_min: double; fov_v_max: double;  // rad, elevation limits (e.g. -7 deg .. 52 deg)
+  rays_per_frame: int;
+  pattern_seed: uint64;
 }
 
 // Rain: precipitation of the whole scene (needs an Environment for the wind the drops drift with; rotors, rangefinders and the
