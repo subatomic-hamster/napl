@@ -195,6 +195,25 @@ change the physics: designs that were wired by ports keep their mass and hashes.
 (`PIN_VOLTAGE_MISMATCH`) compares a driving pin's `v` with the sink's range (above `v_max` an error, below `v_min` a warning); two pins
 without ranges must agree within max(0.5 V, 10 %).
 
+## Mirroring (`[mirror]`) and price
+
+A part used inside a mirrored sub-assembly (`[[subassemblies]] mirror = "xz"`) must say how its mirror image is made:
+
+```toml
+[mirror]
+symmetry = "xz"        # the part is symmetric about this LOCAL plane ("xy" | "yz" | "xz"): the copy is the same part.
+                       # Every port used in a mirrored mate must lie on that plane (position in it, axis and ref in it or normal to it).
+# or
+opposite = "bracket-left"   # the opposite-hand part (printed left/right brackets): its ports are this part's ports reflected in `plane`
+plane    = "xz"             # default "xz": the local plane the pair is mirrored in
+```
+
+A part with neither is the DRC error `MIRROR_UNSUPPORTED`; a wrong claim is caught when the design builds (the mirrored sub-assembly
+must equal the reflection of the unmirrored one). `tools/check_parts.py` validates the table.
+
+`price` (optional param, unit `USD`, provenance like every param) is what the BOM sums; other currencies stay as `price_<cur>` records
+and the USD `price` states the conversion (`derived`, with the assumed rate and date).
+
 ## Visual layer (`[visual]`, cosmetic only)
 
 `[geometry]` stays the physics shape (collision, mass, inertia). `[visual]` says what the part *looks like* in the viewer,

@@ -456,6 +456,53 @@ target frame kit published weight (Holybro 'Weight: 610g') (['frame']): model 0.
 AOS 5), `so101` (SO-101 arm), `koch` (Koch v1.1 arm on Dynamixel servos), `rover` (new, in progress while this guide was written; its DRC run showed 0 findings).
 Full schema, snapping maths, fastener selection and mass model: `assemblies/README.md`.
 
+### Sub-assemblies
+
+An assembly can include other assembly files as linked sub-assemblies. They are flattened when the file is loaded (`assembly.load`), so
+DRC, build, devices, wiring, simulation and replay see one flat assembly; `dumps` / `save` write only what you wrote.
+
+```toml
+# leg.toml (any assembly file): what the outside may touch
+[exports]
+ports      = { hip_mount = "hip_bracket.chassis_face" }          # "<inst>.<port>"
+connectors = { can = "hip_motor.CAN", power = "hip_motor.XT30" } # "<inst>.<connector>" (wire ends)
+params     = { cable_len = "harness.length" }                    # "<inst>.<param>", overridable
+
+# dog.toml
+[[subassemblies]]
+id = "fl"
+file = "leg.toml"          # relative to this file
+mirror = "xz"              # optional: "xz" | "yz" | "xy", the plane in this file's root frame
+params = { cable_len = { value = 0.32, unit = "m", fidelity = "derived", derivation = "..." } }
+[[mates]]
+a = "chassis.hip_fl"
+b = "fl:hip_mount"         # references go through exports; "fl:hip_motor.x" is an error naming the export to add
+```
+
+- Keys: `id, file, pos, rpy, mirror, params, group, color`. A sub-assembly is attached by a parent mate on an exported port, or welded at
+  `pos` / `rpy` (its root). Children cannot contain instances placed by `pos` / `rpy` (mate them).
+- Flattened items are `fl:hip_motor` (any depth: `fl:knee:motor`); MJCF names and prim paths keep the colon. `asm.origins` maps every
+  flattened id to `{sub, file, id}`, `asm.raw` is the document as written. `subasm.REF_FIELDS` lists every device field that holds a
+  reference (a device field not listed is an error, never a silently unprefixed reference). `group` on the entry puts all of the child's
+  items in one group (so the parent's mass targets can count them); otherwise groups become `fl:<group>`.
+- Overrides apply to exported params only (anything else lists the exports); the value is a provenance table (numbers rule).
+- **Mirror.** The mirrored copy uses, per part, `[mirror] symmetry = "xz"` (the same part: its ports must lie on that plane) or
+  `[mirror] opposite = "<part-id>"` (+ `plane`, default `xz`: the opposite-hand part, whose ports are this part's reflected). Rotation
+  indices of the child's internal mates are negated. After solving, build compares every mirrored instance with the reflection of the
+  unmirrored sub-assembly (1e-9 m / rad) and fails with the offending instance when a part's `[mirror]` data is wrong. A part with
+  neither key is the DRC error `MIRROR_UNSUPPORTED`. `report["mirror_signs"][mate] = +-1`: multiply a command by it to get the mirror
+  image motion (a hinge turned by the reflection is -1). Only hinges / slides internal to the sub-assembly get a sign. Mirrored inside
+  mirrored is not supported.
+- **BOM.** `report["bom"]` = `{lines: [{part, count, unit_price, fidelity}], by_sub: {fl: {mass, cost, missing}}, total: {mass, cost,
+  estimated_share, parent_mass, parent_cost}, missing: [part ids]}`. A part's price is its `price` param (unit USD, checked by
+  `tools/check_parts.py`); parts without one are in `missing` and `total.cost` is then a lower bound. `format_budget` prints the cost line.
+- **Viewer / agent ops** (Backend tools, `{"tool": ..., "args": {...}}`): `sub.new {name, base?}` -> `{doc_id, crumb}`; `sub.export {kind:
+  port|connector|param, ref, name}` / `sub.unexport {kind, name}`; `sub.insert {file, id, mate: {a, export} | pos/rpy, mirror?, group?,
+  color?}`; `sub.mirror {id, plane}` (mirrored copy `<id>_m`; `to` attaches it, `toggle: true` flips the flag of `id`, `new_id`);
+  `sub.override {id, name, value}` (`value: null` removes); `sub.open {id}`, `sub.close {save?: true, path?}` (a dirty child is saved,
+  every open parent re-reads its files); `sub.reload {}`. `state` gains `subs`, `exports`, `origins` and `docs: [{doc_id, path, crumb,
+  title, dirty}]`. Each open document has its own undo stack. `Design.reload_children()` re-reads child files edited elsewhere.
+
 ---
 
 ## 4. Check it
