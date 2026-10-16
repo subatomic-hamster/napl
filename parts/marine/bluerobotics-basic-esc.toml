@@ -22,7 +22,7 @@ signal_forward_us  = { value = 1900.0, unit = "us", src = "S1", fidelity = "data
 signal_reverse_us  = { value = 1100.0, unit = "us", src = "S1", fidelity = "datasheet" }
 signal_deadband_us = { value = 25.0, unit = "us", src = "S1", fidelity = "datasheet" }
 signal_rate_max    = { value = 400.0, unit = "Hz", src = "S1", fidelity = "datasheet" }
-price_usd          = { value = 40.0, unit = "USD", src = "S1", fidelity = "datasheet" }
+price          = { value = 40.0, unit = "USD", src = "S1", fidelity = "datasheet" }
 size_length        = { value = 0.045, unit = "m", fidelity = "estimated", rationale = "The product page links a 2D drawing (an image) but states no dimension in text. A 30 A BLHeli_S board with its heat-shrink is ~45 x 25 x 8 mm; only the board envelope and the visual depend on it. +-30 %." }
 size_width         = { value = 0.025, unit = "m", fidelity = "estimated", rationale = "As size_length." }
 size_height        = { value = 0.008, unit = "m", fidelity = "estimated", rationale = "As size_length." }

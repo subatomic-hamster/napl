@@ -14,7 +14,7 @@ bore_diameter  = { value = 0.035, unit = "m", src = "S1", fidelity = "datasheet"
 outer_diameter = { value = 0.047, unit = "m", src = "S1", fidelity = "datasheet" }
 width          = { value = 0.007, unit = "m", src = "S1", fidelity = "datasheet" }
 mass           = { value = 0.027, unit = "kg", src = "S1", fidelity = "datasheet" }
-price_usd      = { value = 7.49, unit = "USD", src = "S2", fidelity = "estimated", rationale = "Newegg lists a 6807-2RS at 7.49 USD (web-search snippet 2026-10-11; the page was not fetched, 403/bot wall). Cheaper offers exist in the same search (an eBay seller at about 3.09 USD each, ABEC1, no returns; not fetched), which are not used for the BOM because stock and shipping were not verified. The NSK 6807ZZ is 20-30 GBP at RS / 20 USD at IMS Supply: far above what a printed-trunnion bearing needs." }
+price      = { value = 7.49, unit = "USD", src = "S2", fidelity = "estimated", rationale = "Newegg lists a 6807-2RS at 7.49 USD (web-search snippet 2026-10-11; the page was not fetched, 403/bot wall). Cheaper offers exist in the same search (an eBay seller at about 3.09 USD each, ABEC1, no returns; not fetched), which are not used for the BOM because stock and shipping were not verified. The NSK 6807ZZ is 20-30 GBP at RS / 20 USD at IMS Supply: far above what a printed-trunnion bearing needs." }
 
 [[ports]]
 name = "bore"

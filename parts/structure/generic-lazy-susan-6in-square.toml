@@ -18,7 +18,7 @@ height           = { value = 0.0079375, unit = "m", src = "S1", fidelity = "data
 inside_diameter  = { value = 0.1175, unit = "m", src = "S1", fidelity = "datasheet" }   # RF Parts: 4 5/8 in = 117.5 mm (Simply Bearings: 119.1 mm)
 load_rating      = { value = 1556.0, unit = "N", fidelity = "derived", derivation = "350 lb (S1, 'capacity') x 4.4482 N/lb = 1557 N; a static rating, the dynamic / moment rating is not given." }
 mass             = { value = 0.21825, unit = "kg", src = "S2", fidelity = "literature" }   # LAZY/6 of Simply Bearings, not the RF Parts unit
-price_usd        = { value = 4.95, unit = "USD", src = "S1", fidelity = "datasheet" }   # 2026-10-11 (buy 6 for 4.50 each); 'Limited Quantity Available'
+price        = { value = 4.95, unit = "USD", src = "S1", fidelity = "datasheet" }   # 2026-10-11 (buy 6 for 4.50 each); 'Limited Quantity Available'
 price_hardwaretree_usd = { value = 12.95, unit = "USD", src = "S3", fidelity = "datasheet" }   # the earlier choice (XLAZSUSN6Z), 2026-10-11
 
 # Collision envelope: the 6 in square plate with the 117.5 mm opening (S1, RF Parts) as a square frame of four slabs (the opening taken as its 117.5 mm square: the round hole is inscribed, so this is slightly

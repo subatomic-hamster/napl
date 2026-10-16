@@ -20,7 +20,7 @@ length          = { value = 0.016, unit = "m", src = "S1", fidelity = "datasheet
 belt_pitch      = { value = 0.002, unit = "m", fidelity = "derived", derivation = "GT2 profile: 2 mm pitch (as in parts/structure/adafruit-1184-gt2-belt-1164-6mm.toml, S1 there)." }
 pitch_diameter  = { value = 0.0382, unit = "m", fidelity = "derived", derivation = "60 teeth x 2 mm / pi = 38.20 mm; the Unitta 2GT table prints 38.20 mm for 60 teeth (S2 of parts/structure/adafruit-1251-gt2-pulley-20t-5mm.toml)." }
 price_bdt       = { value = 445.0, unit = "BDT", src = "S1", fidelity = "datasheet" }   # sale price, 2026-10-11 (regular Tk 925)
-price_usd       = { value = 3.71, unit = "USD", fidelity = "derived", derivation = "445 BDT (S1) / an assumed 120 BDT per USD = 3.71 USD; exchange rate assumed, not looked up." }
+price       = { value = 3.71, unit = "USD", fidelity = "derived", derivation = "445 BDT (S1) / an assumed 120 BDT per USD = 3.71 USD; exchange rate assumed, not looked up." }
 
 [[ports]]
 name = "bore"

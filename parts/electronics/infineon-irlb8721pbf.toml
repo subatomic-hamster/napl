@@ -29,7 +29,7 @@ mass              = { value = 0.002, unit = "kg", fidelity = "estimated", ration
 length            = { value = 0.0156, unit = "m", fidelity = "estimated", rationale = "Overall length of a TO-220AB with the tab, about 15.6 mm (package standard); S1's outline figure carries no readable text values." }
 width             = { value = 0.0100, unit = "m", fidelity = "estimated", rationale = "TO-220AB body width about 10 mm (package standard)." }
 height            = { value = 0.0045, unit = "m", fidelity = "estimated", rationale = "TO-220AB body thickness about 4.5 mm (package standard)." }
-price_usd         = { value = 2.25, unit = "USD", src = "S2", fidelity = "datasheet" }   # Adafruit, quantity 1-9, 2026-10-11 (page said out of stock; 10-99: 2.03)
+price         = { value = 2.25, unit = "USD", src = "S2", fidelity = "datasheet" }   # Adafruit, quantity 1-9, 2026-10-11 (page said out of stock; 10-99: 2.03)
 
 # Envelope (collision, wire clearance): the TO-220AB body, 15.6 x 10 x 4.5 mm lying on its mounting face (z = 0), tab towards +y, leads towards -y.
 [[geometry.shapes]]

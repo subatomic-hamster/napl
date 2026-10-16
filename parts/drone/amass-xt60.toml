@@ -17,7 +17,7 @@ current_burst      = { value = 60.0, unit = "A", src = "S1", fidelity = "datashe
 voltage_rated      = { value = 500.0, unit = "V", src = "S1", fidelity = "datasheet" }       # DC 500 V
 recommended_wire   = { value = "12 AWG", unit = "text", src = "S1", fidelity = "datasheet" }
 temp_max           = { value = 120.0, unit = "degC", src = "S1", fidelity = "datasheet" }
-price_usd          = { value = 2.0, unit = "USD", fidelity = "derived", derivation = "KiwiQuads lists one Amass XT60 pair (male + female) at 3.49 NZD (https://www.kiwiquads.co.nz/product/amass-xt60-pair/, seen in a web search 2026-10-11, page not fetched) x an assumed 0.58 USD/NZD = 2.0 USD; exchange rate assumed, not looked up." }
+price          = { value = 2.0, unit = "USD", fidelity = "derived", derivation = "KiwiQuads lists one Amass XT60 pair (male + female) at 3.49 NZD (https://www.kiwiquads.co.nz/product/amass-xt60-pair/, seen in a web search 2026-10-11, page not fetched) x an assumed 0.58 USD/NZD = 2.0 USD; exchange rate assumed, not looked up." }
 mass               = { value = 0.0045, unit = "kg", fidelity = "estimated", rationale = "Mass is not on the Amass datasheet. 4.5 g per mated pair is an unverified order-of-magnitude assumption (small brass/PA connector pair); matters only at the gram level and should be replaced by a weighed value." }
 
 [params.mass_tol]

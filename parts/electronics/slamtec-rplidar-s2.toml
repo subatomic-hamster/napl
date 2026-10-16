@@ -29,7 +29,7 @@ fov            = { value = 6.283185, unit = "rad", src = "S1", fidelity = "datas
 scan_height    = { value = 0.025, unit = "m", fidelity = "estimated", rationale = "Height of the beam plane above the underside is not published; the optical window of the rotating head sits about 2/3 of the way up the 38.85 mm housing. Only the position of the sensor site depends on it." }
 sigma0         = { value = 0.015, unit = "m", fidelity = "estimated", rationale = "Range noise (1 sigma, device field sigma0): the datasheet gives an accuracy of +-30 mm without stating its statistic; taken as a 2-sigma bound, so 15 mm. A constant (range-independent) error, as for a time-of-flight scanner at 5-30 m." }
 dropout        = { value = 0.01, unit = "1", fidelity = "estimated", rationale = "Fraction of rays that return nothing although a target is in range. The datasheet figures only the white / black range split (30 m / 10 m, 90 % / 10 % reflection), which the device does not model per surface; 1 % covers specular and wet surfaces. The real unit loses much more on dark and glossy hulls at range, and sees spray and wave crests as clutter (not modelled)." }
-price_usd      = { value = 355.0, unit = "USD", fidelity = "estimated", rationale = "Slamtec publishes no list price on the specification page. US retailer listings in October 2026 showed 355 to 413 USD (the higher including tariffs), some on backorder; the low end is taken." }
+price      = { value = 355.0, unit = "USD", fidelity = "estimated", rationale = "Slamtec publishes no list price on the specification page. US retailer listings in October 2026 showed 355 to 413 USD (the higher including tariffs), some on backorder; the low end is taken." }
 
 [[geometry.shapes]]
 shape = "box"

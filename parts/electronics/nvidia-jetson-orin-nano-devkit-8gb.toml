@@ -35,7 +35,7 @@ usb_a_vbus_limit        = { value = 3.0, unit = "A", src = "S1", fidelity = "dat
 operating_temp_min      = { value = 273.15, unit = "K", src = "S1", fidelity = "datasheet" }   # 0 degC
 operating_temp_max      = { value = 308.15, unit = "K", src = "S1", fidelity = "datasheet" }   # 35 degC developer-kit operating range
 ai_performance_super    = { value = 67, unit = "TOPS", src = "S2", fidelity = "datasheet" }
-price_usd               = { value = 399.0, unit = "USD", src = "S7", fidelity = "datasheet" }   # retailer price on 2026-10-11 (NVIDIA's own page shows none); excluded from the 150 USD budget by the project brief
+price               = { value = 399.0, unit = "USD", src = "S7", fidelity = "datasheet" }   # retailer price on 2026-10-11 (NVIDIA's own page shows none); excluded from the 150 USD budget by the project brief
 
 # Envelope (collision, wire clearance): the whole kit 103 x 90.5 x 34.77 mm (length / width / height above), underside at z = 0.
 [[geometry.shapes]]

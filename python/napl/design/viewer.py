@@ -21,6 +21,17 @@ from .thumbjob import ThumbJob
 from .uiops import UI_TOOLS, UiOps
 from .wire2d import Flatten
 
+SUB_OPS = {  # sub.* tool -> (Design edit op, accepted args)
+    "sub.export": ("sub_export", ("kind", "ref", "name")),
+    "sub.unexport": ("sub_unexport", ("kind", "name")),
+    "sub.insert": (
+        "sub_insert",
+        ("file", "id", "mate", "pos", "rpy", "mirror", "group", "color"),
+    ),
+    "sub.mirror": ("sub_mirror", ("id", "plane", "toggle", "to", "new_id")),
+    "sub.override": ("sub_override", ("id", "name", "value")),
+}
+
 
 def _involved(doc, where) -> list:
     """Instance ids a finding's `where` entries (instance, 'inst.port', mate / wire name) refer to."""
@@ -62,6 +73,8 @@ class Backend(UiOps):
         self.log = []  # [(request dict, reply dict)] of every request, for tests and replay of a UI session
         self._cache = None  # (design, rev, state)
         self.flat = Flatten()  # the 2D wiring mode (wire2d.py): the flatten.* tools
+        self.docs = []  # sub-assembly document stack above the base design (sub.new / sub.open); the top one is edited
+        self._doc_seq = 0
         self.hidden = set()  # instances switched off with the eye (ui.visibility); flatten.state flags their cards and wires
         self.runs = Runs(self)  # run.* (runops.py)
         self.sim = None  # the host=True Sim the window shows: set by whoever calls Sim.show(design=this); `run.start full` runs in it
@@ -115,21 +128,132 @@ class Backend(UiOps):
         return sorted({i["part"] for i in d.doc["instances"]}) if d is not None else []
 
     def _design(self):
+        if self.docs:
+            return self.docs[-1]["design"]
         d = self.get_design()
         if d is None:
             raise DesignError("no design open")
         return d
 
+    # ---- sub-assembly workspace (subasm.py): the document stack + sub.* ops ------------------------------------------------
+    def _docs_state(self) -> list:
+        """[{doc_id, path, crumb, dirty}], base design first; crumb = the breadcrumb to that document (list of labels)."""
+        base = self.get_design()
+        rows = [] if base is None else [(0, base, [base.asm.name])]
+        rows += [(e["doc_id"], e["design"], e["crumb"]) for e in self.docs]
+        return [
+            {
+                "doc_id": i,
+                "path": str(d.path or ""),
+                "crumb": c,
+                "title": " > ".join(c),
+                "dirty": d.dirty,
+            }
+            for i, d, c in rows
+        ]
+
+    def _push(self, design, label) -> dict:
+        self._doc_seq += 1
+        base = self.get_design()
+        parent = self.docs[-1]["crumb"] if self.docs else [base.asm.name]
+        e = {"doc_id": self._doc_seq, "design": design, "crumb": parent + [label]}
+        self.docs.append(e)
+        return e
+
+    def _reload_open(self, skip=None) -> list:
+        """Re-flatten every open design that uses sub-assembly files (after one was saved). -> doc_ids whose flat document changed."""
+        base = self.get_design()
+        rows = ([(0, base)] if base is not None else []) + [
+            (e["doc_id"], e["design"]) for e in self.docs
+        ]
+        return [i for i, d in rows if d is not skip and d.reload_children()]
+
+    def _sub_tool(self, tool, a) -> dict:
+        from . import assembly as A
+        from .edit import Design
+
+        d = self._design()
+        if tool == "sub.new":
+            name = a.get("name") or "untitled"
+            asm = A.Assembly(
+                {
+                    "assembly": {"name": name, "base": a.get("base", "free")},
+                    "instances": [],
+                }
+            )
+            e = self._push(Design(asm, d.lib), name)
+            return self._doc_reply(e)
+        if tool == "sub.open":
+            s = d._sub(d.asm.raw, a["id"])
+            if d.asm.path is None:
+                raise DesignError("sub.open: save the design first")
+            p = Path(d.asm.path).resolve().parent / s["file"]
+            e = self._push(Design(A.load(p), d.lib, p), f"{s['id']} ({s['file']})")
+            return self._doc_reply(e)
+        if tool == "sub.close":
+            if not self.docs:
+                raise DesignError("sub.close: no sub-assembly document is open")
+            e, saved = self.docs[-1], None
+            if d.dirty and a.get("save", True):
+                p = a.get("path") or d.path
+                if not p:
+                    raise DesignError(
+                        "sub.close: this new part has no file yet: pass path, or save=false to discard it"
+                    )
+                saved = str(d.save(p))
+            self.docs.pop()
+            changed = self._reload_open(skip=d)
+            return {
+                "ok": True,
+                "result": {"closed": e["doc_id"], "saved": saved, "reloaded": changed},
+                "state": self.state(self._design()),
+            }
+        if (
+            tool == "sub.reload"
+        ):  # a child file changed on disk: re-read it (additive op, not in the SP1 plan)
+            return {
+                "ok": True,
+                "result": {"changed": d.reload_children()},
+                "state": self.state(d),
+            }
+        op = SUB_OPS.get(tool)
+        if op is None:
+            raise DesignError(f"unknown tool {tool!r}")
+        return self._edit(d, [{"op": op[0], **{k: a[k] for k in op[1] if k in a}}])
+
+    def _doc_reply(self, e) -> dict:
+        return {
+            "ok": True,
+            "result": {"doc_id": e["doc_id"], "crumb": e["crumb"]},
+            "state": self.state(self._design()),
+        }
+
+    def _sub_state(self, d) -> dict:
+        """Sub-assembly view of one design for the window: its [[subassemblies]], [exports] and the origin of every flattened item."""
+        return {
+            "subs": [dict(s) for s in d.asm.raw.get("subassemblies", [])],
+            "exports": d.asm.raw.get("exports", {}),
+            "origins": d.asm.origins,
+            "docs": self._docs_state(),
+        }
+
     @staticmethod
     def rev_of(d) -> str:
-        return hashlib.sha1(
-            json.dumps(d.doc, sort_keys=True, default=str).encode()
-        ).hexdigest()[:12]
+        txt = json.dumps(d.doc, sort_keys=True, default=str)
+        if (
+            d.asm.raw is not d.doc
+        ):  # sub-assemblies: exports / overrides live only in the document as written
+            txt += json.dumps(d.asm.raw, sort_keys=True, default=str)
+        return hashlib.sha1(txt.encode()).hexdigest()[:12]
+
+    def _rev(self, d) -> str:
+        """Window revision: the document's, plus the open document's id while a sub-assembly document is on top."""
+        return self.rev_of(d) + (f".{self.docs[-1]['doc_id']}" if self.docs else "")
 
     def _dispatch(self, req) -> dict:
         tool, a = req.get("tool"), req.get("args") or {}
         if tool == "rev":
-            d = self.get_design()
+            d = self.docs[-1]["design"] if self.docs else self.get_design()
             if d is not None:
                 self.flat.prune(
                     d
@@ -137,7 +261,7 @@ class Backend(UiOps):
             return {
                 "ok": True,
                 "result": {
-                    "rev": self.rev_of(d) if d is not None else None,
+                    "rev": self._rev(d) if d is not None else None,
                     "flat_rev": self.flat.rev,
                     "thumb_rev": self.thumbs.rev,
                 },
@@ -156,6 +280,8 @@ class Backend(UiOps):
             return self.runs.handle(tool, a)
         if (tool or "").startswith(("prog.", "term.")):
             return self.prog.handle(tool, a)
+        if (tool or "").startswith("sub."):
+            return self._sub_tool(tool, a)
         d = self._design()
         if (tool or "").startswith("flatten."):
             return self.flat.handle(self, d, tool, a)
@@ -197,7 +323,14 @@ class Backend(UiOps):
             return {"ok": True, "result": d.simulate(a["kind"], out=self.out, **kw)}
         if tool == "design_save":
             path = a.get("path") or str(d.path or self.out / f"{d.asm.name}.toml")
-            saved = self.save_to(path) if self.save_to else d.save(path)
+            use_hook = (
+                self.save_to and not self.docs
+            )  # a sub-assembly document always saves to its own file
+            saved = self.save_to(path) if use_hook else d.save(path)
+            if self.docs:
+                self._reload_open(
+                    skip=d
+                )  # every open parent that uses this file re-flattens
             # save_to (the MCP tool's) returns {"saved": relative path}; Design.save a Path
             return {
                 "ok": True,
@@ -295,6 +428,8 @@ class Backend(UiOps):
             self._cache = (d, rev, st)
         return {
             **st,
+            **self._sub_state(d),
+            "rev": self._rev(d),
             "undo": len(d._undo),
             "redo": len(d._redo),
             "history": {  # the HISTORY tab: the last undo steps (oldest first), the redo steps (next first)

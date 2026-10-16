@@ -1,0 +1,160 @@
+# assemblies/rover.toml with the two drive-wheel modules as sub-assemblies (wheel_l.toml, wheel_r.toml). Same physics: tests/python/test_subasm_equiv.py.
+# The servo devices and the wires' length / included_in name the children's motors directly ("wl:motor"): only mates and wire ends go
+# through exports.
+[assembly]
+name = "rover"
+description = "rover split into wheel modules"
+base = "free"
+timestep = 0.001
+seed = 1
+
+[[instances]]
+id = "plate"
+part = "rover-chassis-plate-custom"
+root = true
+group = "chassis"
+
+[[instances]]
+id = "caster"
+part = "pololu-ball-caster-3-4in-metal-955"
+group = "chassis"
+
+[[instances]]
+id = "battery"
+part = "gensace-2200mah-3s-25c-gea223s25t3gt"
+group = "power"
+
+[[instances]]
+id = "controller"
+part = "basicmicro-roboclaw-2x7a-3682"
+group = "electronics"
+
+[[subassemblies]]
+id = "wl"
+file = "wheel_l.toml"
+group = "drive"
+
+[[subassemblies]]
+id = "wr"
+file = "wheel_r.toml"
+group = "drive"
+
+[[mates]]
+name = "plate--bracket_l"
+a = "plate.bracket_l"
+b = "wl:seat"
+
+[[mates]]
+name = "plate--bracket_r"
+a = "plate.bracket_r"
+b = "wr:seat"
+
+[[mates]]
+name = "plate--caster"
+a = "plate.caster_seat"
+b = "caster.mount"
+
+[[mates]]
+name = "plate--battery"
+a = "plate.battery_seat"
+b = "battery.base"
+
+[[mates]]
+name = "plate--controller"
+a = "plate.controller_seat"
+b = "controller.base"
+
+[[wires]]
+name = "battery_to_controller"
+from = "battery.power_out"
+to = "controller.power_in"
+part = "awg-14-silicone-wire"
+length = "battery.discharge_wire_length"
+conductors = 2
+included_in = "battery"
+
+[[wires]]
+name = "m1_motor_l"
+from = "controller.m1_out"
+to = "wl:motor_power"
+part = "awg-22-silicone-wire"
+length = "wl:motor.lead_length"
+conductors = 2
+included_in = "wl:motor"
+
+[[wires]]
+name = "m2_motor_r"
+from = "controller.m2_out"
+to = "wr:motor_power"
+part = "awg-22-silicone-wire"
+length = "wr:motor.lead_length"
+conductors = 2
+included_in = "wr:motor"
+
+[[wires]]
+name = "enc1_motor_l"
+from = "controller.enc1"
+to = "wl:encoder"
+part = "awg-26-silicone-wire"
+length = "wl:motor.lead_length"
+conductors = 4
+included_in = "wl:motor"
+
+[[wires]]
+name = "enc2_motor_r"
+from = "controller.enc2"
+to = "wr:encoder"
+part = "awg-26-silicone-wire"
+length = "wr:motor.lead_length"
+conductors = 4
+included_in = "wr:motor"
+
+[device_maps.pack]
+"capacity_ah" = "capacity_ah"
+"r0" = "r_internal_pack"
+
+[device_maps.wheel_drive]
+"motor.kv" = "motor:kv_equivalent"
+"motor.r20" = "motor:r_effective"
+"motor.i0" = "motor:no_load_current_12v"
+"motor.i0_w" = "motor:omega_noload_motor_12v"
+"motor.i0_visc" = "motor:i0_visc"
+"motor.rotor_inertia" = "motor:rotor_inertia_motor"
+"motor.c_th" = "motor:c_th"
+"motor.r_th" = "motor:r_th"
+gear_ratio = "motor:gear_ratio"
+efficiency = "motor:gear_efficiency"
+encoder_cpr = "motor:encoder_resolution"
+firmware_hz = "firmware_hz"
+pid_scale = "pid_scale"
+max_torque = "max_duty_register"
+i_limit = "i_peak"
+min_voltage = "v_min"
+max_voltage = "v_max"
+unload_mask = "protect_voltage_mask"
+
+[[devices]]
+type = "battery"
+name = "battery"
+instance = "battery"
+port = "power_out"
+ocv = "lipo-cell-ocv-chen2006"
+map = "pack"
+
+[[devices]]
+type = "servo"
+name = "wheel_l"
+instance = "controller"
+port = "power_in"
+motor = "wl:motor"
+joint = "wl:wheel"
+map = "wheel_drive"
+
+[[devices]]
+type = "servo"
+name = "wheel_r"
+instance = "controller"
+port = "power_in"
+motor = "wr:motor"
+joint = "wr:wheel"
+map = "wheel_drive"

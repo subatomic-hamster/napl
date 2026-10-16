@@ -14,7 +14,7 @@ diameter = { value = 0.035, unit = "m", fidelity = "estimated", rationale = "CAD
 width    = { value = 0.007, unit = "m", fidelity = "estimated", rationale = "CAD parameter WHEEL_W = 7 mm and the same listing." }
 mass     = { value = 0.006, unit = "kg", fidelity = "estimated", rationale = "CAD parameter WHEEL_MASS = 6 g (not weighed; the listing gives no mass)." }
 price_eur = { value = 0.60, unit = "EUR", fidelity = "estimated", rationale = "0.60 EUR incl. tax per wheel in a web-search snippet of https://sigmanortec.ro/en/35mm-x-7mm-wheel-n20-motor on 2026-10-11 (the page returned 403 to a fetch)." }
-price_usd = { value = 0.69, unit = "USD", fidelity = "derived", derivation = "0.60 EUR x an assumed 1.15 USD/EUR = 0.69 USD; exchange rate assumed, not looked up." }
+price = { value = 0.69, unit = "USD", fidelity = "derived", derivation = "0.60 EUR x an assumed 1.15 USD/EUR = 0.69 USD; exchange rate assumed, not looked up." }
 
 [[geometry.shapes]]
 shape = "cylinder"

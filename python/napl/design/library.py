@@ -40,6 +40,21 @@ class Part:
         self.geometry = doc.get("geometry", {})
 
     @property
+    def mirror(self) -> dict:
+        """The part's `[mirror]` table: `symmetry = "xy"|"yz"|"xz"` (symmetric about that local plane: a mirrored copy is the same
+        part) or `opposite = "<part-id>"` (+ `plane`, default "xz": the opposite-hand part is this one reflected in that local
+        plane, its ports the reflection of this one's). {} = cannot be mirrored."""
+        m = self.raw.get("mirror")
+        return m if isinstance(m, dict) else {}
+
+    def mirror_plane(self):
+        """Local reflection plane S of a mirrored copy (None when the part declares neither symmetry nor opposite)."""
+        m = self.mirror
+        return m.get("symmetry") or (
+            m.get("plane", "xz") if m.get("opposite") else None
+        )
+
+    @property
     def connectors(self) -> dict:
         """Pin-level connectors by id (pins.py); {} for a part without a pinout."""
         return _pins.connectors(self)

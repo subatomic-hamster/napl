@@ -15,7 +15,7 @@ tooth_tip_diameter = { value = 12.2e-3, unit = "m", src = "S1", fidelity = "data
 belt_width_max  = { value = 6e-3, unit = "m", src = "S1", fidelity = "datasheet" }
 mass            = { value = 0.006, unit = "kg", src = "S1", fidelity = "datasheet" }
 belt_pitch      = { value = 2e-3, unit = "m", src = "S2", fidelity = "datasheet" }
-price_usd       = { value = 7.95, unit = "USD", src = "S3", fidelity = "datasheet" }   # quantity 1-9, 2026-10-11; page marks the item 'No longer stocked'
+price       = { value = 7.95, unit = "USD", src = "S3", fidelity = "datasheet" }   # quantity 1-9, 2026-10-11; page marks the item 'No longer stocked'
 
 [params.pitch_diameter]
 value = 12.73e-3

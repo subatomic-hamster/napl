@@ -22,7 +22,7 @@ current_ith         = { value = 10.0, unit = "A", src = "S1", fidelity = "datash
 length              = { value = 0.040, unit = "m", src = "S1", fidelity = "datasheet" }
 width               = { value = 0.040, unit = "m", src = "S1", fidelity = "datasheet" }
 height              = { value = 0.055, unit = "m", fidelity = "estimated", rationale = "Head height above the panel plus the contact block behind it: not in the listing (its 'dimensions' line is the shipping box); about 20 mm head + 35 mm block is typical for a 22 mm E-stop unit." }
-price_usd           = { value = 11.0, unit = "USD", fidelity = "estimated", rationale = "Not a firm price: the VXB listing (S1) shows 39.99 / 80.00 USD for a 2-pack (inconsistent, 20 USD each at best) while a web search of Walmart marketplace listings of similar 22 mm NC latching E-stops showed 8-14 USD each (e.g. a twist-release unit at 10.99 USD; https://www.walmart.com/c/kp/mushroom-stop-button); 11 USD is taken." }
+price           = { value = 11.0, unit = "USD", fidelity = "estimated", rationale = "Not a firm price: the VXB listing (S1) shows 39.99 / 80.00 USD for a 2-pack (inconsistent, 20 USD each at best) while a web search of Walmart marketplace listings of similar 22 mm NC latching E-stops showed 8-14 USD each (e.g. a twist-release unit at 10.99 USD; https://www.walmart.com/c/kp/mushroom-stop-button); 11 USD is taken." }
 
 # Envelope (collision, wire clearance): the contact block behind the panel (a 21 mm cylinder through the 22 mm hole, 35 mm deep, estimated) and the 40 mm mushroom head 20 mm in front of the panel face (estimated;
 # 'height' above is their sum).

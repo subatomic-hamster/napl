@@ -10,6 +10,7 @@ import numpy as np
 
 from . import visuals
 from .assembly import UNITS, Assembly, Ctx, Inst, load
+from .bom import bom
 from .devices import VEHICLE_GROUP, build_devices, resolve_wires, wire_points
 from .library import DesignError, Library
 from .mass import mesh_props, printed_mass, shape_volume
@@ -18,12 +19,15 @@ from .snap import (
     find_compatible_ports,
     incompatible,
     inv_T,
+    n_mate,
     nut_height,
     port_frame,
     pose_matrix,
+    rot_angle,
     select_fasteners,
     solve_tree,
 )
+from .subasm import PLANES
 from .wireroute import world_geoms
 from .wiretubes import wire_tubes
 
@@ -333,7 +337,10 @@ def geom_min_z(T: np.ndarray, g: dict) -> float:
 
 
 # ---- mates --------------------------------------------------------------------------------------------------------
-def _mate_spec(ctx: Ctx, m: dict) -> MateSpec:
+def _mate_spec(ctx: Ctx, m: dict, left: bool = False) -> MateSpec:
+    """`left` = the mate as the unmirrored sub-assembly would have it (original parts, rotation as written). A mate whose two ends
+    are in the same mirrored sub-assembly uses the opposite-hand parts and the negated rotation index (a reflection reverses the
+    sense of a turn about the mating axis)."""
     ends = []
     for key in ("a", "b"):
         iid, _, pn = m[key].partition(".")
@@ -345,10 +352,11 @@ def _mate_spec(ctx: Ctx, m: dict) -> MateSpec:
     name = m.get("name", f"{m['a']}--{m['b']}")
     if A.id == B.id:
         raise DesignError(f"mate '{name}': both ends are instance '{A.id}'")
+    pa_, pb_ = (A.orig_part, B.orig_part) if left else (A.part, B.part)
     for inst, pn in ends:
-        if pn and inst.part.port(pn).get("kind") != "mech":
+        if pn and (pa_ if inst is A else pb_).port(pn).get("kind") != "mech":
             raise DesignError(f"mate '{name}': port {inst.id}.{pn} is not a mech port")
-    cands = find_compatible_ports(A.part, B.part, pna, pnb)
+    cands = find_compatible_ports(pa_, pb_, pna, pnb)
     if len(cands) != 1:
         if cands:
             lst = "; ".join(f"{A.id}.{x} <-> {B.id}.{y}" for x, y in cands)
@@ -356,23 +364,105 @@ def _mate_spec(ctx: Ctx, m: dict) -> MateSpec:
                 f"mate '{name}': ambiguous, {len(cands)} compatible port pairs: {lst}; name the ports"
             )
         why = ""
-        if pna and pnb and (r := incompatible(A.part.port(pna), B.part.port(pnb))):
+        if pna and pnb and (r := incompatible(pa_.port(pna), pb_.port(pnb))):
             why = f" ({r})"
         raise DesignError(
-            f"mate '{name}': no compatible mech ports between {A.id} ({A.part.id}) and {B.id} ({B.part.id}){why}"
+            f"mate '{name}': no compatible mech ports between {A.id} ({pa_.id}) and {B.id} ({pb_.id}){why}"
         )
     na, nb = cands[0]
     rot = m.get("rotation", 0)
+    if not left and A.mirror and B.mirror and A.mirror["sub"] == B.mirror["sub"]:
+        rot = (-rot) % n_mate(pa_.port(na), pb_.port(nb))
     return MateSpec(
         name,
         A.id,
         B.id,
-        A.part.port(na),
-        B.part.port(nb),
+        pa_.port(na),
+        pb_.port(nb),
         rot,
         bool(m.get("closure")),
         "joint" in m,
     )
+
+
+def _joint_axis(u: MateSpec, j: dict):
+    axis = -np.array(port_frame(u.pb)[:3, 2])
+    return -axis if j.get("reverse") else axis
+
+
+def _mirror_pass(ctx: Ctx, doc: dict, tree, joints: dict) -> dict:
+    """Check every mirrored sub-assembly against its unmirrored form and return {joint: +-1} (report["mirror_signs"]).
+    Solving the mirrored instances with their opposite-hand parts and negated rotations must give exactly the reflection of the
+    unmirrored sub-assembly: T'_i = M T_i S_i (M: the mirror plane in the declaring document's root frame, S_i: the part's local
+    reflection). A mismatch means the parts' [mirror] data or the parent mate disagrees with the plane: an error, never silent.
+    sign = qdot(mirrored) / qdot(unmirrored) of the mirror-image motion: -1 for a hinge whose axis the reflection leaves
+    (a reflection reverses the sense of a turn), +1 for a slide."""
+    groups = {}
+    for iid, inst in ctx.insts.items():
+        if inst.mirror and not inst.offboard:
+            groups.setdefault(inst.mirror["sub"], []).append(iid)
+    signs = {}
+    for sid, ids in groups.items():
+        idset = set(ids)
+        for iid in ids:
+            inst = ctx.insts[iid]
+            if inst.orig_part.mirror_plane() not in PLANES:
+                raise DesignError(
+                    f"mirror: part {inst.orig_part.id} (instance {iid}) has no [mirror] symmetry / opposite; "
+                    "it cannot be used in a mirrored sub-assembly"
+                )
+        entries = [c for c in ids if tree.parent[c][0] not in idset]
+        if len(entries) != 1:
+            raise DesignError(
+                f"mirror: sub-assembly '{sid}' must hang on the rest of the design by exactly one mate (found {len(entries)}: {entries})"
+            )
+        entry = entries[0]
+        frame = ctx.insts[entry].mirror["frame"]
+        if frame not in tree.T:
+            raise DesignError(f"mirror: sub-assembly '{sid}': no root frame '{frame}'")
+        Tf = tree.T[frame]
+        M3 = Tf[:3, :3] @ PLANES[ctx.insts[entry].mirror["plane"]] @ Tf[:3, :3].T
+        M4 = np.eye(4)
+        M4[:3, :3], M4[:3, 3] = M3, Tf[:3, 3] - M3 @ Tf[:3, 3]
+
+        def S4(iid):
+            S = np.eye(4)
+            S[:3, :3] = PLANES[ctx.insts[iid].orig_part.mirror_plane()]
+            return S
+
+        lspecs = [
+            _mate_spec(ctx, m, left=True)
+            for m in doc.get("mates", [])
+            if m["a"].partition(".")[0] in idset and m["b"].partition(".")[0] in idset
+        ]
+        ltree = solve_tree(entry, ids, lspecs)
+        T0 = M4 @ tree.T[entry] @ S4(entry)  # the unmirrored sub-assembly's entry pose
+        for iid in ids:
+            Tl = T0 @ ltree.T[iid]
+            want = M4 @ Tl @ S4(iid)
+            got = tree.T[iid]
+            ep = float(np.linalg.norm(want[:3, 3] - got[:3, 3]))
+            er = rot_angle(want[:3, :3].T @ got[:3, :3])
+            if ep > 1e-9 or er > 1e-9:
+                raise DesignError(
+                    f"mirror: '{iid}' of sub-assembly '{sid}' is not the mirror image of its unmirrored pose "
+                    f"(off by {ep:.3g} m, {er:.3g} rad): check the parts' [mirror] data (opposite-hand ports must be the reflection "
+                    "of the original's, a symmetric part's ports must lie on its symmetry plane) and that the parent mate "
+                    "puts the sub-assembly on the mirrored mount"
+                )
+        lused = {u.name: u for _, u in ltree.parent.values()}
+        for m in doc.get("mates", []):
+            if "joint" not in m or m.get("name") not in lused:
+                continue
+            ul = lused[m["name"]]
+            if ul.b not in idset:
+                continue
+            ar = tree.T[ul.b][:3, :3] @ joints[ul.b]["axis"]
+            al = M3 @ ((T0 @ ltree.T[ul.b])[:3, :3] @ _joint_axis(ul, m["joint"]))
+            aligned = float(ar @ al) > 0
+            slide = m["joint"]["type"] == "slide"
+            signs[m["name"]] = 1 if aligned == slide else -1
+    return signs
 
 
 def _range(ctx: Ctx, r, jtype: str, where: str):
@@ -468,6 +558,7 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True, route=True):
             "range": rng,
         }
         joint_of[name] = name
+    mirror_signs = _mirror_pass(ctx, doc, tree, joints)
 
     # mass items: instances
     items, inst_rows, geoms = [], [], {}
@@ -952,7 +1043,9 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True, route=True):
             "by_instance": by_item,
         },
         "targets": targets,
+        "mirror_signs": mirror_signs,
     }
+    report["bom"] = bom(report, lib, asm.origins)
     if lib.errors:
         report["library_errors"] = len(lib.errors)
     return xml, report
@@ -1009,6 +1102,11 @@ def format_budget(report: dict) -> str:
         L.append(
             f"target {t['name']} ({t['scope']}): model {t['model']:.4f} vs {t['target']:.4f} kg, gap {t['gap']:+.4f} kg ({pct}), "
             f"tolerance {t['tolerance']:.4f} kg, {'within' if t['within'] else 'OUTSIDE'}, estimated share {t['estimated_share']:.2f}"
+        )
+    if (b := report.get("bom")) and b["total"]["cost"]:
+        L.append(
+            f"cost: {b['total']['cost']:.2f} USD (estimated share {b['total']['estimated_share']:.2f})"
+            + (f", no price: {', '.join(b['missing'])}" if b["missing"] else "")
         )
     for u in report["unresolved"]:
         L.append(f"unresolved: {u['where']}: {u['what']}")

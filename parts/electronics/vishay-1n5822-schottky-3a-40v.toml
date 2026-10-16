@@ -22,7 +22,7 @@ body_length       = { value = 0.0083, unit = "m", src = "S1", fidelity = "datash
 length            = { value = 0.0083, unit = "m", src = "S1", fidelity = "datasheet" }
 width             = { value = 0.0050, unit = "m", src = "S1", fidelity = "datasheet" }
 height            = { value = 0.0050, unit = "m", src = "S1", fidelity = "datasheet" }
-price_usd         = { value = 0.34, unit = "USD", fidelity = "estimated", rationale = "Single-piece price of the 1N5822-E3/54 at TME US shown in a web search on 2026-10-11 (https://www.tme.com/us/en-us/details/1n5822-e3_54/tht-schottky-diodes/vishay/, USD 0.34 for one, 0.20 at 2800; Arrow 0.19); the TME page itself returned 403 so the figure could not be read directly." }
+price         = { value = 0.34, unit = "USD", fidelity = "estimated", rationale = "Single-piece price of the 1N5822-E3/54 at TME US shown in a web search on 2026-10-11 (https://www.tme.com/us/en-us/details/1n5822-e3_54/tht-schottky-diodes/vishay/, USD 0.34 for one, 0.20 at 2800; Arrow 0.19); the TME page itself returned 403 so the figure could not be read directly." }
 
 [[ports]]
 name = "diode"

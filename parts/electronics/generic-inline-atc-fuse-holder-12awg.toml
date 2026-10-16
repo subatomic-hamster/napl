@@ -20,7 +20,7 @@ mass                = { value = 0.025, unit = "kg", fidelity = "estimated", rati
 length              = { value = 0.045, unit = "m", fidelity = "estimated", rationale = "Typical medium ATC holder body about 45 mm x 20 mm x 15 mm; not in the retrieved text." }
 width               = { value = 0.020, unit = "m", fidelity = "estimated", rationale = "As length." }
 height              = { value = 0.015, unit = "m", fidelity = "estimated", rationale = "As length." }
-price_usd           = { value = 3.0, unit = "USD", fidelity = "estimated", rationale = "The retrieved Amazon page text carried no price (it was a 1.4 MB page and only its first 100 kB was read). Such 2-packs of inline blade holders with 12 AWG leads sell for roughly 6-9 USD per pack in listings seen in a web search; 3 USD per holder is taken." }
+price           = { value = 3.0, unit = "USD", fidelity = "estimated", rationale = "The retrieved Amazon page text carried no price (it was a 1.4 MB page and only its first 100 kB was read). Such 2-packs of inline blade holders with 12 AWG leads sell for roughly 6-9 USD per pack in listings seen in a web search; 3 USD per holder is taken." }
 
 # Envelope (collision, wire clearance): the 45 x 20 x 15 mm body centred on the frame origin (estimated size, see length).
 [[geometry.shapes]]

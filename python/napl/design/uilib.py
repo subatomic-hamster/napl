@@ -352,3 +352,43 @@ def ghost_poses(
             )
     out.sort(key=lambda r: (-r["score"], r["to"]))
     return out
+
+
+def my_parts(root: Path, lib: Library | None = None) -> list:
+    """MY PARTS: the workspace assemblies (`root/*.toml`, `root/assemblies/*.toml`) that declare an `[exports]` table, as
+    [{name, path, exports: {ports|connectors|params: [names]}, mass, cost}] sorted by name. `mass` (kg) and `cost` (USD) come from
+    a build when `lib` is given (None otherwise, or when the file does not build; then `error` says why); cost needs the BOM
+    (report["bom"]) and is None until the parts carry prices."""
+    import tempfile
+    import tomllib
+
+    from .build import compute
+
+    out = []
+    for p in sorted(
+        [*Path(root).glob("*.toml"), *Path(root).glob("assemblies/*.toml")]
+    ):
+        try:
+            doc = tomllib.loads(p.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        ex = {k: sorted(v) for k, v in (doc.get("exports") or {}).items() if v}
+        if not ex:
+            continue
+        row = {
+            "name": doc.get("assembly", {}).get("name", p.stem),
+            "path": str(p),
+            "exports": ex,
+            "mass": None,
+            "cost": None,
+        }
+        if lib is not None:
+            try:
+                with tempfile.TemporaryDirectory(prefix="napl-mypart-") as t:
+                    _, rep = compute(p, lib.dir, t, lib, visual=False, route=False)
+                row["mass"] = rep["mass"]["total"]
+                row["cost"] = rep.get("bom", {}).get("total", {}).get("cost")
+            except DesignError as e:
+                row["error"] = str(e)
+        out.append(row)
+    return sorted(out, key=lambda r: r["name"])

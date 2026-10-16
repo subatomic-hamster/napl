@@ -69,6 +69,22 @@ def check(path: pathlib.Path, problems: list[str], tally: collections.Counter) -
             bad(f"param {name}: must be a table")
             continue
         check_entry(f"param {name}", e, need_unit=True)
+        if name == "price" and e.get("unit") != "USD":
+            bad(
+                f"param price: unit must be 'USD' (the BOM sums it), got {e.get('unit')!r}"
+            )
+    mir = doc.get("mirror")
+    if mir is not None:
+        planes = ("xy", "yz", "xz")
+        if not isinstance(mir, dict) or set(mir) - {"symmetry", "opposite", "plane"}:
+            bad("[mirror]: keys are symmetry, opposite, plane")
+        else:
+            if mir.get("symmetry") not in (None, *planes):
+                bad(f"[mirror] symmetry must be one of {planes}")
+            if mir.get("plane", "xz") not in planes:
+                bad(f"[mirror] plane must be one of {planes}")
+            if not (mir.get("symmetry") or mir.get("opposite")):
+                bad("[mirror]: give symmetry or opposite")
     for name, t in doc.get("tables", {}).items():
         check_entry(f"table {name}", t, need_unit=False)
         cols = t.get("columns", [])

@@ -11,7 +11,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from . import pins
+from . import pins, subasm
 from .library import DesignError, Library, Part
 
 FIDELITY = {"datasheet", "literature", "measured", "derived", "estimated"}
@@ -25,8 +25,19 @@ BARE_OK = {
     "rpy",
     "color",
 }  # pos / rpy / color: instance placement + cosmetics
-TOP = ["assembly", "instances", "mates", "wires", "device_maps", "devices", "targets"]
+TOP = [
+    "assembly",
+    "exports",
+    "subassemblies",
+    "instances",
+    "mates",
+    "wires",
+    "device_maps",
+    "devices",
+    "targets",
+]
 ALLOWED = {
+    "subassemblies": {"id", "file", "pos", "rpy", "mirror", "params", "group", "color"},
     "assembly": {
         "name",
         "description",
@@ -46,6 +57,7 @@ ALLOWED = {
         "pos",
         "rpy",
         "color",
+        "_mirror",  # set by subasm.expand on the instances of a mirrored sub-assembly; never written
     },
     "mates": {"name", "a", "b", "rotation", "fasteners", "nut", "joint", "closure"},
     "wires": {
@@ -94,11 +106,33 @@ UNITS = {
 
 
 class Assembly:
-    """A validated assembly document (plain dict, as parsed)."""
+    """A validated assembly document (plain dict, as parsed). `doc` is the flattened document everything downstream reads;
+    `raw` is the unexpanded one as written (what `dumps` saves; the same dict as `doc` when there are no sub-assemblies);
+    `origins[flat_id] = {sub, file, id}` for every flattened item (subasm.py)."""
 
-    def __init__(self, doc: dict, path=None):
-        self.doc = doc
+    def __init__(self, doc: dict, path=None, raw=None, origins=None):
+        self._same = raw is None
+        self._doc = doc
+        self.raw = doc if raw is None else raw
+        self.origins = origins or {}
         self.path = path
+
+    @property
+    def doc(self) -> dict:
+        return self._doc
+
+    @doc.setter
+    def doc(self, v: dict):
+        self._doc = v
+        if (
+            self._same
+        ):  # no sub-assemblies: undo snapshots etc. replace the one document
+            self.raw = v
+
+    def set_raw(self, raw: dict):
+        """Replace the unexpanded document and re-expand it (re-reads the child files). Raises DesignError, state unchanged."""
+        flat, origins = subasm.expand(raw, self.path)
+        self.raw, self._doc, self.origins, self._same = raw, flat, origins, flat is raw
 
     def __eq__(self, other):
         return isinstance(other, Assembly) and self.doc == other.doc
@@ -157,7 +191,9 @@ def _need(d: dict, keys, where: str):
             raise DesignError(f"{where}: missing '{k}'")
 
 
-def validate(doc: dict):
+def validate(doc: dict, origins: dict | None = None):
+    """`origins` (subasm.expand): flattened ids may contain ':' (and are not re-checked against the written-id regex)."""
+    origins = origins or {}
     for k in doc:
         if k not in TOP:
             raise DesignError(f"unknown top-level section '{k}' (allowed: {TOP})")
@@ -179,8 +215,8 @@ def validate(doc: dict):
     ids, roots = set(), []
     for i, it in enumerate(doc["instances"]):
         _need(it, ["id", "part"], f"[[instances]] {i}")
-        if not isinstance(it["id"], str) or not re.fullmatch(
-            r"[A-Za-z0-9_-]+", it["id"]
+        if not isinstance(it["id"], str) or not (
+            it["id"] in origins or re.fullmatch(r"[A-Za-z0-9_-]+", it["id"])
         ):
             raise DesignError(
                 f"instance id {it['id']!r}: use letters, digits, '_' and '-' only"
@@ -294,8 +330,9 @@ def loads(text: str, path=None) -> Assembly:
         doc = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         raise DesignError(f"assembly TOML error: {e}") from None
-    validate(doc)
-    return Assembly(doc, path)
+    flat, origins = subasm.expand(doc, path)
+    validate(flat, origins)
+    return Assembly(flat, path, raw=None if flat is doc else doc, origins=origins)
 
 
 def load(path) -> Assembly:
@@ -339,11 +376,11 @@ def _v(v) -> str:
 def dumps(asm: Assembly) -> str:
     out = []
     for sec in TOP:
-        if sec not in asm.doc:
+        if sec not in asm.raw:
             continue
-        v = asm.doc[sec]
-        if sec == "assembly":
-            out += ["[assembly]"] + [f"{_k(k)} = {_v(x)}" for k, x in v.items()] + [""]
+        v = asm.raw[sec]
+        if sec in ("assembly", "exports"):
+            out += [f"[{sec}]"] + [f"{_k(k)} = {_v(x)}" for k, x in v.items()] + [""]
         elif sec == "device_maps":
             for name, m in v.items():
                 out += (
@@ -369,6 +406,10 @@ def save(asm: Assembly, path) -> None:
 class Inst:
     def __init__(self, d: dict, part: Part):
         self.id, self.part = d["id"], part
+        self.orig_part = part  # as written; `part` is its opposite-hand part when the instance is mirrored
+        self.mirror = (
+            None  # {plane, sub, frame} (subasm.py) when inside a mirrored sub-assembly
+        )
         self.group = d.get("group", "")
         self.offboard = bool(d.get("offboard"))
         self.root = bool(d.get("root"))
@@ -397,7 +438,17 @@ class Ctx:
         )  # `from = "inst.CONN.PIN"` -> port + from_pins
         self.insts: dict[str, Inst] = {}
         for d in self.doc["instances"]:
-            self.insts[d["id"]] = Inst(d, lib.get(d["part"]))
+            inst = Inst(d, lib.get(d["part"]))
+            inst.mirror = d.get("_mirror")
+            if inst.mirror and (opp := inst.orig_part.mirror.get("opposite")):
+                if opp not in lib.parts:
+                    raise DesignError(
+                        f"mirror: part {inst.orig_part.id} names opposite '{opp}', which is not in the library"
+                    )
+                inst.part = lib.get(
+                    opp
+                )  # the opposite-hand part stands in for the mirrored copy
+            self.insts[d["id"]] = inst
         self.estimated: list = []
         self.warnings: list = []
         self.unresolved: list = []

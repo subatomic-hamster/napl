@@ -16,7 +16,7 @@ length    = { value = 0.006, unit = "m", fidelity = "estimated", rationale = "Dr
 width     = { value = 0.006, unit = "m", fidelity = "estimated", rationale = "Drawing envelope = the disc diameter." }
 height    = { value = 0.002, unit = "m", fidelity = "estimated", rationale = "Drawing envelope = the disc thickness." }
 mass      = { value = 0.0004, unit = "kg", fidelity = "derived", derivation = "Nd-Fe-B 7500 kg/m3 x pi (3 mm)^2 x 2 mm = 0.42 g." }
-price_usd = { value = 0.5, unit = "USD", fidelity = "estimated", rationale = "About 0.50 USD per disc in small packs from US hobby vendors; no listing was fetched for this part." }
+price = { value = 0.5, unit = "USD", fidelity = "estimated", rationale = "About 0.50 USD per disc in small packs from US hobby vendors; no listing was fetched for this part." }
 
 [[ports]]
 name = "origin"

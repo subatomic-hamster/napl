@@ -16,7 +16,7 @@ length      = { value = 0.17, unit = "m", fidelity = "estimated", rationale = "C
 width       = { value = 0.11, unit = "m", fidelity = "estimated", rationale = "As length." }
 height      = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "As length." }
 price_hkd   = { value = 65.0, unit = "HKD", src = "S1", fidelity = "datasheet" }   # as of 2026-10-11 (page marked sold out in the search snippet)
-price_usd   = { value = 8.33, unit = "USD", fidelity = "derived", derivation = "65 HKD (S1) / an assumed 7.8 HKD per USD (the HKD peg) = 8.33 USD. Cross-check: M3-size kits at 15.99-18.91 USD for 436-900 pieces in US listings (web search, 2026-10-11). The SCC listing was marked sold out in the search snippet." }
+price   = { value = 8.33, unit = "USD", fidelity = "derived", derivation = "65 HKD (S1) / an assumed 7.8 HKD per USD (the HKD peg) = 8.33 USD. Cross-check: M3-size kits at 15.99-18.91 USD for 436-900 pieces in US listings (web search, 2026-10-11). The SCC listing was marked sold out in the search snippet." }
 
 [visual]
 src = "V1"
