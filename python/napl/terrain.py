@@ -451,3 +451,18 @@ def add_terrain_xml(xml, t, **kw):
     add_terrain(root, t, **kw)
     ET.indent(root)
     return ET.tostring(root, encoding="unicode")
+
+
+# Small-scale legged-robot fields (napl/terrain_field.py, docs/models.md "Small-scale terrain"). `field` is rebound here, after the dataclasses
+# above used dataclasses.field: napl.terrain.field(kind, size, res, seed, ...) -> Field; add_field(mjcf, field) -> geom names.
+from . import terrain_field as _tf
+
+field, add_field, Field, Patch, Box, Material, MATERIALS = (
+    _tf.field,
+    _tf.add_field,
+    _tf.Field,
+    _tf.Patch,
+    _tf.Box,
+    _tf.Material,
+    _tf.MATERIALS,
+)

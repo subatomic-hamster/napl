@@ -72,6 +72,32 @@ SERVO = {
     "overload_time": ["reg_protection_time_default"],
     "unload_mask": ["reg_unloading_condition_default", "reg_shutdown_default"],
 }
+# Integrated-driver QDD actuator (category actuator.bldc.qdd; schema Qdd). The CubeMars AK-series part carries kv, the
+# line-to-line phase resistance, the rotor inertia and the gear ratio; efficiency, the thermal pair, the encoder, the current
+# limit and the CAN-driver numbers are the part's own params (a part without them is reported `unset`, nothing is invented).
+QDD_MOTOR = {
+    "motor.kv": ["kv"],
+    "motor.r20": ["r_phase_to_phase", "r_winding"],
+    "motor.rotor_inertia": ["rotor_inertia"],
+    "motor.i0": ["i0"],
+    "motor.c_th": ["c_th_winding", "c_th"],
+    "motor.r_th": ["r_th_winding", "r_th"],
+}
+QDD = {
+    "gear_ratio": ["gear_ratio"],
+    "efficiency": ["gear_efficiency", "efficiency"],
+    "encoder_cpr": ["encoder_cpr"],
+    "cmd_hz": ["can_cmd_hz", "cmd_hz"],
+    "latency_s": ["can_latency", "latency_s"],
+    "i_limit": ["i_limit_phase", "i_limit"],
+    "kp_max": ["mit_kp_max", "kp_max"],
+    "kd_max": ["mit_kd_max", "kd_max"],
+    "tau_ff_max": ["mit_tau_ff_max", "tau_ff_max"],
+    "timeout_s": ["can_timeout", "timeout_s"],
+    "kd_timeout": ["kd_timeout"],
+    "t_max": ["temp_fault", "t_max"],
+    "derate_start": ["temp_derate_start", "derate_start"],
+}
 BATTERY = {
     "capacity_ah": ["capacity_ah"],
     "r0": ["r_internal_pack"],
@@ -124,6 +150,26 @@ REQUIRED = {
         "firmware_hz",
         "pid_scale",
         "max_torque",
+    ],
+    "qdd": [
+        "joint",
+        "motor.kv",
+        "motor.r20",
+        "motor.rotor_inertia",
+        "motor.c_th",
+        "motor.r_th",
+        "gear_ratio",
+        "efficiency",
+        "encoder_cpr",
+        "cmd_hz",
+        "i_limit",
+        "kp_max",
+        "kd_max",
+        "tau_ff_max",
+        "timeout_s",
+        "kd_timeout",
+        "t_max",
+        "derate_start",
     ],
     "rotor": ["body", "joint", "diameter", "j", "ct", "cq"],
     "battery": ["ocv", "capacity_ah", "r0"],
@@ -564,6 +610,36 @@ def _servos(topo, plans, st):
             plans.append(p)
 
 
+def _qdds(topo, plans):
+    """One qdd device per actuator.bldc.qdd instance on a hinge mate (its output joint)."""
+    seen = set()
+    for m in topo.mates:
+        if (
+            m["closure"]
+            or (m["joint"] or {}).get("type") != "hinge"
+            or (m["joint"] or {}).get("spin")
+        ):
+            continue
+        for iid, pn in (m["a"], m["b"]):
+            inst = topo.ctx.insts.get(iid)
+            if (
+                inst is None
+                or not inst.part.category.startswith("actuator.bldc.qdd")
+                or iid in seen
+            ):
+                continue
+            seen.add(iid)
+            pw = _first_port(inst, "power")
+            b = {"type": "qdd", "name": iid, "instance": iid, "joint": m["name"]}
+            if pw:
+                b["port"] = pw
+            p = Plan("qdd", iid, b, ("qdd", m["name"]), {iid})
+            p.parts.add(inst.part.id)
+            _fields(p, inst, QDD_MOTOR)
+            _fields(p, inst, QDD)
+            plans.append(p)
+
+
 def _batteries(topo, plans, ocv):
     for inst in topo.insts.values():
         if (
@@ -921,6 +997,7 @@ def derive(d, doc, ocv=None) -> tuple:
     _loads(topo, plans, st)
     _propulsion(topo, plans)
     _servos(topo, plans, st)
+    _qdds(topo, plans)
     _sensors(topo, plans)
     return plans, topo
 
@@ -981,8 +1058,8 @@ def _key(b):
         return ("esc", b.get("joint") or b["name"])
     if t == "rotor":
         return ("rotor", b.get("joint") or b["name"])
-    if t == "servo":
-        return ("servo", b.get("joint") or b["name"])
+    if t in ("servo", "qdd"):
+        return (t, b.get("joint") or b["name"])
     if t == "wire":
         return ("wire", b.get("instance"), frozenset((b.get("a"), b.get("b"))))
     if t == "load":

@@ -149,11 +149,25 @@ struct RangefinderCfg {
   Meta meta; std::string site; double rate_hz, fov_h, fov_v, min_r, max_r, s0, s1, s2, res, dropout; std::string proj;
   int n_h, n_v; unsigned ray_groups; std::uint64_t seed;
   bool pinhole = true;
+  bool rosette = false;                                     // projection "rosette": rays generated per frame (rangefinder.cpp), dir is empty
+  double fov_v_min = 0, fov_v_max = 0, off1 = 0, off2 = 0;  // rosette: elevation limits (rad), R2 sequence offsets in [0, 1) from pattern_seed
   double rain_a = 1.82e-4, rain_b = 0.63, rain_margin_db = 6.0, rain_beam = 0.02, rain_zone = 1.5, rain_det = 0.01, rain_window_db = 1.5;  // schema Rangefinder
   std::vector<double> dir;   // n_v * n_h unit rays in the site frame (row-major), 3 doubles each
   std::vector<double> scale;  // range -> output factor per pixel (pinhole: 1 / |unnormalised ray| = z-depth per metre; spherical: 1)
   double cutoff = 0;  // Euclidean ray length that can still give an output <= max_r
   int sid = -1, body = -1, period = 0;
+};
+// SP2 devices (qdd.cpp, contact.cpp).
+constexpr int kQddRing = 16;  // sampled commands kept for the CAN latency: latency_s / period <= kQddRing - 2
+struct QddCfg {
+  Meta meta; int node; std::string joint; MotorCfg motor;
+  double n, eta, cmd_hz, latency_s, i_limit, kp_max, kd_max, tau_ff_max, timeout_s, kd_timeout, t_max, derate_start;
+  int cpr, timeout_mode;
+  int jnt = -1, dof = -1, qadr = -1, period = 0, delay = 0;  // resolved by bind(): command period and latency, in ticks
+};
+struct FootContactCfg {
+  Meta meta; std::string geom; int mode; double f_max, noise_std, hys_on, hys_off, debounce_s, rate_hz; std::uint64_t seed;
+  int gid = -1, period = 0;  // resolved by bind()
 };
 // Terrain-aware wind (schema WindField, windfield.cpp). The hfield grids are resolved by bind(): heights in metres (world z), row r (y) x
 // column c (x) at index r * ncol + c; h = the surface, hl / hb = h smoothed (Gaussian, sigma ridge_len / 4 ridge_len), not saved (derived).
@@ -294,6 +308,21 @@ struct WindState {
 // force (N, world: the catch force and the film's weight on the body), thrust_loss (mean fractional thrust loss of the air rotors).
 struct RainState { double rate, lwc, v_fall, film_mass, force[3], thrust_loss; };
 
+// Qdd (qdd.cpp). Inputs p_des .. enable (settable; every set stamps rx_tick = the tick the frame is received at, for the
+// timeout). ring: the sampled commands [p_des, v_des, kp, kd, tau_ff, enable, rx_tick], sample j at ring[j % kQddRing].
+// Outputs of the last tick: q, dq (encoder), tau_est (electromagnetic output torque Kt N eta i_q), i_q (phase current),
+// temp (winding degC), fault (latched), bus_i (A into the load, + = drawn from the node; injected into the NEXT solve),
+// vbus (node voltage of this tick), derate (current-limit factor), timeout (1 while the CAN timeout is active), tau_cmd.
+struct QddState {
+  double p_des, v_des, kp, kd, tau_ff, enable;
+  double rx_tick;
+  double q, dq, tau_est, i_q, temp, fault, bus_i, vbus, derate, timeout, tau_cmd;
+  double ring[kQddRing][7];
+  std::uint64_t ticks;
+};
+// Foot contact outputs (held between samples). pend: seconds the comparator has differed from `contact` (-1 = it agrees).
+struct FootContactState { double force, contact, pend; Rng rng; std::uint64_t ticks; };
+
 template <class C, class S> struct Group {
   using Cfg = C;
   using State = S;
@@ -324,11 +353,13 @@ struct Devices {
   Group<RangefinderCfg, RangefinderState> range;
   Group<JetVaneCfg, JetVaneState> vane;
   Group<WindFieldCfg, WindState> wfield;  // 0 or 1 element; appended after the older groups: their state layouts and hashes are unchanged
-  Group<RainCfg, RainState> rain;  // 0 or 1 element; last group: models without rain keep their state layout and hashes
+  Group<RainCfg, RainState> rain;  // 0 or 1 element; models without rain keep their state layout and hashes
+  Group<QddCfg, QddState> qdd;     // SP2 groups come last: models without them keep their state layout and hashes
+  Group<FootContactCfg, FootContactState> foot;
   int n_nodes = 0;  // highest node id used
   struct Slot {
     enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss, launcher, camera, motor, airframe, sea,
-                vessel, range, vane, wfield, rain } type;
+                vessel, range, vane, wfield, rain, qdd, foot } type;
     int i;
   };
   std::vector<Slot> slots;  // prim order: type by type, config order within a type
@@ -396,8 +427,16 @@ std::vector<float> sea_surface_mesh(const Devices& dv, const std::vector<double>
 // Last force phase: buoyancy, hydrodynamic damping and the added-mass correction of every vessel, then the sea clock advances.
 void step_vessels(const mjModel* m, mjData* d, Devices& dv);
 
+// Qdd actuators (qdd.cpp), after the electrical solve of the tick (needs the node voltage): command intake, FOC current / voltage
+// limits, torque on the joint, thermal state, bus current for the next solve.
+void step_qdd(const mjModel* m, mjData* d, Devices& dv);
+// Foot contact sensors (contact.cpp): post-step hook, samples the ones that are due from the contact forces of the tick just stepped.
+void sample_feet(const mjModel* m, mjData* d, Devices& dv);
+
 // Range sensors (rangefinder.cpp): post-step hook, samples the ones that are due from the kinematics of the tick just stepped.
 void sample_ranges(const mjModel* m, mjData* d, Devices& dv);
+// Rosette projection: unit direction (site frame, +x = up) of ray number `m` of the sensor's life (frame * rays_per_frame + k).
+void rosette_dir(const RangefinderCfg& c, std::uint64_t m, double out[3]);
 
 std::size_t state_bytes(const Devices& dv);
 void save_state(const Devices& dv, std::byte* out);

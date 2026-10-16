@@ -75,6 +75,59 @@ A `rain` device (schema `Rain`, `src/mujoco/devices/rain.cpp`; effects in `aero.
 
 Tests: `tests/cpp/test_rain.cpp` (closed forms, thrust-loss monotone and small, dry device bitwise, film cap and drain, lidar dropout / noise / false-return monotone), `tests/python/test_rain.py` (Skydio hover at 0 / 25 / 100 mm/h, depth statistics, schema), `render.rain_look_*`.
 
+## Qdd
+
+A `qdd` device (schema `Qdd`, `src/mujoco/devices/qdd.cpp`): an integrated-driver quasi-direct-drive actuator (BLDC + planetary gear + FOC driver, MIT-mode command protocol over CAN) on the gear **output** hinge. **Opt-in** and appended last in the saved state: models without it keep their layout and hashes. Every physical parameter must come from the part (a missing one fails the load, naming the device); `docs/models.md` is the only place the model constants live, and the part files carry the provenance. Bind with `type = "qdd"` (`instance`, power `port`, `joint`, `map`/`set`); `auto_devices` maps the params of `actuator.bldc.qdd` parts (`python/napl/design/auto_devices.py`: `QDD_MOTOR`, `QDD`).
+
+**Command path.** Settable attrs `p_des` (rad), `v_des` (rad/s), `kp` (N m/rad), `kd` (N m s/rad), `tau_ff` (N m), `enable`. They are sampled every `1/cmd_hz` (tick % period == 0) and become effective `latency_s` later (integer ticks; a ring of 16 samples bounds it to 14 periods). Before the first effective sample the driver is disabled. A `set` of any of them counts as a received CAN frame (`rx_tick`); a host that stops writing for more than `timeout_s` while enabled trips the driver's timeout (the age is measured at the driver: write tick + latency): `timeout_mode 0` damping, `tau = -kd_timeout dq` (the CubeMars / Steadywin-style "exit to damping"; `kd_timeout` is a per-part number), `1` open (zero current, free joint). `kp`, `kd`, `tau_ff` are clamped to `[0, kp_max]`, `[0, kd_max]`, `+-tau_ff_max` (the MIT frame's fixed-point ranges).
+
+**Torque.** `tau_cmd = kp (p_des - q) + kd (v_des - dq) + tau_ff` with `q` the output encoder angle quantised to `encoder_cpr` counts and `dq` the ideal joint velocity (no differentiation noise or filter, no sensing delay beyond the sample-and-hold of the tick). The torque loop is ideal (a current loop much faster than the tick). `i_q = tau_cmd / (Kt N k)`, `Kt = Ke = 60 / (2 pi kv)` (DC-equivalent winding, as the ESC motor), `k = eta` while the motor delivers power and `1` when back-driven, ramped over `tanh(w / w_s)` exactly like `drive_motor` (a modelling regularisation, not a gearbox efficiency curve). `i_q` is then limited, in this order of authority:
+
+- current: `|i_q| <= i_limit x derate(T)`;
+- voltage (the averaged FOC torque-speed envelope): `|R(T) i_q + Ke w| <= V_bus`, `w = N dq` (motor shaft), `V_bus` = the node voltage of this tick. This is the linear SVPWM limit: the maximum phase voltage amplitude is `V_bus / sqrt(3)`, i.e. line-to-line peak `V_bus`, which is the convention of the datasheet `Kv`, `Ke` and line-to-line `R` (so the no-load output speed is `V_bus / (Ke N)`: 33.5 rad/s = 320 rpm at 48 V for the AK70-9, the published value). The torque therefore falls linearly from the stall value to zero at the no-load speed. A command above the envelope saturates to it, never exceeds it. No field weakening; no inductance (a real driver's current-loop bandwidth, `L/R` = 0.9 ms for the AK70-9, and the PWM ripple are not modelled);
+- beyond the no-load speed the feasible set is empty: `i_q` is the voltage bound, a regenerative brake (the diodes of a real inverter), capped at `i_limit`.
+
+Output torque on the joint: `tau_est = Kt N k i_q` minus the motor loss torque `N loss(w)` (`MotorParams` `i0` model; applied also when the driver is disabled). The reflected rotor inertia `J_rotor N^2` is SET as the joint's `dof_armature` at bind (idempotent), `dof_damping` is 0 (a FOC driver with `i_q = 0` has no back-EMF drag). Not modelled: gearbox backlash and elasticity (put a `backlash_joint`-style hinge in the MJCF if needed), cogging, cable stiffness.
+
+**Thermal.** `C_th dT/dt = i_q^2 R(T) - (T - T_amb) / R_th` (explicit Euler, winding only; iron and friction heat is not counted). `derate = clamp((t_max - T) / (t_max - derate_start), 0, 1)` multiplies the current limit; `fault` latches at `T >= t_max` (torque off) and clears once `enable = 0` and `T < t_max`. With a linear foldback to 0 the winding settles below `t_max` under any constant load; the fault is reached only through a heat step larger than the foldback band (tiny `c_th`, as the test uses) or an ambient above the derate band. The derate thresholds are the part's (`temp_derate_start`, `temp_fault`).
+
+**Bus.** `bus_i = (R i_q + Ke w) i_q / V_bus` (electrical power of the DC-equivalent winding over the node voltage; lossless inverter, no quiescent draw; negative = regeneration). It is injected as a constant sink into the **next** tick's electrical solve (`solve_electrical` runs first because the voltage limit needs this tick's node voltage): a one-tick lag (1 ms), harmless at the supply impedances of a battery (loop gain `r_series P / V^2` << 1). Battery sag under 12 joints is therefore represented.
+
+Read attrs: `q`, `dq`, `tau_est`, `tau_cmd`, `i_q`, `temp`, `fault`, `bus_i`, `voltage`, `derate`, `timeout`.
+
+Tests: `tests/cpp/test_qdd.cpp` (stall = `min(i_limit, V/R) Kt N eta` within 1 %; torque-speed sweep at 24 / 48 V against the closed form to 1e-6 and the published no-load speed within 5 %; kp/kd step; latency exact at two command rates; timeout damping / open and frames keeping it alive; thermal rise and derate; fault latch; limits and encoder grid; save/restore/clone bitwise; missing parameter), `tests/python/test_qdd.py` (API units and read-only, the design builder and unit check).
+
+## FootContact
+
+A `foot_contact` device (schema `FootContact`, `src/mujoco/devices/contact.cpp`), per foot geom. `force` = the sum, over **all** contacts that involve the geom (any partner), of the solved normal contact force (`mj_contactForce`, component 0; zero for a contact without a constraint row), of the tick just stepped (the state `s_k` the tick started from, like every sensor); plus `noise_std` N(0,1) from the device's own RNG (drawn only when `noise_std > 0`), clipped to `[0, f_max]`; held between `rate_hz` samples. `contact` is a comparator with hysteresis (on above `hysteresis_on`, off at or below `hysteresis_off`) and a debounce: a change must persist `debounce_s` (the first differing sample starts the clock, the output follows when the elapsed time reaches `debounce_s`). `mode` (0 force sensor, 1 binary switch) is metadata. Not modelled: sensor bandwidth, creep, temperature drift, shear sensitivity (a strain-gauge foot also reads tangential load), the compliance of the foot pad beyond the MuJoCo contact softness. Tests: `tests/cpp/test_foot_contact.cpp` (rock + hfield seam: sum of two contacts equals the weight and the independent contact sum; saturation; debounce timing both edges; sample-and-hold; seeded noise replay; bad config), `tests/python/test_foot_contact.py`.
+
+## Rosette scan pattern
+
+`projection: "rosette"` on a rangefinder (a Livox Mid-360-like non-repeating scan). Documented approximation: the real pattern is proprietary; what is modelled is the published envelope (360 deg horizontal, -7..52 deg vertical, 200 000 points/s, 0.1 m to 40 m at 10 % reflectivity). Ray `m = frames*rays_per_frame + k` points along the R2 low-discrepancy sequence (plastic-number generalised golden ratio) offset by `pattern_seed`: azimuth uniform on `fov_h`, elevation uniform in sin between `fov_v_min` and `fov_v_max`. Spherical frame, +x of the site is the elevation axis; the image is 1 x `rays_per_frame`. `rays_per_frame = 20000` at 10 Hz is the real point rate; fewer is a cheaper approximation. Tests: `tests/cpp/test_rosette.cpp` (rays in the FoV, >= 95 % of 1 x 1 deg bins covered after 1 s without repeating, analytic floor / ceiling ranges, bitwise replay, self-hit exclusion by the group mask).
+
+Cost (hfbox, one 2001 x 2001 hfield, whole step): about 1500-2000 rays/s, independent of `max_range`. Tiled hfield patches are measured in "Ground sim budget" below.
+
+## Small-scale terrain
+
+`napl.terrain.field(kind, size=100, res=0.05, seed)` (`python/napl/terrain_field.py`) makes 100 x 100 m at 5 cm of `rubble` (5-20 cm rock bumps plus boulder boxes), `slopes` (15-30 deg ramps, 10-18 cm steps), `scree` (small stones, low-friction patches) or `ruins` (wall maze with 0.6-1.6 m doors). `add_field(xml, f)` emits one hfield geom per 10 m patch (201 x 201, neighbours share their border row so there are no seams) and yaw-only box geoms. Per-patch `Material` (rock 0.8, gravel 0.55, grass 0.6, wet_rock 0.35, mud 0.25 sliding friction; every value `estimated`, sources in `MATERIALS`) sets `friction` and `solref` with `priority=1`, so the surface friction replaces the foot's instead of the MuJoCo max rule. `solref` 0.02-0.04 s, `solimp` default: the contact time constant of at least 10 timesteps at dt 2 ms, and a 12 kg dummy dog rests within 1 mm and does not tunnel at dt 1 and 2 ms on all four kinds. Ground truth: `f.height(x, y)` is the MuJoCo-triangulated hfield (cell diagonal `DIAG`) max the box tops, equal to a ray cast within 1 mm; `f.material_at(x, y)`. Same seed gives the same `digest()` across processes. Tests: `tests/python/test_terrain_field.py`.
+
+## Ground sim budget
+
+`tools/bench_ground.py` (hfbox, one 8-thread slot, dt 2 ms, 0.5 sim-s measured after a 0.3 s settle): a 12-Qdd / 4-foot-contact dummy dog with a rosette lidar (10 Hz, `max_range` 40 m, ray group 1 = terrain) on each 100 x 100 m kind. Sim-seconds per wall-second:
+
+| kind | layout | no lidar | 5k rays | 10k rays | 20k rays |
+|---|---|---|---|---|---|
+| rubble | 10 m patches | 61.36 | 1.27 | 0.65 | 0.32 |
+| rubble | one hfield | 73.58 | 0.48 | 0.24 | 0.12 |
+| slopes | 10 m patches | 37.45 | 0.13 | 0.06 | 0.03 |
+| slopes | one hfield | 41.73 | 0.02 | 0.01 | 0.00 |
+| scree | 10 m patches | 76.70 | 2.81 | 1.57 | 0.79 |
+| scree | one hfield | 100.69 | 0.67 | 0.34 | 0.17 |
+| ruins | 10 m patches | 53.29 | 4.56 | 2.45 | 1.26 |
+| ruins | one hfield | 48.47 | 4.74 | 2.50 | 1.29 |
+
+Reading: the dog physics is cheap (40-100x real time); the lidar is the cost, linear in rays/frame. 10 m patches are 2.6-4x faster than one hfield on relief (rubble, scree) and about 6x on slopes, equal on flat ruins. Slopes is the worst kind (long grazing rays over terraces); 20k rays/frame (the real Mid-360 point rate) is 0.03x real time there. Size Monte-Carlo runs on the 5k-rays patch column: 0.1x (slopes) to 4.6x (ruins) real time per core slot; budget the lidar rays per frame, not the dog.
+
 ## Tick order
 
 `devs::step` replaces `mj_step` for a model with devices, in this fixed order:
@@ -82,11 +135,11 @@ Tests: `tests/cpp/test_rain.cpp` (closed forms, thrust-loss monotone and small, 
 1. zero `dof_damping` of every driven dof (so `qfrc_passive` is computed with `b_old = 0` whatever a restore left in the model);
 2. `mj_step1`; zero `qfrc_applied` and `xfrc_applied` (the devices own them);
 3. sensors-read (the held samples already sit in the state: nothing consumes them yet) and controllers: servo encoder (every tick) and firmware (on its period);
-4. shaft speeds from `qvel` (servo: `N qvel`), electrical solve;
+4. shaft speeds from `qvel` (servo: `N qvel`), electrical solve (QDD bus currents of the previous tick enter as sinks); then `step_qdd` (command intake, FOC limits at this tick's bus voltage, torque, thermal);
 5. motors (`drive_motor`: damping split, thermal);
 6. aero / forces: environment (turbulence), rotors, body drag; then launchers (spawn on `fire`, RK4 flight, swept hit test, mocap visuals) and camera poses (`step_launchers`);
 7. `mj_step2`;
-8. post-step hook: sensors due this tick sample.
+8. post-step hook: sensors due this tick sample (IMU / baro / mag / GNSS, range sensors, foot contacts).
 
 Rates of firmware and sensors must give an integer number of ticks per step (`1 / (rate dt)`), else the load fails.
 

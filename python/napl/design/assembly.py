@@ -21,6 +21,9 @@ BARE_OK = {
     "count",
     "conductors",
     "dir",
+    "timeout_mode",  # qdd / foot_contact: enum selectors (0 / 1), not physical numbers
+    "mode",
+    "shape",  # foot_contact: geometry shape index
     "pos",
     "rpy",
     "color",
@@ -97,6 +100,8 @@ DEVICE_TYPES = {
     "vessel",
     "rangefinder",
     "jet_vane",
+    "qdd",
+    "foot_contact",
 }
 UNITS = {
     "m": {"m": 1.0},

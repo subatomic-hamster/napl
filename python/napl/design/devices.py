@@ -43,7 +43,7 @@ FIELD_UNITS = {
     },
     "full_scale": {"rad/s": 1.0, "m/s2": 1.0, "m/s^2": 1.0},  # imu gyro | accel
     "bits": {"bit": 1.0},
-    "noise_std": {"Pa": 1.0, "T": 1.0},  # baro | mag
+    "noise_std": {"Pa": 1.0, "T": 1.0, "N": 1.0},  # baro | mag | foot_contact
     "vel_std": {"m/s": 1.0},
     "rate_hz": {"Hz": 1.0},
     "latency_s": {"s": 1.0},
@@ -130,8 +130,23 @@ FIELD_UNITS = {
     "rain_beam": {"m": 1.0},
     "rain_zone": {"m": 1.0},
     "rain_det": {"1": 1.0},
+    # qdd / foot_contact (SP2; docs/models.md "Qdd", "FootContact")
+    "cmd_hz": {"Hz": 1.0},
+    "kp_max": {"N*m/rad": 1.0},
+    "kd_max": {"N*m*s/rad": 1.0},
+    "tau_ff_max": {"N*m": 1.0},
+    "timeout_s": {"s": 1.0},
+    "kd_timeout": {"N*m*s/rad": 1.0},
+    "t_max": {"degC": 1.0},
+    "derate_start": {"degC": 1.0},
+    "f_max": {"N": 1.0},
+    "hysteresis_on": {"N": 1.0},
+    "hysteresis_off": {"N": 1.0},
+    "debounce_s": {"s": 1.0},
 }
 INT_FIELDS = {
+    "timeout_mode",
+    "mode",
     "awg",
     "encoder_cpr",
     "bits",
@@ -165,8 +180,10 @@ TYPE_KEY = {
     "rangefinder": "rangefinders",
     "jet_vane": "jet_vanes",
     "rain": "rains",
+    "qdd": "qdds",
+    "foot_contact": "foot_contacts",
 }
-NODE_TYPES = {"battery", "psu", "load", "esc", "servo"}
+NODE_TYPES = {"battery", "psu", "load", "esc", "servo", "qdd"}
 TEXT_FIELDS = {
     "projection"
 }  # binding keys whose string value is emitted verbatim (rangefinder: "pinhole" | "spherical")
@@ -185,6 +202,7 @@ RESERVED = {
     "ref_body",
     "stator_body",  # rotor: the housing instance that takes the swirl torque back
     "rotor",  # jet_vane: the name of the rotor device whose exhaust it sits in
+    "shape",  # foot_contact: index of the instance part's geometry shape that is the foot (default 0)
     "site",
     "site_port",
     "ocv",
@@ -616,6 +634,8 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
                 d[k] = joint_of[b[k]]
         if typ == "jet_vane":
             d["rotor"] = b["rotor"]
+        if typ == "foot_contact":
+            d["geom"] = _foot_geom(inst, b.get("shape", 0), where)
         for k in ("body", "ref_body", "stator_body"):
             if k in b:
                 bi = ctx.inst(b[k], where)
@@ -709,6 +729,24 @@ def build_devices(ctx: Ctx, wires: list, joint_of: dict):
     if "seed" in doc["assembly"]:
         dev["seed"] = doc["assembly"]["seed"]
     return dev, report, sites
+
+
+def _foot_geom(inst, k, where: str) -> str:
+    """MJCF geom name of shape `k` of the instance's part (build.py names a single-shape part's geom after the instance, else
+    '<inst>:<k>'); the shape must collide, or the sensor would read 0 forever."""
+    if inst is None:
+        raise DesignError(
+            f"{where}: type foot_contact needs an instance (the foot part)"
+        )
+    g = inst.part.geometry
+    shapes = g.get("shapes") or ([g] if "shape" in g else [])
+    if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k < len(shapes):
+        raise DesignError(
+            f"{where}: shape {k!r}: part {inst.part.id} has {len(shapes)} geometry shape(s)"
+        )
+    if inst.offboard:
+        raise DesignError(f"{where}: instance '{inst.id}' is offboard (no geom)")
+    return inst.id if len(shapes) == 1 else f"{inst.id}:{k}"
 
 
 def _hulls(inst, where: str) -> list:
