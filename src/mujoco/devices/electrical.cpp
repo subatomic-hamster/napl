@@ -182,6 +182,8 @@ void solve_electrical(Devices& dv, double dt) {
       }
       inject(g.node, -g.iq);  // quiescent draw of the ESC electronics, in every mode (also at zero throttle)
     }
+    // QDD actuators (qdd.cpp): the bus current of the previous tick as a constant sink (their FOC limits need this tick's V first).
+    for (std::size_t i = 0; i < dv.qdd.cfg.size(); ++i) inject(dv.qdd.cfg[i].node, -dv.qdd.st[i].bus_i);
     gauss_solve(n, a, v);
 
     bool changed = false;
@@ -245,6 +247,7 @@ void solve_electrical(Devices& dv, double dt) {
     drive_out(dv.esc.st[e], drv(e), dv.drv_mode[e]);
   }
   for (std::size_t i = 0; i < dv.servo.cfg.size(); ++i) drive_out(dv.servo.st[i], drv(ne + i), dv.drv_mode[ne + i]);
+  for (std::size_t i = 0; i < dv.qdd.cfg.size(); ++i) dv.qdd.st[i].vbus = volt(dv.qdd.cfg[i].node);
 }
 
 }  // namespace devs

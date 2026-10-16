@@ -73,6 +73,8 @@ const std::string& Devices::name(int slot) const {
     case Slot::vane: return vane.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::wfield: return wfield.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::rain: return rain.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::qdd: return qdd.cfg[static_cast<std::size_t>(s.i)].meta.name;
+    case Slot::foot: return foot.cfg[static_cast<std::size_t>(s.i)].meta.name;
     case Slot::esc: break;
   }
   return esc.cfg[static_cast<std::size_t>(s.i)].meta.name;
@@ -771,6 +773,59 @@ Devices parse(const std::string& json) {
       slot(Devices::Slot::rain, static_cast<int>(dv.rain.cfg.size()));
       dv.rain.cfg.push_back(std::move(c));
     }
+  if (root->qdds())
+    for (const fb::Qdd* q : *root->qdds()) {
+      QddCfg c{};
+      c.meta = meta_of(q->name(), q->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.node = q->node();
+      node_ok(c.node, n);
+      c.joint = q->joint()->str();
+      need(!c.joint.empty(), n, "joint must be non-empty");
+      c.motor = motor_of(q->motor(), n);
+      c.n = q->gear_ratio(); c.eta = q->efficiency(); c.cpr = q->encoder_cpr(); c.cmd_hz = q->cmd_hz();
+      c.latency_s = q->latency_s(); c.i_limit = q->i_limit();
+      c.kp_max = q->kp_max(); c.kd_max = q->kd_max(); c.tau_ff_max = q->tau_ff_max();
+      c.timeout_s = q->timeout_s(); c.timeout_mode = q->timeout_mode(); c.kd_timeout = q->kd_timeout();
+      c.t_max = q->t_max(); c.derate_start = q->derate_start();
+      need(c.n > 0 && std::isfinite(c.n), n, "gear_ratio must be > 0");
+      need(c.eta > 0 && c.eta <= 1, n, "efficiency must be in (0, 1]");
+      need(c.cpr > 0, n, "encoder_cpr must be > 0");
+      need(c.cmd_hz > 0 && std::isfinite(c.cmd_hz), n, "cmd_hz must be > 0");
+      need(c.latency_s >= 0 && std::isfinite(c.latency_s), n, "latency_s must be >= 0");
+      need(c.i_limit > 0 && std::isfinite(c.i_limit), n, "i_limit must be > 0");
+      need(c.kp_max > 0 && c.kd_max > 0 && c.tau_ff_max > 0 && std::isfinite(c.kp_max + c.kd_max + c.tau_ff_max), n,
+           "kp_max, kd_max, tau_ff_max must be finite and > 0");
+      need(c.timeout_s > 0 && std::isfinite(c.timeout_s), n, "timeout_s must be > 0");
+      need(c.timeout_mode == 0 || c.timeout_mode == 1, n, "timeout_mode must be 0 (damping) or 1 (open)");
+      need(c.kd_timeout >= 0 && std::isfinite(c.kd_timeout) && (c.timeout_mode == 1 || c.kd_timeout > 0), n,
+           "kd_timeout must be finite and > 0 in timeout_mode 0");
+      need(std::isfinite(c.derate_start + c.t_max) && c.t_max > c.derate_start && c.derate_start > c.motor.t_amb, n,
+           "need t_amb < derate_start < t_max");
+      use_node(c.node);
+      slot(Devices::Slot::qdd, static_cast<int>(dv.qdd.cfg.size()));
+      dv.qdd.cfg.push_back(std::move(c));
+    }
+  if (root->foot_contacts())
+    for (const fb::FootContact* f : *root->foot_contacts()) {
+      FootContactCfg c{};
+      c.meta = meta_of(f->name(), f->parts(), seen);
+      const std::string& n = c.meta.name;
+      c.geom = f->geom()->str();
+      need(!c.geom.empty(), n, "geom must be non-empty");
+      c.mode = f->mode(); c.f_max = f->f_max(); c.noise_std = f->noise_std();
+      c.hys_on = f->hysteresis_on(); c.hys_off = f->hysteresis_off(); c.debounce_s = f->debounce_s();
+      c.rate_hz = f->rate_hz(); c.seed = f->seed();
+      need(c.mode == 0 || c.mode == 1, n, "mode must be 0 (force) or 1 (binary)");
+      need(c.f_max > 0 && std::isfinite(c.f_max), n, "f_max must be finite and > 0");
+      need(c.noise_std >= 0 && std::isfinite(c.noise_std), n, "noise_std must be finite and >= 0");
+      need(std::isfinite(c.hys_on) && c.hys_off >= 0 && c.hys_on >= c.hys_off && c.hys_on < c.f_max, n,
+           "need 0 <= hysteresis_off <= hysteresis_on < f_max");
+      need(c.debounce_s >= 0 && std::isfinite(c.debounce_s), n, "debounce_s must be finite and >= 0");
+      need(c.rate_hz > 0 && std::isfinite(c.rate_hz), n, "rate_hz must be > 0");
+      slot(Devices::Slot::foot, static_cast<int>(dv.foot.cfg.size()));
+      dv.foot.cfg.push_back(std::move(c));
+    }
   if (dv.slots.empty()) throw std::runtime_error("napl.devices: no devices declared");
 
   // Initial state. RNG stream k uses the device's flat slot index (battery, psu, wire, load, esc order).
@@ -873,6 +928,18 @@ Devices parse(const std::string& json) {
     RainState s{};
     s.rate = c.rate0;
     dv.rain.st.push_back(s);
+  }
+  for (const QddCfg& c : dv.qdd.cfg) {  // no RNG stream: ideal encoder, no noise
+    QddState s{};
+    s.temp = c.motor.t_amb;
+    s.derate = 1.0;
+    dv.qdd.st.push_back(s);
+  }
+  for (const FootContactCfg& c : dv.foot.cfg) {  // streams after every older slot: their streams are unchanged
+    FootContactState s{};
+    s.pend = -1.0;
+    s.rng.seed(seed_of(c.seed, top, k++));
+    dv.foot.st.push_back(s);
   }
   if (!dv.sea.cfg.empty()) dv.sea.st[0].eta0 = sea_eta(dv, 0.0, 0.0);
   return dv;
@@ -1012,6 +1079,25 @@ void bind(mjModel* m, Devices& dv) {
     c.body = m->site_bodyid[c.sid];
     c.period = period_of(c.meta.name, "rate_hz", c.rate_hz, "sample");
   }
+  for (QddCfg& c : dv.qdd.cfg) {
+    const std::string& n = c.meta.name;
+    c.jnt = hinge(n, c.joint);
+    if (!used.insert(c.jnt).second) fail(n, "joint '" + c.joint + "' is already driven by another device");
+    c.dof = m->jnt_dofadr[c.jnt];
+    c.qadr = m->jnt_qposadr[c.jnt];
+    c.period = period_of(n, "cmd_hz", c.cmd_hz, "command sample");
+    const double dly = c.latency_s / m->opt.timestep;
+    c.delay = static_cast<int>(std::lround(dly));
+    if (std::abs(dly - c.delay) > 1e-9 * std::max(1.0, dly))
+      fail(n, "latency_s " + std::to_string(c.latency_s) + " gives " + std::to_string(dly) + " ticks at the model timestep; need an integer");
+    if (c.delay / c.period > kQddRing - 2)
+      fail(n, "latency_s is more than " + std::to_string(kQddRing - 2) + " command periods");
+  }
+  for (FootContactCfg& c : dv.foot.cfg) {
+    c.gid = mj_name2id(m, mjOBJ_GEOM, c.geom.c_str());
+    if (c.gid < 0) fail(c.meta.name, "geom '" + c.geom + "' not found in the model");
+    c.period = period_of(c.meta.name, "rate_hz", c.rate_hz, "sample");
+  }
   // Only after every check passed: model edits. SET (not added), so rebinding a reloaded / recompiled model is
   // idempotent. The rotor inertia of an ESC motor is the dof armature (N = 1); a servo reflects it to the gear output:
   // J_rotor N^2, large next to the load.
@@ -1027,7 +1113,11 @@ void bind(mjModel* m, Devices& dv) {
   // inertia from dof_M0, and dof_invweight0 is MuJoCo's reference weight of limit / friction constraints (with the
   // stale value a servo's joint limit or backlash stop came out ~60x too soft). Refresh every qpos0-derived constant
   // with mj_setConst on a scratch mjData: a pure function of the model, so idempotent, exactly what compile does.
-  if (!dv.esc.cfg.empty() || !dv.servo.cfg.empty()) {
+  for (const QddCfg& c : dv.qdd.cfg) {  // like a servo: rotor inertia reflected to the output; the FOC loop owns the damping (none)
+    m->dof_armature[c.dof] = c.motor.inertia * c.n * c.n;
+    m->dof_damping[c.dof] = 0;
+  }
+  if (!dv.esc.cfg.empty() || !dv.servo.cfg.empty() || !dv.qdd.cfg.empty()) {
     mjData* scratch = mj_makeData(m);
     if (!scratch) throw std::runtime_error("napl.devices: mj_makeData failed while refreshing model constants");
     mj_setConst(m, scratch);
@@ -1099,6 +1189,7 @@ void step(mjModel* m, mjData* d, Devices& dv) {
     dv.servo.st[i].omega = dv.servo.cfg[i].n * dv.servo.st[i].velocity;
   }
   solve_electrical(dv, dt);
+  step_qdd(m, d, dv);  // QDD actuators: FOC limits at this tick's bus voltage, torque, thermal, bus current for the next solve
 
   // 4. motors (drive_motor above).
   for (std::size_t e = 0; e < dv.esc.cfg.size(); ++e)
@@ -1130,6 +1221,7 @@ void step(mjModel* m, mjData* d, Devices& dv) {
   // 6. post-step hook: sensors sample the derived data of s_k (sensors.cpp).
   sample_sensors(m, d, dv);
   sample_ranges(m, d, dv);
+  sample_feet(m, d, dv);
 }
 
 // ---- state block ----
@@ -1158,6 +1250,8 @@ template <class D, class F> void for_groups(D& dv, F&& f) {
   f(dv.vane);
   f(dv.wfield);
   f(dv.rain);
+  f(dv.qdd);
+  f(dv.foot);
 }
 template <class G> constexpr bool pod_ok = std::is_trivially_copyable_v<typename G::State> && sizeof(typename G::State) % 8 == 0;
 }  // namespace
@@ -1309,6 +1403,17 @@ constexpr Attr<RainState> kRain[] = {{"rate", "mm/h", &RainState::rate, true, fa
                                      {"thrust_loss", "1", &RainState::thrust_loss}};
 constexpr Attr3<RainState> kRain3[] = {{"force", "N", &RainState::force}};
 
+// Qdd (qdd.cpp): MIT-mode command inputs, encoder / torque / thermal outputs. Setting any input stamps the CAN frame time (set()).
+constexpr Attr<QddState> kQdd[] = {
+    {"p_des", "rad", &QddState::p_des, true, false, -1e6, 1e6}, {"v_des", "rad/s", &QddState::v_des, true, false, -1e4, 1e4},
+    {"kp", "N*m/rad", &QddState::kp, true, false, 0, 1e5}, {"kd", "N*m*s/rad", &QddState::kd, true, false, 0, 1e4},
+    {"tau_ff", "N*m", &QddState::tau_ff, true, false, -1e4, 1e4}, {"enable", "1", &QddState::enable, true, true, 0, 1},
+    {"q", "rad", &QddState::q}, {"dq", "rad/s", &QddState::dq}, {"tau_est", "N*m", &QddState::tau_est},
+    {"tau_cmd", "N*m", &QddState::tau_cmd}, {"i_q", "A", &QddState::i_q}, {"temp", "degC", &QddState::temp},
+    {"fault", "1", &QddState::fault}, {"bus_i", "A", &QddState::bus_i}, {"voltage", "V", &QddState::vbus},
+    {"derate", "1", &QddState::derate}, {"timeout", "1", &QddState::timeout}};
+constexpr Attr<FootContactState> kFoot[] = {{"force", "N", &FootContactState::force}, {"contact", "1", &FootContactState::contact}};
+
 template <class P> struct Found { P p; const char* unit; bool rw, bin; double lo, hi; std::size_t n = 1; };
 template <class D> auto locate(D& dv, int slot, const std::string& attr) {
   using P = std::conditional_t<std::is_const_v<D>, const double*, double*>;
@@ -1371,6 +1476,8 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
       break;
     }
     case Devices::Slot::rain: pick(kRain, dv.rain.st); pick3(kRain3, dv.rain.st); break;
+    case Devices::Slot::qdd: pick(kQdd, dv.qdd.st); break;
+    case Devices::Slot::foot: pick(kFoot, dv.foot.st); break;
     case Devices::Slot::range: {
       pick(kRange, dv.range.st);
       auto& img = dv.range_img[static_cast<std::size_t>(s.i)];
@@ -1405,6 +1512,8 @@ Result set(Devices& dv, int slot, const std::string& attr, std::span<const doubl
       return {Result::invalid_argument, "attr '" + attr + "' must be " + (f.bin ? "0 or 1" : "in [" + std::to_string(f.lo) + ", " + std::to_string(f.hi) + "]")};
   }
   std::copy(values.begin(), values.end(), f.p);
+  if (sl.type == Devices::Slot::qdd)  // every settable attr of a Qdd is a command field: the write is a received CAN frame
+    dv.qdd.st[static_cast<std::size_t>(sl.i)].rx_tick = static_cast<double>(dv.qdd.st[static_cast<std::size_t>(sl.i)].ticks);
   return {};
 }
 

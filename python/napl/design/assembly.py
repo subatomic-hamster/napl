@@ -85,6 +85,8 @@ DEVICE_TYPES = {
     "vessel",
     "rangefinder",
     "jet_vane",
+    "qdd",
+    "foot_contact",
 }
 UNITS = {
     "m": {"m": 1.0},

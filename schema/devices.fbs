@@ -460,6 +460,52 @@ table Rain {
   film_depth: double = 3e-4; film_tau: double = 20.0; collect_eff: double = 0.3;
 }
 
+// Quasi-direct-drive actuator in MIT mode over CAN (SP2, qdd.cpp): FOC motor + planetary gearbox on the gear OUTPUT hinge
+// `joint` (parent body = housing). motor: as the Servo (rotor_inertia is reflected: SET as the dof's armature J N^2; c_th /
+// r_th are the winding thermal model). No default for any physical parameter: a missing (0) gear_ratio / efficiency /
+// encoder_cpr / cmd_hz / i_limit / kp_max / kd_max / tau_ff_max / timeout_s / t_max fails the load.
+// Command (settable attrs p_des, v_des, kp, kd, tau_ff, enable) sampled at cmd_hz, applied after latency_s (an integer
+// number of ticks, checked at bind); each set of one of them counts as a received CAN frame (timeout bookkeeping).
+//   tau_cmd = clamp(kp,0,kp_max) (p_des - q_enc) + clamp(kd,0,kd_max) (v_des - dq) + clamp(tau_ff, +-tau_ff_max)
+// then the averaged FOC current and voltage limits (docs/models.md "Qdd"). No command frame for more than timeout_s while
+// enabled: timeout_mode 0 = damping, tau = kd_timeout (0 - dq); 1 = open (zero current).
+// Thermal: winding C_th dT/dt = i_q^2 R(T) - (T - T_amb) / R_th; the current limit is derated linearly from 1 at
+// derate_start to 0 at t_max, fault (latched, torque off) at T >= t_max; cleared by enable = 0 once T < t_max.
+table Qdd {
+  name: string (required); parts: [string];
+  node: int; joint: string (required);
+  motor: MotorParams (required);
+  gear_ratio: double;     // N > 0, motor turns per output turn
+  efficiency: double;     // eta in (0, 1], applied to the output torque in the drive direction only
+  encoder_cpr: int;       // output-encoder counts per revolution
+  cmd_hz: double;         // command sampling rate; 1 / (cmd_hz dt) integral
+  latency_s: double;      // CAN + driver latency, >= 0; latency_s / dt integral, latency_s <= 14 / cmd_hz
+  i_limit: double;        // > 0: phase (q-axis) current limit, A
+  kp_max: double; kd_max: double; tau_ff_max: double;  // limits of the commanded gains / feed-forward, > 0
+  timeout_s: double;      // > 0
+  timeout_mode: int;      // 0 damping, 1 open
+  kd_timeout: double;     // N m s/rad, mode 0: > 0
+  t_max: double;          // degC, fault temperature (> derate_start)
+  derate_start: double;   // degC
+}
+
+// Foot / tip contact sensor (SP2, contact.cpp) on a geom: `force` = normal force summed over ALL contacts of the geom
+// (N, from MuJoCo's solved contact forces), plus white noise noise_std (N), clipped to [0, f_max]. Sampled at rate_hz (held
+// between samples). `contact` is a comparator on `force` with hysteresis (on above hysteresis_on, off below hysteresis_off,
+// hysteresis_on >= hysteresis_off >= 0) and a debounce: a change of the comparator must persist for debounce_s before the
+// output follows. mode 0 = force sensor, 1 = binary switch (same outputs; mode is metadata for the part).
+table FootContact {
+  name: string (required); parts: [string];
+  geom: string (required);
+  mode: int;
+  f_max: double;
+  noise_std: double;
+  hysteresis_on: double; hysteresis_off: double;
+  debounce_s: double;
+  rate_hz: double;
+  seed: uint64;
+}
+
 table Devices {
   seed: uint64;           // top-level seed for per-device RNG streams
   batteries: [Battery]; psus: [Psu]; wires: [Wire]; loads: [Load]; escs: [Esc];
@@ -470,6 +516,8 @@ table Devices {
   jet_vanes: [JetVane];
   wind_fields: [WindField];
   rains: [Rain];
+  qdds: [Qdd];
+  foot_contacts: [FootContact];
 }
 
 root_type Devices;
