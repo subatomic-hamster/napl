@@ -111,6 +111,23 @@ Cost (hfbox, one 2001 x 2001 hfield, whole step): about 1500-2000 rays/s, indepe
 
 `napl.terrain.field(kind, size=100, res=0.05, seed)` (`python/napl/terrain_field.py`) makes 100 x 100 m at 5 cm of `rubble` (5-20 cm rock bumps plus boulder boxes), `slopes` (15-30 deg ramps, 10-18 cm steps), `scree` (small stones, low-friction patches) or `ruins` (wall maze with 0.6-1.6 m doors). `add_field(xml, f)` emits one hfield geom per 10 m patch (201 x 201, neighbours share their border row so there are no seams) and yaw-only box geoms. Per-patch `Material` (rock 0.8, gravel 0.55, grass 0.6, wet_rock 0.35, mud 0.25 sliding friction; every value `estimated`, sources in `MATERIALS`) sets `friction` and `solref` with `priority=1`, so the surface friction replaces the foot's instead of the MuJoCo max rule. `solref` 0.02-0.04 s, `solimp` default: the contact time constant of at least 10 timesteps at dt 2 ms, and a 12 kg dummy dog rests within 1 mm and does not tunnel at dt 1 and 2 ms on all four kinds. Ground truth: `f.height(x, y)` is the MuJoCo-triangulated hfield (cell diagonal `DIAG`) max the box tops, equal to a ray cast within 1 mm; `f.material_at(x, y)`. Same seed gives the same `digest()` across processes. Tests: `tests/python/test_terrain_field.py`.
 
+## Ground sim budget
+
+`tools/bench_ground.py` (hfbox, one 8-thread slot, dt 2 ms, 0.5 sim-s measured after a 0.3 s settle): a 12-Qdd / 4-foot-contact dummy dog with a rosette lidar (10 Hz, `max_range` 40 m, ray group 1 = terrain) on each 100 x 100 m kind. Sim-seconds per wall-second:
+
+| kind | layout | no lidar | 5k rays | 10k rays | 20k rays |
+|---|---|---|---|---|---|
+| rubble | 10 m patches | 61.36 | 1.27 | 0.65 | 0.32 |
+| rubble | one hfield | 73.58 | 0.48 | 0.24 | 0.12 |
+| slopes | 10 m patches | 37.45 | 0.13 | 0.06 | 0.03 |
+| slopes | one hfield | 41.73 | 0.02 | 0.01 | 0.00 |
+| scree | 10 m patches | 76.70 | 2.81 | 1.57 | 0.79 |
+| scree | one hfield | 100.69 | 0.67 | 0.34 | 0.17 |
+| ruins | 10 m patches | 53.29 | 4.56 | 2.45 | 1.26 |
+| ruins | one hfield | 48.47 | 4.74 | 2.50 | 1.29 |
+
+Reading: the dog physics is cheap (40-100x real time); the lidar is the cost, linear in rays/frame. 10 m patches are 2.6-4x faster than one hfield on relief (rubble, scree) and about 6x on slopes, equal on flat ruins. Slopes is the worst kind (long grazing rays over terraces); 20k rays/frame (the real Mid-360 point rate) is 0.03x real time there. Size Monte-Carlo runs on the 5k-rays patch column: 0.1x (slopes) to 4.6x (ruins) real time per core slot; budget the lidar rays per frame, not the dog.
+
 ## Tick order
 
 `devs::step` replaces `mj_step` for a model with devices, in this fixed order:
