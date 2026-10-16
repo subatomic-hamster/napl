@@ -14,7 +14,7 @@ outer_diameter = { value = 0.022, unit = "m", src = "S1", fidelity = "datasheet"
 width          = { value = 0.007, unit = "m", src = "S1", fidelity = "datasheet" }
 mass           = { value = 0.0122, unit = "kg", src = "S2", fidelity = "literature" }   # NSK 608 ZZ column
 price_eur      = { value = 0.70, unit = "EUR", src = "S1", fidelity = "datasheet" }   # single piece, 2026-10-11 (0.63 for 10-49)
-price_usd      = { value = 0.80, unit = "USD", fidelity = "derived", derivation = "0.70 EUR (S1, single piece; no VAT statement on the page) x an assumed 1.15 USD/EUR = 0.80 USD; exchange rate assumed, not looked up. Cross-check: a 10-pack at 8-11 USD in US listings (web search, 2026-10-11)." }
+price      = { value = 0.80, unit = "USD", fidelity = "derived", derivation = "0.70 EUR (S1, single piece; no VAT statement on the page) x an assumed 1.15 USD/EUR = 0.80 USD; exchange rate assumed, not looked up. Cross-check: a 10-pack at 8-11 USD in US listings (web search, 2026-10-11)." }
 
 [[ports]]
 name = "bore"

@@ -29,7 +29,7 @@ length            = { value = 0.0045, unit = "m", fidelity = "estimated", ration
 width             = { value = 0.0035, unit = "m", fidelity = "estimated", rationale = "TO-92 body about 3.5 mm deep (package standard)." }
 height            = { value = 0.0045, unit = "m", fidelity = "estimated", rationale = "TO-92 body about 4.5 mm tall above the leads (package standard)." }
 price_eur         = { value = 0.45, unit = "EUR", src = "S2", fidelity = "datasheet" }   # Tinytronics 3144 Hall Effect Sensor (compatible version of the A3144), incl. VAT, 2026-10-11
-price_usd         = { value = 0.52, unit = "USD", fidelity = "derived", derivation = "0.45 EUR incl. VAT (S2) x an assumed 1.15 USD/EUR = 0.52 USD; exchange rate assumed, not looked up." }
+price         = { value = 0.52, unit = "USD", fidelity = "derived", derivation = "0.45 EUR incl. VAT (S2) x an assumed 1.15 USD/EUR = 0.52 USD; exchange rate assumed, not looked up." }
 
 [[ports]]
 name = "power"

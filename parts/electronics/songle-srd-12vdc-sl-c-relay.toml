@@ -20,7 +20,7 @@ length          = { value = 0.0192, unit = "m", src = "S1", fidelity = "datashee
 width           = { value = 0.0156, unit = "m", src = "S1", fidelity = "datasheet" }
 height          = { value = 0.0158, unit = "m", src = "S1", fidelity = "datasheet" }
 mass            = { value = 0.010, unit = "kg", fidelity = "estimated", rationale = "Not on the LCSC page; sealed 10 A PCB relays of this size weigh about 10 g (typical)." }
-price_usd       = { value = 0.4421, unit = "USD", src = "S1", fidelity = "datasheet" }   # LCSC quantity 1, 2026-10-11; 177,407 in stock; shipping not included
+price       = { value = 0.4421, unit = "USD", src = "S1", fidelity = "datasheet" }   # LCSC quantity 1, 2026-10-11; 177,407 in stock; shipping not included
 
 [[geometry.shapes]]
 shape = "box"

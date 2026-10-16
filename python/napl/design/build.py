@@ -10,6 +10,7 @@ import numpy as np
 
 from . import visuals
 from .assembly import UNITS, Assembly, Ctx, Inst, load
+from .bom import bom
 from .devices import VEHICLE_GROUP, build_devices, resolve_wires, wire_points
 from .library import DesignError, Library
 from .mass import mesh_props, printed_mass, shape_volume
@@ -1044,6 +1045,7 @@ def compute(asm, parts_dir, out_dir, lib=None, visual=True, route=True):
         "targets": targets,
         "mirror_signs": mirror_signs,
     }
+    report["bom"] = bom(report, lib, asm.origins)
     if lib.errors:
         report["library_errors"] = len(lib.errors)
     return xml, report
@@ -1100,6 +1102,11 @@ def format_budget(report: dict) -> str:
         L.append(
             f"target {t['name']} ({t['scope']}): model {t['model']:.4f} vs {t['target']:.4f} kg, gap {t['gap']:+.4f} kg ({pct}), "
             f"tolerance {t['tolerance']:.4f} kg, {'within' if t['within'] else 'OUTSIDE'}, estimated share {t['estimated_share']:.2f}"
+        )
+    if (b := report.get("bom")) and b["total"]["cost"]:
+        L.append(
+            f"cost: {b['total']['cost']:.2f} USD (estimated share {b['total']['estimated_share']:.2f})"
+            + (f", no price: {', '.join(b['missing'])}" if b["missing"] else "")
         )
     for u in report["unresolved"]:
         L.append(f"unresolved: {u['where']}: {u['what']}")

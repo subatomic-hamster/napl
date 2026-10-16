@@ -20,7 +20,7 @@ diameter_compatible_round = { value = 0.0227, unit = "m", src = "S3", fidelity =
 caliber  = { value = 0.0222, unit = "m", src = "S1", fidelity = "literature" }   # the launcher device's pellet diameter (drag reference), same as `diameter`
 cd       = { value = 0.47, unit = "1", fidelity = "estimated", rationale = "Drag coefficient of a smooth sphere in the subcritical regime (Re = 30 m/s x 22.2 mm / 1.5e-5 m2/s = 4.4e4, Cd about 0.47, standard sphere-drag curve); the foam ball's surface roughness is not measured. docs/cuas-lite/spec.md 5.3 and python/napl/lite/sim_io.py BALL use the same 0.47." }
 price_per_100_usd ={ value = 14.99, unit = "USD", src = "S3", fidelity = "datasheet" }   # Worker Cheetah Rounds 100-pack, 2026-10-11, page showed 'Sold out'
-price_usd         = { value = 14.99, unit = "USD", src = "S3", fidelity = "datasheet" }   # one 100-round pack (BOM line)
+price         = { value = 14.99, unit = "USD", src = "S3", fidelity = "datasheet" }   # one 100-round pack (BOM line)
 
 [visual]
 src = "V1"

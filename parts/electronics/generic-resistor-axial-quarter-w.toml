@@ -18,7 +18,7 @@ mass        = { value = 0.0002, unit = "kg", fidelity = "estimated", rationale =
 length      = { value = 0.0063, unit = "m", fidelity = "estimated", rationale = "Typical body length of a 1/4 W axial resistor." }
 width       = { value = 0.0024, unit = "m", fidelity = "estimated", rationale = "Typical body diameter." }
 height      = { value = 0.0024, unit = "m", fidelity = "estimated", rationale = "Typical body diameter." }
-price_usd   = { value = 0.05, unit = "USD", fidelity = "estimated", rationale = "About 0.05 USD each in a 1/4 W assortment kit or a 100-pack from a hobby vendor (https://www.adafruit.com/product/2784 is the 1/4 W 5 % 10 k pack class); the listing was not fetched." }
+price   = { value = 0.05, unit = "USD", fidelity = "estimated", rationale = "About 0.05 USD each in a 1/4 W assortment kit or a 100-pack from a hobby vendor (https://www.adafruit.com/product/2784 is the 1/4 W 5 % 10 k pack class); the listing was not fetched." }
 
 # All four ports are signal-kind at port level (a resistor draws no modelled supply current: the pull-ups and dividers carry microamps to milliamps): the pin kinds of UP / DN still apply in the pin rules.
 [[ports]]

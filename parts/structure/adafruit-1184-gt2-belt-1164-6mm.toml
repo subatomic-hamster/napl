@@ -11,7 +11,7 @@ teeth        = { value = 582, unit = "1", src = "S1", fidelity = "datasheet" }
 pitch        = { value = 2e-3, unit = "m", src = "S1", fidelity = "datasheet" }
 width        = { value = 6e-3, unit = "m", src = "S1", fidelity = "datasheet" }
 loop_length  = { value = 1164e-3, unit = "m", src = "S1", fidelity = "datasheet" }
-price_usd    = { value = 9.95, unit = "USD", src = "S3", fidelity = "datasheet" }   # quantity 1-9, 2026-10-11; page marks the item 'No longer stocked'
+price    = { value = 9.95, unit = "USD", src = "S3", fidelity = "datasheet" }   # quantity 1-9, 2026-10-11; page marks the item 'No longer stocked'
 
 [params.mass]
 value = 0.00908

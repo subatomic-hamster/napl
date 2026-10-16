@@ -12,7 +12,7 @@ url = "https://www.adafruit.com/product/169"
 
 [params]
 mass            = { value = 0.009,   unit = "kg", src = "S1", fidelity = "datasheet" }
-price_usd       = { value = 5.95, unit = "USD", fidelity = "estimated", rationale = "Adafruit product 169 (https://www.adafruit.com/product/169) listed 5.95 USD for one on 2026-10-11; recorded as estimated because the page quote in S1 (taken 2026-10-07) does not contain the price. Alternative: MG90D metal-gear servo, Adafruit 1143, 9.95 USD, 13.4 g (not in the library)." }
+price       = { value = 5.95, unit = "USD", fidelity = "estimated", rationale = "Adafruit product 169 (https://www.adafruit.com/product/169) listed 5.95 USD for one on 2026-10-11; recorded as estimated because the page quote in S1 (taken 2026-10-07) does not contain the price. Alternative: MG90D metal-gear servo, Adafruit 1143, 9.95 USD, 13.4 g (not in the library)." }
 length          = { value = 0.023,   unit = "m",  src = "S1", fidelity = "datasheet" }
 width           = { value = 0.011,   unit = "m",  src = "S1", fidelity = "datasheet" }
 height          = { value = 0.029,   unit = "m",  src = "S1", fidelity = "datasheet" }
