@@ -270,6 +270,11 @@ void icon(ImDrawList* dl, Icon ic, ImVec2 c, float s, ImU32 col) {
       L(5, 6, 12, 12), L(5, 18, 12, 12), L(12, 12, 19, 12);
       dot(5, 6, 2.2f, true), dot(5, 18, 2.2f, true), dot(19, 12, 2.2f, true), dot(12, 12, 1.8f, false);
       break;
+    case Icon::Keys:  // a keyboard: outline, a row of keys, the space bar
+      rect(2, 6, 22, 18, false);
+      dot(6, 10, 1.1f, true), dot(10, 10, 1.1f, true), dot(14, 10, 1.1f, true), dot(18, 10, 1.1f, true);
+      L(7, 14.5f, 17, 14.5f);
+      break;
   }
 }
 

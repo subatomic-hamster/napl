@@ -40,7 +40,7 @@ bool button(const char* label, bool accent = false, ImVec2 size = {0, 0});
 // ---- icons ----------------------------------------------------------------------------------------------------------------
 enum class Icon {
   Select, Move, Rotate, Align, Mate, Colour, Measure, Undo, Redo, Wire, Pin, Auto, Check, Save, Eye, EyeOff, Fit, Home, Orbit, Pan,
-  Zoom, Search, Mirror, Copy, Trash, Play, Pause, Step, Cube, Add, Swap, Clear, Doc, Net,
+  Zoom, Search, Mirror, Copy, Trash, Play, Pause, Step, Cube, Add, Swap, Clear, Doc, Net, Keys,
 };
 // Draw `ic` centred at `c`, about `s` px square, stroke `col`.
 void icon(ImDrawList* dl, Icon ic, ImVec2 c, float s, ImU32 col);

@@ -25,6 +25,8 @@ Ops (args -> result):
       every pin label shown) with the canvas point `center` (default: the current middle) in the middle of the sheet; `seconds` glides
       there instead of jumping (a recorded pan / zoom)
   ui.wire_pick {instances: [..]}   the WIRING picker: tick exactly these components (all their power / signal terminals); the preview follows
+  ui.keys {open?: bool}   the controls popover (keys icon, top bar); no argument toggles
+  ui.report {layout: {..}}   the window's own report of what it shows (page, popover rows, status text, DRC chip, rects), kept in ui.state.layout
   ui.state {}  (the Backend.ui dict)      select {instances: [..], add?: bool}
   library.search {text, filters, category, limit, offset, type_ms?}   library.categories {}   library.ranges {category?}
   library.info {part}   library.targets {part}  (ghost poses on every open compatible port)
@@ -62,6 +64,8 @@ UI_TOOLS = {
     "ui.hover",
     "ui.program",
     "ui.state",
+    "ui.keys",
+    "ui.report",
     "select",
     "library.search",
     "library.categories",
@@ -241,6 +245,17 @@ class UiOps:
             return self._ok({"mode": a["name"]})
         if tool == "ui.state":
             return self._ok(dict(ui))
+        if (
+            tool == "ui.keys"
+        ):  # the top-bar controls popover (open: bool; absent = toggle)
+            ui["keys"] = bool(a.get("open", not ui["keys"]))
+            self._event(cmd="keys", open=ui["keys"])
+            return self._ok({"open": ui["keys"]})
+        if (
+            tool == "ui.report"
+        ):  # the window states what it shows (a test / agent hook: layout rects, popover rows, status text)
+            ui["layout"] = a.get("layout", {})
+            return self._ok()
         if tool == "ui.view":
             if a.get("tooltips", ui["tooltips"]) not in ("auto", "on", "off"):
                 raise DesignError("ui.view: tooltips is auto, on or off")

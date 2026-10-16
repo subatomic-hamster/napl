@@ -6,6 +6,7 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
+#include <imgui_internal.h>  // (the list of live windows, for ui.report)
 
 #include <algorithm>
 #include <chrono>
@@ -81,7 +82,7 @@ std::pair<int, int> design_action_args(const std::string& a) {
 // UI-only script actions (window state, no bus command, no editor needed): {min, max} argument counts; {-1, -1} = not one.
 std::pair<int, int> ui_action_args(const std::string& a) {
   static const std::map<std::string, std::pair<int, int>> t = {
-      {"mode", {1, 1}}, {"uisel", {1, 1}}, {"search", {1, 12}}, {"uicam", {1, 1}}, {"uiframe", {0, 0}}};
+      {"mode", {1, 1}}, {"uisel", {1, 1}}, {"search", {1, 12}}, {"uicam", {1, 1}}, {"uiframe", {0, 0}}, {"uikeys", {0, 1}}};
   const auto it = t.find(a);
   return it == t.end() ? std::pair<int, int>{-1, -1} : it->second;
 }
@@ -772,8 +773,10 @@ class Viewer {
     const auto counts = [](const design::Json& c) {
       return std::to_string(static_cast<int>(c.n("error"))) + " errors, " + std::to_string(static_cast<int>(c.n("warning"))) + " warnings";
     };
-    edit_summary_ = "DRC " + counts(drc.at("after")) + " (before: " + counts(drc.at("before")) + "); " + std::to_string(drc.at("new").arr.size()) +
-                    " new, " + std::to_string(drc.at("resolved").arr.size()) + " resolved";
+    // (only the delta is kept; the status bar prints the live counts in front of it and drops it once the findings have moved on)
+    edit_summary_ = "(before: " + counts(drc.at("before")) + "); " + std::to_string(drc.at("new").arr.size()) + " new, " +
+                    std::to_string(drc.at("resolved").arr.size()) + " resolved";
+    edit_errors_ = static_cast<std::size_t>(drc.at("after").n("error")), edit_warns_ = static_cast<std::size_t>(drc.at("after").n("warning"));
     static const design::Json none;
     const design::Json& ch = res.at("changes").arr.empty() ? none : res.at("changes").arr[0];
     const std::string op = ch.s("op");
@@ -1173,20 +1176,29 @@ class Viewer {
     int active = 0;
     for (std::size_t i = 0; i < modes.size(); ++i)
       if (modes[i] == mode_) active = static_cast<int>(i);
+    const float tabs_x0 = ImGui::GetCursorScreenPos().x;
     const int hit = theme::tabs(labels.data(), static_cast<int>(labels.size()), active);
+    rep_.tabs = {tabs_x0, 0, ImGui::GetCursorScreenPos().x - 26.f, kApp};  // (theme::tabs leaves the cursor one default gap past the last tab)
     if (hit >= 0) set_mode(mode_name(modes[hit]));
+    // right edge: [zoom] [keys] [undo redo save]; each piece stays left of the one to its right (rects exported in rep_)
+    const float quick_w = opts_.design_api ? 3 * 28.f : 0.f, keys_x = W - 12 - quick_w - 28;
+    rep_.zoom = {0, 0, 0, 0};
     if (mode_ == Mode::Wiring && flat_.zoom_percent() > 0) {  // the 2D canvas's zoom; a click fits the sheet in the window
       char z[16];
       std::snprintf(z, sizeof z, "%d%%", flat_.zoom_percent());
       ImGui::PushFont(nullptr, theme::kFontSmall);
       const ImVec2 ts = ImGui::CalcTextSize(z);
-      const float zx = W - 12 - 3 * 28 - 22 - ts.x;
+      const float zx = keys_x - 22 - ts.x;
       ImGui::SetCursorScreenPos({zx - 8, 6});
       if (ImGui::InvisibleButton("##wirezoom", {ts.x + 16, kApp - 12})) flat_.fit_view();
+      rep_.zoom = {zx - 8, 6, zx + ts.x + 8, kApp - 6};
       dl->AddText({zx, (kApp - ts.y) / 2}, theme::u32(ImGui::IsItemHovered() ? theme::kText : theme::kDim), z);
       ImGui::PopFont();
       ImGui::SetItemTooltip("zoom: click to fit the sheet");
     }
+    ImGui::SetCursorScreenPos({keys_x, 3});  // the controls popover (controls_popover, drawn after the page)
+    if (theme::icon_button("##qkeys", theme::Icon::Keys, 28, keys_open_, true, "controls: mouse and keys of this page (F1)")) keys_open_ = !keys_open_;
+    rep_.icon = {keys_x, 3, keys_x + 28, 31};
     if (opts_.design_api) {  // quick access (right): undo / redo / save
       using theme::Icon;
       float x = W - 12 - 3 * 28;
@@ -1409,9 +1421,15 @@ class Viewer {
     dl->AddText({12, y}, theme::u32(theme::kText), left.c_str());
     dl->PopClipRect();
     std::string msg = !dstatus_.empty() ? dstatus_ : !dstate_.build_error.empty() ? "does not build: " + dstate_.build_error : !status_.empty() ? status_ : dfut_.valid() && !dcur_.quiet ? "working: " + dcur_.kind + " ..." : "";
-    if (msg.empty() && !edit_summary_.empty()) msg = edit_summary_;
+    if (msg.empty() && !edit_summary_.empty()) {  // the last edit's DRC delta, headed by the same counts the chip shows
+      if (errors == edit_errors_ && warns == edit_warns_)
+        msg = "DRC " + std::to_string(errors) + " errors, " + std::to_string(warns) + " warnings " + edit_summary_;
+      else edit_summary_.clear();  // the findings moved on since that edit (another client, a rebuild, a pin-level wire): it is stale
+    }
+    status_msg_ = msg;
+    chip_errors_ = errors, chip_warns_ = warns;
     const bool bad = !dstatus_.empty() || !status_.empty() || !dstate_.build_error.empty();
-    const float mx = 12 + left_w + 24, avail = x - 12 - mx;  // (the controls of each page live in its legend, not here)
+    const float mx = 12 + left_w + 24, avail = x - 12 - mx;  // (the controls of each page live in the top bar's popover, not here)
     if (!msg.empty() && avail > 40) {
       if (ImGui::CalcTextSize(msg.c_str()).x > avail) {  // a message that does not fit gets an ellipsis
         while (msg.size() > 1 && ImGui::CalcTextSize((msg + "...").c_str()).x > avail) msg.pop_back();
@@ -1438,44 +1456,104 @@ class Viewer {
     if (pane_l_ > 0) browser_pane(ph);
     if (pane_r_ > 0) inspector_pane(W, ph);
     viewport_overlay();
-    controls_legend();
   }
 
-  // The BUILD controls, top-left of the viewport (the status bar no longer carries key hints); a click on the title folds it up.
-  void controls_legend() {
-    static const char* const rows[][2] = {{"drag", "orbit"},     {"right drag", "pan"},   {"wheel", "zoom"},          {"click", "select"},
-                                          {"G  R", "move, rotate"}, {"F", "frame selection"}, {"1-4", "front side top iso"}, {"Del", "remove"},
-                                          {"Ctrl+Z", "undo (+Shift redo)"}, {"Ctrl+D", "duplicate"}};
-    constexpr float kW = 214, kHead = 26, kRow = 17;
-    const float h = keys_open_ ? kHead + 6 + static_cast<float>(std::size(rows)) * kRow + 4 : kHead;
-    ImGui::SetNextWindowPos({vp_.x + 8, vp_.y + 8});
+  // The bindings of the current page: {key, effect}. (PROGRAM: the chords of program_ui.cpp's shortcut block and terminal; WIRING: the
+  // canvas bindings of wire2d.cpp canvas_ui; the others: viewport_layer / shortcuts here.)
+  struct KeyRow {
+    const char *key, *what;
+  };
+  std::vector<KeyRow> key_rows() const {
+    switch (mode_) {
+      case Mode::Build:
+        return {{"drag", "orbit"}, {"right drag", "pan"}, {"wheel", "zoom"}, {"click", "select"}, {"G  R", "move, rotate"}, {"F", "frame selection"},
+                {"1-4", "front side top iso"}, {"Del", "remove"}, {"Ctrl+Z", "undo (+Shift redo)"}, {"Ctrl+D", "duplicate"}};
+      case Mode::Library:
+        return {{"drag card", "drop in the 3D view"}, {"click card", "open the part"}, {"drag", "orbit the view"}, {"wheel", "zoom"}};
+      case Mode::Wiring:
+        return {{"drag pin", "wire to a pin"}, {"drag header", "move the card"}, {"wheel", "zoom"}, {"middle drag", "pan"},
+                {"click wire", "select it"}, {"Del", "remove the wire"}};
+      case Mode::Simulate:
+        return {{"drag", "orbit"}, {"right drag", "pan"}, {"wheel", "zoom"}};
+      case Mode::Program:
+        return {{"Ctrl+P", "open a file"},     {"Ctrl+S", "save"},         {"Ctrl+Shift+S", "save all"},      {"Ctrl+F", "find"},
+                {"Ctrl+H", "find, replace"},   {"Ctrl+G", "go to line"},   {"Ctrl+Shift+F", "find in files"}, {"F3", "next match (+Shift prev)"},
+                {"F12", "definition (python)"}, {"F2", "rename (python)"}, {"Ctrl+W", "close tab"},            {"Ctrl+Shift+T", "reopen tab"},
+                {"Ctrl+`", "terminal"},         {"Ctrl+L", "clear terminal"}};
+    }
+    return {};
+  }
+
+  // F1 toggles the popover, Esc closes it. Only when no text field has the keyboard: typing F1 / Esc in the PROGRAM editor, the
+  // terminal or the library search belongs to that field.
+  void popover_keys() {
+    esc_used_ = false;
+    if (ImGui::GetIO().WantTextInput) return;
+    if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) keys_open_ = !keys_open_;
+    else if (keys_open_ && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) keys_open_ = false, esc_used_ = true;
+  }
+
+  // The controls popover under the keys icon of the top bar (the legend that used to sit on the viewport). It is rebuilt every frame
+  // from key_rows(), so it always shows the page that is up. A click anywhere else closes it.
+  void controls_popover() {
+    rep_.pop = {0, 0, 0, 0};
+    if (!keys_open_) return;
+    const std::vector<KeyRow> rows = key_rows();
+    constexpr float kW = 270, kHead = 26, kRow = 17;
+    static const char* const names[] = {"BUILD", "LIBRARY", "WIRING", "SIMULATE", "PROGRAM"};
+    const float h = kHead + 6 + static_cast<float>(rows.size()) * kRow + 4;
+    const ImVec2 pos{std::max(4.f, rep_.icon.z - kW), kApp + 2};
+    ImGui::SetNextWindowPos(pos);
     ImGui::SetNextWindowSize({kW, h});
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0.03f, 0.04f, 0.055f, 0.88f});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0.03f, 0.04f, 0.055f, 0.94f});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.f);
-    ImGui::Begin("##vpkeys", nullptr, kPane | ImGuiWindowFlags_NoScrollbar);
+    ImGui::Begin("##keyspop", nullptr, kPane | ImGuiWindowFlags_NoScrollbar);
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 p = ImGui::GetWindowPos();
-    ImGui::SetCursorScreenPos(p);
-    if (ImGui::InvisibleButton("##keystoggle", {kW, kHead})) keys_open_ = !keys_open_;
-    ImGui::PushFont(nullptr, theme::kFontSmall);
     const ImU32 dim = theme::u32(theme::kDim);
-    dl->AddText({p.x + 10, p.y + 6}, dim, "CONTROLS");
-    const ImVec2 c{p.x + kW - 14, p.y + kHead / 2};
-    if (keys_open_) dl->AddTriangleFilled({c.x - 4, c.y - 2}, {c.x + 4, c.y - 2}, {c.x, c.y + 3}, dim);
-    else dl->AddTriangleFilled({c.x - 2, c.y - 4}, {c.x - 2, c.y + 4}, {c.x + 3, c.y}, dim);
-    if (keys_open_) {
-      float y = p.y + kHead + 6;
-      for (const auto& r : rows) {
-        dl->AddText({p.x + 10, y}, theme::u32(theme::kText), r[0]);
-        dl->AddText({p.x + 82, y}, dim, r[1]);
-        y += kRow;
-      }
+    dl->AddRect(pos, {pos.x + kW, pos.y + h}, theme::u32(theme::kLine), 6);
+    ImGui::PushFont(nullptr, theme::kFontSmall);
+    dl->AddText({pos.x + 10, pos.y + 6}, dim, (std::string("CONTROLS  ") + names[static_cast<int>(mode_)]).c_str());
+    float y = pos.y + kHead + 6;
+    for (const KeyRow& r : rows) {
+      dl->AddText({pos.x + 10, y}, theme::u32(theme::kText), r.key);
+      dl->AddText({pos.x + 100, y}, dim, r.what);
+      y += kRow;
     }
     ImGui::PopFont();
+    rep_.pop = {pos.x, pos.y, pos.x + kW, pos.y + h};
+    const ImVec2 mp = ImGui::GetIO().MousePos;
+    const bool on_icon = mp.x >= rep_.icon.x && mp.x <= rep_.icon.z && mp.y >= rep_.icon.y && mp.y <= rep_.icon.w;  // (the icon toggles it itself)
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !on_icon) keys_open_ = false;
     ImGui::End();
+  }
+
+  // What the window shows, as JSON for the backend (ui.report -> ui.state.layout): the page, the popover and its rows, the status
+  // text and the DRC chip, the rectangles of the top bar pieces and the live ImGui windows. Sent only when it changes. Tests and
+  // agents read it; nothing in the window depends on the answer.
+  void report_ui() {
+    if (!opts_.design_api) return;
+    const auto rect = [](const ImVec4& r) {
+      char b[96];
+      std::snprintf(b, sizeof b, "[%.1f,%.1f,%.1f,%.1f]", static_cast<double>(r.x), static_cast<double>(r.y), static_cast<double>(r.z), static_cast<double>(r.w));
+      return std::string(b);
+    };
+    std::string rows, wins;
+    if (keys_open_)
+      for (const KeyRow& r : key_rows()) rows += (rows.empty() ? "" : ",") + q(std::string(r.key) + " | " + r.what);
+    for (const ImGuiWindow* w : ImGui::GetCurrentContext()->Windows)
+      if (w->WasActive && w->Name[0] == '#') wins += (wins.empty() ? "" : ",") + q(w->Name);
+    char b[64];
+    std::snprintf(b, sizeof b, "{\"errors\":%zu,\"warnings\":%zu}", chip_errors_, chip_warns_);
+    const std::string j = "{\"page\":" + q(mode_name(mode_)) + ",\"keys\":" + (keys_open_ ? "true" : "false") + ",\"rows\":[" + rows + "],\"status\":" +
+                          q(status_msg_) + ",\"chip\":" + b + ",\"icon\":" + rect(rep_.icon) + ",\"tabs\":" + rect(rep_.tabs) + ",\"zoom\":" + rect(rep_.zoom) +
+                          ",\"popover\":" + rect(rep_.pop) + ",\"windows\":[" + wins + "],\"size\":[" + std::to_string(static_cast<int>(ImGui::GetIO().DisplaySize.x)) +
+                          "," + std::to_string(static_cast<int>(ImGui::GetIO().DisplaySize.y)) + "]}";
+    if (j == rep_sent_) return;
+    rep_sent_ = j;
+    dreq("uireport", design::request("ui.report", "{\"layout\":" + j + "}"), true);
   }
 
   // The left dock: BROWSER (the assembly tree: instances by group, mates, wires, devices, each instance with a visibility eye) and
@@ -2421,6 +2499,7 @@ class Viewer {
       dreq("search", [this] { return search_req(); }, true);
     }
     if (!opts_.clean) {
+      popover_keys();
       top_bar(W);
       ribbon_bar(W);
       switch (mode_) {
@@ -2432,6 +2511,8 @@ class Viewer {
       }
       status_bar(W, H);
       confirm_popup();
+      controls_popover();
+      report_ui();
     }
     if (!full_page_) viewport_layer(W, H, now);
     if (opts_.overlay && !full_page_) {
@@ -2677,6 +2758,7 @@ class Viewer {
   void shortcuts() {
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput || !opts_.design_api || mode_ == Mode::Program) return;  // (the PROGRAM page's editor owns the keyboard)
+    if (esc_used_) return;  // (that Esc closed the controls popover, see popover_keys)
     const bool ctrl = io.KeyCtrl;
     if (ctrl) {
       if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) d_undo(io.KeyShift);
@@ -2907,6 +2989,7 @@ class Viewer {
     const double now = ImGui::GetTime();
     log_line("ui " + cmd);
     if (cmd == "mode") set_mode(e.s("name"));
+    else if (cmd == "keys") keys_open_ = e.at("open").kind != design::Json::Bool || e.at("open").num != 0;
     else if (cmd == "program") {  // a source file in the PROGRAM page (text empty = back to the design TOML)
       prog_.show_external(e.s("name"), e.s("text"), e.at("scroll").kind == design::Json::Num ? static_cast<float>(e.at("scroll").num) : -1.f);
       if (mode_ != Mode::Program) set_mode("program");
@@ -3047,6 +3130,7 @@ class Viewer {
       lib_.dirty = true;
     } else if (c.action == "uicam") camera_preset(c.args[0]);
     else if (c.action == "uiframe") frame_selection();
+    else if (c.action == "uikeys") keys_open_ = c.args.empty() ? !keys_open_ : c.args[0] != "off";
   }
 
   void rebuild_scene() {
@@ -3152,7 +3236,14 @@ class Viewer {
   bool nav_pan_ = false;            // left-drag pans instead of orbiting (view cube panel)
   std::set<std::string> hidden_;    // instances switched off with the eye in the browser
   bool hidden_dirty_ = false;
-  bool keys_open_ = true;           // the BUILD controls legend (top-left of the viewport)
+  bool keys_open_ = false;          // the controls popover under the keys icon of the top bar
+  bool esc_used_ = false;           // this frame's Esc closed it (the shortcuts leave it alone)
+  struct Rep {                      // rectangles (x0 y0 x1 y1, window px) of the top bar pieces as drawn this frame; see report_ui
+    ImVec4 icon{0, 0, 0, 0}, tabs{0, 0, 0, 0}, zoom{0, 0, 0, 0}, pop{0, 0, 0, 0};
+  } rep_;
+  std::string rep_sent_, status_msg_;  // the last ui.report sent; the message the status bar showed
+  std::size_t chip_errors_ = 0, chip_warns_ = 0;  // the DRC chip's counts (status bar)
+  std::size_t edit_errors_ = 0, edit_warns_ = 0;  // the DRC counts after the last edit (what edit_summary_ describes)
   std::string geom_owner_key_;
   std::vector<std::string> geom_owner_;
   std::vector<GeomPose> hidden_poses_;
