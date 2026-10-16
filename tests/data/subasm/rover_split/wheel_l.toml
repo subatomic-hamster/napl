@@ -1,0 +1,41 @@
+# One drive-wheel module of assemblies/rover.toml (bracket, gearmotor, hub, tire) as a sub-assembly: the left wheel.
+[assembly]
+name = "wheel_l"
+description = "rover left drive module"
+
+[exports]
+ports = { seat = "bracket.base" }
+connectors = { motor_power = "motor.motor_power", encoder = "motor.encoder" }
+
+[[instances]]
+id = "bracket"
+part = "pololu-37d-bracket-machined-1995"
+root = true
+
+[[instances]]
+id = "motor"
+part = "pololu-37d-19-1-12v-4751"
+
+[[instances]]
+id = "hub"
+part = "pololu-hub-6mm-4-40-1083"
+
+[[instances]]
+id = "tire"
+part = "pololu-wheel-90x10mm-1436"
+
+[[mates]]
+name = "bracket--motor"
+a = "bracket.motor_face"
+b = "motor.mount"
+
+[[mates]]
+name = "wheel"
+a = "motor.shaft"
+b = "hub.bore"
+joint = { type = "hinge", spin = true }
+
+[[mates]]
+name = "hub--tire"
+a = "hub.wheel_seat"
+b = "tire.hub_seat"
