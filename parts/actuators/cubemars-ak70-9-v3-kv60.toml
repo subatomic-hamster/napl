@@ -9,8 +9,11 @@ url = "https://www.cubemars.com/product/ak70-9-v3-0-kv60-robotic-actuator.html"
 # Which end carries the output flange, and the flange/mounting hole patterns, are in CubeMars' drawings (not retrieved); ports below are opaque family tags.
 # Efficiency is NOT derivable: "Peak current" is DC bus current (ADC) and no gearbox efficiency is published.
 
+[mirror]
+symmetry = "xz"  # cylindrical body, connectors on the x axis (y = 0): the mirrored copy is the same part
+
 [params]
-mass               = { value = 0.540,   unit = "kg",     src = "S1", fidelity = "datasheet" }
+mass             = { value = 0.540,   unit = "kg",     src = "S1", fidelity = "datasheet" }
 body_diameter      = { value = 0.089,   unit = "m",      src = "S1", fidelity = "datasheet" }
 body_length        = { value = 0.049,   unit = "m",      src = "S1", fidelity = "datasheet" }
 gear_ratio         = { value = 9.0,     unit = "1",      src = "S1", fidelity = "datasheet" }
@@ -46,6 +49,10 @@ r_phase_equivalent_wye = { value = 0.2375, unit = "ohm", fidelity = "derived", d
 kt_output_ideal = { value = 1.431, unit = "N*m/A", fidelity = "derived", derivation = "KT_motor * N = 0.159 * 9 = 1.431 N*m per A (lossless gearbox). Check: 23.8 A * 1.431 = 34.1 N*m vs published 29.2 N*m peak (ratio 1.17; DC-bus current is not phase current, so only an approximate cross-check)." }
 j_reflected_output = { value = 7.017e-3, unit = "kg*m^2", fidelity = "estimated", rationale = "J_rotor * N^2 = 8.66307e-5 * 81. CubeMars does not state whether the published inertia is rotor-only or reflected; rotor-only is the usual convention for this field." }
 noload_speed_check = { value = 320.0, unit = "rpm", fidelity = "derived", derivation = "48 V * KV 60 / 9 = 320 rpm, matching the published no-load speed." }
+kv_output = { value = 6.667, unit = "rpm/V", fidelity = "derived", derivation = "KV 60 rpm/V (motor side) / N 9 = 6.667 rpm/V at the output." }
+kt_motor = { value = 0.15948, unit = "N*m/A", fidelity = "derived", derivation = "SI identity Kt = Ke (motor side); the published KT 0.159 agrees." }
+efficiency = { value = 0.855, unit = "1", fidelity = "derived", derivation = "eta = torque_peak / (kt_motor * N * current_peak) = 29.2 / (0.15948 * 9 * 23.8) = 0.855. Effective figure: gearbox loss lumped with the DC-bus-vs-phase current definition (see kt_output_ideal)." }
+price = { value = 398.90, unit = "USD", fidelity = "datasheet", src = "S3" }  # CubeMars product page, seen 2026-10-16, USD (US storefront), ex shipping; driver board standard
 
 [[ports]]
 name = "mount"
@@ -156,6 +163,13 @@ url = "https://www.cubemars.com/product/ak70-9-v3-0-kv60-robotic-actuator.html"
 title = "CubeMars AK70-9 V3.0 KV60 product page, Specification table and interface text"
 accessed = "2026-10-07"
 quote = "The black is the XT30 2+2 interface, combined the power cable and CAN signal cable into one, making the signal transmission safer and more reliable;The white is a CJT-3pin interface. Convenient for connecting to the upper computer to communicate and adjust parameters || Peak Torque (N·m)| 29.2| Driving Way| FOC| Peak Current (ADC)| 23.8| Operation Ambient Temperature| -20~50℃| No-Load Speed (RPM)| 320| Winding Type| Delta| KV (RPM/V)| 60| Insulation Level| C| KT (N·m/A)| 0.159| Insulation High-Voltage| 1000V 5mA/2s| KE (V/KRPM)| 16.7| Insulation Resistance| 1000V 10MΩ| Phase to Phase Resistance (Ω)| 0.475| Number Of Slots| 36| Phase to Phase Inductance | (mH)| 0.408| Pole Pairs| 21| Rotor Inertia (gcm²)| 866.307| Reduction Ratio| 9:1| Motor Constant (N·m/√W)| 0.23| Back Drive (N·m)| 0.8| Mechanical Time Constant (ms)| 1.7| Backlash (arcmin)| 18| Maximum Torque Density (N·m/kg)| 54| Temperature Sensor| NTC MF51B 103F3950| CAN Connector| XT30PW(2+2)-M| Noise dB| (65cm Away The Motor)| 50| UART Connector| A1257WR-S-3P| Basic Dynamic | Load Rating (CN)| 1890| Power Connector| XT30PW(2+2)-M| Basic Static| Load Rating (C₀N)| 2140| Inner Loop Encoder Type| Magnetic| Rated Voltage (V)| 48| Inner Loop Encoder Resolution| 21bit| Rated Torque (N·m)| 8.5| Outer Loop Encoder Type| Magnetic| Rated Speed (RPM)| 260| Outer Loop Encoder Resolution| 21bit| Rated Current (ADC)| 6.25| Number of Encoder| 2| Weight (g)| 540"
+
+[[sources]]
+id = "S3"
+url = "https://www.cubemars.com/product/ak70-9-v3-0-kv60-robotic-actuator.html"
+title = "CubeMars AK70-9 V3.0 KV60 product page, price"
+accessed = "2026-10-16"
+quote = "$398.90 (price shown beside the title AK70-9 V3.0 KV60; packing list: comes standard with a driver board; text from a page-fetch summary)"
 
 [[sources]]
 id = "S2"
