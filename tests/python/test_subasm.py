@@ -32,12 +32,14 @@ def port(name, gender, pos=(0, 0, 0)):
     }
 
 
-def write_part(parts, pid, params, ports):
+def write_part(parts, pid, params, ports, mirror="xz"):
     L = [f'id = "{pid}"', 'name = "t"', 'category = "misc"', 'vendor = "t"', "[params]"]
     L += [f"{k} = {_v(e)}" for k, e in {"mass": prm(0.1), **params}.items()]
     for p in ports:
         L += ["", "[[ports]]"] + [f"{k} = {_v(v)}" for k, v in p.items()]
     L += ["", "[geometry]", 'shape = "box"', "size = [0.05, 0.05, 0.05]"]
+    if mirror:
+        L += ["", "[mirror]", f'symmetry = "{mirror}"']
     parts.mkdir(parents=True, exist_ok=True)
     (parts / f"{pid}.toml").write_text("\n".join(L) + "\n")
 
@@ -56,6 +58,9 @@ def make_parts(tmp_path):
         ],
     )
     write_part(parts, "brk", {}, [port("base", "female"), port("out", "male")])
+    out2 = port("out", "male", (0, 0.03, 0.05))
+    write_part(parts, "brk2", {}, [port("base", "female"), out2])
+    write_part(parts, "nomirror", {}, [port("base", "female")], mirror=None)
     write_part(
         parts,
         "mot",

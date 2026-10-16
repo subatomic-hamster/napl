@@ -14,8 +14,15 @@ import re
 import tomllib
 from pathlib import Path
 
+import numpy as np
+
 from .library import DesignError
 
+PLANES = {  # reflection across the plane named by its axes (normal = the missing axis)
+    "yz": np.diag([-1.0, 1, 1]),
+    "xz": np.diag([1.0, -1, 1]),
+    "xy": np.diag([1.0, 1, -1]),
+}
 SUB_ID = re.compile(r"[A-Za-z0-9_-]+")
 EXPORT_KINDS = ("ports", "connectors", "params")
 
@@ -175,6 +182,8 @@ def expand(doc: dict, path, lib_ids=None, _stack=()):
     for sec in ("instances", "mates", "wires", "devices", "targets"):
         out.setdefault(sec, [])
     out.setdefault("device_maps", {})
+    n_mates, n_wires = len(out["mates"]), len(out["wires"])
+    own_root = next((i["id"] for i in doc.get("instances", []) if i.get("root")), None)
     origins: dict = {}
     exp: dict = {}  # sub id -> {"file", "ports": {}, "connectors": {}, "params": {}} (values already prefixed)
     seen = set()
@@ -184,10 +193,10 @@ def expand(doc: dict, path, lib_ids=None, _stack=()):
         if sid in seen:
             raise DesignError(f"duplicate sub-assembly id '{sid}'")
         seen.add(sid)
-        if s.get("mirror"):
+        if s.get("mirror") and s["mirror"] not in PLANES:
             raise DesignError(
-                f"sub-assembly '{sid}': mirror is not implemented yet"
-            )  # task 5
+                f"sub-assembly '{sid}': mirror is one of {sorted(PLANES)}, got {s['mirror']!r}"
+            )
         cpath = (path.parent / file).resolve()
         if cpath in stack:
             names = [q.name for q in stack[stack.index(cpath) :]] + [cpath.name]
@@ -243,6 +252,17 @@ def expand(doc: dict, path, lib_ids=None, _stack=()):
                     if k in s:
                         n[k] = copy.deepcopy(s[k])
             n["group"] = gmap(i.get("group", ""))
+            if (
+                "_mirror" in i
+            ):  # declared inside the child: its plane is in the child's root frame
+                m = i["_mirror"]
+                n["_mirror"] = {**m, "sub": p + m["sub"], "frame": p + m["frame"]}
+            if s.get("mirror"):
+                if "_mirror" in i:
+                    raise DesignError(
+                        f"sub-assembly '{sid}' ({file}) is mirrored and contains a mirrored sub-assembly: not supported"
+                    )
+                n["_mirror"] = {"plane": s["mirror"], "sub": sid, "frame": own_root}
             if "color" in s and "color" not in n:
                 n["color"] = copy.deepcopy(s["color"])
             out["instances"].append(n)
@@ -310,10 +330,12 @@ def expand(doc: dict, path, lib_ids=None, _stack=()):
             f"{where}: {ref!r} is not an export of {f} (exports: {', '.join(have) or 'none'})"
         )
 
-    for i, m in enumerate(out["mates"]):
+    for i, m in enumerate(
+        out["mates"][:n_mates]
+    ):  # the document's own; children's are done
         for k in ("a", "b"):
             m[k] = resolve(m[k], ("ports",), f"[[mates]] {i}")
-    for i, w in enumerate(out["wires"]):
+    for i, w in enumerate(out["wires"][:n_wires]):
         for k in ("from", "to"):
             w[k] = resolve(w[k], ("connectors", "ports"), f"[[wires]] {i}")
     ex = out.get("exports", {})

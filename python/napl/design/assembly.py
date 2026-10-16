@@ -11,7 +11,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from . import pins
+from . import pins, subasm
 from .library import DesignError, Library, Part
 
 FIDELITY = {"datasheet", "literature", "measured", "derived", "estimated"}
@@ -57,6 +57,7 @@ ALLOWED = {
         "pos",
         "rpy",
         "color",
+        "_mirror",  # set by subasm.expand on the instances of a mirrored sub-assembly; never written
     },
     "mates": {"name", "a", "b", "rotation", "fasteners", "nut", "joint", "closure"},
     "wires": {
@@ -379,7 +380,7 @@ def dumps(asm: Assembly) -> str:
             continue
         v = asm.raw[sec]
         if sec in ("assembly", "exports"):
-            out += ["[assembly]"] + [f"{_k(k)} = {_v(x)}" for k, x in v.items()] + [""]
+            out += [f"[{sec}]"] + [f"{_k(k)} = {_v(x)}" for k, x in v.items()] + [""]
         elif sec == "device_maps":
             for name, m in v.items():
                 out += (
@@ -405,6 +406,10 @@ def save(asm: Assembly, path) -> None:
 class Inst:
     def __init__(self, d: dict, part: Part):
         self.id, self.part = d["id"], part
+        self.orig_part = part  # as written; `part` is its opposite-hand part when the instance is mirrored
+        self.mirror = (
+            None  # {plane, sub, frame} (subasm.py) when inside a mirrored sub-assembly
+        )
         self.group = d.get("group", "")
         self.offboard = bool(d.get("offboard"))
         self.root = bool(d.get("root"))
@@ -433,7 +438,17 @@ class Ctx:
         )  # `from = "inst.CONN.PIN"` -> port + from_pins
         self.insts: dict[str, Inst] = {}
         for d in self.doc["instances"]:
-            self.insts[d["id"]] = Inst(d, lib.get(d["part"]))
+            inst = Inst(d, lib.get(d["part"]))
+            inst.mirror = d.get("_mirror")
+            if inst.mirror and (opp := inst.orig_part.mirror.get("opposite")):
+                if opp not in lib.parts:
+                    raise DesignError(
+                        f"mirror: part {inst.orig_part.id} names opposite '{opp}', which is not in the library"
+                    )
+                inst.part = lib.get(
+                    opp
+                )  # the opposite-hand part stands in for the mirrored copy
+            self.insts[d["id"]] = inst
         self.estimated: list = []
         self.warnings: list = []
         self.unresolved: list = []

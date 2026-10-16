@@ -2569,6 +2569,24 @@ def _current_rules(ctx, net, units, servo_info, F, diag=None):
                 )
 
 
+def _mirror_rules(ctx, F):
+    """MIRROR_UNSUPPORTED: a part inside a mirrored sub-assembly that declares neither [mirror] symmetry nor opposite."""
+    from .subasm import PLANES
+
+    for iid, inst in ctx.insts.items():
+        if inst.mirror and inst.orig_part.mirror_plane() not in PLANES:
+            _add(
+                F,
+                "MIRROR_UNSUPPORTED",
+                "error",
+                f"instance '{iid}' (part {inst.orig_part.id}) is in mirrored sub-assembly '{inst.mirror['sub']}' but the part "
+                "declares no [mirror] symmetry / opposite",
+                [iid],
+                f'add a [mirror] table to {inst.orig_part.id} (symmetry = "xz" | "yz" | "xy", or opposite = "<part-id>"), '
+                "or do not mirror this sub-assembly",
+            )
+
+
 # ---- driver ----------------------------------------------------------------------------------------------------------------------
 def _guard(F, name, fn, *a):
     try:
@@ -2602,6 +2620,7 @@ def check(asm, lib=None, *, model=None, mesh_base=None, diag=None) -> list:
     wires = _guard(F, "wires", _wires, ctx, F) or []
     net = _guard(F, "nets", _Net, ctx, wires)
     _guard(F, "pins", pin_rules, ctx, F, _add)
+    _guard(F, "mirror", _mirror_rules, ctx, F)
     if net:
         _guard(F, "voltage", _voltage_rules, ctx, net, F)
         _guard(F, "topology", _topology_rules, ctx, net, F)

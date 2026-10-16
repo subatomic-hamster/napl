@@ -64,6 +64,35 @@ def test_insert_override_save_reload(tmp_path):  # Review Focus 5
     assert "params" not in d.asm.raw["subassemblies"][0]
 
 
+def test_four_legs_two_mirrored_and_mirror_op(tmp_path):
+    d, parts, b = chassis(tmp_path)
+    for sid, port in PORTS:
+        call(
+            b,
+            "sub.insert",
+            file="leg.toml",
+            id=sid,
+            mate={"a": f"plate.{port}", "export": "mount"},
+            **({"mirror": "xz"} if sid in ("fr", "br") else {}),
+        )
+    d.save()
+    assert d.asm.raw["subassemblies"][1]["mirror"] == "xz"
+    assert d.build()["report"]["mirror_signs"] == {}  # no hinge in this leg
+    # sub.mirror: a mirrored copy of fl hung on another mount; toggling clears / sets the flag
+    d2 = Design.open(tmp_path / "dog.toml", parts)
+    b2 = Backend(lambda: d2, tmp_path / "out2")
+    call(b2, "sub.override", id="fl", name="cable_len", value=CABLE)
+    r = call(b2, "sub.mirror", id="fr", plane="xz", toggle=True)
+    assert "mirror" not in d2.asm.raw["subassemblies"][1] and r["ok"]
+    r = call(b2, "sub.mirror", id="fl", plane="xz", new_id="fl_m")
+    assert d2.asm.raw["subassemblies"][-1] == {
+        "id": "fl_m",
+        "file": "leg.toml",
+        "mirror": "xz",
+        "params": {"cable_len": CABLE},
+    }
+
+
 def test_bad_ops_change_nothing(tmp_path):
     d, parts, b = chassis(tmp_path)
     insert_legs(b)
