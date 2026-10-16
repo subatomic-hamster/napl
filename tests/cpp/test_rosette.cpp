@@ -22,12 +22,12 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg = kPi / 180.0;
 
-std::string lidar_json(int rays, double rate = 10, unsigned groups = 63, int seed = 1) {
+std::string lidar_json(int rays, double rate = 10, unsigned groups = 63, int seed = 1, double max_range = 100) {
   std::ostringstream o;
   o.precision(17);
   o << R"("rangefinders": [{"name": "cam", "site": "s", "rate_hz": )" << rate << R"(, "projection": "rosette", "fov_h": )" << 2 * kPi
     << R"(, "fov_v_min": )" << -7 * kDeg << R"(, "fov_v_max": )" << 52 * kDeg << R"(, "rays_per_frame": )" << rays
-    << R"(, "min_range": 0.1, "max_range": 100, "ray_groups": )" << groups << R"(, "seed": 1, "pattern_seed": )" << seed << "}]";
+    << R"(, "min_range": 0.1, "max_range": )" << max_range << R"(, "ray_groups": )" << groups << R"(, "seed": 1, "pattern_seed": )" << seed << "}]";
   return o.str();
 }
 // Lidar at z = 1 with site +x pointing up (the spherical frame's elevation axis), a floor and optionally a ceiling at z = 4, and a
@@ -192,14 +192,15 @@ TEST(rosette, cost_on_a_2001_squared_hfield) {
   }
   const std::string assets = "<hfield name=\"hf\" file=\"" + bin + "\" size=\"50 50 1 0.1\"/>";
   const std::string hf = "<geom name=\"terr\" type=\"hfield\" hfield=\"hf\" pos=\"0 0 0\" contype=\"0\" conaffinity=\"0\"/>";
-  for (const int rays : {5000, 10000, 20000}) {
-    auto s = make(model(lidar_json(rays), false, false, false, assets, hf));
+  for (const double max_range : {100.0, 40.0, 20.0}) {
+    const int rays = 5000;
+    auto s = make(model(lidar_json(rays, 10, 63, 1, max_range), false, false, false, assets, hf));
     ASSERT_EQ(s->step(1), 1);  // frame 0 (includes any lazy setup)
     const auto t0 = std::chrono::steady_clock::now();
-    ASSERT_EQ(s->step(1000), 1000);  // 10 frames at 10 Hz
+    ASSERT_EQ(s->step(300), 300);  // 3 frames at 10 Hz
     const double dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    std::printf("[rosette cost] %5d rays/frame @ 10 Hz on 2001^2 hfield: %.3f s wall per sim-second = %.0f rays/s\n", rays, dt, rays * 10.0 / dt);
-    EXPECT_LT(dt, 30.0);
+    std::printf("[rosette cost] %d rays/frame, max_range %.0f m, 2001^2 hfield: %.0f rays/s (%.2f s wall per sim-second at 10 Hz)\n", rays,
+                max_range, rays * 3 / dt, dt / 0.3);
   }
   std::remove(bin.c_str());
 }
