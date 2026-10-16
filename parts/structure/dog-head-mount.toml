@@ -1,0 +1,49 @@
+id = "dog-head-mount"
+name = "Dog head mount (3D printed PLA): Mid-360 seat tilted nose-down 25 degrees plus D435i shelf"
+category = "frame.printed"
+vendor = "napl dog (own design)"
+part_number = "head_mount"
+url = "cad/dog/parts.py"
+
+# cad/dog/parts.py head_mount(). Frame: origin at the bottom centre of the base plate, +x forward. The Mid-360 seat is tilted nose-down by TILT_DEG = 25 degrees (env DOG_LIDAR_TILT): the lidar's lower FOV edge (-7 deg) then looks 32 deg below the horizon
+# (geometry in docs/dog/actuator-study.md). Symmetric about the XZ plane.
+
+[mirror]
+symmetry = "xz"
+
+[params]
+infill_fraction = { value = 0.3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
+layer_height    = { value = 0.0002, unit = "m", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
+nozzle_diameter = { value = 0.0004, unit = "m", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
+wall_count      = { value = 3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
+lidar_tilt      = { value = 0.4363, unit = "rad", fidelity = "estimated", rationale = "25 deg nose-down: chosen so the ground is visible from about 0.8 m ahead of a 0.4 m high sensor (docs/dog/actuator-study.md, head geometry)." }
+mass            = { value = 0.1065, unit = "kg", fidelity = "derived", derivation = "Mesh volume 128.5 cm3 x PLA 1.24 g/cm3, shell + 30 % infill model, by cad/dog/build.py." }
+
+[geometry]
+shape = "mesh"
+mesh = "meshes/dog/dog-head-mount.stl"
+material = "pla"
+bbox_min = [-0.065, -0.05, 0.0]
+bbox_max = [0.07, 0.05, 0.06234]
+
+[[ports]]
+name = "origin"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Underside of the base plate: bolts to the chassis top with 4 x M3 at (+-55, +-40) mm."
+
+[[ports]]
+name = "lidar"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [-0.0045, 0.0, 0.0498]
+axis = [-0.4226183, 0.0, 0.9063078]
+ref = [0.9063078, 0.0, 0.4226183]
+symmetry = 1
+note = "Tilted seat face for the Mid-360 base (axis = seat normal, tilted 25 deg about y); position is the seat centre after the tilt (Pos(-10, 0, 40) + 3 mm half-thickness along the normal)."

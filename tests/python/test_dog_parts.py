@@ -45,3 +45,65 @@ def test_qdd_constants_reproduce_datasheet(rel):
     )
     assert p["params"]["price"]["unit"] == "USD" and v(p, "price") > 0
     assert p["mirror"]["symmetry"] in ("xy", "yz", "xz")
+
+
+PRICED = [  # purchased parts of the dog: a dated USD price (param `price`, or `price_per_m` for tube)
+    "electronics/livox-mid-360",
+    "electronics/livox-mid-360-splitter-cable",
+    "electronics/intel-realsense-d435i",
+    "electronics/sparkfun-gps-rtk-sma-16481",
+    "electronics/makerbase-mks-canable-v2-pro",
+    "electronics/pololu-d24v22f12",
+    "electronics/pololu-d24v22f5",
+    "electronics/daly-k-series-smart-bms-8s-60a",
+    "electronics/dog-power-distribution-board",
+    "propulsion/auline-21700-s70-8s1p-4500mah",
+    "connectors/cubemars-ak-v3-power-can-cable",
+    "structure/mcmaster-natural-rubber-ball-1-3-8in",
+    "structure/adafruit-1252-gt2-pulley-20t-8mm",
+    "structure/adafruit-1254-gt2-pulley-36t-8mm",
+    "structure/cf-tube-16x14",
+    *QDD,
+]
+
+
+@pytest.mark.parametrize("rel", PRICED)
+def test_dog_part_has_usd_price(rel):
+    p = load(rel)["params"]
+    e = p.get("price") or p["price_per_m"]
+    assert e["unit"] == "USD" and e["value"] > 0
+    assert e["fidelity"] in (
+        "datasheet",
+        "literature",
+        "measured",
+        "derived",
+        "estimated",
+    )
+
+
+HANDED = ["hip-housing", "thigh-bracket", "knee-drive-housing", "side-plate"]
+
+
+@pytest.mark.parametrize("base", HANDED)
+def test_printed_pairs_are_mirrors(base):
+    left, right = load(f"structure/dog-{base}-l"), load(f"structure/dog-{base}-r")
+    assert (
+        left["mirror"]["opposite"] == f"dog-{base}-r"
+        and right["mirror"]["opposite"] == f"dog-{base}-l"
+    )
+    lg, rg = left["geometry"], right["geometry"]
+    assert lg["bbox_min"][1] == pytest.approx(-rg["bbox_max"][1]) and lg["bbox_max"][
+        1
+    ] == pytest.approx(-rg["bbox_min"][1])
+    assert left["params"]["mass"]["value"] == pytest.approx(
+        right["params"]["mass"]["value"]
+    )
+    for g in (lg, rg):
+        assert (ROOT / g["mesh"]).stat().st_size > 1000
+
+
+@pytest.mark.parametrize("name", ["shank", "foot-core", "head-mount", "battery-tray"])
+def test_printed_singles_have_symmetry_and_mesh(name):
+    p = load(f"structure/dog-{name}")
+    assert p["mirror"]["symmetry"] in ("xy", "yz", "xz")
+    assert (ROOT / p["geometry"]["mesh"]).stat().st_size > 1000
