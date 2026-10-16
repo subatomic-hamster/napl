@@ -26,7 +26,7 @@ hfbox only), pytest (+xdist), hfbox via `tools/remote.sh`.
 ## Global Constraints
 
 - **Prerequisite:** branch `p12-ground` (SP2) is merged into `napl-v1` before Task 1 starts (Task 1 Step 1 checks it). Work in
-  worktree `../napl-wt/dog`, branch `p12-dog` from `napl-v1`, remote dir `/workspace/wt/napl-dog` (the orchestrator may assign
+  worktree `../napl-wt/dog`, branch `p12-dog` from `napl-v1`, remote dir `/workspace/wt/napl-skydio` (the orchestrator may assign
   another; then replace it in every command).
 - **GROUND names this plan depends on**, read from the in-progress branch `p12-ground` at `704f001` (`../napl-wt/ground`):
   `assembly.DEVICE_TYPES` gains `"qdd"`, `"foot_contact"`; `assembly.BARE_OK` gains `timeout_mode`, `mode`, `shape`; schema
@@ -44,7 +44,7 @@ hfbox only), pytest (+xdist), hfbox via `tools/remote.sh`.
   rationale}` (`assembly.py` docstring; bare only for `BARE_OK` keys). No physics defaults: every Qdd / FootContact field comes from
   a part param (device map) or a provenance-tagged `set`.
 - All compute on hfbox, laptop = edits + git only:
-  `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '<cmd>'` (add `--slots 2` for the sweep). First build of the
+  `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '<cmd>'` (add `--slots 2` for the sweep). First build of the
   worktree and after any merge: `cmake --preset dev && cmake --build --preset dev && PATH=/workspace/wt/napl/env/bin:$PATH
   UV_CACHE_DIR=/workspace/wt/napl/uv-cache tools/install_dev.sh`. Tests: `.venv/bin/pytest <files> -n 12`.
   `.venv/bin/python tools/check_parts.py` and `.venv/bin/python tools/check_licenses.py`: 0 problems at every commit that touches
@@ -137,7 +137,7 @@ def test_steadywin_part_feeds_every_qdd_field(rel):
 ```
 
 - [ ] **Step 3: run, expect FAIL** (`REF_FIELDS` lacks `qdd`; parts lack `kv` ...):
-  `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run 'cmake --preset dev && cmake --build --preset dev && PATH=/workspace/wt/napl/env/bin:$PATH UV_CACHE_DIR=/workspace/wt/napl/uv-cache tools/install_dev.sh && .venv/bin/pytest tests/python/test_dog_parts.py -n 12'`
+  `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run 'cmake --preset dev && cmake --build --preset dev && PATH=/workspace/wt/napl/env/bin:$PATH UV_CACHE_DIR=/workspace/wt/napl/uv-cache tools/install_dev.sh && .venv/bin/pytest tests/python/test_dog_parts.py -n 12'`
 
 - [ ] **Step 4: implement.** In `subasm.py` add `"qdd"` and `"foot_contact"` to `_TYPES` (and any other entry of
   `A.DEVICE_TYPES` still missing, e.g. `"rain"` if the merge added it there); their reference fields are covered by `_COMMON`
@@ -164,7 +164,7 @@ temp_derate_start = { value = 80.0, unit = "degC", fidelity = "estimated", ratio
 ```
 
 - [ ] **Step 5: run the tests and the checks, expect PASS / 0 problems:**
-  `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_parts.py tests/python/test_subasm.py -n 12 && .venv/bin/python tools/check_parts.py && .venv/bin/python tools/check_licenses.py'`
+  `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_parts.py tests/python/test_subasm.py -n 12 && .venv/bin/python tools/check_parts.py && .venv/bin/python tools/check_licenses.py'`
 - [ ] **Step 6: commit** `git add python/napl/design/subasm.py parts/actuators/steadywin-gim8108-8.toml parts/actuators/steadywin-gim6010-8.toml tests/python/test_dog_parts.py && git commit -m "subasm+parts: Qdd/FootContact in sub-assemblies, Qdd params on the SteadyWin actuators" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
 
 ### Task 2: CAD rework — leg chain with abduction, knee linkage cranks, bulkhead, compute tray, length variants
@@ -264,7 +264,7 @@ def test_knee_linkage_parts_replace_the_knee_housing():
         assert LIB.get(f"dog-shank{sfx}").value("lug_radius") / r1 == pytest.approx(1.5)
 ```
 
-- [ ] **Step 2: run, expect FAIL** (parts missing): `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_cad.py -n 12'`
+- [ ] **Step 2: run, expect FAIL** (parts missing): `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_cad.py -n 12'`
 - [ ] **Step 3: CAD.** In `cad/dog/params.py` add (mm; `[est]` = design estimate, final values are what makes the Task 7 DRC
   `INTERFERENCE` clean, recorded here):
 
@@ -357,8 +357,8 @@ def compute_tray():
   `for sy in (-1, 1): s += bx(P.KNEE_R2, 6, 12, x=-P.KNEE_R2 / 2, y=sy * 10); s -= cyl_y(5.3, 30, x=-P.KNEE_R2)`.
   `build.py` gains `--only NAME ...` (REGISTRY keys) and `--suffix S` (appended to every variant id, e.g. `-200`).
 - [ ] **Step 4: build on hfbox** (default L = 220, then the two length variants of thigh + shank):
-  `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run 'cad-venv/bin/python cad/dog/build.py --out build/cad/dog && DOG_L_THIGH=200 DOG_L_SHANK=200 cad-venv/bin/python cad/dog/build.py --out build/cad/dog-200 --only dog-thigh-bracket dog-shank --suffix -200 && DOG_L_THIGH=250 DOG_L_SHANK=250 cad-venv/bin/python cad/dog/build.py --out build/cad/dog-250 --only dog-thigh-bracket dog-shank --suffix -250'`
-  then `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh pull build/cad/dog build/cad/dog-200 build/cad/dog-250`, copy the
+  `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run 'cad-venv/bin/python cad/dog/build.py --out build/cad/dog && DOG_L_THIGH=200 DOG_L_SHANK=200 cad-venv/bin/python cad/dog/build.py --out build/cad/dog-200 --only dog-thigh-bracket dog-shank --suffix -200 && DOG_L_THIGH=250 DOG_L_SHANK=250 cad-venv/bin/python cad/dog/build.py --out build/cad/dog-250 --only dog-thigh-bracket dog-shank --suffix -250'`
+  then `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh pull build/cad/dog build/cad/dog-200 build/cad/dog-250`, copy the
   `napl/*.stl` into `meshes/dog/`, and read each `manifest.json` (Read) for volume, mass, bbox.
 - [ ] **Step 5: part TOMLs.** For every new / changed printed part write the TOML as the SP3a ones (header comment naming the CAD
   function, `[mirror]`, print params, `mass` derived from the manifest with the shell + infill derivation, `[geometry]` mesh +
@@ -370,7 +370,7 @@ def compute_tray():
   `tests/python/test_dog_parts.py` set `HANDED = ["hip-housing", "thigh-bracket", "side-plate"]` and add `"abad-mount"`,
   `"knee-crank"`, `"bulkhead"`, `"compute-tray"` to the singles list. Side plates: add a `top` port (frame.origin, on the
   inboard flange) only; their hip windows stay as lightening.
-- [ ] **Step 6: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_cad.py tests/python/test_dog_parts.py -n 12 && .venv/bin/python tools/check_parts.py && .venv/bin/python tools/check_licenses.py'`
+- [ ] **Step 6: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_cad.py tests/python/test_dog_parts.py -n 12 && .venv/bin/python tools/check_parts.py && .venv/bin/python tools/check_licenses.py'`
 - [ ] **Step 7: commit** `git add cad/dog parts/structure meshes/dog tests/python/test_dog_cad.py tests/python/test_dog_parts.py && git commit -m "cad+parts: dog leg chain with abduction, knee crank linkage, bulkhead, compute tray, 200/250 mm leg variants" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
 
 ### Task 3: bought and custom parts — knee rods + rod ends, contactor, leg hub, decks, Li-ion OCV, missing ports and prices
@@ -471,7 +471,7 @@ def test_custom_seat_mates_its_part(pp, pport, bp, bport):
   `structure/dog-deck-bottom-cf3`, `electronics/pololu-minimu-9-v6`, `electronics/ublox-ann-mb-00`,
   `electronics/generic-estop-22mm-nc`. (Use the e-stop's real panel-port name from its file in `DECK_SEATS`; `panel` is the
   expected name: if the file names it differently, use that name.)
-- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_parts.py -n 12'`
+- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_parts.py -n 12'`
 - [ ] **Step 3: research and write the parts** (real listings, dated USD prices, `[[sources]]` with quotes, as SP3a):
   - PHS5 (DIN ISO 12240-4 series K, female M5 rod end): static radial load from a catalogue (e.g. a PHS5 datasheet table), mass,
     price; `[mirror] symmetry = "xz"`.
@@ -491,7 +491,7 @@ def test_custom_seat_mates_its_part(pp, pport, bp, bport):
     paper's OCV fit / data table at 25 degC); the pack files keep `cells_series` 8.
   - Ports added to existing parts get their position from the source drawing / product photo cited in that file (fidelity
     `estimated` with a rationale where no drawing exists); the Jetson J12 / J5 pins already exist in its connector tables.
-- [ ] **Step 4: run, expect PASS + 0 problems:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_parts.py tests/python/test_dog_cad.py -n 12 && .venv/bin/python tools/check_parts.py && .venv/bin/python tools/check_licenses.py'`
+- [ ] **Step 4: run, expect PASS + 0 problems:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_parts.py tests/python/test_dog_cad.py -n 12 && .venv/bin/python tools/check_parts.py && .venv/bin/python tools/check_licenses.py'`
 - [ ] **Step 5: commit** `git add parts tests/python/test_dog_parts.py && git commit -m "parts: dog knee push rods + PHS5 rod ends, 100 A contactor, leg hub, CF decks, Li-ion OCV, base/USB/UART/I2C ports" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
 
 ### Task 4: `assemblies/dog/leg.toml` — the leg sub-assembly
@@ -566,7 +566,7 @@ def test_leg_qdds_come_from_the_part_and_the_knee_from_the_linkage(tmp_path):
     assert fc["name"] == "foot" and fc["geom"] == "foot_ball"
 ```
 
-- [ ] **Step 2: run, expect FAIL** (file missing): `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_leg.py -n 12'`
+- [ ] **Step 2: run, expect FAIL** (file missing): `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_leg.py -n 12'`
 - [ ] **Step 3: write `assemblies/dog/leg.toml`.** Header + structure (fill each `range` / `length` / `set` provenance from the
   Task 2-3 part files; the shape below is binding, the rationales are the worker's):
 
@@ -818,7 +818,7 @@ mode = 1
 set = { f_max = { value = 600.0, unit = "N", fidelity = "estimated", rationale = "VIRTUAL sensor: no foot sensor is fitted; this stands in for SP4's joint-torque contact estimate. Range above the ~250 N peak foot force of the study." }, noise_std = { value = 5.0, unit = "N", fidelity = "estimated", rationale = "Torque-based foot force estimates of QDD legs are good to a few N to ~10 N (Bledt et al., 2018, contact detection on MIT Cheetah 3); 5 N taken." }, hysteresis_on = { value = 30.0, unit = "N", fidelity = "estimated", rationale = "Touchdown above ~25 % of the static per-foot load (12 kg x g / 4 = 29 N)." }, hysteresis_off = { value = 15.0, unit = "N", fidelity = "estimated", rationale = "Half the on threshold." }, debounce_s = { value = 0.004, unit = "s", fidelity = "estimated", rationale = "Two 500 Hz control periods." }, rate_hz = { value = 500.0, unit = "Hz", fidelity = "estimated", rationale = "The estimator runs at the joint command rate (spec s6)." } }
 ```
 
-- [ ] **Step 4: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_leg.py -n 12'`.
+- [ ] **Step 4: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_leg.py -n 12'`.
   If the DRC reports another code that only an unpowered sub-assembly can have, add it to `STANDALONE_OK` with a one-line reason
   (never a mechanical, wiring or rating code).
 - [ ] **Step 5: commit** `git add assemblies/dog/leg.toml tests/python/test_dog_leg.py && git commit -m "assemblies/dog: leg sub-assembly (abduction, hip, knee linkage, Qdds, virtual foot contact, CAN/power hub)" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
@@ -890,7 +890,7 @@ def test_two_batteries_with_the_liion_curve():
     assert {b["ocv"] for b in bats.values()} == {"liion-cell-ocv-chen2020-lgm50"}
 ```
 
-- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_power.py -n 12'`
+- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_power.py -n 12'`
 - [ ] **Step 3: write `assemblies/dog/power.toml`.** Topology (header comment states it; every length a provenance table):
   - mates: `deck_bottom.tray_a` <- `tray_a.origin`, `tray_a.origin`... (each pack on its tray via the pack `base` port), BMS /
     PDB / contactor / both DC-DCs / e-stop on their deck seats.
@@ -910,7 +910,7 @@ def test_two_batteries_with_the_liion_curve():
     nominal; aux = (Mid-360 6.5 W + 12 V x contactor coil_current) / (efficiency x 29.6 V). The BMS FET on-resistance is not
     modelled (< 2 % of r_internal_pack; say so in the header).
   - root `deck_bottom` placed `pos = [0.0, 0.0, 0.2]` (bench only).
-- [ ] **Step 4: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_power.py -n 12'`
+- [ ] **Step 4: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_power.py -n 12'`
 - [ ] **Step 5: commit** `git add assemblies/dog/power.toml tests/python/test_dog_power.py && git commit -m "assemblies/dog: power module (2 x 8S1P + BMS in parallel, 100 A contactor on an e-stop coil loop, pre-contactor DC-DCs)" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
 
 ### Task 6: `assemblies/dog/head.toml` and `assemblies/dog/compute.toml`
@@ -1010,7 +1010,7 @@ def test_compute_wires_four_can_buses_and_the_sensors():
     assert {"power_in", "eth", "usb_cam", "can_fl", "can_fr", "can_rl", "can_rr"} <= set(ex)
 ```
 
-- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_head_compute.py -n 12'`
+- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_head_compute.py -n 12'`
 - [ ] **Step 3: write both files.** head: mates `head_mount.lidar` <- `lidar.base`, `head_mount.camera` <- `cam.mount`; lidar
   device `set` = `{ fov_h = {value = 6.283185, unit = "rad", ..datasheet from livox-mid-360}, fov_v_min, fov_v_max, min_range,
   max_range, rate_hz (10 Hz), rays_per_frame = "lidar.rays_per_frame_sim", pattern_seed }`, numbers from the Mid-360 part params
@@ -1022,7 +1022,7 @@ def test_compute_wires_four_can_buses_and_the_sensors():
   crossed TX->RX), I2C (MinIMU VIN/GND/SDA/SCL -> J12 1 / 6 / 3 / 5), `rtk_ant`; devices `imu` (copy the MinIMU-class map of an
   existing assembly or map from the part's own params) and `gnss` (RTK map as in `assemblies/skydio-land.toml`). Root `pos =
   [0.0, 0.0, 0.1]` (bench only).
-- [ ] **Step 4: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_head_compute.py -n 12'`
+- [ ] **Step 4: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_head_compute.py -n 12'`
 - [ ] **Step 5: commit** `git add assemblies/dog/head.toml assemblies/dog/compute.toml tests/python/test_dog_head_compute.py && git commit -m "assemblies/dog: head (Mid-360 rosette at 25 deg, D435i) and compute (Jetson, 4 CAN buses, IMU on I2C, RTK on UART)" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
 
 ### Task 7: `assemblies/dog/dog.toml` — chassis + 4 legs + head + power + compute, wiring, BOM, mass
@@ -1133,7 +1133,7 @@ def test_every_joint_stalls_at_its_datasheet_torque(built):  # Review Focus 2
 
   In `tests/python/test_wire_routing.py` change the `WIRED` definition's last line to
   `) + ["dog/dog"]` (the test builds `assemblies/<name>.toml`, so `"dog/dog"` resolves to `assemblies/dog/dog.toml`).
-- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_assembly.py -n 12'`
+- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_assembly.py -n 12'`
 - [ ] **Step 3: write `assemblies/dog/dog.toml`.** Header comment: world frame (x forward, y left, z up), the leg placement rule
   (front bulkhead: `fl` on `hip_l`, `fr` mirrored on `hip_r`; rear bulkhead is the same part turned 180 deg about z by
   `deck_top.bulk_r`, so its `hip_l` port lies at world -y: `rr` (unmirrored) on `bulk_r.hip_l`, `rl` (mirrored) on
@@ -1286,14 +1286,14 @@ value = { value = 12.0, unit = "kg", fidelity = "estimated", rationale = "Spec s
   `INTERFERENCE` between the abad cups, the packs and the trays; `WIRE_*`; voltage windows: the D24V22 `v_max` 36 V vs the
   33.6 V full pack is a WARNING at most, note regen spikes in the README).
 - [ ] **Step 4: README.** `assemblies/dog/README.md` (Write; numbers read from the hfbox build report, pulled with
-  `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/napl design build assemblies/dog/dog.toml --out build/dog' && NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh pull build/dog`):
+  `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/napl design build assemblies/dog/dog.toml --out build/dog' && NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh pull build/dog`):
   sub-assembly tree; decisions 1-8 of this plan with their numbers (belt tension, rod buckling margin, pack / BMS / contactor
   margins); the mass table per group and per sub-assembly vs the 12 kg target; the point-mass CoM and trunk inertia estimate
   (Sum m_i (|r_i|^2 I - r_i r_i^T) about the CoM, labelled an approximation for SP4 to identify); the BOM per sub-assembly and
   the line `BOM total (lower bound, wires excluded): N USD` vs the 3-4.5 k target with the estimated share, plus the cable /
   fastener allowance of the study (80 USD) as a separate estimated line; open items (precharge, GDS68 MIT protocol, linkage
   ratio variation, D24V22 36 V margin vs regen, no foot sensor hardware).
-- [ ] **Step 5: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_assembly.py tests/python/test_wire_routing.py -n 12'`
+- [ ] **Step 5: run, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_assembly.py tests/python/test_wire_routing.py -n 12'`
 - [ ] **Step 6: commit** `git add assemblies/dog/dog.toml assemblies/dog/README.md tests/python/test_dog_assembly.py tests/python/test_wire_routing.py && git commit -m "assemblies/dog: the dog (chassis, 4 legs mirrored/rotated, head, power, compute), pin-level wiring, BOM and mass" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
 
 ### Task 8: stand / squat sanity sim with joint PD on the Qdds + golden state hash
@@ -1387,7 +1387,7 @@ def test_stand_scenario_passes_replays_and_matches_golden(tmp_path):
     assert GOLDEN is None or res["sim"]["state_hash"] == GOLDEN, res["sim"]["state_hash"]
 ```
 
-- [ ] **Step 2: run, expect FAIL** (no `dogsim`): `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_stand.py -n 12'`
+- [ ] **Step 2: run, expect FAIL** (no `dogsim`): `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_stand.py -n 12'`
 - [ ] **Step 3: implement `examples/dog/dogsim.py`:**
 
 ```python
@@ -1582,10 +1582,10 @@ op = "always"
 lo = 24.0
 ```
 
-- [ ] **Step 4: run, expect PASS except `test_golden_is_recorded`:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_stand.py -n 12'`.
+- [ ] **Step 4: run, expect PASS except `test_golden_is_recorded`:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_stand.py -n 12'`.
   If `test_stance_is_symmetric` fails on the knee direction only, flip `KNEE_BACK`; any other failure is a mirror / port bug in
   Tasks 2-7: fix it there, never loosen the tolerances.
-- [ ] **Step 5: record the golden hash.** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/napl program examples/dog/stand.scenario.toml --runs-dir runs/dog-stand && cat runs/dog-stand/*/result.json'`;
+- [ ] **Step 5: record the golden hash.** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/napl program examples/dog/stand.scenario.toml --runs-dir runs/dog-stand && cat runs/dog-stand/*/result.json'`;
   copy `sim.state_hash` into `GOLDEN` (Edit), rerun Step 4: all PASS.
 - [ ] **Step 6: commit** `git add examples/dog tests/python/test_dog_stand.py && git commit -m "examples/dog: stand/squat sanity sim on the 12 Qdds (joint PD), symmetric-stance test, golden hash" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
 
@@ -1659,7 +1659,7 @@ def test_report_labels_every_column_and_is_deterministic(tmp_path):  # Review Fo
     assert outs[0]["points"] == outs[1]["points"]
 ```
 
-- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_sweep.py -n 12'`
+- [ ] **Step 2: run, expect FAIL:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_sweep.py -n 12'`
 - [ ] **Step 3: implement `tools/dog_sweep.py`** (key code; the measurement functions follow the docstring exactly):
 
 ```python
@@ -1770,15 +1770,17 @@ def write_variant(tmp, act, ratio, L, base="free"):
   sim-measured inputs)`; `bom` = build report; `sp4` = `not measured (SP4)`), the per-point table, the Pareto table, the chosen
   point, the honest gap to the 3.5 m/s criterion (spec s7) and to the 4.5 k USD target, the probe caveat, and the command line.
   Points run in `mp.Pool(args.jobs or int(os.environ.get("NAPL_THREADS", "1")))`, sorted by point for determinism.
-- [ ] **Step 4: run the tests, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_sweep.py -n 12'`
+- [ ] **Step 4: run the tests, expect PASS:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '.venv/bin/pytest tests/python/test_dog_sweep.py -n 12'`
 - [ ] **Step 5: full sweep on hfbox (whole box, background):**
-  `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh bg --slots 2 dogsweep '.venv/bin/python tools/dog_sweep.py --out build/dog-sweep --jobs 16'`;
-  follow with `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh log dogsweep 40`; when done
-  `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh pull build/dog-sweep`, Read `remote-out/build/dog-sweep/speed-sweep.md`
+  `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh bg --slots 2 dogsweep '.venv/bin/python tools/dog_sweep.py --out build/dog-sweep --jobs 16'`;
+  follow with `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh log dogsweep 40`; when done
+  `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh pull build/dog-sweep`, Read `remote-out/build/dog-sweep/speed-sweep.md`
   and `.json`, Write them to `docs/dog/speed-sweep.md` / `docs/dog/speed-sweep.json`. Add the chosen point and the Pareto table to
   `assemblies/dog/README.md`. If the chosen point is not candidate 1 (GIM8108-8, 1.5, 0.22): set it in `leg.toml` (part ids and
   `drive_ratio`; the CAD constant `KNEE_RATIO` and a regenerated crank / shank pair if the ratio changed), rerun Tasks 4-8 tests and
   re-record `GOLDEN` (Task 8 Step 5).
-- [ ] **Step 6: full regression, expect all green and every existing golden unchanged:**
-  `NAPL_REMOTE_DIR=/workspace/wt/napl-dog tools/remote.sh run --slots 2 'cmake --preset dev && cmake --build --preset dev && PATH=/workspace/wt/napl/env/bin:$PATH UV_CACHE_DIR=/workspace/wt/napl/uv-cache tools/install_dev.sh && ctest --preset dev --output-on-failure && .venv/bin/pytest tests/python -n 12 && .venv/bin/python tools/check_parts.py && .venv/bin/python tools/check_licenses.py'`
+- [ ] **Step 6: targeted regression (user rule: no full Python suite), expect all green:** the dog tests plus the files
+  covering shared code this plan touched (sub-assemblies, devices, wiring):
+  `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run 'cmake --build --preset dev && PATH=/workspace/wt/napl/env/bin:$PATH UV_CACHE_DIR=/workspace/wt/napl/uv-cache tools/install_dev.sh && .venv/bin/pytest tests/python/test_dog_*.py tests/python/test_subasm*.py tests/python/test_bom.py tests/python/test_wire_routing.py tests/python/test_qdd.py tests/python/test_foot_contact.py tests/python/test_design_devices_auto.py -n 8 && .venv/bin/python tools/check_parts.py && .venv/bin/python tools/check_licenses.py'`
+  (add `ctest --preset dev` only if C++ changed).
 - [ ] **Step 7: commit** `git add tools/dog_sweep.py tests/python/test_dog_sweep.py docs/dog/speed-sweep.md docs/dog/speed-sweep.json assemblies/dog && git commit -m "dog: speed sweep on the full model (stall, swing, push, jump, drop, hold; study bounds from measured inputs; SP4 gait slot)" -m "Claude-Session: https://claude.ai/code/session_01JZzeM8P1116bAsZtZ2j6h5"`
