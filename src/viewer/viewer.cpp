@@ -1505,12 +1505,14 @@ class Viewer {
     const ImVec2 pos{std::max(4.f, rep_.icon.z - kW), kApp + 2};
     ImGui::SetNextWindowPos(pos);
     ImGui::SetNextWindowSize({kW, h});
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0.03f, 0.04f, 0.055f, 0.94f});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4{0.03f, 0.04f, 0.055f, 1.f});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.f);
-    ImGui::Begin("##keyspop", nullptr, kPane | ImGuiWindowFlags_NoScrollbar);
+    // (not kPane: the docked panes must stay under it, so it keeps the default bring-to-front when it appears)
+    ImGui::Begin("##keyspop", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav);
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());  // (windows that appeared later this frame, or on a page switch, stay under it)
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImU32 dim = theme::u32(theme::kDim);
     dl->AddRect(pos, {pos.x + kW, pos.y + h}, theme::u32(theme::kLine), 6);
@@ -1544,7 +1546,7 @@ class Viewer {
     if (keys_open_)
       for (const KeyRow& r : key_rows()) rows += (rows.empty() ? "" : ",") + q(std::string(r.key) + " | " + r.what);
     for (const ImGuiWindow* w : ImGui::GetCurrentContext()->Windows)
-      if (w->WasActive && w->Name[0] == '#') wins += (wins.empty() ? "" : ",") + q(w->Name);
+      if (w->Active && w->Name[0] == '#') wins += (wins.empty() ? "" : ",") + q(w->Name);
     char b[64];
     std::snprintf(b, sizeof b, "{\"errors\":%zu,\"warnings\":%zu}", chip_errors_, chip_warns_);
     const std::string j = "{\"page\":" + q(mode_name(mode_)) + ",\"keys\":" + (keys_open_ ? "true" : "false") + ",\"rows\":[" + rows + "],\"status\":" +
@@ -2511,10 +2513,12 @@ class Viewer {
       }
       status_bar(W, H);
       confirm_popup();
+    }
+    if (!full_page_) viewport_layer(W, H, now);
+    if (!opts_.clean) {  // (last, so the popover is the top-most window; the report then sees every window of the frame)
       controls_popover();
       report_ui();
     }
-    if (!full_page_) viewport_layer(W, H, now);
     if (opts_.overlay && !full_page_) {
       OverlayCtx o;
       o.draw_list = ImGui::GetBackgroundDrawList();

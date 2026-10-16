@@ -4,6 +4,8 @@ status-bar DRC message that must follow the DRC chip. The window reports what it
 
 import json
 import os
+import threading
+import time
 from pathlib import Path
 
 import napl
@@ -86,8 +88,34 @@ def test_popover_replaces_the_build_overlay_and_follows_the_page(tmp_path):
 @needs_display
 @pytest.mark.gpu
 def test_narrow_window_icon_clears_the_tabs_and_the_wiring_zoom(tmp_path):
-    b, _ = run(tmp_path, "10 mode wiring; 20 uikeys on", 300, width=900, height=600)
-    r = [x for x in reports(b) if x["page"] == "wiring"][-1]
+    d = Design.open(X500)
+    b = Backend(lambda: d, tmp_path)
+    assert ask(b, "flatten.begin", {"instances": ["pdb", "bat"]})[
+        "ok"
+    ]  # a sheet on the canvas: the zoom label needs one
+    sim = napl.Sim.load(b.state(d)["xml"], host=True)  # (close_viewer needs a host Sim)
+
+    def closer():  # leave as soon as the zoom label has been reported (wall-clock polls make a frame count flaky)
+        t0 = time.time()
+        while time.time() - t0 < 60 and not any(
+            r["page"] == "wiring" and r["zoom"][2] > 0 and r["keys"] for r in reports(b)
+        ):
+            time.sleep(0.2)
+        time.sleep(0.5)
+        sim.close_viewer()
+
+    threading.Thread(target=closer, daemon=True).start()
+    sim.show(
+        script="10 mode wiring; 20 uikeys on",
+        width=900,
+        height=600,
+        design=b,
+    )
+    wiring = [x for x in reports(b) if x["page"] == "wiring"]
+    assert wiring, "no WIRING report"
+    shown = [x for x in wiring if x["zoom"][2] > 0]
+    assert shown, f"the Wiring zoom label was never shown; last report {wiring[-1]}"
+    r = shown[-1]
     assert r["size"][0] == 900
 
     def disjoint(a, c):
