@@ -7,6 +7,7 @@ url = "https://www.adafruit.com/product/1252"
 
 # Frame: origin on the bore axis at one end, +z along the axis. Overall length is not on this page (the 5 mm-bore sibling 1251 is 16 mm).
 [params]
+price = { value = 7.95, unit = "USD", src = "S1", fidelity = "datasheet" }  # Adafruit page, quantity 1, seen 2026-10-16; page marks the item 'No longer stocked'
 teeth           = { value = 20, unit = "1", src = "S1", fidelity = "datasheet" }
 bore_diameter   = { value = 8e-3, unit = "m", src = "S1", fidelity = "datasheet" }
 flange_diameter = { value = 16e-3, unit = "m", src = "S1", fidelity = "datasheet" }

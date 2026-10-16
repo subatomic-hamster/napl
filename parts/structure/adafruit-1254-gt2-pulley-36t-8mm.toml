@@ -8,6 +8,7 @@ url = "https://www.adafruit.com/product/1254"
 # Frame: origin on the bore axis at one end, +z along the axis. Overall length is not stated as such: '25.5mm x 16mm' is read as 25.5 mm outer
 # diameter by 16 mm length.
 [params]
+price = { value = 11.95, unit = "USD", src = "S1", fidelity = "datasheet" }  # Adafruit page, quantity 1-9, seen 2026-10-16; page marks the item 'No longer stocked'
 teeth           = { value = 36, unit = "1", src = "S1", fidelity = "datasheet" }
 bore_diameter   = { value = 8e-3, unit = "m", src = "S1", fidelity = "datasheet" }
 outer_diameter  = { value = 25.5e-3, unit = "m", src = "S1", fidelity = "datasheet" }

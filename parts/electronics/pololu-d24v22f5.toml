@@ -8,6 +8,7 @@ url = "https://www.pololu.com/product/2858"
 # Pololu publishes efficiency, dropout and max-current as graphs only (images, no table), so only the headline
 # range is recorded. Mass is not stated on the fetched page.
 [params]
+price = { value = 26.95, unit = "USD", src = "SP", fidelity = "datasheet" }  # Pololu list price for 1 unit seen 2026-10-16 (US, USD)
 length              = { value = 0.0178, unit = "m", src = "S1", fidelity = "datasheet" }
 width               = { value = 0.0178, unit = "m", src = "S1", fidelity = "datasheet" }
 height              = { value = 0.008, unit = "m", src = "S1", fidelity = "datasheet" }
@@ -83,6 +84,13 @@ url = "https://www.pololu.com/product/2858"
 title = "Pololu D24V22Fx step-down regulator product page, Connections"
 accessed = "2026-10-09"
 quote = "These buck regulators have five main connection points for five different electrical nodes: power good (PG), enable (EN), input voltage (VIN), ground (GND), and output voltage (VOUT). The board also features a second ground connection point off the main row of connections that might be convenient for applications where you are soldering wires directly to the board"
+
+[[sources]]
+id = "SP"
+url = "https://www.pololu.com/product/2858"
+title = "Pololu D24V22F5 product page (price, 2026-10-16)"
+accessed = "2026-10-16"
+quote = "Price break 1: 26.95 US$ (page fetch summary)"
 
 [[sources]]
 id = "S1"

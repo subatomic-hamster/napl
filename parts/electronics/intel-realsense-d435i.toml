@@ -9,6 +9,7 @@ url = "https://www.realsenseai.com/products/real-sense-depth-camera-d435i/"
 # Part frame: origin at the centre of the rear face, +z out of the front (the direction the depth camera looks), +x image up, y left.
 # The rangefinder device reads these: fov_h/fov_v, n_h/n_v, min_range, max_range, sigma (see napl docs/models.md).
 [params]
+price = { value = 399.0, unit = "USD", src = "SP", fidelity = "datasheet" }  # RealSense store list price seen 2026-10-16 (US, USD, ex tariff surcharge; page shows Out of Stock / Backorder)
 mass            = { value = 0.075, unit = "kg", src = "S1", fidelity = "datasheet" }
 width           = { value = 0.090, unit = "m", src = "S1", fidelity = "datasheet" }
 height          = { value = 0.025, unit = "m", src = "S1", fidelity = "datasheet" }
@@ -140,6 +141,13 @@ rationale = "Generic camera-module block from the [geometry] bounds (90 x 25 x 2
 
 [[visual.elements]]
 gen = "camera_module"
+
+[[sources]]
+id = "SP"
+url = "https://store.realsenseai.com/buy-intel-realsense-depth-camera-d435i.html"
+title = "RealSense store, D435i product page (price)"
+accessed = "2026-10-16"
+quote = "$399.00 (page fetch summary; marked Out of Stock / Backorder; a tariff surcharge applies to store orders from 2026-02-03)"
 
 [[sources]]
 id = "S1"
