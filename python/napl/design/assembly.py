@@ -128,6 +128,11 @@ class Assembly:
         ):  # no sub-assemblies: undo snapshots etc. replace the one document
             self.raw = v
 
+    def set_raw(self, raw: dict):
+        """Replace the unexpanded document and re-expand it (re-reads the child files). Raises DesignError, state unchanged."""
+        flat, origins = subasm.expand(raw, self.path)
+        self.raw, self._doc, self.origins, self._same = raw, flat, origins, flat is raw
+
     def __eq__(self, other):
         return isinstance(other, Assembly) and self.doc == other.doc
 

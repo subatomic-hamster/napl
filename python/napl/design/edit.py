@@ -10,6 +10,9 @@ ratings on power ports); the score weights below are choices, not physical data.
 
 import copy
 import difflib
+import hashlib
+import json
+import os
 import re
 import tempfile
 from dataclasses import dataclass, field
@@ -153,12 +156,25 @@ class EditResult:
 class Design:
     def __init__(self, asm: A.Assembly, lib: Library, path=None):
         self.asm, self.lib, self.path = asm, lib, path
+        if asm.path is None and path is not None:
+            asm.path = path  # sub-assembly files resolve against it
         PN.normalize_wires(asm.doc, lib)
         self._undo: list = []
         self._redo: list = []
         self._undo_notes: list = []  # one short line per undo / redo step (the viewer's HISTORY tab), kept in step with the stacks
         self._redo_notes: list = []
         self._findings = None
+        self._saved_hash = self._raw_hash()
+
+    def _raw_hash(self) -> str:
+        return hashlib.sha1(
+            json.dumps(self.asm.raw, sort_keys=True, default=str).encode()
+        ).hexdigest()
+
+    @property
+    def dirty(self) -> bool:
+        """True when the document differs from what was last loaded / saved (the viewer's per-document marker)."""
+        return self._raw_hash() != self._saved_hash
 
     # ---- open / save -------------------------------------------------------------------------------------------------
     @classmethod
@@ -192,15 +208,33 @@ class Design:
             raise DesignError(
                 "save: no path given and the design was not opened from a file"
             )
-        A.validate(self.doc)
+        A.validate(
+            self.asm.raw
+        )  # the document as written; the flat one was validated by edit()
         text = A.dumps(self.asm)
-        if A.loads(text) != self.asm:
+        if A.loads(text, p) != self.asm:
             raise DesignError(
                 "save: the TOML written does not read back equal (writer bug); nothing written"
             )
         p.write_text(text, encoding="utf-8")
         self.path = p
+        self._saved_hash = self._raw_hash()
+        if (
+            self.asm.path != p
+        ):  # saved elsewhere: relative sub-assembly files now resolve against the new place
+            self.asm.path = p
+            self.reload_children()
         return p
+
+    def reload_children(self) -> bool:
+        """Re-read every sub-assembly file from disk (a child edited and saved elsewhere) and re-flatten. -> True when the
+        flattened document changed. Undo history is kept; raises DesignError (and keeps the old state) on a bad child."""
+        if not self.asm.raw.get("subassemblies"):
+            return False
+        old = self.asm.doc
+        self.asm.set_raw(self.asm.raw)
+        self._findings = None
+        return self.asm.doc != old
 
     # ---- checks / build / simulate -----------------------------------------------------------------------------------
     def check(self) -> list:
@@ -1646,6 +1680,146 @@ class Design:
             self._copy_of(doc, src, f"{iid}-m", T, ch)
         return ch
 
+    # ---- sub-assemblies (subasm.py): ops edit the document as written; edit() re-flattens and validates ------------------
+    @staticmethod
+    def _sub(doc, sid):
+        subs = doc.get("subassemblies", [])
+        for s in subs:
+            if s["id"] == sid:
+                return s
+        raise DesignError(
+            f"unknown sub-assembly '{sid}'" + _didyoumean(sid, [s["id"] for s in subs])
+        )
+
+    def _op_sub_insert(self, doc, s) -> dict:
+        """sub_insert: file (relative to this design's file, or absolute), id, then mate = {a: '<inst>.<port>', export: '<port
+        export of the child>', name?} | pos / rpy (welded like a placed instance); optional mirror ('xz' | 'yz' | 'xy'), group, color."""
+        if self.asm.path is None:
+            raise DesignError(
+                "sub.insert: save the design first (sub-assembly files are relative to it)"
+            )
+        sid = s.get("id")
+        if not sid or not s.get("file"):
+            raise DesignError("sub.insert: needs id and file")
+        if sid in {x["id"] for x in doc.get("subassemblies", [])}:
+            raise DesignError(f"a sub-assembly '{sid}' already exists")
+        file = str(s["file"])
+        if Path(file).is_absolute():
+            file = os.path.relpath(file, Path(self.asm.path).resolve().parent)
+        ent = {"id": sid, "file": file}
+        for k in ("pos", "rpy", "mirror", "group", "color"):
+            if s.get(k) is not None:
+                ent[k] = s[k]
+        doc.setdefault("subassemblies", []).append(ent)
+        ch = {"op": "sub_insert", "id": sid, "file": file}
+        if m := s.get("mate"):
+            name = m.get("name") or f"{str(m['a']).partition('.')[0]}--{sid}"
+            if name in {x.get("name") for x in doc.get("mates", [])}:
+                raise DesignError(f"a mate named '{name}' already exists")
+            doc.setdefault("mates", []).append(
+                {"name": name, "a": m["a"], "b": f"{sid}:{m['export']}"}
+            )
+            ch["mate"] = name
+        return ch
+
+    def _op_sub_mirror(self, doc, s) -> dict:
+        """sub_mirror: id, plane ('xz' | 'yz' | 'xy'). Default: a mirrored copy '<id>_m' (same file / params / group; welded at the
+        reflected pos when the original has one; `to` = '<inst>.<port>' mates the copy's same export as the original's mate
+        to that port). toggle = true: flip the mirror of `id` itself (set it, or clear it when already that plane)."""
+        src, plane = self._sub(doc, s["id"]), s.get("plane")
+        if plane not in ("xz", "yz", "xy"):
+            raise DesignError("sub.mirror: plane is 'xz', 'yz' or 'xy'")
+        if s.get("toggle"):
+            if src.get("mirror") == plane:
+                del src["mirror"]
+            else:
+                src["mirror"] = plane
+            return {"op": "sub_mirror", "id": src["id"], "mirror": src.get("mirror")}
+        nid = s.get("new_id") or f"{src['id']}_m"
+        if nid in {x["id"] for x in doc["subassemblies"]}:
+            raise DesignError(f"a sub-assembly '{nid}' already exists")
+        if any(abs(float(x)) > 0 for x in src.get("rpy", ())):
+            raise DesignError(
+                "sub.mirror: a rotated (rpy) sub-assembly cannot be copied by reflection; mate the copy with `to`"
+            )
+        cp = copy.deepcopy(src)
+        cp.update(id=nid, mirror=plane)
+        if "pos" in cp:
+            ax = {"yz": 0, "xz": 1, "xy": 2}[plane]
+            cp["pos"][ax] = -cp["pos"][ax]
+        doc["subassemblies"].append(cp)
+        ch = {"op": "sub_mirror", "id": nid, "of": src["id"], "mirror": plane}
+        if s.get("to"):
+            mate = next(
+                (
+                    m
+                    for m in doc.get("mates", [])
+                    if str(m["b"]).startswith(src["id"] + ":")
+                ),
+                None,
+            )
+            if mate is None:
+                raise DesignError(
+                    f"sub.mirror: '{src['id']}' has no mate to copy; pass pos / use sub.insert"
+                )
+            name = f"{str(s['to']).partition('.')[0]}--{nid}"
+            doc.setdefault("mates", []).append(
+                {
+                    "name": name,
+                    "a": s["to"],
+                    "b": nid + mate["b"][len(src["id"]) :],
+                }
+            )
+            ch["mate"] = name
+        return ch
+
+    def _op_sub_override(self, doc, s) -> dict:
+        """sub_override: id, name (an exported param of the child), value (a provenance table; None removes the override)."""
+        sub = self._sub(doc, s["id"])
+        if s.get("value") is None:
+            sub.get("params", {}).pop(s["name"], None)
+            if not sub.get("params"):
+                sub.pop("params", None)
+        else:
+            sub.setdefault("params", {})[s["name"]] = s["value"]
+        return {"op": "sub_override", "id": s["id"], "name": s["name"]}
+
+    KINDS = {"port": "ports", "connector": "connectors", "param": "params"}
+
+    def _op_sub_export(self, doc, s) -> dict:
+        """sub_export: kind (port | connector | param), ref '<inst>.<x>' (or '<sub>:<export>'), name: adds it to [exports]."""
+        k = self.KINDS.get(s.get("kind"))
+        if k is None:
+            raise DesignError("sub.export: kind is port, connector or param")
+        name, ref = s.get("name"), s.get("ref", "")
+        if not name or not str(name).isidentifier():
+            raise DesignError("sub.export: name is a plain identifier")
+        head = ref.partition(".")[0]
+        if ":" not in head and head not in {i["id"] for i in doc["instances"]}:
+            raise DesignError(
+                f"sub.export: unknown instance '{head}'"
+                + _didyoumean(head, [i["id"] for i in doc["instances"]])
+            )
+        tab = doc.setdefault("exports", {}).setdefault(k, {})
+        if name in tab:
+            raise DesignError(f"sub.export: {s['kind']} export '{name}' exists")
+        tab[name] = ref
+        return {"op": "sub_export", "kind": s["kind"], "name": name, "ref": ref}
+
+    def _op_sub_unexport(self, doc, s) -> dict:
+        k = self.KINDS.get(s.get("kind"))
+        tab = doc.get("exports", {}).get(k or "", {})
+        if k is None or s.get("name") not in tab:
+            raise DesignError(
+                f"sub.unexport: no {s.get('kind')} export '{s.get('name')}'"
+            )
+        del tab[s["name"]]
+        if not tab:
+            del doc["exports"][k]
+        if not doc["exports"]:
+            del doc["exports"]
+        return {"op": "sub_unexport", "kind": s["kind"], "name": s["name"]}
+
     def _expand(self, ops):
         out = []
         for o in ops:
@@ -1674,13 +1848,19 @@ class Design:
             "device_map": self._op_device_map,
             "device": self._op_device,
             "target": self._op_target,
+            "sub_insert": self._op_sub_insert,
+            "sub_mirror": self._op_sub_mirror,
+            "sub_override": self._op_sub_override,
+            "sub_export": self._op_sub_export,
+            "sub_unexport": self._op_sub_unexport,
             "autowire": lambda doc, s: W.autowire(self, doc, s),
             "autowire_all": lambda doc, s: W.autowire_all(self, doc, s),
             "pinwire": lambda doc, s: W.pinwire(self, doc, s),
             "auto_devices": lambda doc, s: AD.auto_devices(self, doc, s),
         }
         before = self.findings()
-        snap = copy.deepcopy(self.doc)
+        raw = self.asm.raw  # ops edit the document as written (== the flat one without sub-assemblies), then it is re-flattened
+        snap = copy.deepcopy(raw)
         changes = []
         try:
             for o in self._expand(ops):
@@ -1689,17 +1869,22 @@ class Design:
                     raise DesignError(
                         f"unknown op {o.get('op')!r} (allowed: {sorted(table)})"
                     )
-                changes.append(fn(self.doc, {k: v for k, v in o.items() if k != "op"}))
-            A.validate(self.doc)
+                changes.append(fn(raw, {k: v for k, v in o.items() if k != "op"}))
+            A.validate(raw)
+            if raw.get("subassemblies"):
+                self.asm.set_raw(raw)
+                A.validate(self.doc, self.asm.origins)
+            elif self.asm.origins:  # the last sub-assembly was removed
+                self.asm.set_raw(raw)
             for d in self.doc[
                 "instances"
             ]:  # unknown part ids surface here, not at build time
                 self._part(d["part"])
         except DesignError:
-            self.asm.doc = snap
+            self.asm.set_raw(snap)
             raise
         except (KeyError, TypeError, ValueError, StopIteration) as e:
-            self.asm.doc = snap
+            self.asm.set_raw(snap)
             raise DesignError(
                 f"bad edit ({type(e).__name__}: {e}); nothing changed"
             ) from None
@@ -1892,8 +2077,10 @@ class Design:
         if not src:
             raise DesignError(f"nothing to {what}")
         before = self.findings()
-        dst.append(copy.deepcopy(self.doc))
-        self.asm.doc = src.pop()
+        cur = copy.deepcopy(self.asm.raw)
+        self.asm.set_raw(src[-1])
+        src.pop()  # only after the snapshot re-flattened (a child gone from disk keeps the stacks intact)
+        dst.append(cur)
         a, b = (
             (self._undo_notes, self._redo_notes)
             if what == "undo"

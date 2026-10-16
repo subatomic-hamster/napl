@@ -48,7 +48,12 @@ def make_parts(tmp_path):
         parts,
         "plate",
         {},
-        [port("mount_l", "male", (0.1, 0, 0)), port("mount_r", "male", (-0.1, 0, 0))],
+        [
+            port("mount_l", "male", (0.1, 0.1, 0)),
+            port("mount_r", "male", (0.1, -0.1, 0)),
+            port("mount_3", "male", (-0.1, 0.1, 0)),
+            port("mount_4", "male", (-0.1, -0.1, 0)),
+        ],
     )
     write_part(parts, "brk", {}, [port("base", "female"), port("out", "male")])
     write_part(
