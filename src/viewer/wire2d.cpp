@@ -318,7 +318,7 @@ void Canvas::fit() {
     x0 = std::min(x0, c.tx), y0 = std::min(y0, c.ty), x1 = std::max(x1, c.tx + c.w), y1 = std::max(y1, c.ty + c.h);
   }
   if (x1 < x0) return;
-  const float lg = legend_open_[0] || legend_open_[1] ? 190.f : 0.f;  // the key sits top-left: the sheet starts right of it
+  const float lg = legend_open_ ? 190.f : 0.f;  // the key sits top-left: the sheet starts right of it
   const float aw = sz_.x - side_w() - lg - 20, ah = sz_.y - 40;
   zoom_ = std::clamp(std::min(aw / (x1 - x0 + 80), ah / (y1 - y0 + 60)), 0.15f, 1.4f);  // (below ~0.5 the labels go connector-level, see canvas_ui)
   ox_ = org_.x + lg + 10 + (aw - (x1 - x0) * zoom_) * 0.5f - x0 * zoom_;
@@ -872,17 +872,17 @@ void Canvas::canvas_ui() {
   dl->PopClipRect();
 }
 
-// Top-left key of the canvas, two panels: the symbols (wire kinds, pin states, the flow arrow, the gauge label) and the controls.
-// A click on a panel's title folds it up.
+// Top-left key of the canvas: the symbols (wire kinds, pin states, the flow arrow, the gauge label). A click on the title folds it
+// up. (The canvas's mouse bindings are in the top bar's controls popover, viewer.cpp.)
 ImVec4 Canvas::legend(ImDrawList* dl, ImVec2 org, float a) {
   ImFont* font = ImGui::GetFont();
   const ImGuiIO& io = ImGui::GetIO();
   const float fs = ImGui::GetFontSize() * 0.8f, w = 196, x = org.x + 12, head = 26;
   float y = org.y + 12;
   const auto al = [&](int v) { return static_cast<int>(v * a); };
-  // frame of one panel: background, title, fold chevron; returns whether the body is open
-  const auto frame = [&](int k, const char* title, float body_h) {
-    const bool open = legend_open_[k];
+  // frame of the panel: background, title, fold chevron; returns the y of the first row's centre (-1 when folded)
+  const auto frame = [&](const char* title, float body_h) {
+    const bool open = legend_open_;
     const float h = open ? head + body_h : head;
     dl->AddRectFilled({x, y}, {x + w, y + h}, IM_COL32(8, 10, 14, al(225)), 6);
     dl->AddRect({x, y}, {x + w, y + h}, IM_COL32(120, 130, 148, al(90)), 6);
@@ -891,13 +891,13 @@ ImVec4 Canvas::legend(ImDrawList* dl, ImVec2 org, float a) {
     if (open) dl->AddTriangleFilled({c.x - 4, c.y - 2}, {c.x + 4, c.y - 2}, {c.x, c.y + 3}, IM_COL32(150, 160, 178, al(255)));
     else dl->AddTriangleFilled({c.x - 2, c.y - 4}, {c.x - 2, c.y + 4}, {c.x + 3, c.y}, IM_COL32(150, 160, 178, al(255)));
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && io.MousePos.x >= x && io.MousePos.x <= x + w && io.MousePos.y >= y && io.MousePos.y <= y + head)
-      legend_open_[k] = !open;
+      legend_open_ = !open;
     const float top = y;
     y += h + 8;
     return open ? top + head + 10 : -1.f;  // y of the first row's centre
   };
   const auto row = [&](float yy, const char* text) { dl->AddText(font, fs, {x + 52, yy - fs / 2}, IM_COL32(220, 224, 232, al(255)), text); };
-  float yy = frame(0, "LEGEND", 122);
+  float yy = frame("LEGEND", 122);
   if (yy >= 0) {
   dl->AddLine({x + 10, yy}, {x + 42, yy}, kind_col("power", al(240)), 2.6f), row(yy, "power wire");
   yy += 18;
@@ -919,16 +919,6 @@ ImVec4 Canvas::legend(ImDrawList* dl, ImVec2 org, float a) {
   dl->AddCircleFilled({x + 28, yy}, 4, kind_col("signal", al(255)));
   row(yy, "pin DRC flag");
   }
-  // the bindings of the canvas (canvas_ui): key on the left, effect on the right
-  static const char* const kControls[][2] = {{"drag pin", "wire to a pin"}, {"drag header", "move the card"}, {"wheel", "zoom"},
-                                             {"middle drag", "pan"},         {"click wire", "select it"},   {"Del", "remove the wire"}};
-  yy = frame(1, "CONTROLS", 12 + 18 * 6);
-  if (yy >= 0)
-    for (const auto& kc : kControls) {
-      dl->AddText(font, fs, {x + 10, yy - fs / 2}, IM_COL32(236, 239, 244, al(255)), kc[0]);
-      dl->AddText(font, fs, {x + 88, yy - fs / 2}, IM_COL32(170, 178, 194, al(255)), kc[1]);
-      yy += 18;
-    }
   return {x, org.y + 12, x + w, y - 8};
 }
 

@@ -162,7 +162,7 @@ class Canvas {
   double move_t_ = -1e9;           // last time the mouse moved
   const std::set<std::string>* hid_ = nullptr;  // the viewer's hidden instances, set by page()
   bool side_open_ = true;                       // the right panel of the canvas (remembered while the viewer runs)
-  bool legend_open_[2] = {true, true};          // symbols, controls
+  bool legend_open_ = true;                     // the symbols key
   bool autowire_open_ = false;                  // the picker's AUTOWIRE section
   ImVec4 legend_rect_{0, 0, 0, 0};              // x0 y0 x1 y1 of the key as drawn last frame
   // selection (3D mode)

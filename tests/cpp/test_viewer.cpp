@@ -375,7 +375,7 @@ TEST(viewer_design, scripted_edits_become_ordered_requests_and_a_new_rev_reloads
   for (const std::string& r : seen) {
     const design::Json j = design::Parser(r).parse();
     const std::string t = j.s("tool");  // the window's own housekeeping (library browser, event poll, selection mirror) is not an edit
-    if (t != "rev" && t != "ui_poll" && t != "select" && t != "flatten.state" && t.rfind("library.", 0) != 0) tools.push_back(j.s("tool") + (j.at("replace_last").num != 0 ? "+replace_last" : ""));
+    if (t != "rev" && t != "ui_poll" && t != "select" && t != "flatten.state" && t != "ui.report" && t.rfind("library.", 0) != 0) tools.push_back(j.s("tool") + (j.at("replace_last").num != 0 ? "+replace_last" : ""));
   }
   const std::vector<std::string> want = {"state", "design_edit", "design_edit", "design_edit+replace_last", "design_undo", "state"};
   EXPECT_EQ(tools, want);

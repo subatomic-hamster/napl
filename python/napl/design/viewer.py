@@ -82,6 +82,8 @@ class Backend(UiOps):
             "snap_ports": True,
             "tooltips": "auto",
             "emphasise_wires": True,
+            "keys": False,  # the controls popover of the top bar is open
+            "layout": {},  # what the window last reported of itself (ui.report): page, popover rows, status text, chip counts, rects
         }
         self.thumbs = ThumbJob(lambda: self._design().lib, self._thumb_priority)
         self.auto_thumbs = False  # True (napl design view, the MCP window, the screenshot / record tools): the first ui_poll starts it
