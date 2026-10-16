@@ -25,8 +25,19 @@ BARE_OK = {
     "rpy",
     "color",
 }  # pos / rpy / color: instance placement + cosmetics
-TOP = ["assembly", "instances", "mates", "wires", "device_maps", "devices", "targets"]
+TOP = [
+    "assembly",
+    "exports",
+    "subassemblies",
+    "instances",
+    "mates",
+    "wires",
+    "device_maps",
+    "devices",
+    "targets",
+]
 ALLOWED = {
+    "subassemblies": {"id", "file", "pos", "rpy", "mirror", "params", "group", "color"},
     "assembly": {
         "name",
         "description",
@@ -94,11 +105,28 @@ UNITS = {
 
 
 class Assembly:
-    """A validated assembly document (plain dict, as parsed)."""
+    """A validated assembly document (plain dict, as parsed). `doc` is the flattened document everything downstream reads;
+    `raw` is the unexpanded one as written (what `dumps` saves; the same dict as `doc` when there are no sub-assemblies);
+    `origins[flat_id] = {sub, file, id}` for every flattened item (subasm.py)."""
 
-    def __init__(self, doc: dict, path=None):
-        self.doc = doc
+    def __init__(self, doc: dict, path=None, raw=None, origins=None):
+        self._same = raw is None
+        self._doc = doc
+        self.raw = doc if raw is None else raw
+        self.origins = origins or {}
         self.path = path
+
+    @property
+    def doc(self) -> dict:
+        return self._doc
+
+    @doc.setter
+    def doc(self, v: dict):
+        self._doc = v
+        if (
+            self._same
+        ):  # no sub-assemblies: undo snapshots etc. replace the one document
+            self.raw = v
 
     def __eq__(self, other):
         return isinstance(other, Assembly) and self.doc == other.doc
@@ -157,7 +185,9 @@ def _need(d: dict, keys, where: str):
             raise DesignError(f"{where}: missing '{k}'")
 
 
-def validate(doc: dict):
+def validate(doc: dict, origins: dict | None = None):
+    """`origins` (subasm.expand): flattened ids may contain ':' (and are not re-checked against the written-id regex)."""
+    origins = origins or {}
     for k in doc:
         if k not in TOP:
             raise DesignError(f"unknown top-level section '{k}' (allowed: {TOP})")
@@ -179,8 +209,8 @@ def validate(doc: dict):
     ids, roots = set(), []
     for i, it in enumerate(doc["instances"]):
         _need(it, ["id", "part"], f"[[instances]] {i}")
-        if not isinstance(it["id"], str) or not re.fullmatch(
-            r"[A-Za-z0-9_-]+", it["id"]
+        if not isinstance(it["id"], str) or not (
+            it["id"] in origins or re.fullmatch(r"[A-Za-z0-9_-]+", it["id"])
         ):
             raise DesignError(
                 f"instance id {it['id']!r}: use letters, digits, '_' and '-' only"
@@ -294,8 +324,9 @@ def loads(text: str, path=None) -> Assembly:
         doc = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         raise DesignError(f"assembly TOML error: {e}") from None
-    validate(doc)
-    return Assembly(doc, path)
+    flat, origins = subasm.expand(doc, path)
+    validate(flat, origins)
+    return Assembly(flat, path, raw=None if flat is doc else doc, origins=origins)
 
 
 def load(path) -> Assembly:
@@ -339,10 +370,10 @@ def _v(v) -> str:
 def dumps(asm: Assembly) -> str:
     out = []
     for sec in TOP:
-        if sec not in asm.doc:
+        if sec not in asm.raw:
             continue
-        v = asm.doc[sec]
-        if sec == "assembly":
+        v = asm.raw[sec]
+        if sec in ("assembly", "exports"):
             out += ["[assembly]"] + [f"{_k(k)} = {_v(x)}" for k, x in v.items()] + [""]
         elif sec == "device_maps":
             for name, m in v.items():
