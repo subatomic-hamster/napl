@@ -21,6 +21,8 @@ H_ON, H_OFF = (
     0.05,
 )  # m: a foot higher than this above the map cannot have touched down / has lifted off
 KP_ACC = 1.0  # rad/s per rad: Mahony k_P, ~1 s tilt correction
+V_GATE = 0.6  # m/s: a stance foot's velocity innovation above this is an outlier (clean trot: < 0.2)
+TAU_G = 0.3  # s: averaging of the accelerometer / predicted gravity before the tilt correction (~ one trot period)
 SIG_A, SIG_FOOT_ST, SIG_FOOT_SW = (
     0.3,
     0.002,
@@ -63,6 +65,7 @@ class Estimator:
         self.m, self.map, self.dt = model, hmap, dt
         self.legs = list(model.legs.values())
         self.R, self.x, self.P = np.eye(3), np.zeros(18), np.eye(18) * 1e-4
+        self.a_lp, self.g_lp = np.array([0.0, 0.0, G]), np.array([0.0, 0.0, 1.0])
         self.contact = np.ones(4, bool)
         self.hist, self.k = np.zeros((HIST, 3)), 0  # (x, y, yaw) per tick
         self.dq_prev, self.qdd_f = np.zeros(12), np.zeros(12)
@@ -84,12 +87,20 @@ class Estimator:
         self.x[6:] = (self.x[:3] + r @ self.R.T).ravel()
         self.P = np.eye(18) * 1e-4
 
-    def update(self, q, dq, tau, gyro, acc, gate=None):
+    def update(self, q, dq, tau, gyro, acc, gate=None, hold=False):
+        """hold: the body is being accelerated on purpose (velocity command changing): the specific force is not g, so the tilt correction
+        pauses and the gyro carries the attitude."""
         dt, R = self.dt, self.R
         w, a = self.m.imu_R @ gyro, self.m.imu_R @ acc
-        na = np.linalg.norm(a)
+        # gravity correction on the accelerometer and the predicted gravity direction averaged over ~a gait period (the mean specific force
+        # over a cycle is g up; the instantaneous one swings by +-0.5 g with the bounce)
+        self.a_lp += (a - self.a_lp) * min(1.0, dt / TAU_G)
+        self.g_lp += (R.T @ [0.0, 0.0, 1.0] - self.g_lp) * min(1.0, dt / TAU_G)
+        na = np.linalg.norm(self.a_lp)
         err = (
-            np.cross(a / na, R.T @ [0, 0, 1]) if abs(na - G) < 0.15 * G else np.zeros(3)
+            np.cross(self.a_lp / na, self.g_lp / np.linalg.norm(self.g_lp))
+            if abs(na - G) < 0.15 * G and not hold
+            else np.zeros(3)
         )
         self.R = R = R @ rot(w + KP_ACC * err, dt)
         if self.k % 100 == 0:
@@ -146,7 +157,15 @@ class Estimator:
             ws = self.legs[i]._chain(q[3 * i : 3 * i + 3])[2]
             omega = R @ (w + sum(ws[j] * dq[3 * i + j] for j in range(3)))
             roll_v = self.legs[0].r_foot * np.cross(omega, [0.0, 0.0, 1.0])
-            H.append(h); y.append(-R @ (J[i] @ dq[3 * i : 3 * i + 3] + np.cross(w, r[i])) + roll_v - self.x[3:6]); Rn += [SIG_VEL**2] * 3  # fmt: skip
+            yv = (
+                -R @ (J[i] @ dq[3 * i : 3 * i + 3] + np.cross(w, r[i]))
+                + roll_v
+                - self.x[3:6]
+            )
+            if (
+                np.linalg.norm(yv) < V_GATE
+            ):  # outlier: a foot flagged in contact that is still moving (landing, lift-off) reads its own speed
+                H.append(h); y.append(yv); Rn += [SIG_VEL**2] * 3  # fmt: skip
             zf = (
                 float(self.map.height(self.x[s][0], self.x[s][1])) + self.legs[0].r_foot
             )
@@ -166,8 +185,10 @@ class Estimator:
             rpy_of(self.R),
             w,
         )
+        # feet = forward kinematics on the estimated pose: the controller's lever arms (foot - CoM) must be the kinematic ones at every tick; the
+        # KF foot states lag them and carry the swing feet's random walk
         st.feet, st.contact, st.f_ground = (
-            self.x[6:].reshape(4, 3).copy(),
+            st.p + np.array(r) @ self.R.T,
             on.copy(),
             fg,
         )

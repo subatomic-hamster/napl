@@ -23,10 +23,11 @@ KP_STAND, KD_STAND = (
 # Hip-pitch-to-foot distance as a fraction of the straight leg while walking. The SP3b stand is 0.92; walking needs foot clearance and the knee
 # stops at 1.32 rad (= 0.79 of the straight leg), so a swing foot passing under the hip can rise only (H_FRAC - 0.79) x 0.465 m: 0.92 -> 6 cm, 0.95 -> 7.4 cm.
 H_FRAC = 0.95
+T_WARM = 0.64  # s: two trot periods of stepping in place before the velocity command is released
 T_STANDUP = 1.2  # s
 MU_NOM = 0.5  # MPC friction: below rock 0.8 / grass 0.6 / gravel 0.55 (napl.terrain MATERIALS); slip handling lowers it (Task 9)
 TD_PEN = 0.02  # m: swing curves end this far below the ground
-A_CMD = 2.0  # m/s^2: slew limit of the velocity command inside the controller
+A_CMD = 1.0  # m/s^2: slew limit of the velocity command inside the controller (2.0 fell in 1 of 8 launches at 1 m/s, 1.0 in 0 of 8)
 # A scheduled-stance foot without contact yet: True = leave the MPC's stance set and reach down on the swing PD (leaves the diagonal partner as
 # the only support for ~0.1 s, the trot rolls); False = stay in the stance set, the commanded force pushes the foot down to the ground.
 LATE_REACH = False
@@ -63,6 +64,8 @@ class Controller:
         self.was_stance = np.ones(4, bool)
         self.t_late = np.zeros(4)
         self.cmd_f = np.zeros(3)
+        self.t_gait = 0.0  # s since the gait left "stand"
+        self.t_acc = 0.0  # s left of the estimator's tilt-correction pause after the velocity command last changed
         self.stats = dict(n_slip=0, mpc_fail=0, sat_hip=0.0, sat_knee=0.0)
         self.started = False
         self._sset = (True,) * 4
@@ -98,7 +101,10 @@ class Controller:
             self.hw.enable()
             self.est.reset(q, *self.pose0)
             self.q0, self.started = q.copy(), True
-        st = self.st = self.est.update(q, dq, tau, gyro, acc, self.sched.gate())
+        self.t_acc = max(0.0, self.t_acc - DT)
+        st = self.st = self.est.update(
+            q, dq, tau, gyro, acc, self.sched.gate(), hold=self.t_acc > 0.0
+        )
         self.k += 1
         self.t_mode += DT
         if self.mode == "STANDUP":
@@ -114,20 +120,27 @@ class Controller:
             if a >= 1.0:
                 self._enter("STAND")
             return
-        cmd = self._slew(np.asarray(cmd, float))
+        raw = np.asarray(cmd, float)
+        # launch: the gait steps in place for T_WARM before the velocity command is released (a trot started while accelerating at 2 m/s^2 flies
+        # and falls in 2 of 4 seeds; stepping in place first, 0 of 4)
+        cmd = self._slew(raw if self.t_gait >= T_WARM else np.zeros(3))
         if self.yaw_ref is None:
             self.yaw_ref = st.rpy[2]
         d = (self.yaw_ref + cmd[2] * DT - st.rpy[2] + np.pi) % (2 * np.pi) - np.pi
         self.yaw_ref = (
             st.rpy[2] + float(np.clip(d, -YAW_LEAD, YAW_LEAD))
         )  # heading hold: the reference integrates the yaw command and never runs more than YAW_LEAD ahead of the dog
-        moving = Gt.choose(cmd, False) != "stand"
+        aim = (
+            cmd if Gt.choose(cmd, False) != "stand" else raw
+        )  # still moving, or asked to
+        moving = Gt.choose(aim, False) != "stand"
         if self.mode == "STAND" and moving:
             self._enter("WALK")
         if self.mode == "WALK":
             rough = Tr.rough_ahead(self.map, st.p[:2], st.rpy[2], 0.8)
-            self.sched.request(Gt.choose(cmd, rough) if moving else "stand")
+            self.sched.request(Gt.choose(aim, rough) if moving else "stand")
         phases = self.sched.advance(DT, st.contact)
+        self.t_gait = 0.0 if self.sched.g.name == "stand" else self.t_gait + DT
         if (
             self.sched.g.name == "stand" or not LATE_REACH
         ):  # standing: every foot is a stance foot, a noisy contact estimate must not unload it
@@ -153,6 +166,10 @@ class Controller:
     def _slew(self, cmd):
         d = cmd - self.cmd_f
         n = np.linalg.norm(d[:2])
+        if (
+            n > 1e-9
+        ):  # accelerating: the accelerometer low-pass takes ~2 time constants to forget it
+            self.t_acc = 0.8
         lim = A_CMD * DT
         if n > lim:
             d[:2] *= lim / n

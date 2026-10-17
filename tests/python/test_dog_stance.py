@@ -47,5 +47,6 @@ def test_four_foot_stance_holds_steps_and_a_shove(tmp_path):
                 width0 = np.ptp(ctl.st.feet[:, 1])
         assert not c.fell, f"fell at {t:.2f} s"
     assert c.tr.tilt_deg() < 5.0
-    assert abs(np.ptp(ctl.st.feet[:, 1]) - width0) < 0.02, "feet walked"
+    # 0.04: the 0.3 m/s shove at 11 s slides the feet a little; the failure this pins walked them 13 cm inward before the fall
+    assert abs(np.ptp(ctl.st.feet[:, 1]) - width0) < 0.04, "feet walked"
     assert sat.max() < 0.95, sat.reshape(4, 3).round(2)

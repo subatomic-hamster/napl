@@ -17,8 +17,10 @@ NX, NU, G = 13, 12, 9.81
 # fall in 3 s: the force penalty makes redistributing the weight dearer than the small angle error it prevents; Task 6 ladder rung b).
 # The roll / pitch RATE weights are 1.0 (MIT: 0): with a 30 ms force lag (legs, bus latency, the MPC's own 20 ms hold) a controller without
 # rate damping is unstable at standstill for any roll weight above ~0.3; with 0.3-1.0 it is stable for every combination tried
-# (lag 30 ms, 24 weight sets; docs/dog/locomotion.md).
-Q_DIAG = np.array([2.5, 2.5, 10.0, 2.0, 2.0, 50.0, 1.0, 1.0, 0.3, 0.2, 0.2, 0.1, 0.0])
+# (lag 30 ms, 24 weight sets; docs/dog/locomotion.md). The xy velocity weights are 3.0 (MIT 0.2): a velocity error is cheap next to the pitch
+# moment a forward force at a foot 0.43 m below the CoM makes, and the trot settled 7-10 % under the command (0.90 at 1.0 m/s); at 3.0 the
+# truth-state trot holds 0.93-1.0 m/s.
+Q_DIAG = np.array([2.5, 2.5, 10.0, 2.0, 2.0, 50.0, 1.0, 1.0, 0.3, 3.0, 3.0, 0.1, 0.0])
 ALPHA = 4e-6
 F_MIN, F_MAX = (
     2.0,

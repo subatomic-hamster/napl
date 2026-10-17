@@ -8,20 +8,34 @@ from loco import model as M
 LEG_NAMES = ("fl", "fr", "rl", "rr")
 
 
-def truth_state(c):
-    """Replace c.ctl's estimator output by the truth (pose, velocity, attitude, feet from FK on the true pose); contact, f_ground and the
-    rest stay the estimator's."""
+ALL = ("R", "p", "v")
+
+
+def truth_state(c, parts=ALL):
+    """Replace c.ctl's estimator output by the truth, per part: "R" attitude (R, rpy), "p" position, "v" velocity; the feet are FK on the
+    resulting pose. Contact, f_ground and the rest stay the estimator's (the contact estimate is NOT replaced). Default: all three."""
     est, ctl = c.ctl.est, c.ctl
     orig = est.update
 
-    def upd(q, dq, tau, gyro, acc, gate=None):
-        st = orig(q, dq, tau, gyro, acc, gate)
-        R = M.quat_R(c.tr.quat())
-        st.R, st.p, st.v = R, c.tr.pos(), c.tr.vel()
-        st.rpy = E.rpy_of(R)
+    def upd(q, dq, tau, gyro, acc, gate=None, hold=False):
+        st = orig(q, dq, tau, gyro, acc, gate, hold)
+        if "R" in parts:
+            st.R = M.quat_R(c.tr.quat())
+            st.rpy = E.rpy_of(st.R)
+        if "p" in parts:
+            st.p = c.tr.pos()
+        if "v" in parts:
+            st.v = c.tr.vel()
         st.w = ctl.m.imu_R @ gyro
-        feet = np.array([ctl.legs[i].fk_jac(q[3 * i : 3 * i + 3])[0] for i in range(4)])
-        st.feet = st.p + feet @ R.T
+        if (
+            "contact" in parts
+        ):  # the virtual FootContact's truth (30 / 15 N, 4 ms debounce), not the torque-based estimate
+            st.contact = np.asarray(c.tr.contacts(), float) > 0.5
+        if "R" in parts or "p" in parts:
+            feet = np.array(
+                [ctl.legs[i].fk_jac(q[3 * i : 3 * i + 3])[0] for i in range(4)]
+            )
+            st.feet = st.p + feet @ st.R.T
         return st
 
     est.update = upd
