@@ -1,0 +1,71 @@
+# napl program examples/dog/missions/coverage_ruins_50/coverage_ruins_50.scenario.toml --runs-dir <dir>
+# Spec: the ruins criterion is a 50 x 50 m site (a maze of 5 m cells, ~100 rooms, 0.8-1.6 m doors; a 100 x 100 m maze needs >= 1995 m of
+# path = 1330 s at v_max, 95 % unreachable in 20 min). GNSS outages in narrow corridors (sky-view mask), ICP carries the pose.
+# Long run: `remote.sh bg`.
+name = "dog-auto-coverage-ruins-50"
+
+[auto]
+kind = "ruins"
+size = { value = 50.0, unit = "m", fidelity = "design", rationale = "Spec: ruins site of 50 x 50 m (about 100 rooms)." }
+patch = { value = 10.0, unit = "m", fidelity = "measured", rationale = "10 m and 5 m patches cost the same on ruins (tools/bench_autonomy.py); 10 m kept." }
+rays = { value = 5000, unit = "1", fidelity = "design", rationale = "Mission ray count (autonomy.toml lidar.rays_mission)." }
+pool = { value = 2, unit = "1", fidelity = "design", rationale = "5k rays: 10 cm scoring cells (Task 10 density equivalence)." }
+t_budget = { value = 1200.0, unit = "s", fidelity = "design", rationale = "Spec section 7: 20 min." }
+start_x = { value = -22.5, unit = "m", fidelity = "design", rationale = "A ruins cell centre: walls lie on the 5 m grid from -25." }
+start_y = { value = -22.5, unit = "m", fidelity = "design", rationale = "A ruins cell centre." }
+start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east." }
+block = { value = 0.3, unit = "m", fidelity = "measured", rationale = "At 0.5 m blocks the 0.8-1.6 m doors read closed (docs/dog/autonomy.md Coverage, ruins)." }
+lane_m = { value = 5.0, unit = "m", fidelity = "estimated", rationale = "One lane per row of rooms: the lane centres are the room centres of the 5 m maze grid." }
+near_lethal = { value = 6.0, unit = "1", fidelity = "estimated", rationale = "Cost next to a wall block: the feet are 0.29 m from the body centre (docs/dog/autonomy.md Coverage, ruins)." }
+near_wall_speed = { value = 0.8, unit = "m/s", fidelity = "estimated", rationale = "Speed cap within 0.6 m of a wall (doors of 0.8-1.6 m)." }
+near_wall_lookahead = { value = 0.45, unit = "m", fidelity = "estimated", rationale = "Short lookahead next to walls: the path through a door is tracked within a few cm." }
+return_margin = { value = 120.0, unit = "s", fidelity = "estimated", rationale = "Head home with two minutes in hand: the way home through a maze is walked at the near-wall speed, below v_max." }
+edge_margin = { value = 0.30, unit = "m", fidelity = "measured", rationale = "Map RMS is scored on floor cells at least 0.30 m from a wall; closer in, a pose error of a few cm smears the wall face onto the floor (docs/dog/autonomy.md Coverage, ruins)." }
+
+[model]
+script = "coverage_ruins_50.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../../automission.py", "{dir}/coverage_ruins_50.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain, the lidar / GNSS noise, the odometry drift and the initial pose error: one seed, one run."
+
+[limits]
+wall_s = 3600
+cpu_s = 3600
+address_space_mb = 16384
+
+[[monitors]]
+name = "map_rms_within_5cm"   # spec section 7
+column = "rms"
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "localized_within_30cm"  # design: 6x the RTK 1 sigma; the map budget assumes ~2 cm
+column = "err_xy"
+op = "always"
+hi = 0.3
+
+[[monitors]]
+name = "covers_95_percent"      # spec section 7
+column = "coverage"
+op = "final"
+lo = 0.95
+
+[[monitors]]
+name = "returns_home"           # phase 4 = DONE
+column = "phase"
+op = "final"
+lo = 4
+hi = 4

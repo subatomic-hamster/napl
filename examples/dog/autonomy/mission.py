@@ -26,6 +26,14 @@ class Executive:
     def _set(self, goal, t, block=None):
         self.goal, self.goal_block, self.best = goal, block, (math.inf, t)
 
+    def _border(self, cost):
+        """The field edge is a wall: keep `plan.border_m` of it out of the plans (paths that detoured round rocks along the edge
+        pushed the body into it: rubble lane 9 m, 160-900 bumps, lost sweep time)."""
+        k = math.ceil(self.P["border_m"] / self.T["block"])
+        c = cost.copy()
+        c[:k], c[-k:], c[:, :k], c[:, -k:] = np.inf, np.inf, np.inf, np.inf
+        return c
+
     def update(self, t, pose, cost, mapped, fallen, unknown=None):
         P = self.P
         if fallen:
@@ -36,6 +44,7 @@ class Executive:
             if t < P["init_s"]:
                 return []
             self.phase = self.SWEEP
+        cost = self._border(cost)
         xy = (pose[0], pose[1])
         v = self.cfg["carrier"]["v_max"]
         d_home = P["detour"] * math.dist(xy, self.home)

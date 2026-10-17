@@ -14,7 +14,7 @@ start_x = { value = -46.0, unit = "m", fidelity = "design", rationale = "South-w
 start_y = { value = -46.0, unit = "m", fidelity = "design", rationale = "South-west corner, 4 m inside." }
 start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east, along the first lane." }
 lane_m = { value = 9.0, unit = "m", fidelity = "measured", rationale = "Same tuning as coverage_rubble (training seeds 1-8, 5k rays); the 20k run is the map-quality headline." }
-return_margin = { value = 22.0, unit = "s", fidelity = "measured", rationale = "Same as coverage_rubble." }
+return_margin = { value = 18.0, unit = "s", fidelity = "measured", rationale = "Same as coverage_rubble." }
 
 [model]
 script = "coverage_rubble_20k.py"
