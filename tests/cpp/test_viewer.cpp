@@ -436,7 +436,7 @@ TEST(viewer_design, program_page_opens_a_file_types_and_saves_through_the_design
   int polls = 0;
   Host h(pendulum(), session());
   ViewerOptions o;
-  o.frames = 420;
+  o.frames = 1500;  // events are timed by ui_poll count (100 ms wall clock each): frames must outlast them on a fast GPU
   o.width = 960;
   o.height = 540;
   o.design_api = [&](const std::string& req) -> std::string {
@@ -497,7 +497,7 @@ TEST(viewer_design, program_run_slot_saves_then_starts_polls_and_stops_a_bench_r
   bool stopped = false;
   Host h(pendulum(), session());
   ViewerOptions o;
-  o.frames = 420;
+  o.frames = 1500;  // (same: ui_poll-timed events)
   o.width = 1100;
   o.height = 540;
   o.design_api = [&](const std::string& req) -> std::string {
@@ -562,7 +562,7 @@ TEST(viewer_design, full_run_scene_is_held_until_the_window_leaves_for_a_design_
   int polls = 0, run_polls = 0, done_at = 0;
   Host h(pendulum(), session());
   ViewerOptions o;
-  o.frames = 700;
+  o.frames = 2000;  // events are timed by ui_poll count (100 ms wall clock each): frames must outlast them on a fast GPU
   o.width = 1100;
   o.height = 540;
   o.design_api = [&](const std::string& req) -> std::string {
