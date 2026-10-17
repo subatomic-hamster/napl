@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 
-from . import elevmap, icp, lidar, localize, planner, traverse
+from . import clearance, elevmap, icp, lidar, localize, planner, traverse
 
 
 class Executive:
@@ -147,7 +147,7 @@ class Robot:
             False: int(round(L["rate_hz"] / I["rate_bad"])),
         }
         self.plan_every = int(round(L["rate_hz"] / P["rate_hz"]))
-        self.k, self.path = 0, []
+        self.k, self.path, self.D = 0, [], None
         self._ref, self._back_until, self._dir = None, -1.0, 1.0
         self.ms = dict.fromkeys(("points", "icp", "fuse", "trav", "plan"), 0.0)
 
@@ -157,6 +157,12 @@ class Robot:
         return t1
 
     def _near_wall(self, pose):
+        if self.D is not None:
+            x0, res = -self.cfg["map"]["size"] / 2, self.cfg["map"]["res"]
+            return bool(
+                clearance.sample(self.D, pose[0], pose[1], x0, res)
+                < self.cfg["plan"]["near_wall_m"]
+            )
         r = int(math.ceil(self.cfg["plan"]["near_wall_m"] / self.cfg["trav"]["block"]))
         i, j = planner.block_of(pose[0], pose[1], self.cfg)
         return bool(
@@ -215,21 +221,44 @@ class Robot:
         t0 = self._tick("trav", t0)
         pose = (self.loc.x[0], self.loc.x[1], self.loc.x[3])
         if self.k % self.plan_every == 0:
-            self.path = self.ex.update(
-                t,
-                pose,
-                self.trav.cost,
+            cost = self.trav.cost
+            if cfg[
+                "trav"
+            ][
+                "clearance"
+            ]:  # ruins: plan on the clearance of the obstacle geometry, not on block lethality
+                res = cfg["map"]["res"]
+                self.D = clearance.edt(
+                    clearance.obstacles(self.map.hn, res, cfg["trav"]["step_max"]), res
+                )
+                cost = clearance.block_cost(self.trav.L["known"], self.D, cfg)
+            args = (
                 self.map.mapped(int(cfg["plan"]["pool"])),
                 od.fallen,
                 self.trav.L["known"] < cfg["trav"]["min_known"],
             )
+            self.path = self.ex.update(t, pose, cost, *args)
+            if self.D is not None and not self.path and self.ex.phase == self.ex.RETURN:
+                # no way home with the strict clearance (a door mapped too narrow): the robot stood still to the end (training seeds 2, 6, 7);
+                # plan again accepting any block that is not touching a wall
+                cost = clearance.block_cost(
+                    self.trav.L["known"], self.D, cfg, cfg["trav"]["clear_relaxed"]
+                )
+                self.path = self.ex.update(t, pose, cost, *args)
+            if self.D is not None and self.path:
+                self.path = clearance.refine(self.path, self.D, cfg)
         lim, P = self.loco.limits(), cfg["plan"]
         near = self._near_wall(pose)
         if near:  # slower and a shorter lookahead next to walls: tracks a 0.8-1.6 m door within a few cm
             lim = {**lim, "v_max": min(lim["v_max"], P["near_wall_speed"])}
         vx, wz = (
             planner.pursue(
-                pose, self.path, cfg, lim, P["near_wall_lookahead"] if near else None
+                pose,
+                self.path,
+                cfg,
+                lim,
+                P["near_wall_lookahead"] if near else None,
+                P["reverse_speed"] if near and self.D is not None else 0.0,
             )
             if self.path
             else (0.0, 0.0)

@@ -122,7 +122,11 @@ Dijkstra / `mapped()` heavier), so a 5k rubble mission is about 1200 x (1/3.06 +
 (model: 26 min). Only **89.0 %** mapped at pool 1 against 95.5 % at 5k / pool 2, so its `covers_95_percent` monitor fails: the pool-1
 target set is stricter than the density equivalence suggests. The replay check inside `napl program` timed out (60 MB log, 600 s hard
 limit); replayed afterwards with `napl-replay` and no limit (a bg job): tick 114910, state hash `223644ac3765e1fe` = the run's
-`native.json` hash: **replay matches**. (These 20k numbers are from before the lane 9 / margin 22 tuning below and not re-run.)
+`native.json` hash: **replay matches**. (These 20k numbers are from before the lane 9 / margin 22 tuning below.)
+
+Re-run with the final rubble tuning (lane 9 m, margin 18 s, edge keep-out 0.5 m, seed 1): **90.4 %** mapped (was 89.0 %), home at
+t = 1184 s, map RMS 3.0 cm, localization <= 0.022 m at the end, 0 bumps, 1508 m driven. The replay check inside `napl program` timed
+out again (600 s limit); the earlier 20k run's replay was verified separately (above), this one was not replayed.
 
 Ruins (`coverage_ruins`, seed 1). Three defects found, in the order they broke (trace of the failed run `ruins3`: map RMS 0.2-0.4 m from
 t = 20 s, first bump t = 48 s, stuck for good by t = 270 s):
@@ -210,8 +214,51 @@ verified by a test) the planner's doorway is narrower than the real one and off-
 wall grows by a block on one side, and the path hugs one jamb; (3) after a back-off the same approach is retried. Tried on training
 seeds 1-4, all worse and reverted: holonomic strafing near walls without turning, remembering the wedge point as impassable (it sealed
 the robot into a doorway), 0.2 m blocks with two near-wall cost rings, symmetric step pairs with strafing and wedge memory (bumps fell to 8-97 on
-0.3 m blocks, but coverage stayed at 13-76 %: the robot stopped short of doors it now considered closed). The next step is a footprint-aware doorway
-planner (clearance from a distance transform rather than block lethality) plus approach alignment; out of scope for this round.
+0.3 m blocks, but coverage stayed at 13-76 %: the robot stopped short of doors it now considered closed).
+
+#### Footprint-aware doorway planner (`autonomy/clearance.py`, `trav.clearance = 1`, ruins only)
+
+Block lethality is replaced by the geometry itself. Each 1 Hz plan tick: obstacle cells of the 5 cm elevation map (known cells more than
+`step_max` above the ground of their 2 m block, the ground being its 20th percentile, isolated cells dropped) -> chamfer distance transform
+(numpy, error < 9 %) -> block cost from the clearance at the block (largest of its central 2 x 2 cells): 1 above `clear_margin` 0.45 m, rising
+to `near_lethal` at `clear_lethal` 0.20 m, closed below. The path from A* is then refined: every waypoint moves sideways (up to 0.3 m) to the
+best clearance (a doorway centres, open ground does not pull) and a waypoint 0.5 m before every narrow stretch lies on its line, so the robot
+enters a door straight. Next to a wall (< 0.6 m) a target behind the robot (> 90 deg) is reached by reversing at 0.3 m/s, never by turning on
+the spot (the foot wedge, root cause 1). When no way home exists at the strict clearance the return plans again at 0.08 m instead of standing
+still. Tests (`test_dog_autonomy_clearance.py`): EDT accuracy, a centred 0.8 m door gives a centred straight path with a run-up on its axis
+(root cause 2, now verified), a 0.3 m gap is closed and opens at the relaxed lethal, a low outlier cell and single spikes are not obstacles,
+the pursuit reverses instead of turning, open ground is not pulled.
+
+What the training seeds (1-8, never the held-out ones) showed, in the order found: with lethal 0.30 m and then 0.25 m the 0.8 m doors read
+closed (a mapped 0.8 m door is only about 0.6 m wide, the wall faces smear 5-10 cm onto the floor cells) and the robot stood still in
+RETURN (0 of 8 home, coverage 6 %); one -0.2 m outlier cell lowered the ground of a 2 m block and read the floor as a wall; with 0.20 m and the
+robust ground 7 of 8 were home, coverage 91 / 68 / 87 / 77 / 92 / 84 / 57 / 79 %, but bumps 140-997 (turning on the spot at a wall); with
+the reversing 5 of 8 had 2-238 bumps; with the relaxed return 7 of 8 home. Near-wall speed 1.2 m/s instead of 0.8 gained nothing (coverage
+mean 80 % both, bumps up) and was reverted.
+
+| ruins 50 m                   | block lethality (before)    | clearance planner               |
+| ---------------------------- | --------------------------- | ------------------------------- |
+| training seeds 1-4 coverage  | 91.8 / 38.8 / 54.0 / 85.5 % | 87 / 67 / 88 / 76 %             |
+| training seeds 1-8 home      | not measured                | 7 of 8                          |
+| held-out 2001-2016 success   | 0/16, Wilson [0.000, 0.194] | **0/16, Wilson [0.000, 0.194]** |
+| held-out median coverage     | 83.5 % (range 18.3-88.5)    | 84.7 % (range 10.9-90.8)        |
+| held-out home at the end     | 9 of 16                     | 15 of 16                        |
+| held-out map RMS within 5 cm | 5 of 16                     | 8 of 16                         |
+
+Rubble is unaffected (`clearance` defaults to 0): the `coverage_smoke` and `map_quality` goldens still match (`test_mission_passes_replays_and_matches_its_golden_hash`),
+and `coverage_rubble` on training seeds 1-8 with the final code gives 8/8 >= 95.2 % (95.2-97.0 %, median 96.1 %), map RMS 3.0 cm, localization
+<= 2 cm at the end, home by t = 1182 s (no late return like held-out seed 1015 appeared), bumps 0 except 42 and 1. Seed 1015 itself was not
+reproduced on a training seed and stays undiagnosed.
+
+Held-out outcome (run once): the 95 % target is still missed on every seed (coverage sorted: 10.9, 74.2, 74.7, 75.5, 78.3, 81.6, 82.1, 84.1,
+85.2, 85.4, 85.7, 86.1, 87.0, 87.1, 88.3, 90.8 %; bumps 0-312). The wedging and the stuck returns are gone (bumps mostly < 50, 15 of 16
+home), but the mission is now limited by distance, not by doors: about 1000 m driven in 20 min at 0.85 m/s, and 0.037 % mapped per metre
+would put the ceiling near 90 % at that rate (inferred from the earlier per-metre figure, not measured again); the lane sweep also shuttles between far lane ends through the maze (training seed 6: the same two places visited
+every 180 s). Open: (a) coverage planning for the maze (visit rooms in a tour, FILL by room instead of lane ends), the real fix for the last
+5-10 points; (b) map RMS, 8 of 16 over 5 cm, from the wall-face smear next to doors and from a robot that presses against walls (a mapped
+wall 0.3 m too thick at the contact point); (c) held-out seed 2001 returned home at t = 165 s with 10.9 % mapped (probably the first sweep goals all
+read unreachable and the fill found nothing, as seen on training seed 3 before the lethal fix; not verified) - not diagnosed, held-out seeds are not used for diagnosis; (d) training seed 2
+still wedges (1388 bumps) in one room.
 
 Ruins 100 x 100 m: unchanged (not reachable, see Coverage).
 

@@ -144,7 +144,9 @@ def view_goal(path, cfg):
     return path[0]
 
 
-def pursue(pose, path_xy, cfg, lim, lookahead=None):
+def pursue(pose, path_xy, cfg, lim, lookahead=None, back=0.0):
+    """Pure pursuit. back > 0 (m/s): a target behind the robot is reached by reversing, never by turning on the spot (next to a wall
+    the feet, 0.29 m from the centre, wedge against it: ruins training seed 2, 100-800 bumps in one place)."""
     P = cfg["plan"]
     L = P["lookahead"] if lookahead is None else lookahead
     x, y, yaw = pose
@@ -155,6 +157,9 @@ def pursue(pose, path_xy, cfg, lim, lookahead=None):
     tx, ty = pts[k0 + far[0]] if len(far) else pts[-1]
     a = wrap(math.atan2(ty - y, tx - x) - yaw)
     if abs(a) > P["turn_in_place"]:
+        if back > 0.0 and abs(a) > math.pi / 2:
+            b = wrap(a - math.pi)  # heading error of the rear
+            return -back * math.cos(b), max(-0.5, min(0.5, 1.5 * b))
         return 0.0, math.copysign(lim["wz_max"], a)
     v = lim["v_max"] * math.cos(a)
     wz = 2.0 * v * math.sin(a) / L

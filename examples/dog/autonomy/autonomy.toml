@@ -68,7 +68,13 @@ step_max = { value = 0.18, unit = "m", fidelity = "design", rationale = "Same as
 rough_max = { value = 0.08, unit = "m", fidelity = "design", rationale = "RMS residual of the block plane; rubble rocks of 5-20 cm stay passable on average." }
 min_known = { value = 0.3, unit = "1", fidelity = "design", rationale = "A block needs 30 % of its cells observed to be judged." }
 unknown_cost = { value = 2.0, unit = "1", fidelity = "design", rationale = "Unknown blocks cost twice a free block: the planner prefers known ground but may explore." }
-near_lethal = { value = 2.0, unit = "1", fidelity = "design", rationale = "Extra cost next to a lethal block (keeps the body off walls)." }
+near_lethal = { value = 2.0, unit = "1", fidelity = "design", rationale = "Extra cost next to a lethal block (keeps the body off walls). In clearance mode: the penalty reached at clear_lethal." }
+clearance = { value = 0, unit = "1", fidelity = "design", rationale = "1 = ruins mode: plan on the clearance (distance transform of the obstacle cells of the 5 cm map) instead of block lethality, pull waypoints to the medial axis, approach doorways straight (clearance.py); 0 = rubble." }
+clear_lethal = { value = 0.20, unit = "m", fidelity = "measured", rationale = "Clearance below which a block is impassable. The feet are 0.15 m off the centre line when walking straight (carrier.foot_b; 0.29 m only while turning, which the straight approach avoids), and a mapped 0.8 m door is only 0.6 m wide (the wall faces smear 5-10 cm onto the floor cells): at 0.30 m and at 0.25 m the doors read closed (training seeds 2, 7: the way home cut off)." }
+clear_relaxed = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Return only: when no way home exists at clear_lethal, plan again with this lethal clearance (a block not touching a wall), instead of standing still until the end." }
+clear_margin = { value = 0.45, unit = "m", fidelity = "estimated", rationale = "Above this clearance there is no penalty and no pull; between clear_lethal and here the cost rises to near_lethal. A 0.8 m doorway has 0.40 m on its centre line." }
+clear_shift = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "How far (across the path) a waypoint may be pulled towards more clearance: more than the block half-width, so a centre line is found from any block." }
+clear_approach = { value = 0.5, unit = "m", fidelity = "estimated", rationale = "A straight approach waypoint this far before a narrow passage (the body is 0.5 m long)." }
 
 [plan]
 rate_hz = { value = 1.0, unit = "Hz", fidelity = "design", rationale = "Spec: global planning 1-2 Hz." }
@@ -90,6 +96,7 @@ near_wall_m = { value = 0.6, unit = "m", fidelity = "estimated", rationale = "A 
 near_wall_speed = { value = 1.5, unit = "m/s", fidelity = "design", rationale = "Speed cap near lethal blocks. 1.5 = v_max = no cap (rubble); ruins scenarios lower it." }
 near_wall_lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pursuit lookahead near lethal blocks. 1.0 = the open-ground lookahead (rubble); ruins scenarios shorten it so the path through a 0.8-1.6 m door is tracked within a few cm." }
 unstick_s = { value = 4.0, unit = "s", fidelity = "estimated", rationale = "Commanded to move but the estimated pose has not changed (< 5 cm, < 0.05 rad) for this long: back off for unstick_back_s (a blocked foot against a wall)." }
+reverse_speed = { value = 0.3, unit = "m/s", fidelity = "estimated", rationale = "Clearance mode (ruins) only: next to a wall a target behind the robot (> 90 deg) is reached by reversing, not by turning on the spot (the feet, 0.29 m from the centre, wedge against the wall)." }
 unstick_back_s = { value = 1.5, unit = "s", fidelity = "estimated", rationale = "Duration of the back-off at 0.4 m/s (alternating back / forward)." }
 
 [icp]
