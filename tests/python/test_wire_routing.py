@@ -16,7 +16,7 @@ PARTS = REPO / "parts"
 needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 WIRED = sorted(
     p.stem for p in (REPO / "assemblies").glob("*.toml") if "[[wires]]" in p.read_text()
-)
+) + ["dog/dog"]
 
 
 @pytest.fixture(scope="module")
@@ -25,7 +25,11 @@ def built(tmp_path_factory):
         def __missing__(self, n):
             wireroute.clear_caches()
             self[n] = design.build(
-                REPO / "assemblies" / f"{n}.toml", PARTS, tmp_path_factory.mktemp(n)
+                REPO / "assemblies" / f"{n}.toml",
+                PARTS,
+                tmp_path_factory.mktemp(
+                    n.replace("/", "_")
+                ),  # "dog/dog" is a sub-folder name
             )
             return self[n]
 

@@ -180,7 +180,9 @@ def side_plate():
     for the e-stop head."""
     s = bx(P.BODY_L, 4, P.BULK_H)
     s += bx(P.BODY_L, 12, 4, y=-8, z=P.BULK_H / 2 - 2)
-    s -= cyl_y(60, 6, x=-140, z=-18)
+    s -= cyl_y(
+        60, 6, x=-100, z=-18
+    )  # x = -100: forward of the rear leg's hub board (x < -127 mm)
     return rounded(s, 3.0)
 
 

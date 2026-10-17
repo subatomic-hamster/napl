@@ -122,7 +122,6 @@ def test_printed_pairs_are_mirrors(base):
 @pytest.mark.parametrize(
     "name",
     [
-        "shank",
         "foot-core",
         "head-mount",
         "battery-tray",
@@ -135,6 +134,40 @@ def test_printed_singles_have_symmetry_and_mesh(name):
     p = load(f"structure/dog-{name}")
     assert p["mirror"]["symmetry"] in ("xy", "yz", "xz")
     assert (ROOT / p["geometry"]["mesh"]).stat().st_size > 1000
+
+
+@pytest.mark.parametrize("sfx", ["", "-200", "-250"])
+def test_shank_twins_share_the_solid_and_reflect_the_knee_axis(sfx):
+    """The shank solid is its own mirror image, but its knee port axis is normal to the mirror plane: a mirrored leg needs a twin with
+    the reflected axis (found building assemblies/dog/dog.toml: a symmetric part's ports must lie on its symmetry plane)."""
+    left, right = load(f"structure/dog-shank{sfx}"), load(f"structure/dog-shank{sfx}-r")
+    assert (
+        left["mirror"]["opposite"] == f"dog-shank{sfx}-r"
+        and right["mirror"]["opposite"] == f"dog-shank{sfx}"
+    )
+    assert left["geometry"]["mesh"] == right["geometry"]["mesh"]
+    axis = lambda p: next(q for q in p["ports"] if q["name"] == "origin")["axis"]
+    assert axis(left) == [-a for a in axis(right)]
+    assert (
+        left["params"]["mass"] == right["params"]["mass"]
+        or left["params"]["mass"]["value"] == right["params"]["mass"]["value"]
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted((ROOT / "parts" / "structure").glob("dog-*.toml")),
+    ids=lambda p: p.stem,
+)
+def test_printed_dog_parts_are_priced(path):
+    """assemblies/dog/dog.toml's BOM lists a part without a price as missing: filament at 20 USD/kg for every printed part."""
+    p = load(f"structure/{path.stem}")
+    if p["category"] != "frame.printed":
+        return
+    e = p["params"]["price"]
+    assert e["unit"] == "USD" and e["value"] == pytest.approx(
+        20.0 * p["params"]["mass"]["value"], abs=0.006
+    )
 
 
 from napl.design import assembly as A

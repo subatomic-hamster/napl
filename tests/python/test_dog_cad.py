@@ -51,7 +51,10 @@ def test_length_variants_put_knee_and_foot_at_L(sfx, L):
     sh = LIB.get(f"dog-shank{sfx}")
     assert sh.value("length") == pytest.approx(L)
     assert port(sh.id, "foot")["pos"][2] == pytest.approx(-L)
-    assert sh.mirror["symmetry"] == "xz"
+    assert (
+        sh.mirror["opposite"] == f"dog-shank{sfx}-r"
+    )  # the knee port axis is normal to the mirror plane: a handed twin
+    assert LIB.get(f"dog-shank{sfx}-r").value("length") == pytest.approx(L)
 
 
 def test_knee_linkage_parts_replace_the_knee_housing():

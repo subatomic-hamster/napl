@@ -18,6 +18,7 @@ nozzle_diameter = { value = 0.0004, unit = "m", fidelity = "estimated", rational
 wall_count      = { value = 3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
 lidar_tilt      = { value = 0.4363, unit = "rad", fidelity = "estimated", rationale = "25 deg nose-down: chosen so the ground is visible from about 0.72 m ahead of a 0.45 m high sensor, 0.42 m beyond an assumed front foot at 0.30 m; the foot area itself is covered by the accumulated map (docs/dog/actuator-study.md, head geometry)." }
 mass            = { value = 0.1122, unit = "kg", fidelity = "derived", derivation = "Mesh volume 133.7 cm3 x PLA 1.24 g/cm3, shell + 30 % infill model, by cad/dog/build.py." }
+price           = { value = 2.24, unit = "USD", fidelity = "estimated", rationale = "Filament only: 0.1122 kg x 20 USD/kg (PLA spool; docs/dog/actuator-study.md prices the printed parts at 45 USD for 2.239 kg); print time, failed prints and inserts not priced." }
 
 [geometry]
 shape = "mesh"

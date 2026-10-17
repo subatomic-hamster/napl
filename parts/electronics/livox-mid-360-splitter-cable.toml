@@ -11,6 +11,8 @@ url = "https://www.mybotshop.de/Livox-connector-cable-Mid360-AVIA2-1m_1"
 [params]
 length = { value = 1.0, unit = "m", src = "S1", fidelity = "datasheet" }
 mass   = { value = 0.11, unit = "kg", src = "S1", fidelity = "datasheet" }  # "Item weight 0,11 kg" for the 1 m cable
+resistance_per_m = { value = 0.05296, unit = "ohm/m", fidelity = "estimated", rationale = "Conductor gauge of the power tail is not published. 22 AWG copper (52.96 mOhm/m at 20 degC, parts/connectors/awg-22-silicone-wire.toml) is the usual gauge of a 12 V / 0.54 A sensor lead; per conductor." }
+mass_per_m = { value = 0.11, unit = "kg/m", fidelity = "derived", derivation = "Item weight 0.11 kg (mass, S1) / 1.0 m (length, S1) = 0.11 kg/m, connectors included in the rate. A run of any length uses this rate." }
 
 [params.price]
 value = 80.0

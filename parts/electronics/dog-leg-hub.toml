@@ -8,10 +8,11 @@ url = "docs/dog/actuator-study.md"
 # CUSTOM PART, labelled as such: no off-the-shelf board splits one 8S feed and one CAN bus to three XT30(2+2) drives with bus termination. One hub per leg sits on the abad mount's pad
 # (behind the actuator cup). Power: XT60 in -> one 2 oz pour -> three XT30PW(2+2) outputs (V+ / GND) with the CAN pair (H / L) routed straight through to the same connectors.
 # The CANable terminates the near end of the bus with its own switch; this hub carries the far end's 120 ohm (CAN_H to CAN_L). EVERY VALUE here is an estimate of a design not yet drawn.
-# Part frame: origin at the board centre on its underside, z up, +x toward the actuator cup. Connector placement is not mirrored in the right-hand legs (the part is its own mirror).
+# Part frame: origin at the board centre on its underside, z up, +x toward the actuator cup. The hip and knee outputs are both on the +y edge (toward the drives), so the board is not its own
+# mirror: the right-hand legs use the twin dog-leg-hub-r (both on -y).
 
 [mirror]
-symmetry = "xz"
+opposite = "dog-leg-hub-r"
 
 [params]
 mass            = { value = 0.030, unit = "kg", fidelity = "estimated", rationale = "36 x 50 mm 1.6 mm board with 2 oz copper (~12 g) + XT60PW male (~6.5 g) + 3 x XT30PW(2+2) (~3 g each) + JST-GH + 120 ohm: ~30 g." }
@@ -190,7 +191,7 @@ id = "OH"
 name = "hip drive output (XT30PW(2+2) male)"
 type = "xt30pw-2+2"
 gender = "male"
-pos = [0.0, 0.025, 0.004]
+pos = [-0.0085, 0.025, 0.004]
 axis = [0.0, 1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 rows = 1
@@ -211,15 +212,15 @@ id = "OK"
 name = "knee drive output (XT30PW(2+2) male)"
 type = "xt30pw-2+2"
 gender = "male"
-pos = [0.0, -0.025, 0.004]
-axis = [0.0, -1.0, 0.0]
+pos = [0.0085, 0.025, 0.004]
+axis = [0.0, 1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 rows = 1
 cols = 4
 pitch = 0.0025
 src = "DESIGN"
 fidelity = "estimated"
-rationale = "As OA, on the -y edge."
+rationale = "As OA, on the +y edge beside OH (18 mm apart, a 10 mm connector each): the hip and knee drives both sit on that side of the abad mount, so both leads leave toward them."
 pins = [
   { number = 1, name = "V+", kind = "power", dir = "out", v = 33.6, i_max = 10.0 },
   { number = 2, name = "GND", kind = "ground" },

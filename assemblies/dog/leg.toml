@@ -180,11 +180,11 @@ length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Hub un
 name = "abad_can"
 from = "hub.can_a"
 to = "abad_motor.can"
-from_pins = ["OA.3", "OA.4"]
-to_pins = ["PWR.3", "PWR.4"]
+from_pins = ["OA.2", "OA.3", "OA.4"]
+to_pins = ["PWR.2", "PWR.3", "PWR.4"]
 part = "awg-24-silicone-wire"
-conductors = 2
-length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "The CAN pair of the abad_pwr cable. Modelled as a 24 AWG pair (the cable's signal gauge) because the DRC checks a connector-ended cable against the port types of both ends and the split `can` ports are not xt30pw-2+2; the cable's own mass already counts in abad_pwr." }
+conductors = 3
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "The CAN pair of the abad_pwr cable plus its ground pin (the shared reference of the bus). Modelled as 24 AWG conductors (the cable's signal gauge) because the DRC checks a connector-ended cable against the port types of both ends and the split `can` ports are not xt30pw-2+2; the cable's own mass already counts in abad_pwr." }
 
 [[wires]]
 name = "hip_pwr"
@@ -200,10 +200,10 @@ length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "Hub to
 name = "hip_can"
 from = "hub.can_h"
 to = "hip_motor.can"
-from_pins = ["OH.3", "OH.4"]
-to_pins = ["PWR.3", "PWR.4"]
+from_pins = ["OH.2", "OH.3", "OH.4"]
+to_pins = ["PWR.2", "PWR.3", "PWR.4"]
 part = "awg-24-silicone-wire"
-conductors = 2
+conductors = 3
 length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "The CAN pair of the hip_pwr cable (24 AWG pair, see abad_can)." }
 
 [[wires]]
@@ -220,10 +220,10 @@ length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "Hub to
 name = "knee_can"
 from = "hub.can_k"
 to = "knee_motor.can"
-from_pins = ["OK.3", "OK.4"]
-to_pins = ["PWR.3", "PWR.4"]
+from_pins = ["OK.2", "OK.3", "OK.4"]
+to_pins = ["PWR.2", "PWR.3", "PWR.4"]
 part = "awg-24-silicone-wire"
-conductors = 2
+conductors = 3
 length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "The CAN pair of the knee_pwr cable (24 AWG pair, see abad_can)." }
 
 [device_maps.hub_path]

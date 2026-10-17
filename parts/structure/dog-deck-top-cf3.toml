@@ -24,11 +24,27 @@ unit = "USD"
 fidelity = "derived"
 derivation = "Sheet price per area x deck area: Elevated Materials 3 mm twill carbon sheet 300 x 600 mm = 176.54 USD (elevatedmaterials.com product page, seen 2026-10-16) = 980.8 USD/m2; x 0.0966 m2 = 94.7 USD. LOWER BOUND: one deck does not fit the leftover of a 300 x 600 mm sheet after the other (a second sheet would raise the pair to ~353 USD), and the cutting (waterjet) is not priced: the vendor's own cuts are tile-saw rectangles only."
 
+# Four boxes = the 420 x 230 mm sheet with a 21 x 30 mm cable slot at x in [0.052, 0.073], |y| < 0.015 m (between the compute tray and the head mount): the lidar's 12 V lead
+# goes through it to the power module below (without a slot the wire router has to draw it through the sheet). The part mass above is the full sheet (the slot is 0.7 % of it).
 [[geometry.shapes]]
 shape = "box"
-size = [0.21, 0.115, 0.0015]
-pos = [0.0, 0.0, -0.0015]
-mass_param = "mass"
+size = [0.131, 0.115, 0.0015]
+pos = [-0.079, 0.0, -0.0015]
+
+[[geometry.shapes]]
+shape = "box"
+size = [0.0685, 0.115, 0.0015]
+pos = [0.1415, 0.0, -0.0015]
+
+[[geometry.shapes]]
+shape = "box"
+size = [0.0105, 0.05, 0.0015]
+pos = [0.0625, 0.065, -0.0015]
+
+[[geometry.shapes]]
+shape = "box"
+size = [0.0105, 0.05, 0.0015]
+pos = [0.0625, -0.065, -0.0015]
 
 [[ports]]
 name = "bulk_f"

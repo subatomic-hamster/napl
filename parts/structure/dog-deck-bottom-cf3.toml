@@ -5,8 +5,10 @@ vendor = "custom (made to this drawing)"
 part_number = "none: custom part, see assemblies/dog/dog.toml"
 
 # CUSTOM PART, labelled as such. Frame: origin at the centre of the TOP face, +x forward, z up; the sheet spans x in [-0.21, 0.21], y in [-0.105, 0.105], z in [-0.003, 0]. It lies on the
-# bulkhead bottom flanges and carries the two battery trays (front), the two BMS (behind them), the contactor, the PDB and the two DC-DCs (rear), and the e-stop on a small bonded
-# carbon lip on its left edge (a 60 x 50 mm strip standing at y = 0.102..0.105 m, the e-stop's 22 mm hole through it at x = -0.14 m, z = 0.035 m, head pointing outboard).
+# bulkhead bottom flanges and carries the two battery trays (front, the BMS over the packs), the contactor, the PDB and the two DC-DCs (behind them), and the e-stop on a small bonded
+# carbon lip on its left edge (a 60 x 50 mm strip standing at y = 0.102..0.105 m, the e-stop's 22 mm hole through it at x = -0.10 m, z = 0.035 m, head pointing outboard).
+# Layout limit (assemblies/dog/dog.toml INTERFERENCE check): the rear legs' hub boards stand 16 mm above the deck at x < -0.127 m (|y| 0.03..0.09 m) and the front ones at x > +0.127 m,
+# and the abad cups leave only 7 mm above the deck at |x| > 0.164 m, so the parts sit in |x| < 0.125 m.
 # 0/90 twill sheet as parts/structure/cf-plate-3mm.toml.
 
 [params]
@@ -34,7 +36,7 @@ pos = [0.0, 0.0, -0.0015]
 [[geometry.shapes]]
 shape = "box"
 size = [0.03, 0.0015, 0.025]
-pos = [-0.14, 0.1035, 0.025]
+pos = [-0.10, 0.1035, 0.025]
 
 [[ports]]
 name = "bulk_f"
@@ -63,18 +65,18 @@ name = "tray_a"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.07, 0.048, 0.0]
+pos = [0.06, 0.048, 0.0]
 axis = [0.0, 0.0, 1.0]
 ref = [-1.0, 0.0, 0.0]
 symmetry = 1
-note = "Battery tray A (left): the tray is turned 180 deg so its lead exit faces the BMS behind it."
+note = "Battery tray A (left): the tray is turned 180 deg so its lead exit faces the rear, 10 mm behind the 0.07 m of the first layout so the BMS above the pack stays clear of the front hub pads."
 
 [[ports]]
 name = "tray_b"
 kind = "mech"
 type = "frame.origin"
 gender = "neutral"
-pos = [0.07, -0.048, 0.0]
+pos = [0.06, -0.048, 0.0]
 axis = [0.0, 0.0, 1.0]
 ref = [-1.0, 0.0, 0.0]
 symmetry = 1
@@ -85,40 +87,40 @@ name = "bms_a"
 kind = "mech"
 type = "flat-mount"
 gender = "neutral"
-pos = [-0.05, 0.045, 0.0]
+pos = [0.06, 0.048, 0.052]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
-note = "BMS A seat (Daly K-series 123 x 65 mm)."
+note = "BMS A seat (Daly K-series 123 x 65 mm): over its pack, 5 mm above the pack top (47 mm) and the tray walls (50 mm), on standoffs from the deck. The first layout put it behind the pack, where the rear legs' abad cups and hub boards leave no room."
 
 [[ports]]
 name = "bms_b"
 kind = "mech"
 type = "flat-mount"
 gender = "neutral"
-pos = [-0.05, -0.045, 0.0]
+pos = [0.06, -0.048, 0.052]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
-note = "BMS B seat."
+note = "BMS B seat (over pack B, as BMS A)."
 
 [[ports]]
 name = "pdb"
 kind = "mech"
 type = "flat-mount"
 gender = "neutral"
-pos = [-0.16, 0.05, 0.0]
+pos = [-0.07, 0.05, 0.0]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
-note = "Power distribution board seat (80 x 60 mm)."
+note = "Power distribution board seat (80 x 60 mm), forward of the rear legs' hub boards (they occupy x < -0.127 m)."
 
 [[ports]]
 name = "contactor"
 kind = "mech"
 type = "flat-mount"
 gender = "neutral"
-pos = [-0.16, -0.05, 0.0]
+pos = [-0.07, -0.05, 0.0]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
@@ -129,18 +131,18 @@ name = "dcdc_jetson"
 kind = "mech"
 type = "bolt-pattern.13.21x13.21.m2"
 gender = "neutral"
-pos = [-0.09, 0.0, 0.0]
+pos = [-0.075, 0.0, 0.0]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 2
-note = "12 V Jetson DC-DC (Pololu D24V22F12) in the centre strip between the BMS."
+note = "12 V Jetson DC-DC (Pololu D24V22F12) in the centre strip between the PDB and the contactor."
 
 [[ports]]
 name = "dcdc_aux"
 kind = "mech"
 type = "bolt-pattern.13.21x13.21.m2"
 gender = "neutral"
-pos = [-0.115, 0.0, 0.0]
+pos = [-0.045, 0.0, 0.0]
 axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 2
@@ -151,7 +153,7 @@ name = "estop"
 kind = "mech"
 type = "panel-hole.22"
 gender = "neutral"
-pos = [-0.14, 0.105, 0.035]
+pos = [-0.10, 0.105, 0.035]
 axis = [0.0, 1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 360

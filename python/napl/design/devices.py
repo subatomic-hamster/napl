@@ -156,6 +156,8 @@ INT_FIELDS = {
     "n_h",
     "n_v",
     "ray_groups",
+    "rays_per_frame",  # rosette rangefinder (uint): a float token fails the kernel's JSON load
+    "pattern_seed",
 }
 TYPE_KEY = {
     "battery": "batteries",
