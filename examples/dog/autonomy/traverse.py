@@ -8,12 +8,12 @@ MOVES = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
 
 
 def blocks(a, k):
-    nb = a.shape[0] // k
+    nr, nc = a.shape[0] // k, a.shape[1] // k  # update() windows are not square
     return (
-        a[: nb * k, : nb * k]
-        .reshape(nb, k, nb, k)
+        a[: nr * k, : nc * k]
+        .reshape(nr, k, nc, k)
         .transpose(0, 2, 1, 3)
-        .reshape(nb, nb, k * k)
+        .reshape(nr, nc, k * k)
     )
 
 

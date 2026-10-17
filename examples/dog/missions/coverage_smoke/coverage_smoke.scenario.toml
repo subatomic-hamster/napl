@@ -1,0 +1,63 @@
+# napl program examples/dog/missions/coverage_smoke/coverage_smoke.scenario.toml --runs-dir <dir>
+# The whole mission loop on a 20 x 20 m rubble field at the mission ray count (5k, pooled scoring): sweep, fill, return home.
+name = "dog-auto-coverage-smoke"
+
+[auto]
+kind = "rubble"
+size = { value = 20.0, unit = "m", fidelity = "design", rationale = "Short run: a 20 m field (100 x 100 m densities scaled)." }
+patch = { value = 10.0, unit = "m", fidelity = "design", rationale = "Terrain patch size (Task 4 decision)." }
+rays = { value = 5000, unit = "1", fidelity = "design", rationale = "Mission ray count (autonomy.toml lidar.rays_mission)." }
+pool = { value = 2, unit = "1", fidelity = "design", rationale = "5k rays: 10 cm scoring cells (Task 10 density equivalence)." }
+t_budget = { value = 150.0, unit = "s", fidelity = "design", rationale = "20 x 20 m at 1.5 m/s with 8 m lanes is ~60 s of sweep; the rest is fill and return." }
+return_margin = { value = 10.0, unit = "s", fidelity = "design", rationale = "Home is at most ~25 m away on a 20 m field: 10 s in hand." }
+start_x = { value = -8.0, unit = "m", fidelity = "design", rationale = "South-west corner, 2 m inside." }
+start_y = { value = -8.0, unit = "m", fidelity = "design", rationale = "South-west corner, 2 m inside." }
+start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east, along the first lane." }
+
+[model]
+script = "coverage_smoke.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../../automission.py", "{dir}/coverage_smoke.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain, the lidar / GNSS noise, the odometry drift and the initial pose error: one seed, one run."
+
+[limits]
+wall_s = 1200            # 160 sim-s at 5k on rubble ~ 3 min x 4
+cpu_s = 1200
+address_space_mb = 16384
+
+[[monitors]]
+name = "map_rms_within_5cm"   # spec section 7
+column = "rms"
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "localized_within_30cm"  # design: 6x the RTK 1 sigma; the map budget assumes ~2 cm
+column = "err_xy"
+op = "always"
+hi = 0.3
+
+[[monitors]]
+name = "covers_95_percent"      # spec section 7
+column = "coverage"
+op = "final"
+lo = 0.95
+
+[[monitors]]
+name = "returns_home"           # phase 4 = DONE
+column = "phase"
+op = "final"
+lo = 4
+hi = 4

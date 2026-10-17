@@ -81,6 +81,14 @@ def test_window_update_equals_full_recompute():
     np.testing.assert_allclose(
         win, full, rtol=1e-12
     )  # same blocks, same arithmetic; inf where full has inf
+    h3 = h2.copy()
+    h3[20:30, 20:150] += (
+        0.4  # a long thin (non-square) window, as a lidar frame sweeps one
+    )
+    win = t.update(h3, window=(20, 30, 20, 150))
+    np.testing.assert_allclose(
+        win, traverse.Traversability(CFG, 200).update(h3), rtol=1e-12
+    )
 
 
 def test_reachable_respects_walls_and_corners():
