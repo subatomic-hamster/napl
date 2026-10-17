@@ -128,6 +128,14 @@ pins = ["J5.A4", "J5.A7", "J5.A6", "J5.A1", "J5.A3", "J5.A2", "J5.A12", "J5.B10"
 note = "USB-C J5, the contacts of a USB 3 peripheral in the order of the D435i's usb port: VBUS, D-, D+, GND, TX1-, TX1+, GND, RX1-, RX1+."
 
 [[ports]]
+name = "eth"
+kind = "signal"
+type = "ethernet"
+gender = "female"
+pins = ["J15.1", "J15.2", "J15.3", "J15.6"]
+note = "RJ45 J15, the 100BASE-TX pairs a Livox-class sensor uses: MDI0+ (1) = TX+, MDI0- (2) = TX-, MDI1+ (3) = RX+, MDI1- (6) = RX-; the gigabit pairs 3+ / 3- / 4+ / 4- are not wired by a 100 Mbit peer."
+
+[[ports]]
 name = "uart1"
 kind = "signal"
 type = "uart"

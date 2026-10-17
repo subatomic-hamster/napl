@@ -1,0 +1,79 @@
+# Dog head (SP3b, docs/superpowers/plans/2026-10-16-sp3b-dog-assembly.md Task 6): the printed head mount with a Livox Mid-360 on its tilted seat (up axis
+# leaned 25 deg towards the nose, so the -7..+52 deg vertical window reaches from 32 deg below to 27 deg above the horizon of the body) and a RealSense D435i on
+# the forward camera plate. Frame = the head mount's part frame: x forward, y left, z up; dog.toml seats it on the top deck's `head` port.
+# SIM RAY BUDGET: the lidar device scans `lidar.rays_per_frame_sim` rays per 10 Hz frame (instance param, 5000), not the sensor's 20 000: the ground sim budget
+# (docs/models.md "Ground sim budget") makes the real count 4x slower. SP5 overrides the `lidar_rays` export for mapping fidelity. The scan pattern is the documented
+# rosette approximation of the Mid-360 envelope, not its proprietary pattern.
+# The depth device is the depth-bench D435i binding (same sub-sampled 160 x 90 grid, same field of view).
+
+[assembly]
+name = "dog-head"
+description = "Dog head: Livox Mid-360 (rosette scan, 25 deg nose-down tilt) + Intel RealSense D435i on a printed mount"
+base = "fixed"
+timestep = 0.001
+seed = 1
+
+[exports]
+ports = { mount = "head_mount.origin" }
+connectors = { lidar_power = "lidar.power", lidar_eth = "lidar.eth", cam_usb = "cam.usb" }
+params = { lidar_rays = "lidar.rays_per_frame_sim" }
+
+[[instances]]
+id = "head_mount"
+part = "dog-head-mount"
+root = true
+group = "head"
+
+[[instances]]
+id = "lidar"
+part = "livox-mid-360"
+group = "head"
+params = { rays_per_frame_sim = { value = 5000, unit = "1", fidelity = "estimated", rationale = "Sim ray budget, not the sensor's 20 000 / frame: the 5k column of docs/models.md 'Ground sim budget' (0.1-4.6x real time per slot on the terrain kinds). SP5 overrides lidar_rays for mapping fidelity." } }
+
+[[instances]]
+id = "cam"
+part = "intel-realsense-d435i"
+group = "head"
+
+[[mates]]
+name = "lidar_seat"
+a = "head_mount.lidar"
+b = "lidar.base"
+
+[[mates]]
+name = "cam_seat"
+a = "head_mount.camera"
+b = "cam.mount"
+
+[device_maps.mid360]
+fov_h = "fov_horizontal"
+fov_v_min = "fov_vertical_min"
+fov_v_max = "fov_vertical_max"
+min_range = "min_range"
+max_range = "range_10pct"
+
+[device_maps.d435i]
+fov_h = "fov_h"
+fov_v = "fov_v"
+min_range = "min_range"
+max_range = "max_range"
+sigma1 = "rms_error_frac"
+
+[[devices]]
+type = "rangefinder"
+name = "lidar"
+instance = "lidar"
+site = "lidar"
+site_port = "optical"
+map = "mid360"
+projection = "rosette"
+set = { rays_per_frame = "lidar.rays_per_frame_sim", rate_hz = { value = 10, unit = "Hz", fidelity = "estimated", rationale = "Frame rate of the rosette model: 200 000 points/s (Mid-360 datasheet) / 20 000 points per frame = 10 Hz, the rate of the ground-sim budget. 100 ticks of the 1 ms step." }, pattern_seed = { value = 1, unit = "1", fidelity = "estimated", rationale = "Offset of the low-discrepancy sequence (any value; fixed for replay)." } }
+
+[[devices]]
+type = "rangefinder"
+name = "depth"
+instance = "cam"
+site = "cam"
+site_port = "optical"
+map = "d435i"
+set = { n_h = { value = 160, unit = "px", fidelity = "estimated", rationale = "Sub-sample of the 1280 px depth width (every 8th pixel) to keep the CPU ray cast cheap; same field of view (assemblies/depth-bench.toml)." }, n_v = { value = 90, unit = "px", fidelity = "estimated", rationale = "Sub-sample of the 720 px depth height (every 8th pixel)." }, rate_hz = { value = 25, unit = "Hz", fidelity = "estimated", rationale = "25 frames per second: 40 ticks of the 1 ms step (an integer number of ticks; the D435i streams 30 fps by default, a frame-rate choice)." }, resolution = { value = 0.001, unit = "m", fidelity = "estimated", rationale = "Depth units 1 mm, the D400 default depth scale (0.001 m per unit)." } }
