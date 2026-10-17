@@ -17,7 +17,9 @@ import dogwalk as W
 from loco import hw as H
 
 needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
-GOLDEN = {"trot": None}  # recorded in Step 5 from res["sim"]["state_hash"]
+GOLDEN = {
+    "trot": "b3a9d5997271ab5a"
+}  # res["sim"]["state_hash"] of walk/trot.scenario.toml (Task 6 Step 5; re-record if a later task changes the trot)
 LEGS = ("fl", "fr", "rl", "rr")
 c = W.COLS.index
 

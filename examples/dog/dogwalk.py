@@ -133,7 +133,7 @@ def result(c, n, wall):
         ).get("rangefinders", [])
     )
     return dict(reached=bool(c.reached), fallen=bool(c.fell), ctl_fallen=bool(c.ctl_fell),
-                fault=max(r[COLS.index("fault")] for r in c.rows) > 0, diverged=bool(c.sim.diverged), t_end=n * Ct.DT,
+                fault=bool(max(r[COLS.index("fault")] for r in c.rows) > 0), diverged=bool(c.sim.diverged), t_end=n * Ct.DT,
                 dist=fol.length if fol else 0.0, mean_speed=(fol.length / fol.t_done) if fol and fol.done else 0.0,
                 n_slip=ctl.stats["n_slip"], mpc_fail=ctl.stats["mpc_fail"], sat_hip=ctl.stats["sat_hip"], rangefinders=rf,
                 wall_s=wall, rt_factor=n * Ct.DT / max(wall, 1e-9))  # fmt: skip
