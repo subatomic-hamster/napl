@@ -26,3 +26,7 @@ Decision: **I/O per control tick with `Sim.set` is 2.99 ms (rule: > 1.0 ms -> St
 (`src/python/bindings.cpp`, one Envelope per entry through the same command bus, so logs, replay and every existing hash are unchanged;
 pinned by `tests/python/test_dog_loco_io.py::test_set_many_is_set_in_a_loop`). I/O per control tick is now 0.09 ms (read 40 us + write 54 us),
 about 5 % of the 2 ms tick; `Hw` uses `set_many` when the Sim has it. Reads stay Python (`Sim.query` is a direct solver read).
+
+Convex MPC (`tests/python/test_dog_mpc.py::test_solve_time_budget`, 100 solves, OSQP 1.1.3, N = 12 steps of 25 ms, sparse fixed pattern, warm
+start, hfbox with `OMP_NUM_THREADS=1`): **median 5.21 ms, max 10.33 ms** per solve against the 8 ms budget (40 % of the 20 ms MPC period); N
+stays 12. The MPC runs every 10th control tick, so it adds 0.5 ms per tick on average.
