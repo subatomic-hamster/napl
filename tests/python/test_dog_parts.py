@@ -107,3 +107,32 @@ def test_printed_singles_have_symmetry_and_mesh(name):
     p = load(f"structure/dog-{name}")
     assert p["mirror"]["symmetry"] in ("xy", "yz", "xz")
     assert (ROOT / p["geometry"]["mesh"]).stat().st_size > 1000
+
+
+from napl.design import assembly as A
+from napl.design import auto_devices as AD
+from napl.design import subasm
+
+STEADYWIN = QDD[:2]  # steadywin-gim8108-8, steadywin-gim6010-8
+
+
+def test_subasm_prefixes_the_ground_devices():
+    assert {"qdd", "foot_contact"} <= A.DEVICE_TYPES
+    assert A.DEVICE_TYPES <= set(
+        subasm.REF_FIELDS
+    )  # a device type without reference fields cannot sit in a leg.toml
+
+
+@pytest.mark.parametrize("rel", STEADYWIN)
+def test_steadywin_part_feeds_every_qdd_field(rel):
+    p = load(rel)
+    for field, names in {**AD.QDD_MOTOR, **AD.QDD}.items():
+        if field == "motor.i0":  # optional in the kernel (docs/models.md "Qdd")
+            continue
+        assert any(n in p["params"] for n in names), (rel, field, names)
+    kt = 60 / (2 * math.pi * v(p, "kv"))  # motor-side Kt from KV: the Qdd's own law
+    stall = kt * v(p, "gear_ratio") * v(p, "efficiency") * v(p, "i_limit_phase")
+    assert stall == pytest.approx(v(p, "torque_peak"), rel=0.05)
+    assert v(p, "mit_tau_ff_max") >= v(p, "torque_peak")
+    assert 25.0 < v(p, "temp_derate_start") < v(p, "temp_fault")
+    assert v(p, "can_latency") <= 14 / v(p, "can_cmd_hz")  # kernel bind-time rule
