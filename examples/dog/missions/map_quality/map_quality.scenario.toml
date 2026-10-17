@@ -1,0 +1,51 @@
+# napl program examples/dog/missions/map_quality/map_quality.scenario.toml --runs-dir <dir>
+# Mapping quality at the real point rate (20k rays / frame): the kinematic carrier sweeps a 20 x 20 m rubble field for 45 s with
+# RTK + odometry + ICP and the 5 cm elevation map; the map's height RMS against ground truth (edge cells excluded) is the spec's 5 cm.
+name = "dog-auto-map-quality"
+
+[auto]
+kind = "rubble"
+size = { value = 20.0, unit = "m", fidelity = "design", rationale = "Short run: a 20 m field (100 x 100 m densities scaled) keeps 20k rays at a few minutes wall." }
+patch = { value = 10.0, unit = "m", fidelity = "design", rationale = "Terrain patch size (Task 4 decision)." }
+rays = { value = 20000, unit = "1", fidelity = "datasheet", rationale = "Mid-360 point rate / frame rate." }
+pool = { value = 1, unit = "1", fidelity = "design", rationale = "Full density: score 5 cm cells." }
+t_budget = { value = 45.0, unit = "s", fidelity = "design", rationale = "Long enough for two lanes and a turn on 20 m." }
+return_margin = { value = 0.0, unit = "s", fidelity = "design", rationale = "A mapping run, not a mission: no reserve for the way home." }
+start_x = { value = -8.0, unit = "m", fidelity = "design", rationale = "South-west corner, 2 m inside." }
+start_y = { value = -8.0, unit = "m", fidelity = "design", rationale = "South-west corner, 2 m inside." }
+start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east, along the first lane." }
+
+[model]
+script = "map_quality.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../../automission.py", "{dir}/map_quality.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain, the lidar / GNSS noise, the odometry drift and the initial pose error: one seed, one run."
+
+[limits]
+wall_s = 1200            # 45 + 60 sim-s at 20k rays on rubble ~ 6 min (Task 4 budget) x 3
+cpu_s = 1200
+address_space_mb = 16384
+
+[[monitors]]
+name = "map_rms_within_5cm"   # spec section 7
+column = "rms"
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "localized_within_30cm"  # design: 6x the RTK 1 sigma; the map budget assumes ~2 cm
+column = "err_xy"
+op = "always"
+hi = 0.3

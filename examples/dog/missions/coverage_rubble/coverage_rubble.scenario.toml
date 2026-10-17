@@ -1,0 +1,63 @@
+# napl program examples/dog/missions/coverage_rubble/coverage_rubble.scenario.toml --runs-dir <dir>
+# Spec section 7: the carrier maps a 100 x 100 m rocky (rubble) field on its own in <= 20 min at the mission ray count (5k rays /
+# frame, scored on 10 cm pooled cells; docs/dog/autonomy.md): boustrophedon sweep, gap filling, return home. Long run: `remote.sh bg`.
+name = "dog-auto-coverage-rubble"
+
+[auto]
+kind = "rubble"
+size = { value = 100.0, unit = "m", fidelity = "design", rationale = "Spec section 7 field." }
+patch = { value = 5.0, unit = "m", fidelity = "measured", rationale = "5 m patches are 1.4x faster than 10 m on rubble (tools/bench_autonomy.py, docs/dog/autonomy.md)." }
+rays = { value = 5000, unit = "1", fidelity = "design", rationale = "Mission ray count (autonomy.toml lidar.rays_mission)." }
+pool = { value = 2, unit = "1", fidelity = "design", rationale = "5k rays: 10 cm scoring cells (Task 10 density equivalence)." }
+t_budget = { value = 1200.0, unit = "s", fidelity = "design", rationale = "Spec section 7: 20 min." }
+start_x = { value = -46.0, unit = "m", fidelity = "design", rationale = "South-west corner, 4 m inside, on the first lane's start." }
+start_y = { value = -46.0, unit = "m", fidelity = "design", rationale = "South-west corner, 4 m inside." }
+start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east, along the first lane." }
+
+[model]
+script = "coverage_rubble.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../../automission.py", "{dir}/coverage_rubble.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain, the lidar / GNSS noise, the odometry drift and the initial pose error: one seed, one run."
+
+[limits]
+wall_s = 3600            # ~8-25 min expected at 5k (docs/dog/autonomy.md), 3600 = remote.sh's cap
+cpu_s = 3600
+address_space_mb = 16384
+
+[[monitors]]
+name = "map_rms_within_5cm"   # spec section 7
+column = "rms"
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "localized_within_30cm"  # design: 6x the RTK 1 sigma; the map budget assumes ~2 cm
+column = "err_xy"
+op = "always"
+hi = 0.3
+
+[[monitors]]
+name = "covers_95_percent"      # spec section 7
+column = "coverage"
+op = "final"
+lo = 0.95
+
+[[monitors]]
+name = "returns_home"           # phase 4 = DONE
+column = "phase"
+op = "final"
+lo = 4
+hi = 4
