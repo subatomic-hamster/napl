@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "examples" / "dog"))
 
 import numpy as np
+import pytest
 from autonomy import clearance, config, mission
 
 RES = 0.05
@@ -88,6 +89,21 @@ def test_a_centred_08m_door_gives_a_centred_straight_path():
     # and a straight run-up on the door axis before it (no turning inside the doorway)
     run_up = [p for p in path if -0.95 < p[1] < -0.25]
     assert run_up and all(abs(p[0] - 0.15) < 0.08 for p in run_up)
+
+
+def test_pursue_reverses_instead_of_turning_on_the_spot_when_asked():
+    # regression (ruins 50 m training seed 2): a target behind the robot next to a wall wedged a foot while it turned on the spot
+    from autonomy import planner
+
+    lim = {"v_max": 1.5, "wz_max": 1.5}
+    path = [(-1.0, 0.0), (-2.0, 0.0)]
+    assert planner.pursue((0.0, 0.0, 0.0), path, CFG, lim) == (0.0, 1.5)
+    v, wz = planner.pursue((0.0, 0.0, 0.0), path, CFG, lim, 0.45, 0.3)
+    assert v == pytest.approx(-0.3) and abs(wz) < 1e-9
+    v, wz = planner.pursue(
+        (0.0, 0.0, 0.0), [(1.0, 0.0)], CFG, lim, 0.45, 0.3
+    )  # ahead: unchanged
+    assert v > 0
 
 
 def test_refine_does_not_move_waypoints_in_open_ground():

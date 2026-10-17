@@ -95,6 +95,7 @@ near_wall_m = { value = 0.6, unit = "m", fidelity = "estimated", rationale = "A 
 near_wall_speed = { value = 1.5, unit = "m/s", fidelity = "design", rationale = "Speed cap near lethal blocks. 1.5 = v_max = no cap (rubble); ruins scenarios lower it." }
 near_wall_lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pursuit lookahead near lethal blocks. 1.0 = the open-ground lookahead (rubble); ruins scenarios shorten it so the path through a 0.8-1.6 m door is tracked within a few cm." }
 unstick_s = { value = 4.0, unit = "s", fidelity = "estimated", rationale = "Commanded to move but the estimated pose has not changed (< 5 cm, < 0.05 rad) for this long: back off for unstick_back_s (a blocked foot against a wall)." }
+reverse_speed = { value = 0.3, unit = "m/s", fidelity = "estimated", rationale = "Clearance mode (ruins) only: next to a wall a target behind the robot (> 90 deg) is reached by reversing, not by turning on the spot (the feet, 0.29 m from the centre, wedge against the wall)." }
 unstick_back_s = { value = 1.5, unit = "s", fidelity = "estimated", rationale = "Duration of the back-off at 0.4 m/s (alternating back / forward)." }
 
 [icp]

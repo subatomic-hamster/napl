@@ -18,7 +18,7 @@ block = { value = 0.2, unit = "m", fidelity = "estimated", rationale = "At 0.5 m
 clearance = { value = 1, unit = "1", fidelity = "design", rationale = "Plan on the distance transform of the obstacle geometry (clearance.py), not on block lethality (one-sided, narrowed the doors: held-out 0/16)." }
 lane_m = { value = 5.0, unit = "m", fidelity = "estimated", rationale = "One lane per row of rooms: the lane centres are the room centres of the 5 m maze grid." }
 near_lethal = { value = 6.0, unit = "1", fidelity = "estimated", rationale = "Cost next to a wall block: the feet are 0.29 m from the body centre (docs/dog/autonomy.md Coverage, ruins)." }
-near_wall_speed = { value = 0.8, unit = "m/s", fidelity = "estimated", rationale = "Speed cap within 0.6 m of a wall (doors of 0.8-1.6 m)." }
+near_wall_speed = { value = 1.2, unit = "m/s", fidelity = "estimated", rationale = "Speed cap within 0.6 m of a wall (doors of 0.8-1.6 m)." }
 near_wall_lookahead = { value = 0.45, unit = "m", fidelity = "estimated", rationale = "Short lookahead next to walls: the path through a door is tracked within a few cm." }
 return_margin = { value = 40.0, unit = "s", fidelity = "measured", rationale = "Training seeds 1-4: with 120 s the robot was home at 1106 s (94 s unused, 89.8 % mapped); 40 s gives home at 1168 s and 91.8 % on seed 1. The way home is planned (plan.home_check_s), so the margin only covers the near-wall speed." }
 edge_margin = { value = 0.30, unit = "m", fidelity = "measured", rationale = "Map RMS is scored on floor cells at least 0.30 m from a wall; closer in, a pose error of a few cm smears the wall face onto the floor (docs/dog/autonomy.md Coverage, ruins)." }

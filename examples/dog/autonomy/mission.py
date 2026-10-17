@@ -248,7 +248,12 @@ class Robot:
             lim = {**lim, "v_max": min(lim["v_max"], P["near_wall_speed"])}
         vx, wz = (
             planner.pursue(
-                pose, self.path, cfg, lim, P["near_wall_lookahead"] if near else None
+                pose,
+                self.path,
+                cfg,
+                lim,
+                P["near_wall_lookahead"] if near else None,
+                P["reverse_speed"] if near and self.D is not None else 0.0,
             )
             if self.path
             else (0.0, 0.0)
