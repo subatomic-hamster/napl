@@ -70,6 +70,17 @@ def test_a_08m_door_is_passable_a_03m_door_is_not():
         )  # the block rows at y = 0 (the wall's thickness)
 
 
+def test_a_relaxed_lethal_opens_a_door_that_reads_closed():
+    # regression (ruins 50 m training seeds 2, 6, 7): no way home at the strict clearance, the robot stood still to the end
+    hn = wall_map(0.15 - 0.15, 0.15 + 0.15)  # 0.3 m gap
+    D = clearance.edt(clearance.obstacles(hn, RES, CFG["trav"]["step_max"]), RES)
+    known = np.ones((50, 50))
+    assert not np.isfinite(clearance.block_cost(known, D, CFG)[24:26]).any()
+    assert np.isfinite(
+        clearance.block_cost(known, D, CFG, CFG["trav"]["clear_relaxed"])[24:26]
+    ).any()
+
+
 def test_a_centred_08m_door_gives_a_centred_straight_path():
     # regression (ruins 50 m, 0/16): block lethality made the doorway narrow and off-centre, the path hugged a jamb
     hn = wall_map(

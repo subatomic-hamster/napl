@@ -232,14 +232,19 @@ class Robot:
                     clearance.obstacles(self.map.hn, res, cfg["trav"]["step_max"]), res
                 )
                 cost = clearance.block_cost(self.trav.L["known"], self.D, cfg)
-            self.path = self.ex.update(
-                t,
-                pose,
-                cost,
+            args = (
                 self.map.mapped(int(cfg["plan"]["pool"])),
                 od.fallen,
                 self.trav.L["known"] < cfg["trav"]["min_known"],
             )
+            self.path = self.ex.update(t, pose, cost, *args)
+            if self.D is not None and not self.path and self.ex.phase == self.ex.RETURN:
+                # no way home with the strict clearance (a door mapped too narrow): the robot stood still to the end (training seeds 2, 6, 7);
+                # plan again accepting any block that is not touching a wall
+                cost = clearance.block_cost(
+                    self.trav.L["known"], self.D, cfg, cfg["trav"]["clear_relaxed"]
+                )
+                self.path = self.ex.update(t, pose, cost, *args)
             if self.D is not None and self.path:
                 self.path = clearance.refine(self.path, self.D, cfg)
         lim, P = self.loco.limits(), cfg["plan"]

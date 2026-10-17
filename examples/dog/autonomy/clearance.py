@@ -77,13 +77,13 @@ def block_clearance(D, k):
     return sub.max(axis=(1, 3))
 
 
-def block_cost(known, D, cfg):
+def block_cost(known, D, cfg, lethal=None):
     """Cost grid: 1 known / unknown_cost unknown, plus a penalty rising to near_lethal as the clearance falls from
-    clear_margin to clear_lethal; infinite below clear_lethal (the feet reach 0.29 m from the body centre)."""
+    clear_margin to clear_lethal (or `lethal`); infinite below it."""
     T = cfg["trav"]
     k = int(round(T["block"] / cfg["map"]["res"]))
     c = block_clearance(D, k)[: known.shape[0], : known.shape[1]]
-    lo, hi = T["clear_lethal"], T["clear_margin"]
+    lo, hi = (T["clear_lethal"] if lethal is None else lethal), T["clear_margin"]
     base = np.where(known >= T["min_known"], 1.0, T["unknown_cost"])
     cost = base + T["near_lethal"] * np.clip((hi - c) / (hi - lo), 0.0, 1.0)
     return np.where(c < lo, np.inf, cost)
