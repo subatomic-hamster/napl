@@ -1548,8 +1548,8 @@ class Controller:
         L = self.m.legs["fl"]
         return self.h_frac * np.linalg.norm(L.foot0 - L.p[1]) - L.p[1][2]  # trunk origin above the ball centres
 
-    def fix(self, p_xy, yaw, age_s):
-        self.est.fix(p_xy, yaw, age_s, 0.02, np.radians(1.0))
+    def fix(self, p_xy, yaw, age_s, sig_p=0.02, sig_yaw=np.radians(1.0)):  # SP5 passes its own sigmas (ICP-only 0.05-0.15 m)
+        self.est.fix(p_xy, yaw, age_s, sig_p, sig_yaw)
 
     def step(self, cmd):
         q, dq, tau = self.hw.joints()
