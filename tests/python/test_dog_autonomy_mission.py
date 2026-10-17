@@ -17,7 +17,7 @@ needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 # scenario -> golden state hash (default seed); recorded in Step 5
 GOLDEN = {
     "map_quality/map_quality": "2094372fd1eeb1aa",
-    "coverage_smoke/coverage_smoke": "45570453d43e9c7a",
+    "coverage_smoke/coverage_smoke": "37c9ed418f47582a",
 }
 CFG = config.override(
     config.load(),
@@ -101,6 +101,22 @@ def test_standing_in_a_wall_block_plans_around_the_wall_not_through_it():
     assert any(b[0] <= 4 and b[1] == 10 for b in blocks)  # it goes through the door
 
 
+def test_plans_keep_out_of_the_field_edge_strip():
+    # regression: rubble lane 9 m detoured round rocks along the edge and pushed the body into it (160-900 bumps per run)
+    ex = mission.Executive(CFG, (-8.0, -8.0))
+    cost, mapped = np.ones((40, 40)), np.zeros((200, 200), bool)
+    ex.update(1.0, (-8.0, -8.0, 0.0), cost, mapped, False)
+    ex.goal = (9.75, 0.0)  # in the border strip
+    assert ex.update(2.0, (0.0, 0.0, 0.0), cost, mapped, False) == [] and ex.unreachable
+    border = ex._border(cost)
+    k = math.ceil(CFG["plan"]["border_m"] / CFG["trav"]["block"])
+    assert np.isinf(border[:k]).all() and np.isinf(border[:, -k:]).all()
+    assert np.isfinite(border[k:-k, k:-k]).all()
+    ex.goal, ex.unreachable = (8.5, 8.5), False  # just inside
+    p = ex.update(3.0, (0.0, 0.0, 0.0), cost, mapped, False)
+    assert p and all(abs(x) < 9.0 and abs(y) < 9.0 for x, y in p[:-1])
+
+
 def test_return_is_triggered_by_the_real_way_home_not_the_straight_line():
     mapped = np.zeros((200, 200), bool)
     d = math.dist((8.0, -8.0), (-8.0, -8.0))
@@ -119,7 +135,7 @@ def test_return_is_triggered_by_the_real_way_home_not_the_straight_line():
     wall[:, 20] = (
         np.inf
     )  # a wall between the robot and home, open only at the far (north) end
-    wall[39, 20] = 1.0
+    wall[37, 20] = 1.0  # (rows 38-39 are the edge strip)
     assert (
         phase(free) == mission.Executive.SWEEP
         and phase(wall) == mission.Executive.RETURN
@@ -203,7 +219,11 @@ LONG = [
     "coverage_rubble/coverage_rubble",
     "coverage_rubble_20k/coverage_rubble_20k",
     "coverage_ruins/coverage_ruins",
+    "coverage_ruins_50/coverage_ruins_50",
 ]  # bg only, never run by pytest
+SIZE = {
+    "coverage_ruins_50/coverage_ruins_50": 50.0
+}  # the ruins criterion is a 50 x 50 m site
 
 
 def test_long_missions_are_listed_with_the_mission_monitors():
@@ -217,4 +237,4 @@ def test_long_missions_are_listed_with_the_mission_monitors():
             "returns_home",
         } <= mon
         auto = config.leaves(sc["auto"], "auto")
-        assert auto["size"] == 100.0 and auto["t_budget"] == 1200.0
+        assert auto["size"] == SIZE.get(name, 100.0) and auto["t_budget"] == 1200.0

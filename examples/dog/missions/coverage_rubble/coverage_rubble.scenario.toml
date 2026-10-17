@@ -14,7 +14,7 @@ start_x = { value = -46.0, unit = "m", fidelity = "design", rationale = "South-w
 start_y = { value = -46.0, unit = "m", fidelity = "design", rationale = "South-west corner, 4 m inside." }
 start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east, along the first lane." }
 lane_m = { value = 9.0, unit = "m", fidelity = "measured", rationale = "Tuned on training seeds 1-8 (5k rays, return margin 15-30 s): lane 8 m 3/8 seeds >= 95 % at margin 15, lane 9 m 8/8 at margin 15 and 22 (7/8 at 30), lane 10 m 4/8 at margin 30 (docs/dog/autonomy.md Coverage). Held-out seeds 1001-1016 were not used." }
-return_margin = { value = 22.0, unit = "s", fidelity = "measured", rationale = "Head home with 22 s in hand: home at t = 1165-1179 s on training seeds 1-8 (margin 15 gave one return at 1215 s, late)." }
+return_margin = { value = 18.0, unit = "s", fidelity = "measured", rationale = "Head home with 18 s in hand: with the edge keep-out (plan.border_m 0.5) home at t = 1167-1182 s on training seeds 1-8, 8/8 >= 95.2 %, bumps 0 except one 42-contact seed; margin 22 with a 0.6 m keep-out gave 6/8 (docs/dog/autonomy.md Coverage)." }
 
 [model]
 script = "coverage_rubble.py"

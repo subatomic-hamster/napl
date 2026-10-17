@@ -172,12 +172,48 @@ once:
 - coverage sorted: 92.3, 93.6, 93.7, 94.1, 95.3, 95.7, 95.8, 95.9, 95.9, 95.9, 96.0, 96.2, 96.2, 96.3, 96.7, 97.0 %; median 95.9 %.
 - failures: 4 on coverage (92.3-94.1 %), and seed 1015 (95-96 % covered) was not home at the end (phase RETURN at t = 1222 s, counted
   late and not-home); the other 15 were home at 1163-1196 s. Map RMS <= 3.15 cm everywhere, localization <= 3.6 cm, 0 crashes.
-- new since the first MC: 11 of 16 runs bump (1-508 bumps each, 1852 total; before 0). Cause not investigated (the carrier now counts every
-  blocked step and slides along the obstacle; the 0.5 m planning blocks may not resolve small rocks); not a pass criterion (open issue).
+- new since the first MC: 11 of 16 runs bump (1-508 bumps each, 1852 total; before 0). Root cause (found on training seeds 6-8, bump
+  positions in the traces): the bumps sit at |x| or |y| = 49.7, the field edge. Lane 9 m made the planner detour round rocks along the
+  edge; the carrier stops at 49.75 and the pursuit overshoots corners. Fix: `plan.border_m` = 0.5, a keep-out strip along the field edge
+  in every plan (`test_plans_keep_out_of_the_field_edge_strip`).
 - reading: the 95 % target is met on 11/16; the shortfall seeds are the ones with the most bumps (1007-1010: 123-508), so the contacts cost
   sweep time.
 
-Ruins: no Monte Carlo (the seed-1 mission already fails at 38 %, see Coverage).
+Third held-out run (edge keep-out 0.5 m, return margin 18 s; margin re-tuned on training seeds 1-8: 8/8 >= 95.2 %, bumps 0 except one
+42-contact seed), seeds 1001-1016, N = 16, run once:
+
+- success **14/16**, Wilson 95 % interval [0.640, 0.965]; median coverage 96.1 %, map RMS <= 3.2 cm, localization <= 4.7 cm.
+- coverage sorted: 94.4, 95.2, 95.4, 95.8, 95.9, 95.9, 96.1, 96.1, 96.1, 96.1, 96.2, 96.2, 96.3, 96.4, 96.8, 97.0 %.
+- bumps: 0 on 14 runs, 1 and 42 on two (was 1852 in total).
+- failures: seed 1008 (94.4 %, home at 1185 s) and seed 1015 (97.0 % covered but still on its way home at the end, t = 1218 s, phase
+  RETURN). Seed 1015 failed the same way in the previous held-out run; its cause was not diagnosed (held-out seeds are not used for
+  diagnosis; no training seed in 1-8 returned later than 1182 s).
+
+### Ruins, 50 x 50 m site (`coverage_ruins_50`)
+
+Spec: the ruins criterion is a 50 x 50 m site (about 100 rooms), 20 min, RMS <= 5 cm, >= 95 % mapped. Same carrier / planner as above,
+lane 5 m (one lane per row of rooms), return margin 40 s, 0.3 m blocks. Numbers from seed 1: home at 1106 s, 89.8 % mapped with margin
+120 s; 91.8 % with margin 40 s (home 1168 s); map RMS 4.2 cm and localization <= 0.29 m (both monitors met on that seed; the two
+near-misses of the 100 m site did not reappear, but 0.29 m is 1 cm from the limit and the cause, ICP drift along GNSS-denied corridors
+and wall-face smear at 6-8 cells, was not removed).
+
+Training seeds 1-4 (lane 5 / 10 / 25 m, margin 40 s): coverage 91.8 / 38.8 / 54.0 / 85.5 % for lane 5; lane 10 and 25 are worse
+(seed 1: 86.6 and 88.9 %). Seeds 2-4 are limited by robot wedging, not by lanes: bumps 517, 42, 44 on seeds 2, 3, 4.
+
+Held-out seeds 2001-2016, N = 16, run once (lane 5 m, margin 40 s): **0/16**, Wilson [0.000, 0.194]. Coverage sorted: 18.3, 56.2, 66.2,
+66.4, 71.9, 73.4, 77.6, 81.3, 83.5, 85.0, 85.6, 85.7, 86.2, 86.3, 86.6, 88.5 % (median 83.5 %); 7 of 16 were not home at the end;
+map RMS 2.4-13.3 cm (only 5 of 16 within 5 cm); localization error <= 0.37 m (one run); bumps 0-538.
+
+Root causes found, not fixed (seed 2, traces and cost-map dumps): (1) the robot enters a 0.8-1.6 m doorway at a skew heading, the pure
+pursuit turns on the spot to align, and a foot (0.29 m from the body centre) wedges against a jamb; (2) (inferred from the code and one cost-map dump, not
+verified by a test) the planner's doorway is narrower than the real one and off-centre: a step between two blocks counts for the lower-index block only, so the lethal band of a
+wall grows by a block on one side, and the path hugs one jamb; (3) after a back-off the same approach is retried. Tried on training
+seeds 1-4, all worse and reverted: holonomic strafing near walls without turning, remembering the wedge point as impassable (it sealed
+the robot into a doorway), 0.2 m blocks with two near-wall cost rings, symmetric step pairs with strafing and wedge memory (bumps fell to 8-97 on
+0.3 m blocks, but coverage stayed at 13-76 %: the robot stopped short of doors it now considered closed). The next step is a footprint-aware doorway
+planner (clearance from a distance transform rather than block lethality) plus approach alignment; out of scope for this round.
+
+Ruins 100 x 100 m: unchanged (not reachable, see Coverage).
 
 ## Upgrade path: GPU raycaster
 
