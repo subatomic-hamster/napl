@@ -100,17 +100,54 @@ rubble missions.
 At 8 m: home at t = 1130 s, map RMS 3.0 cm, localization error <= 0.133 m, 0 bumps. Narrower lanes cannot finish the field in 20 min at
 1.5 m/s; wider lanes plus gap filling win. The plan's swath-derived lane (1.8-3.6 m) is therefore replaced by 8 m.
 
+Tuning round (training seeds 1-8 only; held-out 1001-1016 untouched until the end). The held-out MC of the lane-8 / margin-60 setup
+was 0/16 (median 93.7 %): the sweep never finished before the return trigger, and the return left 60-80 s unused. Results on seeds
+1-8 (coverage >= 95 % count; latest home time):
+
+| lane | return margin | seeds >= 95 %      | latest home   |
+| ---- | ------------- | ------------------ | ------------- |
+| 8 m  | 15 s          | 3/8                | 1181 s        |
+| 9 m  | 15 s          | 8/8                | 1215 s (late) |
+| 9 m  | 22 s          | 8/8 (95.2-96.9 %)  | 1179 s        |
+| 9 m  | 30 s          | 7/8 (94.5 % worst) | 1169 s        |
+| 10 m | 30 s          | 4/8                | 1181 s        |
+
+Adopted for the 100 m rubble scenarios: **lane 9 m, return margin 22 s** (scenario overrides; the library defaults stay for the 20 m
+smoke goldens).
+
 Wall time: `c_py` on the 100 m map is about 0.142 wall-s per sim-s (0.07 on the 20 m smoke: the 200 x 200 block grid makes A* /
 Dijkstra / `mapped()` heavier), so a 5k rubble mission is about 1200 x (1/3.06 + 0.142) = 9.5 min.
 
 20k headline (`coverage_rubble_20k`, pool 1, seed 1): home at t = 1149 s, map RMS 3.07 cm, localization <= 0.134 m, 1 bump, wall 22 min
 (model: 26 min). Only **89.0 %** mapped at pool 1 against 95.5 % at 5k / pool 2, so its `covers_95_percent` monitor fails: the pool-1
-target set is stricter than the density equivalence suggests. The replay check of that run timed out (the 60 MB log, 600 s limit in
-`napl program`), so its replay is unverified.
+target set is stricter than the density equivalence suggests. The replay check inside `napl program` timed out (60 MB log, 600 s hard
+limit); replayed afterwards with `napl-replay` and no limit (a bg job): tick 114910, state hash `223644ac3765e1fe` = the run's
+`native.json` hash: **replay matches**. (These 20k numbers are from before the lane 9 / margin 22 tuning below and not re-run.)
 
-Ruins (`coverage_ruins`, seed 1): with the default 0.5 m planning blocks the 0.8-1.6 m doors read closed (1177 of 40000 blocks
-reachable); `block = 0.3` fixes reachability (108515 of 110889), but the full mission still fails: at the return (t = 1260 s) it had
-mapped **26 %**, map RMS 0.40 m, 7441 bumps. Open issue; the spec field is the rubble one.
+Ruins (`coverage_ruins`, seed 1). Three defects found, in the order they broke (trace of the failed run `ruins3`: map RMS 0.2-0.4 m from
+t = 20 s, first bump t = 48 s, stuck for good by t = 270 s):
+
+1. **Carrier trap.** A blocked step kept its new yaw: a foot ended inside the wall, every later step was blocked, bumps +10 per
+   second until the end (7441 bumps; the robot stood almost still from t = 510 s to the end). Fix: a blocked step slides (the move alone, else
+   the turn alone, else stays) and never leaves the body in contact (`test_a_bump_while_turning_never_leaves_the_feet_in_the_wall`).
+2. **Clearance and tracking.** At 0.3 m blocks the path through a 0.8-1.6 m door grazes the jambs (feet 0.29 m from the body centre).
+   Fixes: wall-adjacent block cost 6 (scenario `near_lethal`), speed 0.8 m/s and lookahead 0.45 m within 0.6 m of a wall, back-off when
+   commanded but not moving for 4 s (`Robot._unstick`). Bumps 7441 -> 48.
+3. **Scoring.** Map RMS counted floor cells next to walls, where a pose error smears the wall face onto the floor: within 2 cells of a
+   wall the floor RMS was 1.09 m, at 4-6 cells 0.2 m, beyond 8 cells 3.4 cm. The scenario now scores floor cells >= 0.30 m (the
+   localization tolerance) from a discontinuity (`map.edge_margin`; rubble keeps the 1-cell default, so its numbers are unchanged).
+   Also, the way-home estimate (straight line x 1.4) was a third of the real path in a maze: the robot was still out at the budget
+   (phase RETURN at 1260 s). The executive now plans the actual way home in the last 10 min.
+
+After the fixes (`ruins6`): home at 1148 s, 48 bumps, 1009 m driven, map RMS 5.7 cm (3.8 cm until a 10-s GNSS-denied stretch at
+t = 890 s smeared a few walls), localization error up to 0.37 m in two GNSS-denied corridor stretches, and **37.8 %** mapped.
+
+**Blocker (physical, not a bug): 95 % in 20 min is not reachable in this maze.** Coverage grew by 0.037 % per metre driven; 1200 s at
+v_max = 1.5 m/s is at most 1800 m, i.e. about 67 % at that efficiency even without a single slow-down or turn. Visiting each of the
+400 rooms at least once needs a route of at least the spanning tree, 399 edges x 5 m = 1995 m (1330 s at v_max); seeing into rooms from
+doorways shortens this, but the measured efficiency says by far too little. The ruins scenario keeps all four monitors and fails
+`covers_95_percent` (and, by 0.7 cm and 7 cm of localization, `map_rms_within_5cm` and `localized_within_30cm`); a spec change
+(larger budget, a smaller maze or a 60 % ruins target) is a user decision.
 
 ## Monte Carlo
 
@@ -128,7 +165,19 @@ Rubble, `coverage_rubble` (5k rays, pool 2, lane 8 m), held-out seeds 1001-1016,
   `plan.lane_m` = 8 was chosen, so it was optimistic. The mission is robust (no failure but coverage); lacking coverage is a planning
   tuning problem (lane width / fill time / return margin), not a localization or mapping one. Open issue.
 
-Ruins: no Monte Carlo (the seed-1 mission already fails at 26 %, see Coverage).
+Re-run after the tuning round (lane 9 m, margin 22 s, the ruins-round carrier / executive fixes), same held-out seeds 1001-1016, N = 16, run
+once:
+
+- success **11/16**, Wilson 95 % interval [0.444, 0.858] (before: 0/16).
+- coverage sorted: 92.3, 93.6, 93.7, 94.1, 95.3, 95.7, 95.8, 95.9, 95.9, 95.9, 96.0, 96.2, 96.2, 96.3, 96.7, 97.0 %; median 95.9 %.
+- failures: 4 on coverage (92.3-94.1 %), and seed 1015 (95-96 % covered) was not home at the end (phase RETURN at t = 1222 s, counted
+  late and not-home); the other 15 were home at 1163-1196 s. Map RMS <= 3.15 cm everywhere, localization <= 3.6 cm, 0 crashes.
+- new since the first MC: 11 of 16 runs bump (1-508 bumps each, 1852 total; before 0). Cause not investigated (the carrier now counts every
+  blocked step and slides along the obstacle; the 0.5 m planning blocks may not resolve small rocks); not a pass criterion (open issue).
+- reading: the 95 % target is met on 11/16; the shortfall seeds are the ones with the most bumps (1007-1010: 123-508), so the contacts cost
+  sweep time.
+
+Ruins: no Monte Carlo (the seed-1 mission already fails at 38 %, see Coverage).
 
 ## Upgrade path: GPU raycaster
 
