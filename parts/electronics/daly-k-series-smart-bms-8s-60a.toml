@@ -30,6 +30,17 @@ size = [0.0615, 0.0325, 0.007]
 pos = [0.0, 0.0, 0.007]
 
 [[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Underside of the board (the geometry sits on z >= 0): taped / standoff-mounted on a deck."
+
+[[ports]]
 name = "pack"
 kind = "power"
 type = "solder-pad"

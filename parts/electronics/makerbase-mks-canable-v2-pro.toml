@@ -32,6 +32,17 @@ size = [0.0225, 0.011, 0.005]
 pos = [0.0, 0.0, 0.005]
 
 [[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Underside of the board (the geometry sits on z >= 0): taped / standoff-mounted on a tray."
+
+[[ports]]
 name = "usb"
 pins = ["USB.A4", "USB.A1", "USB.A6", "USB.A7"]
 kind = "signal"

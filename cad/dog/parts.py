@@ -62,7 +62,7 @@ def abad_mount():
     s += bx(
         5, 32, 13, x=-59.5, z=-43.5
     )  # web from the cup ring down to the hub pad (x [-62, -57])
-    s += bx(39, 40, 4, x=-75.5, z=-39)  # hub pad x [-95, -56], top face z = -37
+    s += bx(39, 56, 4, x=-75.5, z=-39)  # hub pad x [-95, -56], y +-28, top face z = -37
     s -= cyl_x(P.AB_D, 59, x=-28.5)  # actuator bore x [-58, 1]
     for yy in (-P.HIP_BOLT_Y, P.HIP_BOLT_Y):
         for zz in (-P.HIP_BOLT_Z, P.HIP_BOLT_Z):
@@ -180,7 +180,7 @@ def side_plate():
     for the e-stop head."""
     s = bx(P.BODY_L, 4, P.BULK_H)
     s += bx(P.BODY_L, 12, 4, y=-8, z=P.BULK_H / 2 - 2)
-    s -= cyl_y(60, 6, x=-140, z=-35)
+    s -= cyl_y(60, 6, x=-140, z=-18)
     return rounded(s, 3.0)
 
 

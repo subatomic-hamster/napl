@@ -102,6 +102,67 @@ gender = "female"
 pins = ["J6.1", "J6.2", "J6.3", "J6.4"]
 note = "USB-A socket J6 (the USB 2.0 contact set: VBUS, D-, D+, GND)."
 
+# ---- added for the dog (SP3b): the stacks' second ports, the USB-C port, the UART1 / I2C1 header signals and two 3.3 V header feeds ----
+[[ports]]
+name = "usb_j6_p1"
+kind = "signal"
+type = "usb"
+gender = "female"
+pins = ["J6.10", "J6.11", "J6.12", "J6.13"]
+note = "The other USB-A port of the J6 stack (stack pins 10-13: VBUS, D-, D+, GND of port 1; usb_j6 is port 2)."
+
+[[ports]]
+name = "usb_j7_p1"
+kind = "signal"
+type = "usb"
+gender = "female"
+pins = ["J7.10", "J7.11", "J7.12", "J7.13"]
+note = "The other USB-A port of the J7 stack (stack pins 10-13: VBUS, D-, D+, GND of port 1; usb_j7 is port 2)."
+
+[[ports]]
+name = "usb_j5"
+kind = "signal"
+type = "usb-c"
+gender = "female"
+pins = ["J5.A4", "J5.A7", "J5.A6", "J5.A1", "J5.A3", "J5.A2", "J5.A12", "J5.B10", "J5.B11"]
+note = "USB-C J5, the contacts of a USB 3 peripheral in the order of the D435i's usb port: VBUS, D-, D+, GND, TX1-, TX1+, GND, RX1-, RX1+."
+
+[[ports]]
+name = "uart1"
+kind = "signal"
+type = "uart"
+gender = "male"
+pins = ["J12.8", "J12.10", "J12.6"]
+note = "Header UART1: TXD (pin 8), RXD (pin 10), GND (pin 6); /dev/ttyTHS1 on JetPack 6."
+
+[[ports]]
+name = "i2c1"
+kind = "signal"
+type = "i2c"
+gender = "male"
+pins = ["J12.3", "J12.5"]
+note = "Header I2C1: SDA (pin 3), SCL (pin 5), 2.2 kohm pull-ups on the carrier."
+
+[[ports]]
+name = "header_3v3_a"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "source"
+pins = ["J12.1", "J12.9"]
+v_max = { value = 3.3, unit = "V", fidelity = "estimated", rationale = "Nominal 3.3 V of the header's 3V3 pins; the pin table gives 1 A per power pin." }
+note = "Header 3V3 (pin 1) with ground (pin 9)."
+
+[[ports]]
+name = "header_3v3_b"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "source"
+pins = ["J12.17", "J12.9"]
+v_max = { value = 3.3, unit = "V", fidelity = "estimated", rationale = "As header_3v3_a." }
+note = "Header 3V3 (pin 17) with ground (pin 9)."
+
 # ---- 40-pin expansion header J12 (S1 Table 3-3). Pin names are the module pin names of the specification's Figure 3-1; a trailing * in the table marks an active-low signal and is dropped here.
 # alt: a0 = default usage, a1 = the table's alternate functionality. All signals are 3.3 V; pins 3, 5, 27 and 28 are open-drain I2C lines with pull-ups on the carrier (2.2 kohm for 3 / 5, 1.5 kohm for 27 / 28),
 # the other signals pass TI TXB0108 level translators with weak output drivers (i_max is the table's pin drive: 2 mA open-drain, 20 uA elsewhere). Power pins carry 1 A each.

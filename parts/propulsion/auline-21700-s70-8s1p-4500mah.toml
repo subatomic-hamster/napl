@@ -38,6 +38,17 @@ shape = "box"
 size = [0.043, 0.0395, 0.0215]
 
 [[ports]]
+name = "base"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, -0.0215]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 2
+note = "Underside of the pack (the origin is the pack centre, so the underside is 21.5 mm below it): lies on the floor of a tray or a deck, held with foam / a strap."
+
+[[ports]]
 name = "power_out"
 kind = "power"
 type = "xt60"

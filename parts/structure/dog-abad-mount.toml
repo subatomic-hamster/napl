@@ -7,7 +7,7 @@ url = "cad/dog/parts.py"
 
 # cad/dog/parts.py abad_mount(); mesh by cad/dog/build.py. Leg frame (LF): origin on the abduction axis at the OUTER face of the flange (flange x in [-6, 0]),
 # +x outward along the abduction axis (forward for a front leg), +y outboard, z up. The 92 x 55 mm actuator sits in the cup INSIDE the body (x in [-58, 0]) with
-# its output face flush with x = 0; the cup is open at the back (cables); a pad behind it (top face z = -37 mm) carries the leg hub. Bolts to the bulkhead with
+# its output face flush with x = 0; the cup is open at the back (cables); a pad behind it (x in [-95, -56], y +-28, top face z = -37 mm) carries the leg hub. Bolts to the bulkhead with
 # 4 x M3 at (+-40, +-45) mm. Symmetric about XZ: one part for all four legs.
 
 [mirror]
@@ -18,7 +18,7 @@ infill_fraction = { value = 0.3, unit = "1", fidelity = "estimated", rationale =
 layer_height    = { value = 0.0002, unit = "m", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
 nozzle_diameter = { value = 0.0004, unit = "m", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
 wall_count      = { value = 3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
-mass            = { value = 0.0853, unit = "kg", fidelity = "derived", derivation = "Mesh volume 94.5 cm3 x PLA 1.24 g/cm3, shell = min(V, area x 3 walls x 0.4 mm), 30 % infill elsewhere (assemblies/README.md 'Mass properties'), by cad/dog/build.py." }
+mass            = { value = 0.0875, unit = "kg", fidelity = "derived", derivation = "Mesh volume 96.9 cm3 x PLA 1.24 g/cm3, shell = min(V, area x 3 walls x 0.4 mm), 30 % infill elsewhere (assemblies/README.md 'Mass properties'), by cad/dog/build.py." }
 
 [geometry]
 shape = "mesh"
