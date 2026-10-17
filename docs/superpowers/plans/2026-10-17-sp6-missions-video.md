@@ -65,6 +65,9 @@ code and a renamed one is fixed in SP6 files, never in SP4 / SP5):
 
 ## Global Constraints
 
+- **Ruins headline is 50 x 50 m (user decision 2026-10-17, spec section 7):** wherever this plan says `dog_ruins` is 100 x 100 m
+  (Task 1 files and test, Task 5 Step 3), use 50 x 50 m (~100 rooms) with the same 20 min / RMS 5 cm / 95 % criteria; rename
+  the test `test_dog_ruins_headline_is_50m_with_fine_blocks`. Base it on SP5's 50 m ruins scenario if one exists in the merged tree.
 - **All compute on hfbox:** `NAPL_REMOTE_DIR=/workspace/wt/napl-skydio tools/remote.sh run '<cmd>'` (`NAPL_REMOTE_DIR` always set; SP6's remote dir is
   `/workspace/wt/napl-skydio`, worktree `../napl-wt/sp6`, branch `p12-sp6` from `napl-v1`). `--slots 2` for Monte Carlo, `bg` for runs over ~50 min (`run` times out at 3600 s),
   `--gpu` only for render / encode; ONE GPU job at a time; GTT < 4 GB (read `/sys/class/drm/card1/device/mem_info_gtt_used` before and after, the recorder prints it).
