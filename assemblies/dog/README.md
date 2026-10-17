@@ -77,6 +77,13 @@ That is above the 3-4.5 k USD target of the spec: the 12 actuators alone are 2,5
 prices, BMS, PDB, printed parts). Separate estimated line, not in the total: cables, connectors and fasteners, 80 USD (the study's allowance). The carbon sheet prices are lower bounds (sheet
 granularity and cutting are not priced); the Livox splitter cable (80 USD) is a wire part and is also outside the total.
 
+## Speed sweep (`tools/dog_sweep.py`, `docs/dog/speed-sweep.md`)
+
+12 points (GIM8108-8 and a GIM6010-8 probe x ratio 1.5 / 2.0 x leg 0.20 / 0.22 / 0.25 m), measured on this model: stall torque, hip swing time, push force, jump, 0.25 m drop, 30 s hold; bounds
+derived with the actuator-study formulas. The rule's pick is GIM8108-8, ratio 2.0, L = 0.20 (derived trot bound 1.36 m/s, 5,552 USD, 11.63 kg); the shipped dog keeps candidate 1 (GIM8108-8, 1.5, 0.22:
+bound 0.92 m/s, 5,554 USD) because ratio 2.0 needs a lug / crank not drawn and wins by 3 % of a worst-case pack current. Neither reaches 3.5 m/s as a bound: the hip stall (22 N m) limits the stance.
+Pareto front (v_trot_bound max, cost min, mass min, eligible points): GIM6010-8 r2.0 L250 (0.00 m/s, 4,572 USD, 11.60 kg) and GIM8108-8 r2.0 L200 (1.36 m/s, 5,552 USD, 11.63 kg).
+
 ## Open items
 
 - Inrush precharge for the 100 A contactor and the PDB's 940 uF bus capacitance (not modelled).
