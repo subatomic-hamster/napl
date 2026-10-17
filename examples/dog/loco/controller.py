@@ -248,7 +248,11 @@ class Controller:
             r, J = L.fk_jac(q[s])
             self.t_late[i] = self.t_late[i] + DT if lp.late else 0.0
             if lp.stance and not lp.late:
-                tau[s] = J.T @ (-R.T @ self.f[i])
+                # ground force f at the foot: -J^T R^T f, plus the torque that carries the leg's own weight (without it the realized ground
+                # force is off by the leg weight, the feet walked inward at 1.3 cm/s and the stand fell at 13 s: rung b)
+                tau[s] = J.T @ (-R.T @ self.f[i]) + self.m.leg_required(
+                    i, q[s], np.zeros(3), R.T @ np.array([0.0, 0.0, Mp.G])
+                )
                 v_des[s] = _jinv(
                     J, -(R.T @ v + np.cross(w, r))
                 )  # foot still in the world
