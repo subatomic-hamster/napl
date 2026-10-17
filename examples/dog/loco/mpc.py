@@ -12,9 +12,14 @@ N, DT = (
     0.025,
 )  # horizon 12 x 25 ms = 0.30 s ~ one trot period; re-solved at 50 Hz (every 10 leg-control ticks)
 NX, NU, G = 13, 12, 9.81
-# MIT cheetah-software convexMPC weights (Mini Cheetah, 9 kg: same class): rpy, p, w, v, g; retuned only on TRAIN seeds (Task 11) if needed
-Q_DIAG = np.array([0.25, 0.25, 10.0, 2.0, 2.0, 50.0, 0.0, 0.0, 0.3, 0.2, 0.2, 0.1, 0.0])
-ALPHA = 4e-5
+# MIT cheetah-software convexMPC weights (Mini Cheetah, 9 kg): rpy, p, w, v, g. Roll / pitch x10 and the force weight /10 for this dog: with the
+# MIT values (0.25, 4e-5) standing on four feet is UNSTABLE in the ideal plant (a 2 cm lateral offset of the CoM over the feet grows to a
+# fall in 3 s: the force penalty makes redistributing the weight dearer than the small angle error it prevents; Task 6 ladder rung b).
+# The roll / pitch RATE weights are 1.0 (MIT: 0): with a 30 ms force lag (legs, bus latency, the MPC's own 20 ms hold) a controller without
+# rate damping is unstable at standstill for any roll weight above ~0.3; with 0.3-1.0 it is stable for every combination tried
+# (lag 30 ms, 24 weight sets; docs/dog/locomotion.md).
+Q_DIAG = np.array([2.5, 2.5, 10.0, 2.0, 2.0, 50.0, 1.0, 1.0, 0.3, 0.2, 0.2, 0.1, 0.0])
+ALPHA = 4e-6
 F_MIN, F_MAX = (
     2.0,
     300.0,

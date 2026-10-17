@@ -69,6 +69,8 @@ class Controller:
         self.pose0 = (np.zeros(2), 0.0)
         self.st = None
         self.yaw_ref = None
+        # (dz m, droll rad, dpitch rad) added to the MPC's body reference: posture commands, and the steps of the diagnostic ladder
+        self.body_ref = np.zeros(3)
 
     # ---- model-derived constants ------------------------------------------------------------------------------------------------
     def stand_feet(self):
@@ -168,16 +170,26 @@ class Controller:
         dyaw = self.yaw_ref - yaw  # |dyaw| <= YAW_LEAD (step() keeps it)
         roll_p, pitch_p, zg = Tr.plane(self.map, c[:2], yaw)
         v_w = Mp.rz(yaw) @ np.array([cmd[0], cmd[1], 0.0])
-        z_ref = zg + self.m.legs["fl"].r_foot + self.h_stand() + m.com[2]
+        z_ref = (
+            zg + self.m.legs["fl"].r_foot + self.h_stand() + m.com[2] + self.body_ref[0]
+        )
         xref = np.zeros((Mp.N, Mp.NX))
         r = np.zeros((Mp.N, 4, 3))
+        # standing: the CoM is held over the feet (a reference that follows the CoM leaves the position loop open and the body drifts out of the
+        # support polygon after a push); walking: the position reference follows the CoM, only the velocity is tracked
+        base_xy = st.feet[:, :2].mean(0) if self.sched.g.name == "stand" else c[:2]
         for k in range(Mp.N):
             t = (k + 1) * Mp.DT
-            xref[k] = [POSTURE * roll_p, POSTURE * pitch_p, yaw + dyaw + cmd[2] * t, c[0] + v_w[0] * t, c[1] + v_w[1] * t, z_ref,
+            xref[k] = [POSTURE * roll_p + self.body_ref[1], POSTURE * pitch_p + self.body_ref[2], yaw + dyaw + cmd[2] * t, base_xy[0] + v_w[0] * t, base_xy[1] + v_w[1] * t, z_ref,
                        0.0, 0.0, cmd[2], v_w[0], v_w[1], 0.0, -Mp.G]  # fmt: skip
+        # lever arms about where the CoM will actually be (the current CoM carried along at the commanded velocity), not about the position
+        # REFERENCE: standing with the CoM 1 cm off the reference, the reference-based arms miss the m g x offset torque and the MPC balances a
+        # body that is not there (the slow lateral divergence of rung b)
+        ts = (np.arange(Mp.N) + 1) * Mp.DT
+        com_path = np.column_stack([c[0] + v_w[0] * ts, c[1] + v_w[1] * ts, xref[:, 5]])
         for i, lp in enumerate(phases):
             foot = st.feet[i] if lp.stance else self.target[i]
-            r[:, i] = foot - xref[:, 3:6]
+            r[:, i] = foot - com_path
         f, ok = self.mpc.solve(x0, xref, r, self.sched.table(Mp.N, Mp.DT), self.mu)
         self.f = f
         self.stats["mpc_fail"] = self.mpc.n_fail
