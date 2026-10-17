@@ -241,6 +241,9 @@ class Flatten:
         and every flatten op. Wires need no pruning: they live in the document and are drawn only between shown cards. No
         card left ends the mode. Returns True (and bumps `rev`, so the canvas refetches) when something was dropped."""
         part = {i["id"]: i["part"] for i in d.doc["instances"]}
+        part.update(  # a sub-assembly block stays while its entry (and file) is in the design
+            {s["id"]: s["file"] for s in d.asm.raw.get("subassemblies", [])}
+        )
         gone = [k for k, c in self.cards.items() if part.get(k) != c["part"]]
         for k in gone:
             del self.cards[k]
@@ -269,6 +272,21 @@ class Flatten:
             want = m
         cards = {}
         for i in ids:
+            org = d.asm.origins.get(i)
+            if org and a.get("collapse", True):
+                # an item of a sub-assembly: the whole sub-assembly is ONE block exposing its exported connectors
+                cards.setdefault(
+                    org["sub"],
+                    {
+                        "id": org["sub"],
+                        "part": org["file"],
+                        "sub": True,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "ports": [],
+                    },
+                )
+                continue
             part = d._part(by_id[i]["part"])
             names = [p["name"] for p in part.ports if p.get("kind") in WIRE_KINDS]
             if want and i in want:
@@ -324,6 +342,11 @@ class Flatten:
         self._need()
         for e in ("from", "to"):
             i, _, p = str(a.get(e, "")).partition(".")
+            if self.cards.get(i, {}).get("sub"):
+                raise DesignError(
+                    f"flatten.wire: '{i}' is a sub-assembly block; wire its exported connector in the design file ([[wires]] to '{i}:<export>') "
+                    "or open the part"
+                )
             if i not in self.cards or (
                 p not in self.cards[i].get("terms", {})
                 and p
@@ -437,7 +460,139 @@ class Flatten:
     def _strands(self, d):
         """One entry per conductor of every wire with an end on the canvas: {wire, k, ia, ta, ib, tb} (terminal names: 'CONN.PIN' of a
         real pin, else the port name). Wires whose pin lists do not resolve get one port-to-port strand."""
-        return wire_strands(d, lambda ia, ib: ia in self.cards or ib in self.cards)
+        subs = {k for k, c in self.cards.items() if c.get("sub")}
+        if not subs:
+            return wire_strands(d, lambda ia, ib: ia in self.cards or ib in self.cards)
+
+        def card_of(i):  # the block an instance's terminals sit on
+            o = d.asm.origins.get(i)
+            return o["sub"] if o and o["sub"] in subs else i
+
+        exp = self._sub_exports(d)
+        out = []
+        for s in wire_strands(
+            d, lambda ia, ib: card_of(ia) in self.cards or card_of(ib) in self.cards
+        ):
+            ends = []
+            for i, t in ((s["ia"], s["ta"]), (s["ib"], s["tb"])):
+                c = card_of(i)
+                if c in subs:  # only the exported connectors are terminals of the block
+                    name = self._export_of(d, exp.get(c, {}), i, t)
+                    if name is None:
+                        break
+                    ends.append((c, name))
+                else:
+                    ends.append((i, t))
+            if len(ends) < 2 or ends[0][0] == ends[1][0]:
+                continue  # inside one sub-assembly (or not exported): not drawn on the parent sheet
+            out.append(
+                {
+                    **s,
+                    "ia": ends[0][0],
+                    "ta": ends[0][1],
+                    "ib": ends[1][0],
+                    "tb": ends[1][1],
+                }
+            )
+        return out
+
+    def _sub_exports(self, d):
+        """{sub id: {"conns": {export name: (flat instance id, connector id)}}} from the exported connectors of each child file."""
+        import tomllib
+        from pathlib import Path
+
+        out = {}
+        if not d.asm.path:
+            return out
+        for s in d.asm.raw.get("subassemblies", []):
+            try:
+                cdoc = tomllib.loads(
+                    (Path(d.asm.path).resolve().parent / s["file"]).read_text(
+                        encoding="utf-8"
+                    )
+                )
+            except (OSError, tomllib.TOMLDecodeError):
+                continue
+            conns = {}
+            for name, ref in (cdoc.get("exports", {}).get("connectors") or {}).items():
+                head, _, cid = str(ref).partition(".")
+                if (
+                    cid and ":" not in head
+                ):  # (an export of a nested sub-assembly is not drawn)
+                    conns[name] = (f"{s['id']}:{head}", cid)
+            out[s["id"]] = {"conns": conns}
+        return out
+
+    @staticmethod
+    def _export_of(d, exp, inst, term):
+        """The export name whose connector holds terminal `term` ('CONN.PIN' or a port name) of flat instance `inst`, else None."""
+        row = next((i for i in d.doc["instances"] if i["id"] == inst), None)
+        if row is None:
+            return None
+        part = d._part(row["part"])
+        if (
+            "." in term
+        ):  # a pin: its connector, and the port it belongs to (an export may name either)
+            cids = {PN.split_ref(term)[0], PN.port_of_pin(part, term) or ""}
+        else:  # a port: itself, and the connectors its pins sit on
+            cids = {term} | {
+                PN.split_ref(r)[0]
+                for p in part.ports
+                if p["name"] == term
+                for r in p.get("pins", [])
+            }
+        return next(
+            (
+                n
+                for n, (i, c) in exp.get("conns", {}).items()
+                if i == inst and c in cids
+            ),
+            None,
+        )
+
+    def _sub_terms(self, d, c):
+        """Terminals of a sub-assembly block: one per exported connector (kind / type / role from the connector's first pin)."""
+        inst = {i["id"]: i for i in d.doc["instances"]}
+        terms, blocks = {}, []
+        for name, (iid, cid) in (
+            self._sub_exports(d).get(c["id"], {}).get("conns", {}).items()
+        ):
+            row = inst.get(iid)
+            if row is None:
+                continue
+            part = d._part(row["part"])
+            cn = part.connectors.get(cid)
+            ports = {p["name"]: p for p in part.ports}
+            if cn is not None and cn["order"]:  # an exported connector
+                pin0 = cn["pins"][cn["order"][0]]
+                port = ports.get(PN.port_of_pin(part, pin0["ref"]) or "", {})
+                typ, gender, role = cn["type"], cn["gender"], _pin_role(port, pin0)
+            elif cid in ports:  # an exported wire port
+                port = ports[cid]
+                typ, gender, role = (
+                    port.get("type", ""),
+                    port.get("gender", ""),
+                    port.get("role", ""),
+                )
+            else:
+                continue
+            terms[name] = {
+                "name": name,
+                "label": name,
+                "kind": port.get("kind", ""),
+                "pkind": port.get("kind", "signal"),
+                "type": typ,
+                "gender": gender,
+                "role": role,
+                "conn": "",
+                "num": "",
+                "dir": "",
+                "v": None,
+                "tip": f"{iid}.{cid}",
+                "cell": (0, 0),
+            }
+            blocks.append({"conn": "", "terms": [name], "two": False})
+        c["terms"], c["blocks"] = terms, blocks
 
     def _build_terms(self, d, strands):
         """Terminals + blocks of every card: c["terms"] = {name: terminal dict}, c["blocks"] = [{conn, terms: [names], two}]."""
@@ -446,6 +601,9 @@ class Flatten:
         for s in strands:
             used[(s["ia"], s["ta"])] = used[(s["ib"], s["tb"])] = True
         for iid, c in self.cards.items():
+            if c.get("sub"):
+                self._sub_terms(d, c)
+                continue
             part = d._part(inst[iid]["part"])
             conns = part.connectors
             ports = {p["name"]: p for p in part.ports}
@@ -545,7 +703,10 @@ class Flatten:
         self._build_terms(d, strands)
         ids = sorted(self.cards)
         inst = {i["id"]: i for i in d.doc["instances"]}
-        cat = {i: d._part(inst[i]["part"]).category for i in ids}
+        cat = {
+            i: "" if self.cards[i].get("sub") else d._part(inst[i]["part"]).category
+            for i in ids
+        }
         terms = {i: self.cards[i]["terms"] for i in ids}
         roles = {i: [t["role"] for t in terms[i].values()] for i in ids}
         band = {
@@ -671,7 +832,8 @@ class Flatten:
                 ),
                 default=0,
             )
-            head_w = max(len(i) * CW_HEAD, len(inst[i]["part"]) * CW_PART) + 24
+            ptxt = c["part"] if c.get("sub") else inst[i]["part"]
+            head_w = max(len(i) * CW_HEAD, len(ptxt) * CW_PART) + 24
             c["w"], c["h"] = (
                 float(max(MIN_W, pin_w, head_w, title_w)),
                 float(HEAD_H + PAD + nr * ROW_H),
@@ -745,10 +907,13 @@ class Flatten:
                     links[(i, t)].append(far)
         cards = []
         for c in self.cards.values():
-            part = next(i["part"] for i in d.doc["instances"] if i["id"] == c["id"])
-            grp = next(
-                i.get("group", "") for i in d.doc["instances"] if i["id"] == c["id"]
-            )
+            if c.get("sub"):  # a sub-assembly block: its file stands for the part
+                part, grp = c["part"], ""
+            else:
+                part = next(i["part"] for i in d.doc["instances"] if i["id"] == c["id"])
+                grp = next(
+                    i.get("group", "") for i in d.doc["instances"] if i["id"] == c["id"]
+                )
             pins = []
             for t in sorted(c["terms"].values(), key=lambda t: (t["side"], t["row"])):
                 fl = flags.get(f"{c['id']}.{t['name']}", [])
@@ -782,6 +947,7 @@ class Flatten:
             cards.append(
                 {
                     "id": c["id"],
+                    "sub": bool(c.get("sub")),
                     "hidden": c["id"] in hid,
                     "part": part,
                     "group": grp,

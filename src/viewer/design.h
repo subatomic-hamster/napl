@@ -199,6 +199,15 @@ struct Report {
   std::vector<std::pair<std::string, double>> by_group;  // kg
   std::vector<Target> targets;
   std::vector<Finding> findings;
+  // the BOM (report["bom"], sub-assemblies): total mass / cost (cost < 0: no price known), parts without a price, per sub-assembly
+  struct BomSub {
+    double mass = 0, cost = -1;
+    int missing = 0;
+  };
+  bool has_bom = false;
+  double bom_cost = -1, bom_mass = 0;
+  int bom_missing = 0;
+  std::map<std::string, BomSub> bom_subs;
 };
 
 inline Report report_from(const Json& j) {
@@ -216,6 +225,16 @@ inline Report report_from(const Json& j) {
     for (const Json& w : f.at("where").arr) x.where.push_back(w.str);
     for (const Json& w : f.at("instances").arr) x.instances.push_back(w.str);
     r.findings.push_back(std::move(x));
+  }
+  if (const Json& b = j.at("bom"); b.kind == Json::Obj) {
+    r.has_bom = true;
+    r.bom_cost = b.at("total").n("cost", -1);
+    r.bom_mass = b.at("total").n("mass");
+    r.bom_missing = static_cast<int>(b.at("missing").arr.size());
+    for (const auto& [id, v] : b.at("by_sub").obj) {
+      const Json& mi = v.at("missing");
+      r.bom_subs[id] = {v.n("mass"), v.n("cost", -1), static_cast<int>(mi.kind == Json::Arr ? mi.arr.size() : v.n("missing"))};
+    }
   }
   return r;
 }
@@ -269,6 +288,23 @@ struct WireRow {
 struct Device {
   std::string type, name;
 };
+// Sub-assemblies (docs/guide.md "Sub-assemblies"): the [[subassemblies]] entries, the [exports] rows, where each flattened item came
+// from, and the stack of open documents.
+struct SubRow {
+  std::string id, file, mirror;
+};
+struct ExportRow {
+  std::string kind, name, ref;  // kind: ports | connectors | params
+};
+struct Origin {
+  std::string sub, file, id;
+};
+struct DocRow {
+  int id = 0;
+  std::string path, title;
+  std::vector<std::string> crumb;
+  bool dirty = false;
+};
 // What the backend reports about the design as built: the report (mass, instances, DRC findings) plus the model file and ports.
 struct State {
   std::string rev, xml, build_error, path;  // xml empty: the design does not build (build_error says why)
@@ -283,6 +319,11 @@ struct State {
   std::vector<Mate> mates;
   std::vector<WireRow> wires;
   std::vector<Device> devices;
+  std::vector<SubRow> subs;
+  std::vector<ExportRow> exports;
+  std::map<std::string, Origin> origins;          // flattened id ("fl:hip_motor") -> where it came from
+  std::map<std::string, std::string> sub_errors;  // sub-assembly id -> why its file cannot be used (missing ...)
+  std::vector<DocRow> docs;                       // open documents, base first; the last is the one being edited
 };
 inline void vec_from(const Json& a, double* out, int n) {
   for (int i = 0; i < n && i < static_cast<int>(a.arr.size()); ++i) out[i] = a.arr[i].num;
@@ -333,6 +374,16 @@ inline State state_from(const Json& j) {
   for (const Json& m : j.at("mates").arr) s.mates.push_back({m.s("name"), m.s("a"), m.s("b")});
   for (const Json& w : j.at("wires").arr) s.wires.push_back({w.s("name"), w.s("from"), w.s("to"), w.n("awg")});
   for (const Json& d : j.at("devices").arr) s.devices.push_back({d.s("type"), d.s("name")});
+  for (const Json& x : j.at("subs").arr) s.subs.push_back({x.s("id"), x.s("file"), x.s("mirror")});
+  for (const auto& [kind, tab] : j.at("exports").obj)
+    for (const auto& [name, ref] : tab.obj) s.exports.push_back({kind, name, ref.kind == Json::Str ? ref.str : ""});
+  for (const auto& [id, o] : j.at("origins").obj) s.origins[id] = {o.s("sub"), o.s("file"), o.s("id")};
+  for (const auto& [id, why] : j.at("sub_errors").obj) s.sub_errors[id] = why.str;
+  for (const Json& d : j.at("docs").arr) {
+    DocRow r{static_cast<int>(d.n("doc_id")), d.s("path"), d.s("title"), {}, d.at("dirty").num != 0};
+    for (const Json& c : d.at("crumb").arr) r.crumb.push_back(c.str);
+    s.docs.push_back(std::move(r));
+  }
   return s;
 }
 

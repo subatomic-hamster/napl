@@ -75,7 +75,8 @@ void run_viewer(Host& host, const ViewerOptions& opts);
 //     dfinding N                   click DRC finding N (selects the instances involved)
 //     dsync                        re-read the design (what a polled change from another client does)
 //   UI-only actions (no bus command; mode / selection / camera are window state, search types into the library box):
-//     mode build|library|wiring|simulate|program | uisel ID[,ID...] | search TEXT | uicam top|front|side|iso | uiframe | uikeys [on|off]
+//     mode build|library|wiring|simulate|program | uisel ID[,ID...] | search TEXT | uicam top|front|side|iso | uiframe | uikeys [on|off] | crumb DEPTH
+//     (crumb = a click on that breadcrumb of the top bar: back to that open document; a dirty child asks to save first)
 //     (uikeys = the controls popover of the top bar; the window reports what it shows back with the backend op ui.report)
 //     (every one of these is also a backend op the window shows through `ui_poll`: python/napl/design/uiops.py)
 // executed (in order) when that frame is reached, exactly like the matching UI control would.

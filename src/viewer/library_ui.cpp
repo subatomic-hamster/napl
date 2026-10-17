@@ -130,7 +130,7 @@ bool card(Model& m, Thumbs& th, const Hit& h, ImVec2 size, bool selected, Action
   const bool clicked = ImGui::IsItemClicked();
   if (hov && ImGui::IsMouseDoubleClicked(0)) a.open_page = h.id;
   if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoPreviewTooltip)) {
-    ImGui::SetDragDropPayload("NAPL_PART", h.id.c_str(), h.id.size() + 1);
+    ImGui::SetDragDropPayload(h.mine ? "NAPL_MYPART" : "NAPL_PART", h.id.c_str(), h.id.size() + 1);
     ImGui::EndDragDropSource();
   }
   ImGui::PopID();
@@ -203,6 +203,7 @@ void categories(Model& m) {
   for (const Cat& c : m.cats)
     if (c.depth == 0) total += c.count;
   row("All parts", "", total, 0);
+  row("MY PARTS", kMyParts, m.my_count, 0);  // the workspace's own sub-assemblies (files with an [exports] table)
   for (const Cat& c : m.cats) {
     // a sub-category shows once its top-level category is chosen, down to one level below the chosen one
     const int cur = m.category.empty() ? -1 : static_cast<int>(std::count(m.category.begin(), m.category.end(), '.'));
@@ -212,7 +213,27 @@ void categories(Model& m) {
   }
 }
 
+void detail_mine(const MyPart& p, Actions& a) {
+  ImGui::PushFont(nullptr, 17.f);
+  ImGui::TextWrapped("%s", p.name.c_str());
+  ImGui::PopFont();
+  ImGui::TextDisabled("my part   %s", p.path.c_str());
+  ImGui::Spacing();
+  if (theme::button("ADD", true)) a.add_mine = p.path;
+  ImGui::TextDisabled("or drag the card into the 3D view");
+  ImGui::Spacing();
+  theme::caption("EXPORTS");
+  ImGui::TextWrapped("%s", p.exports.c_str());
+  ImGui::Spacing();
+  theme::caption("MASS / COST");
+  if (p.has_mass) ImGui::Text("%.1f g", p.mass * 1000);
+  else ImGui::TextDisabled("mass: not built");
+  if (p.has_cost) ImGui::Text("$%.2f", p.cost);
+  else ImGui::TextDisabled("cost: no price data");
+}
+
 void detail(Model& m, Thumbs& th, const std::string& selection, int targets, Actions& a) {
+  if (const auto mp = m.mine.find(m.selected); mp != m.mine.end()) return detail_mine(mp->second, a);
   const auto it = m.infos.find(m.selected);
   if (m.selected.empty() || it == m.infos.end()) {
     ImGui::TextDisabled("%s", m.selected.empty() ? "select a part" : "loading ...");

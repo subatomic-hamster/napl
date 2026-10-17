@@ -196,6 +196,11 @@ class Backend(UiOps):
             e, saved = self.docs[-1], None
             if d.dirty and a.get("save", True):
                 p = a.get("path") or d.path
+                base_path = self.get_design().path
+                if p and not Path(p).is_absolute() and base_path:
+                    p = (
+                        Path(base_path).resolve().parent / p
+                    )  # (relative to the base design's folder)
                 if not p:
                     raise DesignError(
                         "sub.close: this new part has no file yet: pass path, or save=false to discard it"
@@ -230,11 +235,19 @@ class Backend(UiOps):
 
     def _sub_state(self, d) -> dict:
         """Sub-assembly view of one design for the window: its [[subassemblies]], [exports] and the origin of every flattened item."""
+        subs = [dict(s) for s in d.asm.raw.get("subassemblies", [])]
+        base = Path(d.asm.path).resolve().parent if d.asm.path else None
         return {
-            "subs": [dict(s) for s in d.asm.raw.get("subassemblies", [])],
+            "subs": subs,
             "exports": d.asm.raw.get("exports", {}),
             "origins": d.asm.origins,
             "docs": self._docs_state(),
+            # a child file that is gone (deleted / moved after the parent was opened): the tree shows that node in error
+            "sub_errors": {
+                s["id"]: f"{s['file']}: file not found"
+                for s in subs
+                if base is not None and not (base / s["file"]).is_file()
+            },
         }
 
     @staticmethod
