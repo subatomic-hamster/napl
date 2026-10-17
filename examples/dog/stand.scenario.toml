@@ -1,0 +1,41 @@
+# napl program examples/dog/stand.scenario.toml --runs-dir <dir>
+# SP3b sanity: the dog (assemblies/dog/dog.toml) on a flat floor, 12 Qdds under a plain joint PD: straight legs -> squat (0.84 of the
+# leg length; the knee stops at 1.32 rad = 0.80) -> stand (0.92). Proves the assembly loads and simulates on its Qdd devices; not a controller (SP4).
+name = "dog-stand"
+
+[model]
+script = "scene.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/stand.py"]
+
+[limits]
+wall_s = 900
+cpu_s = 900
+
+[[monitors]]
+name = "body_at_the_commanded_height"   # deck z vs the IK height at the end (PD sag under 12 kg allowed: 15 mm)
+column = "h_err"
+op = "final"
+lo = -0.015
+hi = 0.015
+
+[[monitors]]
+name = "stays_level"                     # body tilt never above 5 deg
+column = "tilt"
+op = "always"
+hi = 5.0
+
+[[monitors]]
+name = "no_qdd_fault"
+column = "fault"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "packs_above_cutoff"              # 8 x 3.0 V
+column = "v_bat"
+op = "always"
+lo = 24.0

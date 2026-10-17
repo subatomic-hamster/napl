@@ -89,6 +89,17 @@ def test_knee_range_contains_the_build_pose_and_the_rod_port_points_at_the_lug(s
     assert pt["pos"][2] == pytest.approx((lug[1] + crank[1]) / 2, abs=2e-4)
 
 
+@pytest.mark.parametrize("sfx", ["", "-200", "-250"])
+def test_right_knee_range_is_the_negated_left_one(sfx):
+    """A mirrored hinge turns the other way for the mirror-image motion (mirror_signs -1): the right thigh's knee_range is the left one negated and swapped,
+    or the right leg's knee cannot flex (found by the stand sim: fr / rl knees stuck at 0 with the motor at its torque limit)."""
+    lo, hi = LIB.get(f"dog-thigh-bracket-l{sfx}").params["knee_range"]["value"]
+    assert LIB.get(f"dog-thigh-bracket-r{sfx}").params["knee_range"]["value"] == [
+        -hi,
+        -lo,
+    ]
+
+
 def test_bulkhead_ports_sit_on_the_abad_axes_and_the_deck_flanges():
     b = LIB.get("dog-bulkhead")
     hl, hr = port(b.id, "hip_l"), port(b.id, "hip_r")
