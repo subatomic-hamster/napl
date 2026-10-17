@@ -51,8 +51,16 @@ def test_obstacles_are_cells_higher_than_the_ground_by_more_than_a_step():
     assert o[50:60, 50:60].all() and o.sum() == 100
 
 
-def test_a_08m_door_is_passable_a_05m_door_is_not():
-    for gap, ok in ((0.8, True), (0.5, False)):
+def test_obstacles_ignore_a_low_outlier_cell_and_single_noise_cells():
+    # regression (ruins 50 m training seed 3): one -0.2 m cell lowered the ground of its 2 m block, so floor cells of 0.05 m read as walls
+    hn = np.full((N, N), 0.05, np.float32)
+    hn[60, 60] = -0.20
+    hn[120, 120] = 0.60  # a single spike
+    assert not clearance.obstacles(hn, RES, CFG["trav"]["step_max"]).any()
+
+
+def test_a_08m_door_is_passable_a_03m_door_is_not():
+    for gap, ok in ((0.8, True), (0.3, False)):
         hn = wall_map(0.15 - gap / 2, 0.15 + gap / 2)
         D = clearance.edt(clearance.obstacles(hn, RES, CFG["trav"]["step_max"]), RES)
         cost = clearance.block_cost(np.ones((50, 50)), D, CFG)

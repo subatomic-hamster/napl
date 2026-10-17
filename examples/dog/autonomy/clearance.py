@@ -4,26 +4,43 @@ doorway. Replaces block lethality (which was one-sided: a wall's lethal band gre
 narrower than the real one and off-centre, and the robot grazed a jamb or turned on the spot inside the door)."""
 
 import math
+import warnings
 
 import numpy as np
 
 GROUND_BLOCK = 2.0  # m: the ground level of a cell is the lowest known cell of its 2 m block (flat ground; ruins)
 
 
+GROUND_PCT = 20.0  # percent: robust to the few low outliers (training seed 3: one -0.2 m cell made a 0.05 m cell an obstacle)
+
+
 def obstacles(hn, res, step_max):
-    """Known cells higher than the ground of their 2 m block by more than the step the body climbs."""
+    """Known cells higher than the ground of their 2 m block (its GROUND_PCT percentile) by more than the step the body climbs;
+    isolated single cells (noise) are dropped."""
     n = hn.shape[0]
     k = max(int(round(GROUND_BLOCK / res)), 1)
     nb = n // k
-    core = hn[: nb * k, : nb * k].reshape(nb, k, nb, k)
-    with np.errstate(all="ignore"):
-        low = np.nanmin(np.where(np.isfinite(core), core, np.inf), axis=(1, 3))
+    core = (
+        hn[: nb * k, : nb * k]
+        .reshape(nb, k, nb, k)
+        .transpose(0, 2, 1, 3)
+        .reshape(nb, nb, k * k)
+    )
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        low = np.nanpercentile(core, GROUND_PCT, axis=2)
     ground = np.repeat(np.repeat(low, k, 0), k, 1)
     out = np.zeros(hn.shape, bool)
     out[: nb * k, : nb * k] = np.isfinite(ground) & (
         hn[: nb * k, : nb * k] - ground > step_max
     )
-    return out
+    near = out.astype(np.int8)
+    cnt = near.copy()
+    cnt[1:] += near[:-1]
+    cnt[:-1] += near[1:]
+    cnt[:, 1:] += near[:, :-1]
+    cnt[:, :-1] += near[:, 1:]
+    return out & (cnt >= 2)
 
 
 def edt(mask, res):
@@ -50,13 +67,14 @@ def edt(mask, res):
 
 
 def block_clearance(D, k):
-    """Clearance of each block: the smallest distance among the central 2 x 2 cells (k cells per block side)."""
+    """Clearance of each block: the largest distance among the central 2 x 2 cells (k cells per block side): a block is closed only if
+    no line through its centre is free (the minimum closed 0.8 m doors that are mapped 0.6 m wide, training seed 7)."""
     nb = D.shape[0] // k
     c = k // 2
     sub = D[: nb * k, : nb * k].reshape(nb, k, nb, k)[
         :, c - 1 : c + 1, :, c - 1 : c + 1
     ]
-    return sub.min(axis=(1, 3))
+    return sub.max(axis=(1, 3))
 
 
 def block_cost(known, D, cfg):
