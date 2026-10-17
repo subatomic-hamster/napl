@@ -1,0 +1,331 @@
+# Dog power module (SP3b, docs/superpowers/plans/2026-10-16-sp3b-dog-assembly.md Task 5): the bottom deck with two Auline 8S1P 21700 packs, each
+# behind its own Daly 60 A smart BMS, in parallel; a 100 A contactor (Altran ALEV100-B, 12 V coil) in series with the motor feed; the PDB after it;
+# two Pololu D24V22F12 12 V DC-DCs on the LINE (battery) side of the contactor, so the e-stop never drops the Jetson / lidar.
+# Topology (the electrical graph is one conductor per net: a wire's `conductors = 2` counts supply + return for resistance and mass):
+#   pack_a, pack_b --(awg-12)--> contactor.line --> dcdc_jetson.vin, dcdc_aux.vin                 (always on)
+#   contactor.load --(awg-10)--> pdb.bat_in --> leg_fl / leg_fr / leg_rl / leg_rr (XT60), aux      (only with the contactor closed)
+#   E-STOP LOOP: dcdc_aux.vout (12 V) -> estop.contact (NC) -> contactor.coil -> dcdc_aux GND. The e-stop switches only the 0.46 A coil current.
+# NOT MODELLED (ponytail): the BMS. Its pack B- pad is wired to the pack (a stub: no current flows into it) and its P- pad is NOT wired on: in the
+# one-conductor graph a P- wire to the PDB would be a second, parallel path around the contactor. The return current is the second conductor of
+# the awg-12 / awg-10 wires. The BMS FET on-resistance (a few mOhm per BMS, < 2 % of r_internal_pack) and its 60 A cut-off are not simulated.
+# The bench build welds the bottom deck at the origin (a root takes no pos).
+# Loads (constant-current sinks on the 29.6 V nominal pack side): Jetson at the 15 W mode through the DC-DC, lidar + e-stop coil through the second DC-DC.
+
+[assembly]
+name = "dog-power"
+description = "Dog power: 2 x (8S1P Li-ion pack + 60 A BMS) in parallel, 100 A contactor on an e-stop coil loop, pre-contactor 12 V DC-DCs, 4-leg PDB"
+base = "fixed"
+timestep = 0.001
+seed = 1
+
+[exports]
+ports = { chassis = "deck_bottom.bulk_f" }
+connectors = { leg_fl = "pdb.leg_fl", leg_fr = "pdb.leg_fr", leg_rl = "pdb.leg_rl", leg_rr = "pdb.leg_rr", v12_jetson = "dcdc_jetson.vout", v12_lidar = "dcdc_aux.vout" }
+
+[[instances]]
+id = "deck_bottom"
+part = "dog-deck-bottom-cf3"
+root = true
+group = "power"
+
+[[instances]]
+id = "tray_a"
+part = "dog-battery-tray"
+group = "power"
+
+[[instances]]
+id = "tray_b"
+part = "dog-battery-tray"
+group = "power"
+
+[[instances]]
+id = "pack_a"
+part = "auline-21700-s70-8s1p-4500mah"
+group = "power"
+
+[[instances]]
+id = "pack_b"
+part = "auline-21700-s70-8s1p-4500mah"
+group = "power"
+
+[[instances]]
+id = "bms_a"
+part = "daly-k-series-smart-bms-8s-60a"
+group = "power"
+
+[[instances]]
+id = "bms_b"
+part = "daly-k-series-smart-bms-8s-60a"
+group = "power"
+
+[[instances]]
+id = "contactor"
+part = "altran-alev100-b-dc-contactor-12v"
+group = "power"
+
+[[instances]]
+id = "pdb"
+part = "dog-power-distribution-board"
+group = "power"
+
+[[instances]]
+id = "dcdc_jetson"
+part = "pololu-d24v22f12"
+group = "power"
+
+[[instances]]
+id = "dcdc_aux"
+part = "pololu-d24v22f12"
+group = "power"
+
+[[instances]]
+id = "estop"
+part = "generic-estop-22mm-nc"
+group = "power"
+
+[[mates]]
+name = "tray_a_seat"
+a = "deck_bottom.tray_a"
+b = "tray_a.origin"
+
+[[mates]]
+name = "tray_b_seat"
+a = "deck_bottom.tray_b"
+b = "tray_b.origin"
+
+[[mates]]
+name = "pack_a_seat"
+a = "tray_a.pocket"
+b = "pack_a.base"
+
+[[mates]]
+name = "pack_b_seat"
+a = "tray_b.pocket"
+b = "pack_b.base"
+
+[[mates]]
+name = "bms_a_seat"
+a = "deck_bottom.bms_a"
+b = "bms_a.base"
+
+[[mates]]
+name = "bms_b_seat"
+a = "deck_bottom.bms_b"
+b = "bms_b.base"
+
+[[mates]]
+name = "contactor_seat"
+a = "deck_bottom.contactor"
+b = "contactor.base"
+
+[[mates]]
+name = "pdb_seat"
+a = "deck_bottom.pdb"
+b = "pdb.base"
+
+[[mates]]
+name = "dcdc_jetson_seat"
+a = "deck_bottom.dcdc_jetson"
+b = "dcdc_jetson.base"
+
+[[mates]]
+name = "dcdc_aux_seat"
+a = "deck_bottom.dcdc_aux"
+b = "dcdc_aux.base"
+
+[[mates]]
+name = "estop_seat"
+a = "deck_bottom.estop"
+b = "estop.panel"
+
+# ---- motor feed: packs -> contactor -> PDB ----
+[[wires]]
+name = "pack_a_pos"
+from = "pack_a.power_out"
+to = "contactor.line"
+part = "awg-12-silicone-wire"
+conductors = 2
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "Pack A (front, +y) to the contactor stud (rear, -y): 0.25 m across the deck plus slack." }
+
+[[wires]]
+name = "pack_b_pos"
+from = "pack_b.power_out"
+to = "contactor.line"
+part = "awg-12-silicone-wire"
+conductors = 2
+length = { value = 0.28, unit = "m", fidelity = "estimated", rationale = "Pack B (front, -y) to the contactor stud (rear, -y): 0.23 m along the deck plus slack." }
+
+[[wires]]
+name = "contactor_to_pdb"
+from = "contactor.load"
+to = "pdb.bat_in"
+part = "awg-10-silicone-wire"
+conductors = 2
+length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "Contactor and PDB sit side by side at the rear of the deck (0.10 m apart)." }
+
+# ---- pre-contactor DC-DCs ----
+[[wires]]
+name = "line_to_dcdc_jetson"
+from = "contactor.line"
+to = "dcdc_jetson.vin"
+part = "awg-20-silicone-wire"
+conductors = 2
+length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "Contactor line stud to the DC-DC on the deck centre line (0.10 m)." }
+
+[[wires]]
+name = "line_to_dcdc_aux"
+from = "contactor.line"
+to = "dcdc_aux.vin"
+part = "awg-20-silicone-wire"
+conductors = 2
+length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "Contactor line stud to the second DC-DC beside the first (0.10 m)." }
+
+# ---- BMS stubs (pack B- pad; see the header) and balance leads ----
+[[wires]]
+name = "bms_a_bminus"
+from = "pack_a.power_out"
+to = "bms_a.pack"
+from_pins = ["OUT.2"]
+to_pins = ["PWR.1"]
+part = "awg-12-silicone-wire"
+conductors = 1
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Pack A negative lead to BMS A (0.12 m apart on the deck) plus slack." }
+
+[[wires]]
+name = "bms_b_bminus"
+from = "pack_b.power_out"
+to = "bms_b.pack"
+from_pins = ["OUT.2"]
+to_pins = ["PWR.1"]
+part = "awg-12-silicone-wire"
+conductors = 1
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Pack B negative lead to BMS B (0.12 m apart on the deck) plus slack." }
+
+[[wires]]
+name = "bms_a_balance"
+from = "pack_a.balance"
+to = "bms_a.balance"
+part = "awg-26-silicone-wire"
+conductors = 9
+included_in = "pack_a"
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Balance lead of pack A to its BMS (the pack ships with it: mass counted in the pack)." }
+
+[[wires]]
+name = "bms_b_balance"
+from = "pack_b.balance"
+to = "bms_b.balance"
+part = "awg-26-silicone-wire"
+conductors = 9
+included_in = "pack_b"
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Balance lead of pack B to its BMS (the pack ships with it: mass counted in the pack)." }
+
+# ---- e-stop loop: 12 V -> NC contact -> contactor coil -> 12 V return ----
+[[wires]]
+name = "estop_in"
+from = "dcdc_aux.vout"
+to = "estop.contact"
+from_pins = ["IO.VOUT"]
+to_pins = ["NC.1"]
+part = "awg-22-silicone-wire"
+conductors = 1
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "DC-DC output to the e-stop head at the rear left side plate: 0.20 m plus slack." }
+
+[[wires]]
+name = "estop_out"
+from = "estop.contact"
+to = "contactor.coil"
+from_pins = ["NC.2"]
+to_pins = ["COIL.1"]
+part = "awg-22-silicone-wire"
+conductors = 1
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "E-stop head to the contactor coil: 0.20 m plus slack." }
+
+[[wires]]
+name = "coil_ret"
+from = "contactor.coil"
+to = "dcdc_aux.vout"
+from_pins = ["COIL.2"]
+to_pins = ["IO.GND2"]
+part = "awg-22-silicone-wire"
+conductors = 1
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Coil return to the DC-DC ground pad (0.10 m apart) plus slack." }
+
+[device_maps.pack]
+capacity_ah = "capacity_ah"
+r0 = "r_internal_pack"
+
+[device_maps.contactor_path]
+resistance = "r_contact"
+
+[device_maps.pdb_path]
+resistance = "r_path"
+
+[[devices]]
+type = "battery"
+name = "pack_a"
+instance = "pack_a"
+port = "power_out"
+ocv = "liion-cell-ocv-chen2020-lgm50"
+map = "pack"
+
+[[devices]]
+type = "battery"
+name = "pack_b"
+instance = "pack_b"
+port = "power_out"
+ocv = "liion-cell-ocv-chen2020-lgm50"
+map = "pack"
+
+[[devices]]
+type = "wire"
+name = "contactor_path"
+instance = "contactor"
+a = "line"
+b = "load"
+map = "contactor_path"
+
+[[devices]]
+type = "wire"
+name = "pdb_fl"
+instance = "pdb"
+a = "bat_in"
+b = "leg_fl"
+map = "pdb_path"
+
+[[devices]]
+type = "wire"
+name = "pdb_fr"
+instance = "pdb"
+a = "bat_in"
+b = "leg_fr"
+map = "pdb_path"
+
+[[devices]]
+type = "wire"
+name = "pdb_rl"
+instance = "pdb"
+a = "bat_in"
+b = "leg_rl"
+map = "pdb_path"
+
+[[devices]]
+type = "wire"
+name = "pdb_rr"
+instance = "pdb"
+a = "bat_in"
+b = "leg_rr"
+map = "pdb_path"
+
+[[devices]]
+type = "load"
+name = "load_jetson"
+instance = "dcdc_jetson"
+port = "vin"
+set = { i0 = { value = -0.5962, unit = "A", fidelity = "derived", derivation = "Jetson Orin Nano devkit in its 15 W mode (nvidia-jetson-orin-nano-devkit-8gb power_mode_mid, datasheet) / (0.85 (pololu-d24v22f12 efficiency_min, datasheet: the curve's lowest point, conservative) x 29.6 V (auline v_nominal)) = 0.5962 A out of the packs. Negative i0 = a constant-current sink of that size." } }
+
+[[devices]]
+type = "load"
+name = "load_aux"
+instance = "dcdc_aux"
+port = "vin"
+set = { i0 = { value = -0.4782, unit = "A", fidelity = "derived", derivation = "(Livox Mid-360 6.5 W (livox-mid-360 power, datasheet) + 12 V x 0.461 A contactor coil (altran-alev100-b coil_current, datasheet) = 12.03 W) / (0.85 (pololu-d24v22f12 efficiency_min, datasheet) x 29.6 V (auline v_nominal)) = 0.4782 A out of the packs. Negative i0 = a constant-current sink of that size." } }

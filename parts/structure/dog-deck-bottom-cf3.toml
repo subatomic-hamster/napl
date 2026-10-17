@@ -30,13 +30,11 @@ derivation = "Elevated Materials 3 mm twill carbon sheet 300 x 600 mm = 176.54 U
 shape = "box"
 size = [0.21, 0.105, 0.0015]
 pos = [0.0, 0.0, -0.0015]
-mass_param = "mass"
 
 [[geometry.shapes]]
 shape = "box"
 size = [0.03, 0.0015, 0.025]
 pos = [-0.14, 0.1035, 0.025]
-mass_param = "mass"
 
 [[ports]]
 name = "bulk_f"
