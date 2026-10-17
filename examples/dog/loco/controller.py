@@ -8,6 +8,7 @@ import numpy as np
 from . import gait as Gt
 from . import mpc as Mp
 from . import terrain as Tr
+from . import wbc as Wb
 from .estimator import Estimator
 
 DT, MPC_EVERY = 0.002, 10  # 500 Hz leg control (spec s6); MPC every 10 ticks = 50 Hz
@@ -23,6 +24,10 @@ KP_STAND, KD_STAND = (
 # Hip-pitch-to-foot distance as a fraction of the straight leg while walking. The SP3b stand is 0.92; walking needs foot clearance and the knee
 # stops at 1.32 rad (= 0.79 of the straight leg), so a swing foot passing under the hip can rise only (H_FRAC - 0.79) x 0.465 m: 0.92 -> 6 cm, 0.95 -> 7.4 cm.
 H_FRAC = 0.95
+LEG_CTLS = (
+    "wbc",
+    "jt",
+)  # whole-body QP (Task 7), Jacobian-transpose leg controller (the measured baseline)
 T_WARM = 0.64  # s: two trot periods of stepping in place before the velocity command is released
 T_STANDUP = 1.2  # s
 MU_NOM = 0.5  # MPC friction: below rock 0.8 / grass 0.6 / gravel 0.55 (napl.terrain MATERIALS); slip handling lowers it (Task 9)
@@ -41,13 +46,27 @@ MODES = ("STANDUP", "STAND", "WALK", "FALLEN", "SIT")
 V_MAX = 40.0  # rad/s: joint velocity references stay inside what the drivers accept (v_des limit 1e4) and the motors can follow
 
 
+def _rx(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+
+def _ry(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+
+
 def _jinv(J, x):
     """J^-1 x, damped near the straight-leg singularity, clipped."""
     return np.clip(np.linalg.solve(J.T @ J + 1e-4 * np.eye(3), J.T @ x), -V_MAX, V_MAX)
 
 
 class Controller:
-    def __init__(self, model, hw, hmap):
+    def __init__(self, model, hw, hmap, leg_ctl="jt"):
+        assert leg_ctl in LEG_CTLS, leg_ctl
+        self.leg_ctl = leg_ctl
+        self.wbc = Wb.make(model) if leg_ctl == "wbc" else None
+        self.wbc_ref = None  # (p, v, R) of the trunk origin: the MPC's reference one step ahead, for the WBC's body tasks
         self.m, self.hw, self.map = model, hw, hmap
         self.est, self.mpc = (
             Estimator(model, hmap, DT),
@@ -66,7 +85,7 @@ class Controller:
         self.cmd_f = np.zeros(3)
         self.t_gait = 0.0  # s since the gait left "stand"
         self.t_acc = 0.0  # s left of the estimator's tilt-correction pause after the velocity command last changed
-        self.stats = dict(n_slip=0, mpc_fail=0, sat_hip=0.0, sat_knee=0.0)
+        self.stats = dict(n_slip=0, mpc_fail=0, wbc_fail=0, sat_hip=0.0, sat_knee=0.0)
         self.started = False
         self._sset = (True,) * 4
         self.pose0 = (np.zeros(2), 0.0)
@@ -154,7 +173,9 @@ class Controller:
         ):  # 50 Hz, and at once when the stance set changes (a new stance foot has no force yet)
             self._mpc(st, cmd, phases)
         self._sset = sset
-        self.hw.send(*self._legs(st, cmd, phases, q, dq))
+        self.hw.send(
+            *(self._legs_wbc if self.wbc else self._legs)(st, cmd, phases, q, dq)
+        )
 
     def _enter(self, mode):
         if (
@@ -210,6 +231,9 @@ class Controller:
         f, ok = self.mpc.solve(x0, xref, r, self.sched.table(Mp.N, Mp.DT), self.mu)
         self.f = f
         self.stats["mpc_fail"] = self.mpc.n_fail
+        rr, rp, ry = xref[0, 0], xref[0, 1], xref[0, 2]
+        R_ref = Mp.rz(ry) @ _ry(rp) @ _rx(rr)
+        self.wbc_ref = (xref[0, 3:6] - R_ref @ m.com, xref[0, 9:12].copy(), R_ref)
 
     # ---- leg control (500 Hz) ---------------------------------------------------------------------------------------------------
     def _swing_ref(self, i, L, lp, st, cmd, r):
@@ -289,3 +313,42 @@ class Controller:
         self.stats["sat_knee"] = 0.99 * self.stats["sat_knee"] + 0.01 * sat[2::3].mean()
         kpm = np.concatenate([L.kp_max for L in self.legs])
         return p_des, v_des, np.minimum(kp, kpm), kd, np.clip(tau, -lim, lim)
+
+    def _legs_wbc(self, st, cmd, phases, q, dq):
+        stance = np.array([lp.stance and not lp.late for lp in phases])
+        sx, sv = np.zeros((4, 3)), np.zeros((4, 3))
+        for i, (L, lp) in enumerate(zip(self.legs, phases)):
+            r = L.fk_jac(q[3 * i : 3 * i + 3])[0]
+            self.t_late[i] = self.t_late[i] + DT if lp.late else 0.0
+            if stance[i]:
+                self.lift[i] = st.p + st.R @ r
+                self.was_stance[i] = True
+            else:
+                x_w, sv[i] = self._swing_ref(i, L, lp, st, cmd, r)
+                sx[i] = st.p + st.R @ L.reach(
+                    st.R.T @ (x_w - st.p)
+                )  # an unreachable target would flail the abduction joint
+                self.was_stance[i] = False
+        if self.wbc_ref is None:
+            self.wbc_ref = (st.p.copy(), np.zeros(3), Mp.rz(st.rpy[2]))
+        out = self.wbc.solve(
+            st.p,
+            st.R,
+            st.R @ st.w,
+            st.v,
+            q,
+            dq,
+            self.f,
+            stance,
+            self.mu,
+            self.wbc_ref,
+            (sx, sv),
+        )
+        if not out.ok:
+            self.stats["wbc_fail"] += 1
+            return self._legs(st, cmd, phases, q, dq)  # this tick on J^T
+        sw = np.repeat(~stance, 3)
+        kpm = np.concatenate([L.kp_max for L in self.legs])
+        kp = np.where(sw, np.minimum(KP_SWING, kpm), 0.0)
+        kd = np.where(sw, KD_SWING, KD_STANCE)
+        return np.where(sw, out.p_des, q), out.v_des, kp, kd, out.tau

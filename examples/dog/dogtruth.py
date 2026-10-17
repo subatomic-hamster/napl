@@ -45,6 +45,10 @@ class Truth:
     def contacts(self):
         return np.array([self.sim.query(f, "contact")[0][0] for f in FEET], float)
 
+    def forces(self):
+        """(4,) FootContact force magnitude per foot, N."""
+        return np.array([np.linalg.norm(self.sim.query(f, "force")[0]) for f in FEET])
+
     def push(self, dv_world):
         qv = np.array(self.sim.query(FREE, "qvel")[0], float)
         qv[:3] += dv_world

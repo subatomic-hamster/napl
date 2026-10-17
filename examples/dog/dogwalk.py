@@ -39,7 +39,8 @@ SIM_DT, ROW_EVERY = (
 LEGS = H.LEGS
 MODE_CODE = {m: i for i, m in enumerate(Ct.MODES)}
 COLS = (["t", "x", "y", "vx", "vy", "v_mean_2s", "est_v_err", "tilt", "clear", "fallen", "ctl_fallen", "fault", "v_bat", "mode",
-         "gait", "mu_min", "n_slip", "mpc_fail", "dist_goal"] + [f"c_est_{l}" for l in LEGS] + [f"c_true_{l}" for l in LEGS])  # fmt: skip
+         "gait", "mu_min", "n_slip", "mpc_fail", "dist_goal"] + [f"c_est_{l}" for l in LEGS] + [f"c_true_{l}" for l in LEGS]
+        + ["f_track", "wbc_fail"])  # fmt: skip
 GAIT_CODE = {
     g: i for i, g in enumerate(["stand", "walk", "trot", "flying_trot", "bound"])
 }
@@ -52,6 +53,7 @@ DEFAULTS = dict(
     push_dv=0.0,
     gait="auto",
     pushes=(),
+    leg_ctl="wbc",  # "wbc" (the SP4 design, C++ port when built) | "jt" (Jacobian-transpose baseline)
 )
 IMU = "/devices/compute:imu"
 
@@ -76,7 +78,9 @@ def setup(model, p, log=True, audit=False):
         c.sim.set(IMU, "accel_bias", list(ab))
     c.tr, c.hw = dogtruth.Truth(c.sim, c.field), H.Hw(c.sim, audit=audit)
     hmap = Tr.FlatMap() if c.field is None else Tr.TruthMap(c.field)
-    c.ctl = Ct.Controller(M.from_build(c.inf["nominal"]), c.hw, hmap)
+    c.ctl = Ct.Controller(
+        M.from_build(c.inf["nominal"]), c.hw, hmap, leg_ctl=p["leg_ctl"]
+    )
     st = c.inf.get("start", [0.0, 0.0, 0.0])
     c.ctl.set_pose(st[:2], c.tr.yaw())
     c.fix = dogtruth.PoseFix(c.tr, p["seed"])
@@ -119,11 +123,22 @@ def tick(c, k, cmd):
                        float(np.linalg.norm(st.v[:2] - v[:2])) if t > 2.0 else 0.0, tr.tilt_deg(), tr.clearance(), float(c.fell),
                        float(c.ctl_fell), fault, vbat, MODE_CODE[ctl.mode], GAIT_CODE[ctl.sched.g.name], float(ctl.mu.min()),
                        ctl.stats["n_slip"], ctl.stats["mpc_fail"], c.fol.dist if c.fol else 0.0]
-                      + [float(x) for x in st.contact] + list(tr.contacts()))  # fmt: skip
+                      + [float(x) for x in st.contact] + list(tr.contacts()) + [_f_track(c), ctl.stats["wbc_fail"]])  # fmt: skip
+
+
+def _f_track(c):
+    """RMS over the feet that are in true contact AND in the controller's MPC stance of |F_true| - |f_mpc|, per m g (0 if none qualify)."""
+    ctl = c.ctl
+    ok = (c.tr.contacts() > 0.5) & np.array(ctl._sset)
+    if not ok.any():
+        return 0.0
+    d = c.tr.forces()[ok] - np.linalg.norm(ctl.f, axis=1)[ok]
+    return float(np.sqrt(np.mean(d**2)) / (ctl.m.mass * 9.81))
 
 
 def result(c, n, wall):
     ctl, fol = c.ctl, c.fol
+    ft = np.array([r[COLS.index("f_track")] for r in c.rows if r[0] > 3.0])
     rf = len(
         json.loads(
             ET.parse(c.model)
@@ -136,6 +151,7 @@ def result(c, n, wall):
                 fault=bool(max(r[COLS.index("fault")] for r in c.rows) > 0), diverged=bool(c.sim.diverged), t_end=n * Ct.DT,
                 dist=fol.length if fol else 0.0, mean_speed=(fol.length / fol.t_done) if fol and fol.done else 0.0,
                 n_slip=ctl.stats["n_slip"], mpc_fail=ctl.stats["mpc_fail"], sat_hip=ctl.stats["sat_hip"], rangefinders=rf,
+                wbc_fail=int(ctl.stats["wbc_fail"]), f_track_rms=float(np.sqrt(np.mean(ft**2))) if len(ft) else 0.0,
                 wall_s=wall, rt_factor=n * Ct.DT / max(wall, 1e-9))  # fmt: skip
 
 

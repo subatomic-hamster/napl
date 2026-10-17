@@ -35,6 +35,15 @@ group = "course"
 label = "Course"
 
 [[parameters]]
+name = "leg_ctl"
+type = "choice"
+choices = ["wbc", "jt"]
+default = "wbc"
+group = "controller"
+label = "Leg controller"
+doc = "wbc: QP whole-body controller (WBIC-style, the SP4 design). jt: Jacobian-transpose leg controller, the measured baseline."
+
+[[parameters]]
 name = "v_cmd"
 type = "float"
 default = 1.0

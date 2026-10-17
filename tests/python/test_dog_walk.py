@@ -15,11 +15,13 @@ sys.path.insert(0, str(EX))
 import dogcourse as C
 import dogwalk as W
 from loco import hw as H
+from loco import model as M
+from loco import wbc as Wb
 
 needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 GOLDEN = {
-    "trot": "b3a9d5997271ab5a"
-}  # res["sim"]["state_hash"] of walk/trot.scenario.toml (Task 6 Step 5; re-record if a later task changes the trot)
+    "trot": "9ed76c26537ef5fa"
+}  # res["sim"]["state_hash"] of walk/trot.scenario.toml with the C++ WBC (Task 7 Step 5; the J^T trot of Task 6 was b3a9d5997271ab5a); re-record if a later task changes the trot
 LEGS = ("fl", "fr", "rl", "rr")
 c = W.COLS.index
 
@@ -96,6 +98,10 @@ def test_scenario_passes_replays_and_matches_golden(tmp_path, name):
     res, _ = program.run(EX / "walk" / f"{name}.scenario.toml", tmp_path / "runs")
     assert res["pass"], res["fail_reasons"]
     assert res["replay"]["available"] and res["replay"]["match"]
+    if isinstance(Wb.make(M.from_build(C.base_model())), Wb.Wbc):
+        pytest.skip(
+            "golden hash was recorded with the C++ WBC (the Python class solves the same QP to different bits)"
+        )
     assert GOLDEN[name] is None or res["sim"]["state_hash"] == GOLDEN[name], res["sim"][
         "state_hash"
     ]

@@ -70,5 +70,47 @@ Tried and not kept (measured, in this order): latency compensation of the MPC st
 in the sim, removed; a 0.3 s accelerometer average without the acceleration pause (worse in the loop, 0 of 4).
 
 Scenario `walk/trot.scenario.toml` (1.0 m/s, 8 s, seed 1): speed 0.96 m/s (late mean), no fall, estimator velocity error max 0.07 m/s, contact
-agreement 0.98, replay hash `b3a9d5997271ab5a` (golden). Open: robustness is a sample of 8 seeds, not yet the Task 10 Monte Carlo; a pack-current
-peak per gait is not measured yet (Task 10).
+agreement 0.98, replay hash `b3a9d5997271ab5a` (golden, J^T controller; the default controller is now the WBC, see below). Open: robustness is a
+sample of 8 seeds, not yet the Task 10 Monte Carlo; a pack-current peak per gait is not measured yet (Task 10).
+
+## Whole-body control (Task 7)
+
+`loco/wbc.py` is a WBIC-style whole-body controller (Kim et al. 2019, arXiv:1909.06586) on the controller's own model: kinematic tasks by
+null-space priority (stance feet still, trunk orientation, trunk position, swing feet) give joint targets and a commanded generalized
+acceleration; a QP (OSQP) then adjusts the floating-base acceleration and the ground forces around the MPC forces so that the friction pyramids,
+`F_MIN..F_MAX` on the normal force and the drivers' torque limits all hold, and its joint torques are the feed-forward of the MIT-mode frames
+(`leg_ctl = "wbc"`, the default). `leg_ctl = "jt"` keeps the Jacobian-transpose controller of Task 6 as the switchable baseline.
+If the QP fails (status not solved) that tick goes to J^T (`wbc_fail`): 0 of 4000 ticks in each run below.
+
+Solve time (`test_dog_wbc.py::test_solve_time_budget`, trot pose, joint speeds drawn from N(0, 3 rad/s), hfbox, `OMP_NUM_THREADS=1`):
+
+| implementation       | median  | p99      | against the 1.0 ms budget                                                                      |
+| -------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------- |
+| Python (numpy)       | 9.21 ms | 10.10 ms | over (the rest of the tick is Hw I/O 0.09 ms, estimator, gait)                                 |
+| C++ (`loco_wbc_cpp`) | 0.26 ms | 0.27 ms  | under (a loaded host showed p99 2.7-4.2 ms from OSQP polish spikes; the median stayed 0.27 ms) |
+
+Profile of the Python solve: 86 % of the time is the kinematics (`_elements` is evaluated four times per solve and `np.cross` costs 60 % of
+it), the QP itself is small. Decision (Step 6 rule: Python over budget): **C++ port**, `examples/dog/loco/cpp/wbc.cpp` (Eigen 3.4.0 MPL-2.0
+with `EIGEN_MPL2_ONLY`, OSQP C v1.0.0 Apache-2.0, nanobind), built with `cmake -S . -B build -DNAPL_LOCO_CPP=ON && cmake --build build
+--target loco_wbc_cpp` into `build/loco/`; `loco.wbc.make()` loads it when it is there and falls back to the Python class (same maths, ~35 times
+slower, different last bits: the trot golden below is the C++ one and is skipped without the module). The kinematics are computed once per solve.
+Python and C++ agree to 1e-3 relative (`test_cpp_dynamics_match_python`, `test_cpp_wbc_matches_python`). The WBC therefore runs at the full
+500 Hz; no spec deviation.
+
+Trot at 1.0 m/s on flat ground, 8 s, seeds 1-4 (4 parallel runs on hfbox; late = t > 5 s; force tracking = RMS over feet in true contact and in
+the MPC stance of |F_true| - |f_mpc|, per m g, t > 3 s):
+
+| seed | wbc vx | wbc max abs y | wbc force RMS | jt vx | jt max abs y | jt force RMS |
+| ---- | ------ | ------------- | ------------- | ----- | ------------ | ------------ |
+| 1    | 0.975  | 0.073         | 0.073         | 0.963 | 0.046        | 0.132        |
+| 2    | 0.974  | 0.009         | 0.080         | 0.961 | 0.014        | 0.156        |
+| 3    | 0.974  | 0.045         | 0.080         | 0.921 | 0.790        | 0.459        |
+| 4    | 0.974  | 0.018         | 0.075         | 0.963 | 0.012        | 0.140        |
+
+No fall in any run. The WBC realizes the MPC forces about twice as accurately as J^T and has no stumbling seed (J^T seed 3 drifts to y = 0.79 m).
+Scenario `walk/trot.scenario.toml` (default `leg_ctl = "wbc"`, seed 1): passes, replay matches, golden `9ed76c26537ef5fa`. Hardening that was
+needed (not tuning): damped pseudo-inverses (an undamped one sent a swing joint to +-100 rad at the straight-leg singularity) and the same
+joint-step (0.3 rad) and velocity (40 rad/s) clips as the J^T path's IK. No gain of `wbc.py` was changed from the plan's values.
+
+Naming deviation: the WBC's body reference is `Controller.wbc_ref` (the plan called it `body_ref`, which the ladder harness already uses for its
+(dz, droll, dpitch) array).
