@@ -7,7 +7,7 @@
 #   on hfbox: tools/remote.sh run 'PATH=/workspace/wt/napl/env/bin:$PATH UV_CACHE_DIR=/workspace/wt/napl/uv-cache tools/install_dev.sh'
 set -euo pipefail
 cd "$(dirname "$0")/.."
-uv pip install --reinstall-package napl --refresh-package napl -e ".[dev,px4]" "$@"
+uv pip install --reinstall-package napl --refresh-package napl -e ".[dev,px4,loco]" "$@"
 py=$(uv python find)  # the interpreter uv just installed into (.venv or the active env)
 so=$("$py" -c 'import napl; print(napl._napl.__file__)')  # redirect mode: the .so lives in site-packages, not python/napl
 ls -l --time-style=full-iso "$so"
