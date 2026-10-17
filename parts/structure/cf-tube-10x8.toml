@@ -14,6 +14,7 @@ wall_thickness   = { value = 0.001, unit = "m", src = "S1", fidelity = "datashee
 mass_per_m       = { value = 0.0456, unit = "kg/m", src = "S1", fidelity = "datasheet" }
 youngs_modulus_axial = { value = 64e9, unit = "Pa", src = "S1", fidelity = "datasheet" }
 od_tolerance     = { value = 0.00015, unit = "m", src = "S1", fidelity = "datasheet" }
+price_per_m      = { value = 13.64, unit = "USD", fidelity = "derived", derivation = "Easy Composites EU lists EUR 12.40 per metre ex VAT for the 1 m and 2 m tube (page fetched 2026-10-16; 5-19 units EUR 11.20); x 1.1 USD/EUR (assumed, no rate looked up) = 13.64 USD/m, shipping excluded." }
 
 [params.second_moment_area]
 value = 2.8981e-10

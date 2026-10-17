@@ -65,6 +65,48 @@ gender = "female"
 pins = ["ANT.1", "ANT.2"]
 note = "Panel-mount SMA jack for the multi-band active antenna (S1): centre pin = RF + antenna bias, shell = ground."
 
+[[ports]]
+name = "uart"
+kind = "signal"
+type = "uart"
+gender = "neutral"
+pins = ["UART.TX1", "UART.RX1", "UART.GND"]
+note = "UART1 of the ZED-F9P on the breakout's header (3.3 V logic): the receiver's TX1 / RX1."
+
+[[ports]]
+name = "power_in"
+kind = "power"
+type = "wire-lead"
+gender = "neutral"
+role = "sink"
+pins = ["UART.3V3", "UART.GND"]
+v_min = { value = 3.3, unit = "V", src = "S1", fidelity = "datasheet" }
+v_max = { value = 5.0, unit = "V", src = "S1", fidelity = "datasheet" }
+note = "3V3 pin of the header with ground (the page allows 5 V or 3.3 V supply; here 3.3 V from the Jetson header)."
+
+# UART header pins of the breakout. The SparkFun page names the UART1 pins (TX1, RX1) but gives no pin table or position: the order and the placement on the edge are estimates.
+[[connectors]]
+id = "UART"
+name = "UART1 / 3V3 / GND header pins"
+type = "header-0.1in"
+gender = "neutral"
+joinable = true
+pos = [0.0, -0.0216, 0.0]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+rows = 1
+cols = 4
+pitch = 0.00254
+src = "S1"
+fidelity = "estimated"
+rationale = "The ZED-F9P breakout exposes UART1 on header pads; their order and edge are not in the retrieved text."
+pins = [
+  { number = "TX1", name = "TX1", kind = "signal", dir = "out", v = 3.3 },
+  { number = "RX1", name = "RX1", kind = "signal", dir = "in", v = 3.3 },
+  { number = "GND", name = "GND", kind = "ground" },
+  { number = "3V3", name = "3V3", kind = "power", dir = "in", v_min = 3.3, v_max = 5.0 },
+]
+
 # USB-C receptacle: the standard USB 2.0 contacts (A1 GND, A4 VBUS, A6 D+, A7 D-), plus the CC pins that a sink pulls down. The SparkFun page lists the connector but no
 # pin table; the pin names are the USB Type-C standard's.
 [[connectors]]

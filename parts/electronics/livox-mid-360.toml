@@ -17,7 +17,7 @@ mass               = { value = 0.265,   unit = "kg",    src = "S1", fidelity = "
 size_width         = { value = 0.065,   unit = "m",     src = "S1", fidelity = "datasheet" }
 size_length        = { value = 0.065,   unit = "m",     src = "S1", fidelity = "datasheet" }
 size_height        = { value = 0.060,   unit = "m",     src = "S1", fidelity = "datasheet" }
-fov_horizontal     = { value = 6.2832,  unit = "rad",   src = "S1", fidelity = "datasheet" }
+fov_horizontal     = { value = 6.283185307, unit = "rad", src = "S1", fidelity = "datasheet" }  # 360 deg; the kernel needs fov_h <= 2 pi, so the 4-digit 6.2832 fails its check
 fov_vertical_min   = { value = -0.12217, unit = "rad",  src = "S2", fidelity = "datasheet" }  # -7 deg, below the horizon of the sensor frame
 fov_vertical_max   = { value = 0.90757, unit = "rad",   src = "S2", fidelity = "datasheet" }  # +52 deg
 point_rate         = { value = 200000.0, unit = "Hz",   src = "S2", fidelity = "datasheet" }  # first return

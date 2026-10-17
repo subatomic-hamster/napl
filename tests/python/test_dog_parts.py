@@ -63,6 +63,18 @@ PRICED = [  # purchased parts of the dog: a dated USD price (param `price`, or `
     "structure/adafruit-1252-gt2-pulley-20t-8mm",
     "structure/adafruit-1254-gt2-pulley-36t-8mm",
     "structure/cf-tube-16x14",
+    "structure/cf-tube-10x8",
+    "electronics/altran-alev100-b-dc-contactor-12v",
+    "electronics/dog-leg-hub",
+    "structure/generic-phs5-rod-end-m5",
+    "structure/dog-knee-rod-200",
+    "structure/dog-knee-rod-220",
+    "structure/dog-knee-rod-250",
+    "structure/dog-deck-top-cf3",
+    "structure/dog-deck-bottom-cf3",
+    "electronics/pololu-minimu-9-v6",
+    "electronics/ublox-ann-mb-00",
+    "electronics/generic-estop-22mm-nc",
     *QDD,
 ]
 
@@ -81,7 +93,12 @@ def test_dog_part_has_usd_price(rel):
     )
 
 
-HANDED = ["hip-housing", "thigh-bracket", "knee-drive-housing", "side-plate"]
+HANDED = [
+    "hip-housing",
+    "thigh-bracket",
+    "side-plate",
+    "knee-crank",  # handed pair (the plate side flips with the leg side), a deviation from the plan's single dog-knee-crank
+]
 
 
 @pytest.mark.parametrize("base", HANDED)
@@ -102,8 +119,226 @@ def test_printed_pairs_are_mirrors(base):
         assert (ROOT / g["mesh"]).stat().st_size > 1000
 
 
-@pytest.mark.parametrize("name", ["shank", "foot-core", "head-mount", "battery-tray"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "foot-core",
+        "head-mount",
+        "battery-tray",
+        "abad-mount",
+        "bulkhead",
+        "compute-tray",
+    ],
+)
 def test_printed_singles_have_symmetry_and_mesh(name):
     p = load(f"structure/dog-{name}")
     assert p["mirror"]["symmetry"] in ("xy", "yz", "xz")
     assert (ROOT / p["geometry"]["mesh"]).stat().st_size > 1000
+
+
+@pytest.mark.parametrize("sfx", ["", "-200", "-250"])
+def test_shank_twins_share_the_solid_and_reflect_the_knee_axis(sfx):
+    """The shank solid is its own mirror image, but its knee port axis is normal to the mirror plane: a mirrored leg needs a twin with
+    the reflected axis (found building assemblies/dog/dog.toml: a symmetric part's ports must lie on its symmetry plane)."""
+    left, right = load(f"structure/dog-shank{sfx}"), load(f"structure/dog-shank{sfx}-r")
+    assert (
+        left["mirror"]["opposite"] == f"dog-shank{sfx}-r"
+        and right["mirror"]["opposite"] == f"dog-shank{sfx}"
+    )
+    assert left["geometry"]["mesh"] == right["geometry"]["mesh"]
+    axis = lambda p: next(q for q in p["ports"] if q["name"] == "origin")["axis"]
+    assert axis(left) == [-a for a in axis(right)]
+    assert (
+        left["params"]["mass"] == right["params"]["mass"]
+        or left["params"]["mass"]["value"] == right["params"]["mass"]["value"]
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted((ROOT / "parts" / "structure").glob("dog-*.toml")),
+    ids=lambda p: p.stem,
+)
+def test_printed_dog_parts_are_priced(path):
+    """assemblies/dog/dog.toml's BOM lists a part without a price as missing: filament at 20 USD/kg for every printed part."""
+    p = load(f"structure/{path.stem}")
+    if p["category"] != "frame.printed":
+        return
+    e = p["params"]["price"]
+    assert e["unit"] == "USD" and e["value"] == pytest.approx(
+        20.0 * p["params"]["mass"]["value"], abs=0.006
+    )
+
+
+from napl.design import assembly as A
+from napl.design import auto_devices as AD
+from napl.design import subasm
+
+STEADYWIN = QDD[:2]  # steadywin-gim8108-8, steadywin-gim6010-8
+
+
+def test_subasm_prefixes_the_ground_devices():
+    assert {"qdd", "foot_contact"} <= A.DEVICE_TYPES
+    assert A.DEVICE_TYPES <= set(
+        subasm.REF_FIELDS
+    )  # a device type without reference fields cannot sit in a leg.toml
+
+
+@pytest.mark.parametrize("rel", STEADYWIN)
+def test_steadywin_part_feeds_every_qdd_field(rel):
+    p = load(rel)
+    for field, names in {**AD.QDD_MOTOR, **AD.QDD}.items():
+        if field == "motor.i0":  # optional in the kernel (docs/models.md "Qdd")
+            continue
+        assert any(n in p["params"] for n in names), (rel, field, names)
+    kt = 60 / (2 * math.pi * v(p, "kv"))  # motor-side Kt from KV: the Qdd's own law
+    stall = kt * v(p, "gear_ratio") * v(p, "efficiency") * v(p, "i_limit_phase")
+    assert stall == pytest.approx(v(p, "torque_peak"), rel=0.05)
+    assert v(p, "mit_tau_ff_max") >= v(p, "torque_peak")
+    assert 25.0 < v(p, "temp_derate_start") < v(p, "temp_fault")
+    assert v(p, "can_latency") <= 14 / v(p, "can_cmd_hz")  # kernel bind-time rule
+
+
+from napl.design import Library
+from napl.design.snap import incompatible
+
+PEAK_BUS_A = 87.0  # worst simultaneous stance peak, docs/dog/actuator-study.md finding 2 (GIM8108-8, r = 1.0)
+CONTACTOR = "electronics/altran-alev100-b-dc-contactor-12v"  # replaces the plan's ZJW100A-class part (no datasheet, >1 A coil)
+
+
+def test_knee_rod_does_not_buckle_at_peak_knee_torque():  # Review Focus 1
+    act = load("actuators/steadywin-gim8108-8")
+    r1 = v(load("structure/dog-knee-crank-l"), "crank_radius")
+    f_rod = (
+        v(act, "torque_peak") / r1
+    )  # the crank turns the whole stall torque into rod force (~1.1 kN)
+    assert (
+        v(load("structure/generic-phs5-rod-end-m5"), "load_static_radial")
+        >= 2.0 * f_rod
+    )
+    for L in ("200", "220", "250"):
+        rod = load(f"structure/dog-knee-rod-{L}")
+        od, idd = v(rod, "outer_diameter"), v(rod, "inner_diameter")
+        i_area = math.pi / 64 * (od**4 - idd**4)
+        p_cr = (
+            math.pi**2
+            * v(rod, "youngs_modulus_axial")
+            * i_area
+            / v(rod, "pin_length") ** 2
+        )  # Euler, pinned-pinned
+        assert p_cr >= 2.0 * f_rod, (L, p_cr, f_rod)
+        assert v(rod, "buckling_load") == pytest.approx(p_cr, rel=1e-3)
+        # the rod is the tube plus two rod-end centre-to-shoulder lengths
+        assert v(rod, "pin_length") == pytest.approx(
+            v(rod, "tube_length")
+            + 2 * v(load("structure/generic-phs5-rod-end-m5"), "centre_to_shoulder"),
+            abs=1e-9,
+        )
+
+
+def test_contactor_and_parallel_packs_cover_the_study_peak():
+    c = load(CONTACTOR)
+    assert v(c, "i_rated_continuous") >= PEAK_BUS_A and v(c, "v_rated_contact") >= 33.6
+    assert v(c, "coil_voltage") == pytest.approx(12.0) and v(c, "coil_current") <= 1.0
+    lib = Library(ROOT / "parts")
+    assert (
+        2 * v(load("propulsion/auline-21700-s70-8s1p-4500mah"), "i_max_continuous")
+        >= PEAK_BUS_A
+    )
+    bms_port = next(
+        p
+        for p in lib.get("daly-k-series-smart-bms-8s-60a").ports
+        if p["name"] == "pack"
+    )
+    assert 2 * bms_port["i_max"]["value"] >= PEAK_BUS_A
+    pdb_in = next(
+        p
+        for p in lib.get("dog-power-distribution-board").ports
+        if p["name"] == "bat_in"
+    )
+    assert pdb_in["i_max"]["value"] >= PEAK_BUS_A
+
+
+DECK_SEATS = [  # (custom part, port, held part, port)
+    ("dog-deck-bottom-cf3", "bms_a", "daly-k-series-smart-bms-8s-60a", "base"),
+    ("dog-deck-bottom-cf3", "pdb", "dog-power-distribution-board", "base"),
+    (
+        "dog-deck-bottom-cf3",
+        "contactor",
+        "altran-alev100-b-dc-contactor-12v",
+        "base",
+    ),
+    ("dog-deck-bottom-cf3", "dcdc_jetson", "pololu-d24v22f12", "base"),
+    ("dog-deck-bottom-cf3", "dcdc_aux", "pololu-d24v22f12", "base"),
+    ("dog-deck-bottom-cf3", "estop", "generic-estop-22mm-nc", "panel"),
+    ("dog-compute-tray", "can_fl", "makerbase-mks-canable-v2-pro", "base"),
+    ("dog-abad-mount", "hub", "dog-leg-hub", "base"),
+    ("dog-battery-tray", "pocket", "auline-21700-s70-8s1p-4500mah", "base"),
+    ("dog-knee-rod-220", "end_a", "generic-phs5-rod-end-m5", "thread"),
+    ("dog-knee-rod-220", "end_b", "generic-phs5-rod-end-m5", "thread"),
+]
+
+
+@pytest.mark.parametrize("pp,pport,bp,bport", DECK_SEATS)
+def test_custom_seat_mates_its_part(pp, pport, bp, bport):
+    lib = Library(ROOT / "parts")
+    port = lambda pid, n: next(p for p in lib.get(pid).ports if p["name"] == n)
+    assert incompatible(port(pp, pport), port(bp, bport)) is None
+
+
+def test_deck_trays_are_battery_tray_seats():
+    lib = Library(ROOT / "parts")
+    port = lambda pid, n: next(p for p in lib.get(pid).ports if p["name"] == n)
+    for n in ("tray_a", "tray_b"):
+        assert (
+            incompatible(
+                port("dog-deck-bottom-cf3", n), port("dog-battery-tray", "origin")
+            )
+            is None
+        )
+    assert (
+        incompatible(
+            port("dog-deck-top-cf3", "compute"), port("dog-compute-tray", "origin")
+        )
+        is None
+    )
+    assert (
+        incompatible(port("dog-deck-top-cf3", "head"), port("dog-head-mount", "origin"))
+        is None
+    )
+    assert (
+        incompatible(
+            port("dog-deck-top-cf3", "side_l"), port("dog-side-plate-l", "top")
+        )
+        is None
+    )
+
+
+def test_liion_ocv_table_is_monotone_and_spans_the_cell_window():
+    t = load("common/liion-cell-ocv-chen2020-lgm50")["tables"]["ocv_vs_soc"]
+    assert t["columns"] == ["soc", "ocv_V"]
+    soc = [r[0] for r in t["rows"]]
+    ocv = [r[1] for r in t["rows"]]
+    assert soc[0] == 0.0 and soc[-1] == 1.0
+    assert all(b > a for a, b in zip(ocv, ocv[1:]))
+    assert 2.4 <= ocv[0] <= 2.6 and 4.1 <= ocv[-1] <= 4.2
+
+
+def test_leg_hub_feeds_three_drives_with_a_can_input():
+    h = load("electronics/dog-leg-hub")
+    ports = {p["name"]: p for p in h["ports"]}
+    assert {"base", "power_in", "can_in"} <= set(ports)
+    for j in "ahk":
+        assert ports[f"out_{j}"]["type"] == "xt30pw-2+2"
+        assert (
+            len(ports[f"out_{j}"]["pins"]) == 2 and len(ports[f"can_{j}"]["pins"]) == 2
+        )
+    assert v(h, "r_path") < 0.01 and v(h, "can_termination") == 120.0
+    assert (
+        ports["out_a"]["type"]
+        == next(
+            p
+            for p in load("actuators/steadywin-gim8108-8")["ports"]
+            if p["name"] == "power"
+        )["type"]
+    )

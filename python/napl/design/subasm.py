@@ -274,6 +274,10 @@ def expand(doc: dict, path, lib_ids=None, _stack=()):
             for k in ("name", "a", "b"):
                 if k in n:
                     n[k] = p + n[k]
+            if isinstance(n.get("joint"), dict) and isinstance(
+                n["joint"].get("range"), str
+            ):  # a joint range read from a part param ("thigh.knee_range")
+                n["joint"]["range"] = p + n["joint"]["range"]
             out["mates"].append(n)
             if "name" in m:
                 note(m["name"])

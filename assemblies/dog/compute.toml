@@ -1,0 +1,216 @@
+# Dog compute module (SP3b, docs/superpowers/plans/2026-10-16-sp3b-dog-assembly.md Task 6): the printed compute tray with the Jetson Orin Nano devkit, four MKS CANable V2 Pro
+# adapters (one CAN bus per leg), a Pololu MinIMU-9 v6 on the Jetson's I2C1, a SparkFun ZED-F9P RTK board on UART1 and its u-blox ANN-MB-00 antenna.
+# Frame = the compute tray's part frame (x forward). dog.toml seats it on the top deck's `compute` port; the 12 V feed (Jetson DC jack) and the lidar / camera cables are parent wires.
+# CAN buses: CANable USB sockets fl, fr on the stacked USB-A socket J6, rl, rr on J7 (one USB-A each: pins J6.1-4 / J6.10-13, J7.1-4 / J7.10-13 of the Jetson's connector table).
+# The camera USB-C is left free on J5 (usb_j5, exported as usb_cam).
+# NOT MODELLED: USB / CAN latency beyond the Qdd's own `can_latency`, the Jetson's thermal limit under load, GNSS antenna placement relative to the lidar (the antenna cable is 5 m; stowed).
+
+[assembly]
+name = "dog-compute"
+description = "Dog compute: Jetson Orin Nano, 4 x CANable (one CAN bus per leg), MinIMU-9 v6 on I2C1, ZED-F9P RTK on UART1"
+base = "fixed"
+timestep = 0.001
+seed = 1
+
+[exports]
+ports = { mount = "tray.origin" }
+connectors = { power_in = "jetson.power_in", eth = "jetson.eth", usb_cam = "jetson.usb_j5", can_fl = "can_fl.can", can_fr = "can_fr.can", can_rl = "can_rl.can", can_rr = "can_rr.can" }
+
+[[instances]]
+id = "tray"
+part = "dog-compute-tray"
+root = true
+group = "compute"
+
+[[instances]]
+id = "jetson"
+part = "nvidia-jetson-orin-nano-devkit-8gb"
+group = "compute"
+
+[[instances]]
+id = "can_fl"
+part = "makerbase-mks-canable-v2-pro"
+group = "compute"
+
+[[instances]]
+id = "can_fr"
+part = "makerbase-mks-canable-v2-pro"
+group = "compute"
+
+[[instances]]
+id = "can_rl"
+part = "makerbase-mks-canable-v2-pro"
+group = "compute"
+
+[[instances]]
+id = "can_rr"
+part = "makerbase-mks-canable-v2-pro"
+group = "compute"
+
+[[instances]]
+id = "imu"
+part = "pololu-minimu-9-v6"
+group = "compute"
+
+[[instances]]
+id = "rtk"
+part = "sparkfun-gps-rtk-sma-16481"
+group = "compute"
+
+[[instances]]
+id = "ant"
+part = "ublox-ann-mb-00"
+group = "compute"
+
+[[mates]]
+name = "jetson_seat"
+a = "tray.jetson"
+b = "jetson.base"
+
+[[mates]]
+name = "can_fl_seat"
+a = "tray.can_fl"
+b = "can_fl.base"
+
+[[mates]]
+name = "can_fr_seat"
+a = "tray.can_fr"
+b = "can_fr.base"
+
+[[mates]]
+name = "can_rl_seat"
+a = "tray.can_rl"
+b = "can_rl.base"
+
+[[mates]]
+name = "can_rr_seat"
+a = "tray.can_rr"
+b = "can_rr.base"
+
+[[mates]]
+name = "imu_seat"
+a = "tray.imu"
+b = "imu.base"
+
+[[mates]]
+name = "rtk_seat"
+a = "tray.rtk"
+b = "rtk.base"
+
+[[mates]]
+name = "ant_seat"
+a = "tray.antenna"
+b = "ant.base"
+
+# ---- CAN adapters on the four USB-A sockets (VBUS, GND, D+, D- of the CANable's USB-C <-> VBUS, GND, D+, D- of the socket) ----
+[[wires]]
+name = "usb_can_fl"
+from = "can_fl.usb"
+to = "jetson.usb_j6"
+from_pins = ["USB.A4", "USB.A1", "USB.A6", "USB.A7"]
+to_pins = ["J6.1", "J6.4", "J6.3", "J6.2"]
+part = "awg-24-silicone-wire"
+conductors = 4
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "CANable to the Jetson USB stack, 0.1 m apart on the tray, plus slack." }
+
+[[wires]]
+name = "usb_can_fr"
+from = "can_fr.usb"
+to = "jetson.usb_j6"
+from_pins = ["USB.A4", "USB.A1", "USB.A6", "USB.A7"]
+to_pins = ["J6.10", "J6.13", "J6.12", "J6.11"]
+part = "awg-24-silicone-wire"
+conductors = 4
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "As usb_can_fl (the second socket of the J6 stack)." }
+
+[[wires]]
+name = "usb_can_rl"
+from = "can_rl.usb"
+to = "jetson.usb_j7"
+from_pins = ["USB.A4", "USB.A1", "USB.A6", "USB.A7"]
+to_pins = ["J7.1", "J7.4", "J7.3", "J7.2"]
+part = "awg-24-silicone-wire"
+conductors = 4
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "As usb_can_fl (J7 stack)." }
+
+[[wires]]
+name = "usb_can_rr"
+from = "can_rr.usb"
+to = "jetson.usb_j7"
+from_pins = ["USB.A4", "USB.A1", "USB.A6", "USB.A7"]
+to_pins = ["J7.10", "J7.13", "J7.12", "J7.11"]
+part = "awg-24-silicone-wire"
+conductors = 4
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "As usb_can_fl (the second socket of the J7 stack)." }
+
+# ---- RTK on UART1 (TX/RX crossed: board TX1 -> Jetson RXD pin 10, board RX1 <- Jetson TXD pin 8), 3.3 V from header pin 17 ----
+[[wires]]
+name = "rtk_uart"
+from = "rtk.uart"
+to = "jetson.uart1"
+from_pins = ["UART.TX1", "UART.RX1", "UART.GND"]
+to_pins = ["J12.10", "J12.8", "J12.6"]
+part = "awg-26-silicone-wire"
+conductors = 3
+length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "RTK board to the 40-pin header, 0.08 m apart on the tray, plus slack." }
+
+[[wires]]
+name = "rtk_pwr"
+from = "rtk.power_in"
+to = "jetson.header_3v3_b"
+from_pins = ["UART.3V3", "UART.GND"]
+to_pins = ["J12.17", "J12.9"]
+part = "awg-26-silicone-wire"
+conductors = 2
+length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "As rtk_uart." }
+
+[[wires]]
+name = "rtk_ant"
+from = "rtk.antenna"
+to = "ant.rf"
+from_pins = ["ANT.1", "ANT.2"]
+to_pins = ["RF.1", "RF.2"]
+part = "awg-26-silicone-wire"
+conductors = 2
+included_in = "ant"
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "The antenna's own 5 m coax ends in the SMA plug that mates the board's jack; most of it is stowed, 0.15 m is the routed run from the tray (its mass is in the antenna's)." }
+
+# ---- IMU on I2C1 (SDA pin 3, SCL pin 5, GND pin 9) and 3.3 V from header pin 1 ----
+[[wires]]
+name = "imu_i2c"
+from = "imu.i2c"
+to = "jetson.i2c1"
+from_pins = ["H.SDA", "H.SCL", "H.GND"]
+to_pins = ["J12.3", "J12.5", "J12.9"]
+part = "awg-28-silicone-wire"
+conductors = 3
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "IMU to the 40-pin header, 0.05 m apart on the tray, plus slack." }
+
+[[wires]]
+name = "imu_pwr"
+from = "imu.power_in"
+to = "jetson.header_3v3_a"
+from_pins = ["H.VIN", "H.GND"]
+to_pins = ["J12.1", "J12.9"]
+part = "awg-28-silicone-wire"
+conductors = 2
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "As imu_i2c." }
+
+[device_maps.minimu]
+"gyro.full_scale" = "gyro_range_max"
+"accel.full_scale" = "accel_range_max"
+
+[[devices]]
+type = "imu"
+name = "imu"
+instance = "imu"
+site = "imu"
+map = "minimu"
+set = { "gyro.bits" = { value = 16, unit = "bit", fidelity = "derived", derivation = "pololu-minimu-9-v6 adc_bits = 16 (one 16-bit reading per axis); the part stores it as a unitless count, the device wants bits." }, "accel.bits" = { value = 16, unit = "bit", fidelity = "derived", derivation = "As gyro.bits." }, rate_hz = { value = 500.0, unit = "Hz", fidelity = "estimated", rationale = "Every 2nd tick of the 1 ms step; inside the LSM6DSO output-data-rate range (12.5 Hz to 6.66 kHz, ST datasheet). The rate at which the firmware consumes samples is not modelled." }, "gyro.noise_density" = { value = 6.632e-5, unit = "rad/s/sqrt(Hz)", fidelity = "estimated", rationale = "LSM6DSO rate noise density in high-performance mode 3.8 mdps/sqrt(Hz) (ST press release 2018 for the LSM6DSO; the datasheet table was not retrieved) = 3.8e-3 deg/s x pi/180 = 6.632e-5 rad/s/sqrt(Hz). The MinIMU-9 v6 carries the LSM6DSO." }, "accel.noise_density" = { value = 6.865e-4, unit = "m/s2/sqrt(Hz)", fidelity = "estimated", rationale = "LSM6DSO acceleration noise density 70 ug/sqrt(Hz) in high-performance mode at +-2 g (ST store listing of the LSM6DSO family; at the +-16 g full scale of this binding it is somewhat higher) x 9.80665 m/s2 = 6.865e-4 m/s2/sqrt(Hz)." } }
+
+[[devices]]
+type = "gnss"
+name = "gnss"
+instance = "rtk"
+site = "ant"
+set = { rate_hz = { value = 10.0, unit = "Hz", fidelity = "estimated", rationale = "ZED-F9P RTK navigation rate is up to 20 Hz (datasheet); 10 Hz taken (every 100th tick), a usual setting." }, latency_s = { value = 0.1, unit = "s", fidelity = "estimated", rationale = "No part publishes the receiver's output latency; 0.1 s = one sample at 10 Hz." }, lat0 = { value = 47.3769, unit = "deg", fidelity = "estimated", rationale = "Arbitrary simulation origin (the repo's test-model site); not a claim about where the dog walks." }, lon0 = { value = 8.5417, unit = "deg", fidelity = "estimated", rationale = "As lat0." }, alt0 = { value = 0.0, unit = "m", fidelity = "estimated", rationale = "World z = 0 at sea level; a scene at altitude sets this." }, horiz_std = { value = 0.02, unit = "m", fidelity = "estimated", rationale = "RTK accuracy 0.01 m + 1 ppm (sparkfun-gps-rtk-sma-16481 rtk_accuracy, datasheet, static); 0.02 m covers antenna motion, multipath and a float / fix mix (no dynamic figure published), as assemblies/skydio-land.toml." }, vert_std = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "1.5 x horiz_std, as assemblies/skydio-land.toml." }, vel_std = { value = 0.05, unit = "m/s", fidelity = "estimated", rationale = "ZED-F9P velocity accuracy is not in the product summary; 0.05 m/s is the u-blox NEO-M8N datasheet figure used by parts/electronics/ublox-zed-f9p.toml velocity_accuracy (estimated there)." }, corr_time_s = { value = 20.0, unit = "s", fidelity = "estimated", rationale = "Time constant of the slowly varying part of an RTK position error: tens of seconds; no source (as assemblies/skydio-land.toml)." }, corr_frac = { value = 0.5, unit = "1", fidelity = "estimated", rationale = "Share of the position variance that is the Gauss-Markov part: half; no source." } }

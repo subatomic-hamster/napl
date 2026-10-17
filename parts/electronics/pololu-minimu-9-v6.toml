@@ -12,6 +12,7 @@ length              = { value = 0.020, unit = "m", src = "S1", fidelity = "datas
 width               = { value = 0.013, unit = "m", src = "S1", fidelity = "datasheet" }
 height              = { value = 0.003, unit = "m", src = "S1", fidelity = "datasheet" }
 mass                = { value = 0.0007, unit = "kg", src = "S1", fidelity = "datasheet" }  # without header pins
+price               = { value = 29.95, unit = "USD", src = "S1", fidelity = "datasheet" }  # Pololu "Unit price (US$)", 1 unit, seen 2026-10-16 (5+ units: 27.55)
 supply_voltage_min  = { value = 2.5, unit = "V", src = "S1", fidelity = "datasheet" }
 supply_voltage_max  = { value = 5.5, unit = "V", src = "S1", fidelity = "datasheet" }
 supply_current      = { value = 0.004, unit = "A", src = "S1", fidelity = "datasheet" }
@@ -55,7 +56,7 @@ id = "H"
 name = "6-pin 0.1 in header"
 type = "header-1x6-2.54mm"
 gender = "neutral"
-pos = [0.0, -0.0065, 0.0]
+pos = [0.0, -0.0065, 0.0016]  # on the board's top face: 1.6 mm (standard PCB thickness, an estimate) above the mounting plane, so a lead out of the header does not graze the tray
 axis = [0.0, -1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 rows = 1

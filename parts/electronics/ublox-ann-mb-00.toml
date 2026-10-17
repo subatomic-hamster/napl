@@ -17,6 +17,8 @@ height      = { value = 0.0225, unit = "m", fidelity = "estimated", rationale = 
 cable_length = { value = 5.0, unit = "m", fidelity = "estimated", rationale = "The ANN-MB-00 variant is sold with a 5 m cable (Ciiva / Richardson listings); the antenna is mounted at the mast top, the receiver on the cabin floor, 4 m of coax with slack." }
 mass        = { value = 0.30, unit = "kg", fidelity = "estimated", rationale = "No weight found in the listings. A 82 x 60 x 22.5 mm potted antenna is ~0.1 kg and 5 m of RG174-class coax adds ~0.15 kg: 0.30 kg with the magnet-free bracket. +-50 %." }
 
+price       = { value = 60.0, unit = "USD", fidelity = "estimated", rationale = "Richardson RFPD single-unit list price 60.00 USD (0 stock), seen 2026-10-16 through a search snippet; Future Electronics lists 35.42 USD for 1 unit (no US stock, ~20 week lead), ArduSimple 53.80 (currency not shown). 60 USD is the highest in-stock-or-listed single-unit figure: the BOM is not understated." }
+
 [[geometry.shapes]]
 shape = "box"
 size = [0.041, 0.030, 0.01125]

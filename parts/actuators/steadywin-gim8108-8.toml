@@ -47,6 +47,23 @@ r_phase_equivalent_wye = { value = 0.335, unit = "ohm", fidelity = "derived", de
 noload_speed_check = { value = 320.0, unit = "rpm", fidelity = "derived", derivation = "48 V * kv_output 6.67 = 320.2 rpm, matching the published max speed." }
 rotor_inertia = { value = 8.0e-5, unit = "kg*m^2", fidelity = "estimated", rationale = "Not published (S1, S2). Scaled from the CubeMars AK70-9 (8.66e-5 kg*m^2 motor-side, same 21 pole pairs, 89 x 49 mm vs 92 x 44 mm here); 8.0e-5 taken. Reflected inertia at the output = J * N^2 = 5.1e-3 kg*m^2." }
 
+# --- Qdd device params (SP2 kernel, docs/models.md "Qdd"; MIT-mode command limits are the convention of the open MIT-mode firmware
+#     family; the GDS68 driver's MIT support is NOT stated by the vendor (can_protocol above): verify before a real build) ---
+kv = { value = 53.36, unit = "rpm/V", fidelity = "derived", derivation = "Motor-side KV = kv_output 6.67 rpm/V x gear_ratio 8 = 53.36 rpm/V; Kt = 60 / (2 pi KV) = 0.1790 N*m/A = kt_motor." }
+i_limit_phase = { value = 22.0, unit = "A", fidelity = "derived", derivation = "= current_peak 22 A. efficiency 0.699 was derived from the same current, so Kt N eta i_limit = 0.179 x 8 x 0.699 x 22 = 22.0 N*m = torque_peak (the pair reproduces the published stall torque)." }
+encoder_cpr = { value = 65536, unit = "1", src = "S1", fidelity = "datasheet" }  # "Resolution of Encoder on Driver | 16 bit"
+c_th_winding = { value = 60.0, unit = "J/K", fidelity = "estimated", rationale = "Not published. Copper + stator teeth of a 378 g 21-pole-pair outrunner, ~150 g at ~0.4 J/(g K) = 60 J/K (lumped winding node; +-50 %)." }
+r_th_winding = { value = 1.35, unit = "K/W", fidelity = "derived", derivation = "current_rated 7 A must settle at temp_derate_start 80 degC from 25 degC ambient under the Qdd thermal law (docs/models.md 'Qdd': C dT/dt = i_q^2 R(T) - (T - T_amb) / R_th, R(T) = r20 (1 + 0.00393 (T - 20))): R(80) = 0.67 x 1.236 = 0.828 ohm, P = 49 x 0.828 = 40.6 W, R_th = 55 K / 40.6 W = 1.35 K/W." }
+can_cmd_hz = { value = 1000.0, unit = "Hz", fidelity = "estimated", rationale = "Driver command processing rate; MIT-mode drivers of this class process CAN frames at 1 kHz or more. The dog sends 500 Hz (spec s6)." }
+can_latency = { value = 0.001, unit = "s", fidelity = "estimated", rationale = "One CAN frame at 1 Mbit/s (~0.13 ms) + driver loop; 1 ms (one physics tick) taken." }
+mit_kp_max = { value = 500.0, unit = "N*m/rad", fidelity = "estimated", rationale = "MIT-mode protocol range convention (KP 0..500)." }
+mit_kd_max = { value = 5.0, unit = "N*m*s/rad", fidelity = "estimated", rationale = "MIT-mode protocol range convention (KD 0..5)." }
+mit_tau_ff_max = { value = 22.0, unit = "N*m", fidelity = "derived", derivation = "= torque_peak (output side): a larger feed-forward is saturated by i_limit_phase anyway." }
+can_timeout = { value = 0.1, unit = "s", fidelity = "estimated", rationale = "Command-loss watchdog of the driver; 0.1 s = 50 missed 500 Hz frames." }
+kd_timeout = { value = 1.0, unit = "N*m*s/rad", fidelity = "estimated", rationale = "Damping-mode gain on command loss (timeout_mode 0): soft enough not to slam a falling leg." }
+temp_fault = { value = 100.0, unit = "degC", fidelity = "estimated", rationale = "GDS68 over-temperature threshold not retrieved; class-H-insulated small BLDC drivers fault near 100 degC." }
+temp_derate_start = { value = 80.0, unit = "degC", fidelity = "estimated", rationale = "20 K below temp_fault (linear current derate, docs/models.md 'Qdd')." }
+
 [params.price]
 value = 213.99
 unit = "USD"

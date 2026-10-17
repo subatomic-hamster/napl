@@ -54,18 +54,30 @@ def record(m, material):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="build/cad/dog")
-    out = Path(ap.parse_args().out)
+    ap.add_argument("--only", nargs="*", help="REGISTRY names to build (default all)")
+    ap.add_argument(
+        "--suffix", default="", help="appended to every variant id, e.g. -200"
+    )
+    args = ap.parse_args()
+    out = Path(args.out)
     (out / "napl").mkdir(parents=True, exist_ok=True)
     man = {
         "params": dict(L_THIGH=P.L_THIGH, L_SHANK=P.L_SHANK, TILT_DEG=P.TILT_DEG),
+        "linkage": {
+            k: (list(v) if isinstance(v, tuple) else v)
+            for k, v in P.linkage(P.L_THIGH).items()
+        },
         "parts": {},
     }
     for name, (fn, count, mat, handed) in K.REGISTRY.items():
+        if args.only and name not in args.only:
+            continue
         shape = fn()
+        sfx = args.suffix
         variants = (
-            {name + "-l": shape, name + "-r": shape.mirror(Plane.XZ)}
+            {name + "-l" + sfx: shape, name + "-r" + sfx: shape.mirror(Plane.XZ)}
             if handed
-            else {name: shape}
+            else {name + sfx: shape}
         )
         for vn, sh in variants.items():
             tmp = out / "napl" / f"{vn}.mm.stl"

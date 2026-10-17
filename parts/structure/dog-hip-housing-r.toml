@@ -1,47 +1,59 @@
 id = "dog-hip-housing-r"
-name = "Dog hip housing, right (3D printed PLA): abduction actuator clamp, outboard boss for the hip pitch actuator"
+name = "Dog hip housing, right (3D printed PLA): abad output flange, web, hip and knee actuator sleeves face to face, bridge"
 category = "frame.printed"
 vendor = "napl dog (own design)"
 part_number = "hip_housing (right, -y outboard)"
 url = "cad/dog/parts.py"
 
-# Mirror image (XZ plane) of dog-hip-housing-l, built by cad/dog/build.py. Frame: origin on the abduction axis at the chassis-side face (x = 0), body toward +x, -y outboard (right), z up.
+# Mirror image (XZ plane) of dog-hip-housing-l. Frame: origin on the abduction axis at the abad actuator OUTPUT face, +x outward, -y outboard (right), z up.
 
 [mirror]
 opposite = "dog-hip-housing-l"
 
 [params]
-infill_fraction = { value = 0.3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py, 30 % for load-bearing leg parts." }
+infill_fraction = { value = 0.3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
 layer_height    = { value = 0.0002, unit = "m", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
 nozzle_diameter = { value = 0.0004, unit = "m", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
 wall_count      = { value = 3, unit = "1", fidelity = "estimated", rationale = "Print setting: cad/dog/params.py." }
-mass            = { value = 0.2275, unit = "kg", fidelity = "derived", derivation = "Mesh volume 410.8 cm3 x PLA 1.24 g/cm3, shell = min(V, area x 3 walls x 0.4 mm), 30 % infill elsewhere (assemblies/README.md 'Mass properties'), by cad/dog/build.py; identical to the left twin (mirror image)." }
+mass            = { value = 0.1663, unit = "kg", fidelity = "derived", derivation = "Mesh volume 207.3 cm3 x PLA 1.24 g/cm3, shell + 30 % infill model, by cad/dog/build.py; identical to the left twin." }
+price           = { value = 3.33, unit = "USD", fidelity = "estimated", rationale = "Filament only: 0.1663 kg x 20 USD/kg (PLA spool; docs/dog/actuator-study.md prices the printed parts at 45 USD for 2.239 kg); print time, failed prints and inserts not priced." }
 
 [geometry]
 shape = "mesh"
 mesh = "meshes/dog/dog-hip-housing-r.stl"
 material = "pla"
-bbox_min = [0.0, -0.08, -0.055]
-bbox_max = [0.07, 0.05, 0.055]
+bbox_min = [0.0, -0.187, -0.0502]
+bbox_max = [0.1102, 0.03, 0.054]
 
 [[ports]]
-name = "origin"
+name = "abad"
 kind = "mech"
-type = "frame.origin"
+type = "flange.steadywin-gim8108-output"
 gender = "neutral"
 pos = [0.0, 0.0, 0.0]
 axis = [-1.0, 0.0, 0.0]
 ref = [0.0, 0.0, 1.0]
 symmetry = 1
-note = "Chassis-side face on the abduction axis: mates the side plate hip window pattern (4 x M3, 80 x 90 mm)."
+note = "Flange disc on the abad actuator output (6 x M3 on a 50 mm circle); output pattern is opaque (vendor drawing not retrieved)."
 
 [[ports]]
 name = "pitch_seat"
 kind = "mech"
-type = "frame.origin"
+type = "bolt-pattern.steadywin-gim8108-base"
 gender = "neutral"
-pos = [0.035, -0.08, 0.0]
+pos = [0.06, -0.095, 0.0]
 axis = [0.0, -1.0, 0.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
-note = "Outboard boss face for the hip pitch actuator mount."
+note = "Hip pitch actuator: output face at y = -95 mm, output pointing outboard (-y)."
+
+[[ports]]
+name = "knee_seat"
+kind = "mech"
+type = "bolt-pattern.steadywin-gim8108-base"
+gender = "neutral"
+pos = [0.06, -0.132, 0.0]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Knee actuator: output face at y = -132 mm, output pointing inboard (+y) toward the crank."
