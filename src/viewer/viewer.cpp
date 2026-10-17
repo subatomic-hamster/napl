@@ -10,9 +10,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <map>
@@ -82,7 +84,7 @@ std::pair<int, int> design_action_args(const std::string& a) {
 // UI-only script actions (window state, no bus command, no editor needed): {min, max} argument counts; {-1, -1} = not one.
 std::pair<int, int> ui_action_args(const std::string& a) {
   static const std::map<std::string, std::pair<int, int>> t = {
-      {"mode", {1, 1}}, {"uisel", {1, 1}}, {"search", {1, 12}}, {"uicam", {1, 1}}, {"uiframe", {0, 0}}, {"uikeys", {0, 1}}};
+      {"mode", {1, 1}}, {"uisel", {1, 1}}, {"search", {1, 12}}, {"uicam", {1, 1}}, {"uiframe", {0, 0}}, {"uikeys", {0, 1}}, {"crumb", {1, 1}}};
   const auto it = t.find(a);
   return it == t.end() ? std::pair<int, int>{-1, -1} : it->second;
 }
@@ -288,6 +290,7 @@ class Viewer {
     if (opts_.design_api) {
       d_state(true);  // the design behind the model on screen (quiet: an MCP server may not have one yet)
       dreq("cats", design::request("library.categories"), true);
+      dreq("mypart", design::request("library.my_parts"), true);  // MY PARTS count
       dreq("search", [this] { return search_req(); }, true);  // the first page of the library (an empty query lists everything)
     }
     using Clock = std::chrono::steady_clock;
@@ -665,6 +668,7 @@ class Viewer {
     if (j.at("ok").num == 0) {
       if (!rq.quiet) dstatus_ = rq.kind + ": " + j.s("error");
       if (rq.kind == "edit") cycling_ = -1;
+      if (rq.kind == "sub") close_failed_ = true;  // (ends a series of sub.close: do_close_docs)
       return;
     }
     dstatus_.clear();
@@ -692,6 +696,14 @@ class Viewer {
       lib_.ranges.clear();
       for (const auto& [k, r] : res.at("ranges").obj)
         if (r.arr.size() >= 2) lib_.ranges[k] = {r.arr[0].num, r.arr[1].num, r.arr.size() > 2 ? r.arr[2].str : ""};
+      return;
+    }
+    if (rq.kind == "mypart") {  // library.my_parts: the MY PARTS count (and rows) of the workspace
+      take_my_parts(res, false);
+      return;
+    }
+    if (rq.kind == "search" && lib_.category == libui::kMyParts) {  // the MY PARTS category lists library.my_parts, not library.search
+      take_my_parts(res, true);
       return;
     }
     if (rq.kind == "search") {
@@ -845,6 +857,13 @@ class Viewer {
     });
     if (!has_design_ && mode_ == Mode::Simulate && pending_mode_.empty()) mode_ = Mode::Build;  // an editable design opens on BUILD
     has_design_ = true;
+    if (std::max<std::size_t>(1, dstate_.docs.size()) != last_docs_) {  // a sub-assembly document opened / closed: a different part is on screen
+      last_docs_ = std::max<std::size_t>(1, dstate_.docs.size());
+      set_sel({});
+      sel_sub_.clear();
+      framed_ = false;
+      dreq("mypart", design::request("library.my_parts"), true);  // (a saved child is a new MY PART)
+    }
     rebuild_scene();
     if (!framed_ && !scene_.empty()) {  // opening a design frames it, like a CAD app (a scripted camera set before this is kept)
       framed_ = true;
@@ -1152,16 +1171,47 @@ class Viewer {
     ImGui::PushFont(nullptr, theme::kFontTitle);
     dl->AddText({38, 8}, theme::u32(theme::kText), "NAPL");
     ImGui::PopFont();
-    std::string title = has_design_ && !design_.assembly.empty() ? design_.assembly : sim_title_.empty() ? "untitled" : sim_title_;
-    if (dstate_.undo > 0) title += "  *";  // unsaved edits since the document was opened (the undo stack is not empty)
+    // The document title as a breadcrumb: the base design, then every open sub-assembly document ("dog > fl (leg.toml)"). A dirty
+    // document carries a "*". Clicking an earlier crumb returns to it (close_docs: a dirty child asks to save first).
+    struct Crumb {
+      std::string label;
+      bool dirty;
+    };
+    std::vector<Crumb> crumbs;
+    if (dstate_.docs.size() > 1)
+      for (const design::DocRow& dr : dstate_.docs) crumbs.push_back({dr.crumb.empty() ? dr.title : dr.crumb.back(), dr.dirty});
+    else crumbs.push_back({has_design_ && !design_.assembly.empty() ? design_.assembly : sim_title_.empty() ? "untitled" : sim_title_,
+                           dstate_.docs.empty() ? dstate_.undo > 0 : dstate_.docs[0].dirty});  // (undo stack not empty: unsaved edits)
     ImGui::PushFont(nullptr, theme::kFontSmall);
     float title_w = 0;
+    rep_.crumbs.clear();
     if (W >= 1000) {
-      title_w = std::min(ImGui::CalcTextSize(title.c_str()).x, 220.f);
-      dl->PushClipRect({90, 0}, {90 + 224, kApp}, true);
-      dl->AddText({90, 11}, theme::u32(theme::kDim), title.c_str());
-      dl->PopClipRect();
-      title_w += 24;
+      float cx = 90;
+      const float cmax = 90 + 360;  // the crumbs never run into the page tabs
+      for (std::size_t k = 0; k < crumbs.size() && cx < cmax; ++k) {
+        const bool last = k + 1 == crumbs.size();
+        const std::string lab = crumbs[k].label + (crumbs[k].dirty ? " *" : "");
+        const float w = std::min(ImGui::CalcTextSize(lab.c_str()).x, last ? 220.f : 110.f);
+        bool hov = false;
+        if (!last) {
+          ImGui::SetCursorScreenPos({cx, 6});
+          ImGui::PushID(static_cast<int>(k));
+          if (ImGui::InvisibleButton("##crumb", {w + 4, kApp - 12})) close_docs(static_cast<int>(k));
+          ImGui::PopID();
+          hov = ImGui::IsItemHovered();
+          ImGui::SetItemTooltip("back to %s", crumbs[k].label.c_str());
+        }
+        dl->PushClipRect({cx, 0}, {cx + w + 2, kApp}, true);
+        dl->AddText({cx, 11}, theme::u32(hov || (last && crumbs.size() > 1) ? theme::kText : theme::kDim), lab.c_str());
+        dl->PopClipRect();
+        rep_.crumbs.push_back({lab, {cx, 6, cx + w + 4, kApp - 6}});
+        cx += w + 4;
+        if (!last) {
+          dl->AddText({cx + 2, 11}, theme::u32(theme::kDim, 0.6f), ">");
+          cx += 18;
+        }
+      }
+      title_w = cx - 90 + 24;
     }
     ImGui::PopFont();
     ImGui::SetCursorScreenPos({90 + title_w + 8, 4});
@@ -1245,7 +1295,15 @@ class Viewer {
         if (r.button(Icon::Rotate, "Rotate", gizmo_.mode == b3::Gizmo::Rotate, ed, "R: rotate about an axis (snaps to the angle step)")) gizmo_.mode = b3::Gizmo::Rotate, measure_ = 0;
         r.group("MODIFY");
         if (r.button(Icon::Align, "Align", false, ed && sel_.size() > 1, "align the selected parts (pick two or more): opens the ALIGN list")) ImGui::OpenPopup("##align");
-        if (r.button(Icon::Mirror, "Mirror", false, can, "mirror a copy across the world plane normal to Y")) dreq("edit", design::request("mirror", "{\"silent\":true,\"instances\":" + json_list(sel_) + ",\"axis\":\"y\"}"));
+        const std::string msub = sel ? sub_of(sel->id) : sel_sub_;  // a sub-assembly (or one of its items) is selected
+        if (r.button(Icon::Mirror, "Mirror", false, can || !msub.empty(), "mirror a copy across the world plane normal to Y; for a sub-assembly: a mirrored copy (pick the port it attaches to in the Library tab first)")) {
+          if (!msub.empty()) {
+            const std::string to = !sel_port_.empty() && sub_of(sel_port_inst_).empty() ? sel_port_inst_ + "." + sel_port_ : "";
+            sub_req("sub.mirror", "{\"id\":" + q(msub) + ",\"plane\":\"xz\"" + (to.empty() ? "" : ",\"to\":" + q(to)) + "}");
+          } else {
+            dreq("edit", design::request("mirror", "{\"silent\":true,\"instances\":" + json_list(sel_) + ",\"axis\":\"y\"}"));
+          }
+        }
         if (r.button(Icon::Copy, "Duplicate", false, can, "copy the selected part next to itself")) dreq("edit", design::request("duplicate", "{\"silent\":true,\"instance\":" + q(sel->id) + "}"));
         if (r.button(Icon::Trash, "Remove", false, can, "Del: remove the selected part")) d_remove(sel->id);
         r.group("ASSEMBLE");
@@ -1260,6 +1318,12 @@ class Viewer {
         history();
         r.group("DOCUMENT");
         if (r.button(Icon::Save, "Save", false, ed, "write the design TOML")) d_save(save_buf_);
+        if (r.button(Icon::Doc, "New part", false, ed, "start a new part (sub-assembly) in its own document; Export as... in the inspector, MY PARTS in the Library")) {
+          std::string n;
+          do n = "part" + std::to_string(++part_seq_);
+          while (find_sub(n));
+          sub_req("sub.new", "{\"name\":" + q(n) + "}");
+        }
         break;
       }
       case Mode::Library: {
@@ -1379,6 +1443,12 @@ class Viewer {
       segs.push_back({b, errors ? theme::kErr : warns ? theme::kWarn : theme::kOk, 0});
       std::snprintf(b, sizeof b, "MASS  %.3f kg", design_.mass_total);
       segs.push_back({b, theme::kText, 1});
+      rep_.cost.clear();
+      if (design_.has_bom && design_.bom_cost >= 0) {  // report["bom"].total.cost: a lower bound while some parts have no price
+        std::snprintf(b, sizeof b, "COST  $%.2f%s", design_.bom_cost, design_.bom_missing > 0 ? "+" : "");
+        rep_.cost = b;
+        segs.push_back({b, theme::kText, 1});
+      }
       std::snprintf(b, sizeof b, "%zu PARTS", design_.instances.size());
       segs.push_back({b, theme::kText, 2});
       if (snap_.grid > 0) std::snprintf(b, sizeof b, "SNAP  %g mm  %g\xC2\xB0%s%s", snap_.grid * 1000, snap_.angle, snap_.edges ? "  EDGE" : "", snap_.ports ? "  PORT" : "");
@@ -1549,13 +1619,187 @@ class Viewer {
       if (w->Active && w->Name[0] == '#') wins += (wins.empty() ? "" : ",") + q(w->Name);
     char b[64];
     std::snprintf(b, sizeof b, "{\"errors\":%zu,\"warnings\":%zu}", chip_errors_, chip_warns_);
+    // sub-assembly workspace: breadcrumb, tree nodes, exports, MY PARTS, the inspector's "from" line, cost and the per-sub panel
+    std::string crumbs, tree, exps, mine, panel, hits;
+    for (const Rep::CrumbRect& c : rep_.crumbs) crumbs += (crumbs.empty() ? "" : ",") + q(c.label);
+    for (const SubNode& sn : sub_nodes())
+      tree += (tree.empty() ? "" : ",") + ("{\"id\":" + q(sn.id) + ",\"file\":" + q(sn.file) + ",\"mirror\":" + q(sn.mirror) + ",\"error\":" + q(sn.error) +
+                                           ",\"items\":" + std::to_string(sn.items.size()) + "}");
+    for (const design::ExportRow& e : dstate_.exports) exps += (exps.empty() ? "" : ",") + q(e.kind + ":" + e.name + "=" + e.ref);
+    for (const auto& [path, m] : lib_.mine) mine += (mine.empty() ? "" : ",") + q(m.name);
+    for (const std::string& p : rep_.panel) panel += (panel.empty() ? "" : ",") + q(p);
+    for (const libui::Hit& h : lib_.hits) hits += (hits.empty() ? "" : ",") + q(h.name);
+    const std::string subj = ",\"crumbs\":[" + crumbs + "],\"tree\":[" + tree + "],\"exports\":[" + exps + "],\"my_parts\":[" + mine + "],\"hits\":[" + hits +
+                             "],\"category\":" + q(lib_.category) + ",\"from\":" + q(rep_.from) + ",\"cost\":" + q(rep_.cost) + ",\"panel\":[" + panel +
+                             "],\"confirm\":" + q(close_ask_.open ? "close_doc" : "") + ",\"export_open\":" + (ImGui::IsPopupOpen("Export as##exportas") ? "true" : "false");
+    rep_.from.clear();  // (drawn again next frame when the inspector shows it)
     const std::string j = "{\"page\":" + q(mode_name(mode_)) + ",\"keys\":" + (keys_open_ ? "true" : "false") + ",\"rows\":[" + rows + "],\"status\":" +
                           q(status_msg_) + ",\"chip\":" + b + ",\"icon\":" + rect(rep_.icon) + ",\"tabs\":" + rect(rep_.tabs) + ",\"zoom\":" + rect(rep_.zoom) +
-                          ",\"popover\":" + rect(rep_.pop) + ",\"windows\":[" + wins + "],\"size\":[" + std::to_string(static_cast<int>(ImGui::GetIO().DisplaySize.x)) +
+                          ",\"popover\":" + rect(rep_.pop) + subj + ",\"windows\":[" + wins + "],\"size\":[" + std::to_string(static_cast<int>(ImGui::GetIO().DisplaySize.x)) +
                           "," + std::to_string(static_cast<int>(ImGui::GetIO().DisplaySize.y)) + "]}";
     if (j == rep_sent_) return;
     rep_sent_ = j;
     dreq("uireport", design::request("ui.report", "{\"layout\":" + j + "}"), true);
+  }
+
+  // ---------------------------------------- sub-assembly workspace ---------------------------------------------------------------
+  // (state: docs / subs / exports / origins of the backend, docs/guide.md "Sub-assemblies"; every action is one sub.* backend op)
+  void sub_req(const std::string& tool, const std::string& args = "{}") { dreq("sub", design::request(tool, args)); }
+  std::string sub_of(const std::string& inst) const {
+    const auto o = dstate_.origins.find(inst);
+    return o == dstate_.origins.end() ? "" : o->second.sub;
+  }
+  const design::SubRow* find_sub(const std::string& id) const {
+    for (const design::SubRow& s : dstate_.subs)
+      if (s.id == id) return &s;
+    return nullptr;
+  }
+  std::string fresh_sub_id(const std::string& base_name) const {
+    std::string b;
+    for (const char c : base_name) b += std::isalnum(static_cast<unsigned char>(c)) ? c : '_';
+    if (b.empty() || std::isdigit(static_cast<unsigned char>(b[0]))) b = "p" + b;
+    std::string id = b;
+    for (int n = 2; find_sub(id); ++n) id = b + std::to_string(n);
+    return id;
+  }
+  // The sub-assembly nodes of the browser tree (also what ui.report lists): one per [[subassemblies]] entry with its flattened items.
+  struct SubNode {
+    std::string id, file, mirror, error;
+    std::vector<const design::Instance*> items;
+  };
+  std::vector<SubNode> sub_nodes() const {
+    std::vector<SubNode> out;
+    for (const design::SubRow& s : dstate_.subs) {
+      SubNode n{s.id, s.file, s.mirror, "", {}};
+      if (const auto e = dstate_.sub_errors.find(s.id); e != dstate_.sub_errors.end()) n.error = e->second;
+      for (const design::Instance& i : design_.instances)
+        if (sub_of(i.id) == s.id) n.items.push_back(&i);
+      out.push_back(std::move(n));
+    }
+    return out;
+  }
+
+  // Return to the document at depth `to` (0 = the base design). A dirty sub-assembly document is never dropped silently: the
+  // SAVE / DISCARD / CANCEL popup asks first (the backend keeps the dirty marker until it is saved or discarded).
+  void close_docs(int to) {
+    const int top = static_cast<int>(dstate_.docs.size()) - 1;
+    if (to < 0 || to >= top) return;
+    bool dirty = false;
+    for (int k = to + 1; k <= top; ++k) dirty = dirty || dstate_.docs[k].dirty;
+    if (!dirty) return do_close_docs(to, true, "");
+    close_ask_.open = close_ask_.want_popup = true;
+    close_ask_.to = to;
+    const design::DocRow& d = dstate_.docs[top];
+    const std::string dflt = d.path.empty() ? (d.crumb.empty() ? std::string("part") : d.crumb.back()) + ".toml" : d.path;
+    std::snprintf(close_ask_.path, sizeof close_ask_.path, "%s", dflt.c_str());
+  }
+  void do_close_docs(int to, bool save, const std::string& path) {
+    const int n = static_cast<int>(dstate_.docs.size()) - 1 - to;
+    for (int k = 0; k < n; ++k)  // (built when it is its turn: a refused close, e.g. no file to save to, ends the series)
+      dreq("sub", [this, to, save, path, k] {
+        if (static_cast<int>(dstate_.docs.size()) - 1 <= to || (k > 0 && close_failed_)) return std::string();
+        if (k == 0) close_failed_ = false;
+        return design::request("sub.close", !save ? "{\"save\":false}" : k == 0 && !path.empty() ? "{\"path\":" + q(path) + "}" : "{}");
+      });
+  }
+  void close_popup() {
+    if (close_ask_.want_popup) ImGui::OpenPopup("Unsaved sub-assembly##closedoc"), close_ask_.want_popup = false;
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+    if (!ImGui::BeginPopupModal("Unsaved sub-assembly##closedoc", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+      close_ask_.open = false;
+      return;
+    }
+    const design::DocRow* top = dstate_.docs.empty() ? nullptr : &dstate_.docs.back();
+    ImGui::Text("%s has edits that are not saved.", top ? top->title.c_str() : "this part");
+    ImGui::TextDisabled("Going back without saving would drop them.");
+    if (top && top->path.empty()) {  // a new part: it needs a file
+      ImGui::SetNextItemWidth(320);
+      ImGui::InputText("##closepath", close_ask_.path, sizeof close_ask_.path);
+      ImGui::SameLine();
+      ImGui::TextDisabled("file (next to the design)");
+    }
+    ImGui::Spacing();
+    if (theme::button("SAVE AND GO BACK", true) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+      do_close_docs(close_ask_.to, true, top && top->path.empty() ? close_ask_.path : "");
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("DISCARD")) {
+      do_close_docs(close_ask_.to, false, "");
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("CANCEL") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
+  // "Export as...": what the part offers to the outside (an [exports] row). kind 0 port, 1 connector, 2 param.
+  void export_popup() {
+    if (export_ask_.want_popup) ImGui::OpenPopup("Export as##exportas"), export_ask_.want_popup = false;
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+    if (!ImGui::BeginPopupModal("Export as##exportas", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) return;
+    static const char* const kinds[] = {"port", "connector", "param"};
+    ImGui::SetNextItemWidth(120);
+    if (ImGui::BeginCombo("kind", kinds[export_ask_.kind])) {
+      for (int k = 0; k < 3; ++k)
+        if (ImGui::Selectable(kinds[k], k == export_ask_.kind)) export_ask_.kind = k;
+      ImGui::EndCombo();
+    }
+    ImGui::SetNextItemWidth(260);
+    ImGui::InputText("of  (inst.name)", export_ask_.ref, sizeof export_ask_.ref);
+    ImGui::SetNextItemWidth(260);
+    ImGui::InputText("exported as", export_ask_.name, sizeof export_ask_.name);
+    ImGui::Spacing();
+    const bool ok = export_ask_.ref[0] && export_ask_.name[0];
+    ImGui::BeginDisabled(!ok);
+    if (theme::button("EXPORT", true) && ok) {
+      sub_req("sub.export", "{\"kind\":" + q(kinds[export_ask_.kind]) + ",\"ref\":" + q(export_ask_.ref) + ",\"name\":" + q(export_ask_.name) + "}");
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("CANCEL") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
+  void ask_export(int kind, const std::string& ref, const std::string& name) {
+    export_ask_.want_popup = true;
+    export_ask_.kind = kind;
+    std::snprintf(export_ask_.ref, sizeof export_ask_.ref, "%s", ref.c_str());
+    std::snprintf(export_ask_.name, sizeof export_ask_.name, "%s", name.c_str());
+  }
+  // MY PARTS: insert a sub-assembly file (welded at `at`, world metres), id fresh. The file is written relative to the open design.
+  void insert_my_part(const std::string& path, b3::V3 at) {
+    std::string file = path;
+    try {
+      if (!dstate_.path.empty()) file = std::filesystem::path(path).lexically_relative(std::filesystem::path(dstate_.path).parent_path()).string();
+      if (file.empty()) file = path;
+    } catch (const std::exception&) {
+      file = path;
+    }
+    const std::string id = fresh_sub_id(std::filesystem::path(path).stem().string());
+    sub_req("sub.insert", "{\"file\":" + q(file) + ",\"id\":" + q(id) + ",\"pos\":" + point_json(at) + "}");
+  }
+  // library.my_parts reply -> the MY PARTS rows (and, when that category is open, the card list)
+  void take_my_parts(const design::Json& res, bool as_hits) {
+    lib_.mine.clear();
+    if (as_hits) lib_.hits.clear();
+    std::string needle = lib_.query;
+    std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) { return std::tolower(c); });
+    for (const design::Json& p : res.at("parts").arr) {
+      libui::MyPart m;
+      m.name = p.s("name"), m.path = p.s("path");
+      m.has_mass = p.at("mass").kind == design::Json::Num, m.mass = p.n("mass");
+      m.has_cost = p.at("cost").kind == design::Json::Num, m.cost = p.n("cost");
+      for (const auto& [kind, names] : p.at("exports").obj) m.exports += (m.exports.empty() ? "" : ", ") + std::to_string(names.arr.size()) + " " + kind;
+      lib_.mine[m.path] = m;
+      std::string low = m.name;
+      std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) { return std::tolower(c); });
+      if (as_hits && low.find(needle) != std::string::npos) {
+        libui::Hit h{m.path, m.name, "my part", "MY PARTS", "", m.has_mass, m.mass, true};
+        lib_.hits.push_back(std::move(h));
+      }
+    }
+    lib_.my_count = static_cast<int>(lib_.mine.size());
+    if (as_hits) lib_.total = static_cast<int>(lib_.hits.size());
   }
 
   // The left dock: BROWSER (the assembly tree: instances by group, mates, wires, devices, each instance with a visibility eye) and
@@ -1590,10 +1834,10 @@ class Viewer {
   }
 
   // One tree row: visibility eye, label (selectable), a dim detail text at the right edge.
-  bool tree_row(const std::string& id, const char* label, const std::string& detail, bool selected, bool* eye, bool hl = false) {
+  bool tree_row(const std::string& id, const char* label, const std::string& detail, bool selected, bool* eye, bool hl = false, bool grey = false) {
     const float w = ImGui::GetContentRegionAvail().x, rh = ImGui::GetTextLineHeight() + 6;
     ImGui::PushID(id.c_str());
-    ImGui::PushStyleColor(ImGuiCol_Text, hl ? theme::kWarn : theme::kText);
+    ImGui::PushStyleColor(ImGuiCol_Text, hl ? theme::kWarn : grey ? theme::kDim : theme::kText);
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (eye ? 22.f : 0.f));
     const bool hit = ImGui::Selectable(label, selected, 0, {w - (eye ? 22.f : 0.f), rh});
     ImGui::PopStyleColor();
@@ -1623,8 +1867,39 @@ class Viewer {
     ImGui::PushFont(nullptr, theme::kFontBody);
     if (ImGui::TreeNodeEx("##asm", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s", design_.assembly.c_str())) {
       std::map<std::string, std::vector<const design::Instance*>> by_group;
-      for (const design::Instance& i : design_.instances) by_group[i.group.empty() ? "(ungrouped)" : i.group].push_back(&i);
+      for (const design::Instance& i : design_.instances)
+        if (sub_of(i.id).empty()) by_group[i.group.empty() ? "(ungrouped)" : i.group].push_back(&i);
       if (ImGui::TreeNodeEx("##inst", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "Parts  (%zu)", design_.instances.size())) {
+        for (const SubNode& sn : sub_nodes()) {  // one collapsible node per sub-assembly; its items are greyed (they live in the child file)
+          const bool bad = !sn.error.empty();
+          std::string lab = sn.id + "  (" + sn.file + ")" + (sn.mirror.empty() ? "" : "  [mirrored " + sn.mirror + "]") + (bad ? "  [file missing]" : "");
+          ImGui::PushStyleColor(ImGuiCol_Text, bad ? theme::kErr : theme::kText);
+          const bool open = ImGui::TreeNodeEx(("##sub" + sn.id).c_str(), ImGuiTreeNodeFlags_SpanAvailWidth | (sel_sub_ == sn.id ? ImGuiTreeNodeFlags_Selected : 0), "%s", lab.c_str());
+          ImGui::PopStyleColor();
+          if (ImGui::IsItemClicked()) sel_sub_ = sn.id;
+          if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            if (bad) ImGui::TextColored(theme::kErr, "%s", sn.error.c_str());
+            const auto b = design_.bom_subs.find(sn.id);
+            if (b != design_.bom_subs.end()) ImGui::TextDisabled("%.1f g%s", b->second.mass * 1000, b->second.cost >= 0 ? ("   $" + std::to_string(b->second.cost).substr(0, 7)).c_str() : "");
+            ImGui::TextDisabled("double-click: open the part");
+            ImGui::EndTooltip();
+            if (ImGui::IsMouseDoubleClicked(0) && !bad) sub_req("sub.open", "{\"id\":" + q(sn.id) + "}");
+          }
+          if (!open) continue;
+          for (const design::Instance* i : sn.items) {
+            const auto o = dstate_.origins.find(i->id);
+            bool vis = !hidden_.count(i->id);
+            if (tree_row(i->id, (o == dstate_.origins.end() ? i->id : o->second.id).c_str(), i->part, is_selected(i->id), &vis, hl_.count(i->id) > 0, true)) set_sel({i->id});
+            if (vis != !hidden_.count(i->id)) {
+              if (vis) hidden_.erase(i->id);
+              else hidden_.insert(i->id);
+              hidden_dirty_ = true;
+              dreq("quiet", design::request("ui.visibility", "{\"instances\":[" + q(i->id) + "],\"visible\":" + (vis ? "true" : "false") + "}"), true);
+            }
+          }
+          ImGui::TreePop();
+        }
         for (const auto& [g, list] : by_group) {
           if (!ImGui::TreeNodeEx(("##g" + g).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s  (%zu)", g.c_str(), list.size())) continue;
           for (const design::Instance* i : list) {
@@ -1661,6 +1936,21 @@ class Viewer {
         for (std::size_t k = 0; k < dstate_.wires.size(); ++k) {
           const design::WireRow& w = dstate_.wires[k];
           if (tree_row("w" + std::to_string(k), (w.name.empty() ? w.from + " > " + w.to : w.name).c_str(), w.name.empty() ? "" : w.from + " > " + w.to, false, nullptr)) select_ends(w.from, w.to);
+        }
+        ImGui::TreePop();
+      }
+      if (!dstate_.exports.empty() && ImGui::TreeNodeEx("##exports", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "Exports  (%zu)", dstate_.exports.size())) {
+        for (std::size_t k = 0; k < dstate_.exports.size(); ++k) {  // what this part offers to a parent: x removes the row
+          const design::ExportRow& e = dstate_.exports[k];
+          const float y0 = ImGui::GetCursorPosY(), w = ImGui::GetContentRegionAvail().x;
+          if (tree_row("x" + std::to_string(k), e.name.c_str(), e.kind + "  " + e.ref, false, nullptr)) set_sel({e.ref.substr(0, e.ref.find_first_of(".:"))});
+          const float y1 = ImGui::GetCursorPosY();
+          ImGui::SetCursorPos({ImGui::GetCursorPosX() + w - 22, y0});
+          ImGui::PushID(static_cast<int>(k));
+          if (ImGui::SmallButton("x")) sub_req("sub.unexport", "{\"kind\":" + q(e.kind == "ports" ? "port" : e.kind == "connectors" ? "connector" : "param") + ",\"name\":" + q(e.name) + "}");
+          ImGui::PopID();
+          ImGui::SetItemTooltip("remove this export");
+          ImGui::SetCursorPosY(y1);
         }
         ImGui::TreePop();
       }
@@ -1745,6 +2035,7 @@ class Viewer {
     ImGui::Spacing();
     if (!sel) {
       ImGui::TextDisabled("click a part in the 3D view or the browser");
+      sub_panel();
       snapping_controls();
       return;
     }
@@ -1753,6 +2044,22 @@ class Viewer {
     ImGui::PopFont();
     ImGui::TextDisabled("%s", sel->part.c_str());
     ImGui::TextDisabled("%s   %.1f g", sel->group.empty() ? "(no group)" : sel->group.c_str(), sel->mass * 1000);
+    if (const auto o = dstate_.origins.find(sel->id); o != dstate_.origins.end()) {  // an item of a sub-assembly: read-only here
+      ImGui::Spacing();
+      rep_.from = "from " + o->second.file;
+      ImGui::TextColored(theme::kAccent, "%s", rep_.from.c_str());
+      ImGui::TextDisabled("%s of sub-assembly %s", o->second.id.c_str(), o->second.sub.c_str());
+      ImGui::TextDisabled("read-only here: edit it in the part.");
+      const auto err = dstate_.sub_errors.find(o->second.sub);
+      if (err != dstate_.sub_errors.end()) ImGui::TextColored(theme::kErr, "%s", err->second.c_str());
+      ImGui::Spacing();
+      ImGui::BeginDisabled(err != dstate_.sub_errors.end());
+      if (theme::button("OPEN PART", true)) sub_req("sub.open", "{\"id\":" + q(o->second.sub) + "}");
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      if (ImGui::Button("FRAME")) frame_selection();
+      return;
+    }
     const bool root = sel->id == dstate_.root;
     const bool is_free = std::find(dstate_.free.begin(), dstate_.free.end(), sel->id) != dstate_.free.end();
     ImGui::TextColored(root ? theme::kAccent : is_free ? theme::kWarn : theme::kDim, "%s", root ? "ROOT" : is_free ? "FREE-PLACED" : "MATED");
@@ -1816,6 +2123,21 @@ class Viewer {
         ImGui::EndPopup();
       }
     }
+    if (dstate_.docs.size() > 1) {  // editing a part: what it offers to a parent
+      ImGui::Spacing();
+      theme::caption("EXPORT TO A PARENT");
+      if (const auto pit = dstate_.ports.find(sel->id); pit != dstate_.ports.end())
+        for (const design::Port& p : pit->second) {
+          ImGui::PushID(p.name.c_str());
+          ImGui::TextUnformatted(p.name.c_str());
+          ImGui::SameLine(120);
+          ImGui::TextDisabled("%s", p.kind.c_str());
+          ImGui::SameLine(std::max(170.f, pane_r_ - 110));
+          if (ImGui::SmallButton("Export as...")) ask_export(p.kind == "mech" || p.kind.empty() ? 0 : 1, sel->id + "." + p.name, p.name);
+          ImGui::PopID();
+        }
+      if (ImGui::SmallButton("Export a param as...")) ask_export(2, sel->id + ".", "");
+    }
     ImGui::Spacing();
     theme::caption("ACTIONS");
     const bool can = opts_.design_api && !root;
@@ -1863,6 +2185,41 @@ class Viewer {
       ImGui::PopTextWrapPos();
     }
     snapping_controls();
+  }
+
+  // Per sub-assembly mass and cost (report["bom"].by_sub), then the total. A cost with "+" is a lower bound (parts without a price).
+  void sub_panel() {
+    rep_.panel.clear();
+    if (dstate_.subs.empty()) return;
+    ImGui::Spacing();
+    theme::caption("SUB-ASSEMBLIES  MASS / COST");
+    const auto cost_text = [](double c, int missing) {
+      if (c < 0) return std::string("n/a");
+      char b[32];
+      std::snprintf(b, sizeof b, "$%.2f%s", c, missing > 0 ? "+" : "");
+      return std::string(b);
+    };
+    for (const SubNode& sn : sub_nodes()) {
+      const auto b = design_.bom_subs.find(sn.id);
+      char m[32] = "-";
+      if (b != design_.bom_subs.end()) std::snprintf(m, sizeof m, "%.1f g", b->second.mass * 1000);
+      const std::string c = b != design_.bom_subs.end() ? cost_text(b->second.cost, b->second.missing) : "n/a";
+      ImGui::TextUnformatted(sn.id.c_str());
+      ImGui::SameLine(110);
+      ImGui::TextDisabled("%s", m);
+      ImGui::SameLine(180);
+      ImGui::TextDisabled("%s", c.c_str());
+      rep_.panel.push_back(sn.id + " | " + m + " | " + c);
+    }
+    if (design_.has_bom) {
+      const std::string c = cost_text(design_.bom_cost, design_.bom_missing);
+      ImGui::TextUnformatted("total");
+      ImGui::SameLine(110);
+      ImGui::TextDisabled("%.1f g", design_.bom_mass * 1000);
+      ImGui::SameLine(180);
+      ImGui::TextDisabled("%s", c.c_str());
+      if (design_.bom_missing > 0) ImGui::TextDisabled("%d part(s) without a price: cost is a lower bound", design_.bom_missing);
+    }
   }
 
   void snapping_controls() {
@@ -2209,12 +2566,13 @@ class Viewer {
 
   // The sidebar / page asked for something.
   void lib_actions(const libui::Actions& a) {
-    if (!a.info.empty()) want_info(a.info);
+    if (!a.info.empty() && !lib_.mine.count(a.info)) want_info(a.info);
     if (!a.open_page.empty()) {
       lib_.selected = a.open_page;
       set_mode("library");
-      want_info(a.open_page);
+      if (!lib_.mine.count(a.open_page)) want_info(a.open_page);
     }
+    if (!a.add_mine.empty()) insert_my_part(a.add_mine, free_drop_point());
     if (!a.add.empty()) add_part(a.add);
     if (!a.swap.empty()) {
       if (const design::Instance* s = sel_instance()) d_swap(s->id, a.swap, true);
@@ -2245,6 +2603,7 @@ class Viewer {
 
   std::string search_req() {
     lib_.dirty = false;
+    if (lib_.category == libui::kMyParts) return design::request("library.my_parts", "{}");
     if (lib_.ranges_for != lib_.category || lib_.ranges.empty()) {
       lib_.ranges_for = lib_.category;
       dreq("ranges", design::request("library.ranges", "{\"category\":" + q(lib_.category) + "}"), true);
@@ -2267,7 +2626,7 @@ class Viewer {
     libui::Actions a;
     const design::Instance* s = sel_instance();
     int targets = -1;
-    if (!lib_.selected.empty()) {
+    if (!lib_.selected.empty() && !lib_.mine.count(lib_.selected)) {
       const auto it = targets_.find(lib_.selected);
       if (it != targets_.end()) targets = static_cast<int>(it->second.list.size());
       else want_targets(lib_.selected);
@@ -2513,6 +2872,8 @@ class Viewer {
       }
       status_bar(W, H);
       confirm_popup();
+      close_popup();
+      export_popup();
     }
     if (!full_page_) viewport_layer(W, H, now);
     if (!opts_.clean) {  // (last, so the popover is the top-most window; the report then sees every window of the frame)
@@ -2891,6 +3252,11 @@ class Viewer {
   void drag_drop_layer(const b3::Cam& cam, ImDrawList* dl, double now) {
     const ImGuiIO& io = ImGui::GetIO();
     const ImGuiPayload* pl = ImGui::GetDragDropPayload();
+    if (pl && pl->IsDataType("NAPL_MYPART") && pl->Data) return my_part_drag(cam, dl, static_cast<const char*>(pl->Data));
+    if (was_my_drag_) {  // (released: my_part_drag has dropped it)
+      was_my_drag_ = false;
+      ghost_ = {};
+    }
     std::string part;
     bool scripted = anim_.active;
     bool user = pl && pl->IsDataType("NAPL_PART") && pl->Data;
@@ -2964,6 +3330,34 @@ class Viewer {
       anim_.active = false;
     }
   }
+  // A MY PARTS card dragged over the 3D view: a chip follows the cursor and the drop point (the scene or the ground under it) is
+  // marked; released inside the view it is one sub.insert, welded there. (Attaching it by a mate to an exported port is the
+  // backend's sub.insert `mate`; the window welds at the point.)
+  void my_part_drag(const b3::Cam& cam, ImDrawList* dl, const std::string& path) {
+    const ImGuiIO& io = ImGui::GetIO();
+    Targets& t = targets_["@my-part"];  // (no ports to snap to: ghost_for gives the free point)
+    t.requested = t.loaded = true;
+    const bool in_vp = io.MousePos.x >= vp_.x && io.MousePos.x < vp_.z && io.MousePos.y >= vp_.y && io.MousePos.y < vp_.w;
+    ghost_ = in_vp ? ghost_for(cam, "@my-part", io.MousePos, 0) : Ghost{};
+    was_my_drag_ = true;
+    if (ghost_.valid) {
+      ImVec2 s;
+      if (cam.project(ghost_.pos, s)) {
+        dl->AddCircle(s, 9.f, theme::u32(theme::kAccent), 20, 2.f);
+        dl->AddLine({s.x - 14, s.y}, {s.x + 14, s.y}, theme::u32(theme::kAccent, 0.7f));
+        dl->AddLine({s.x, s.y - 14}, {s.x, s.y + 14}, theme::u32(theme::kAccent, 0.7f));
+      }
+    }
+    const auto mp = lib_.mine.find(path);
+    const std::string name = mp != lib_.mine.end() ? mp->second.name : path;
+    ImDrawList* fg = ImGui::GetForegroundDrawList();
+    const ImVec2 sz = ImGui::CalcTextSize(name.c_str()), m = io.MousePos;
+    fg->AddRectFilled({m.x + 12, m.y + 10}, {m.x + 28 + sz.x, m.y + 14 + sz.y + 6}, theme::u32({0, 0, 0, 0.82f}), 3);
+    fg->AddRect({m.x + 12, m.y + 10}, {m.x + 28 + sz.x, m.y + 14 + sz.y + 6}, theme::u32(theme::kAccent, 0.8f), 3);
+    fg->AddText({m.x + 20, m.y + 14}, theme::u32(theme::kText), name.c_str());
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && ghost_.valid) insert_my_part(path, ghost_.pos);
+  }
+
   ImVec2 anim_target_px(const b3::Cam& cam, const Targets& t) const {
     ImVec2 s{(vp_.x + vp_.z) / 2, (vp_.y + vp_.w) / 2};
     if (!anim_.to.empty()) {
@@ -3135,6 +3529,7 @@ class Viewer {
     } else if (c.action == "uicam") camera_preset(c.args[0]);
     else if (c.action == "uiframe") frame_selection();
     else if (c.action == "uikeys") keys_open_ = c.args.empty() ? !keys_open_ : c.args[0] != "off";
+    else if (c.action == "crumb") close_docs(static_cast<int>(to_double(c.args[0], "crumb depth")));  // a click on that crumb (0 = base design)
   }
 
   void rebuild_scene() {
@@ -3244,7 +3639,29 @@ class Viewer {
   bool esc_used_ = false;           // this frame's Esc closed it (the shortcuts leave it alone)
   struct Rep {                      // rectangles (x0 y0 x1 y1, window px) of the top bar pieces as drawn this frame; see report_ui
     ImVec4 icon{0, 0, 0, 0}, tabs{0, 0, 0, 0}, zoom{0, 0, 0, 0}, pop{0, 0, 0, 0};
+    struct CrumbRect {
+      std::string label;
+      ImVec4 r;
+    };
+    std::vector<CrumbRect> crumbs;
+    std::string cost, from;         // the status bar's cost segment; the inspector's "from <file>" line of the selected sub-assembly item
+    std::vector<std::string> panel;  // the per-sub-assembly mass / cost rows of the inspector
   } rep_;
+  // sub-assembly workspace (documents, exports, MY PARTS)
+  struct CloseAsk {                 // returning up from a dirty document: save / discard / cancel
+    bool open = false, want_popup = false;
+    int to = 0;
+    char path[200] = "";
+  } close_ask_;
+  struct ExportAsk {                // "Export as...": kind (port | connector | param), ref ("inst.name"), the export's name
+    bool want_popup = false;
+    int kind = 0;
+    char ref[96] = "", name[48] = "";
+  } export_ask_;
+  int part_seq_ = 0;
+  bool close_failed_ = false, was_my_drag_ = false;
+  std::size_t last_docs_ = 1;       // the document depth last seen (a change clears the selection and reframes)
+  std::string sel_sub_;            // the sub-assembly node clicked in the browser tree (Mirror / Open part act on it)
   std::string rep_sent_, status_msg_;  // the last ui.report sent; the message the status bar showed
   std::size_t chip_errors_ = 0, chip_warns_ = 0;  // the DRC chip's counts (status bar)
   std::size_t edit_errors_ = 0, edit_warns_ = 0;  // the DRC counts after the last edit (what edit_summary_ describes)

@@ -503,6 +503,27 @@ b = "fl:hip_mount"         # references go through exports; "fl:hip_motor.x" is 
   every open parent re-reads its files); `sub.reload {}`. `state` gains `subs`, `exports`, `origins` and `docs: [{doc_id, path, crumb,
   title, dirty}]`. Each open document has its own undo stack. `Design.reload_children()` re-reads child files edited elsewhere.
 
+#### Sub-assemblies in the viewer **[window parts not run here until the GPU lane passed: see the test names]**
+
+- **Controls.** The key list lives in a popover of the top bar (the keyboard icon, or F1), one list per page; `uikeys on|off` is the script
+  action, `ui.keys` the backend op.
+- **Breadcrumb.** The title of the top bar is the stack of open documents (`dog > fl (leg.toml)`); a click on an earlier crumb returns
+  to it (script: `crumb DEPTH`). A crumb ending in ` *` has unsaved edits: going back asks SAVE AND GO BACK / DISCARD / CANCEL, and
+  nothing is dropped before you answer.
+- **New part / Export as.** BUILD > DOCUMENT > New part opens an empty child (`sub.new`). With a child open, the inspector of a port
+  or connector offers "Export as..." (`sub.export`), and the browser tree has an Exports node whose `x` removes one (`sub.unexport`).
+- **MY PARTS** (LIBRARY page): the `*.toml` assemblies beside the open design (`library.my_parts`; `library.search` with category
+  `@my`). Drag a card into the 3D view (or ADD) to insert it (`sub.insert`); select an instance and use Mirror (`sub.mirror`).
+- **Tree.** Each sub-assembly is one node (children greyed, read-only here, a `mirrored` badge, mass and cost in the tooltip,
+  double-click opens it). A missing file shows the node red with `[file missing]`; the rest of the design keeps working.
+  The inspector of a flattened item says "from leg.toml" with OPEN PART.
+- **WIRING.** A sub-assembly is one block on the sheet showing only its exported connectors; wires reach it as `<sub>:<export>`.
+  A wire cannot be dragged onto a block (`flatten.wire` refuses and names the file route).
+- **Cost.** With nothing selected the inspector lists mass and cost per sub-assembly; the status bar shows `COST $x.xx` from
+  `report.bom` (`+` marks a lower bound when some part has no price).
+- **Testing hooks.** `ui.report` (the window's own account of what it shows: crumbs, tree, hits, cost, panel, confirm) and the
+  script actions `uikeys`, `crumb`, `uisel` are what `tests/python/test_viewer_subasm.py` and `test_viewer_controls.py` read.
+
 ---
 
 ## 4. Check it

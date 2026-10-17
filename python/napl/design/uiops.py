@@ -70,6 +70,7 @@ UI_TOOLS = {
     "library.search",
     "library.categories",
     "library.ranges",
+    "library.my_parts",
     "library.info",
     "library.targets",
     "library.preview",
@@ -399,14 +400,20 @@ class UiOps:
                 filters=a.get("filters") or {},
                 category=a.get("category", ""),
             )
-            r = uilib.search(
-                self._lib(),
-                text,
-                a.get("filters"),
-                a.get("category", ""),
-                a.get("limit", 60),
-                a.get("offset", 0),
-            )
+            if (
+                a.get("category") == "@my"
+            ):  # the MY PARTS category: the workspace's sub-assembly files
+                r = self._ui_tool("library.my_parts", {})["result"]
+                r["total"] = len(r["parts"])
+            else:
+                r = uilib.search(
+                    self._lib(),
+                    text,
+                    a.get("filters"),
+                    a.get("category", ""),
+                    a.get("limit", 60),
+                    a.get("offset", 0),
+                )
             self._event(
                 cmd="search",
                 text=text,
@@ -423,6 +430,22 @@ class UiOps:
             )
         if tool == "library.info":
             return self._ok(uilib.info(self._lib(), a["part"]))
+        if (
+            tool == "library.my_parts"
+        ):  # MY PARTS: workspace assemblies with an [exports] table (uilib.my_parts)
+            d0 = self.get_design()
+            root = (
+                Path(a["root"])
+                if a.get("root")
+                else (
+                    Path(d0.path).resolve().parent
+                    if d0 is not None and d0.path
+                    else REPO
+                )
+            )
+            return self._ok(
+                {"parts": uilib.my_parts(root, self._lib() if a.get("mass") else None)}
+            )
         if tool == "ui.frame":
             self._event(cmd="frame", instances=a.get("instances") or [])
             return self._ok()
