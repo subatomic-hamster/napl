@@ -28,10 +28,18 @@ class PointLeg:  # foot = q (trunk frame), J = I: lets the KF be checked on exac
     def fk_jac(self, q):
         return np.array(q, float), np.eye(3)
 
+    def _chain(self, q):
+        return np.eye(3), np.zeros(3), list(np.eye(3)), [np.zeros(3)] * 3
+
 
 class FakeModel:
     imu_R = np.eye(3)
     legs = {l: PointLeg() for l in ("fl", "fr", "rl", "rr")}
+
+    def leg_required(
+        self, i, q3, qdd3, f_s
+    ):  # massless legs: nothing but the ground force loads the joints
+        return np.zeros(3)
 
 
 FEET = np.array(

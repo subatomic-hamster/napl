@@ -109,3 +109,19 @@ def _add_payload(root, kg, dx, dy):
 
 def info(model):
     return json.loads((Path(model).parent / "course.json").read_text())
+
+
+def field_of(inf):
+    """The napl.terrain Field of a scene's course (None on the flat floor); Task 8 adds the terrain courses."""
+    return
+
+
+def build_for(scen):
+    """-> build(out) of a walk scenario's [model] script: that scenario's scene at its parameter defaults."""
+    from napl import params as nparams
+
+    def build(out):
+        p = nparams.resolve(scen)
+        return str(scene(out, p["course"], p["seed"]))
+
+    return build

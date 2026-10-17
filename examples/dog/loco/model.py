@@ -69,11 +69,21 @@ class Leg:
         R, t, _, _ = self._chain(q, 2)
         return R @ self.p[2] + t
 
-    def ik(self, x_des, q0, iters=6):
+    def reach(self, x_des, frac=0.97):
+        """x_des pulled toward the hip-pitch axis point until it is within `frac` of the straight leg (an unreachable swing target would make the
+        IK flail the abduction joint)."""
+        h = self.p[1]
+        d = x_des - h
+        lmax = frac * np.linalg.norm(self.foot0 - h)
+        n = np.linalg.norm(d)
+        return x_des if n <= lmax else h + d * lmax / n
+
+    def ik(self, x_des, q0, iters=6, lam=1e-6, step=None):
         q = np.array(q0, float)
         for _ in range(iters):
             x, J = self.fk_jac(q)
-            q += np.linalg.solve(J.T @ J + 1e-6 * np.eye(3), J.T @ (x_des - x))
+            dq = np.linalg.solve(J.T @ J + lam * np.eye(3), J.T @ (x_des - x))
+            q += dq if step is None else np.clip(dq, -step, step)
         return np.clip(q, self.q_lo, self.q_hi)
 
 
@@ -114,6 +124,27 @@ class Model:
                 L.ik(L.foot0 + np.array([0.0, 0.0, (1 - frac) * d]), seed, iters=20)
             )
         return np.concatenate(out)
+
+    def leg_required(self, i, q3, qdd3, f_s):
+        """Joint torque the leg i would need to carry its own motion with NO ground force: M(q) qdd + sum_k m_k Jv_k^T f_s (the second term is the
+        links' weight plus the trunk's acceleration, f_s = the IMU's specific force in the trunk frame). Coriolis terms are left out (the
+        estimator vetoes contact for feet that are high above the ground, where the leg moves fast). Body rotation rates are not in it."""
+        L = self.legs[LEGS[i]]
+        M = np.diag(self.armature[3 * i : 3 * i + 3]).astype(float)
+        g = np.zeros(3)
+        for lk in self.links:
+            if lk.leg != i:
+                continue
+            R, t, ws, ps = L._chain(q3, lk.upto)
+            com = R @ lk.com + t
+            Jv, Jw = np.zeros((3, 3)), np.zeros((3, 3))
+            for j in range(lk.upto):
+                Jv[:, j] = np.cross(ws[j], com - ps[j])
+                Jw[:, j] = ws[j]
+            Iw = R @ lk.inertia @ R.T
+            M += lk.mass * Jv.T @ Jv + Jw.T @ Iw @ Jw
+            g += lk.mass * Jv.T @ f_s
+        return M @ qdd3 + g
 
     def props(self, q):
         """(mass, com (3,), inertia (3,3) about com) of the whole dog at joint angles q, trunk frame, from the links."""

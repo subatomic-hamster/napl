@@ -2,6 +2,7 @@
 imported by examples/dog/loco (Review Focus 2)."""
 
 import math
+from collections import deque
 
 import numpy as np
 
@@ -55,3 +56,28 @@ class Truth:
     def fallen(self):
         low = self.clear0 is not None and self.clearance() < CLEAR_FRAC * self.clear0
         return self.tilt_deg() > TILT_FALL_DEG or low
+
+
+class PoseFix:
+    """SP5 stand-in (RTK fix + lidar yaw class; SP5's own numbers replace these): every `every` control ticks (10 Hz) the truth pose of
+    `age_s` ago plus noise (sig_p m per axis, sig_yaw_deg), returned with its age. due() is called every tick and records the pose."""
+
+    def __init__(
+        self, truth, seed, every=20, sig_p=0.02, sig_yaw_deg=1.0, age_s=0.05, dt=0.002
+    ):
+        self.tr, self.every, self.sig_p, self.age_s = truth, every, sig_p, age_s
+        self.sig_yaw = math.radians(sig_yaw_deg)
+        self.rng = np.random.default_rng([int(seed), 5151])
+        self.hist = deque(maxlen=int(round(age_s / dt)))
+
+    def due(self, k):
+        self.hist.append((self.tr.pos()[:2].copy(), self.tr.yaw()))
+        return k % self.every == 0 and len(self.hist) == self.hist.maxlen
+
+    def sample(self):
+        xy, yaw = self.hist[0]
+        return (
+            xy + self.rng.normal(0.0, self.sig_p, 2),
+            yaw + self.rng.normal(0.0, self.sig_yaw),
+            self.age_s,
+        )

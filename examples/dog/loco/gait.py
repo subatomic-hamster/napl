@@ -9,7 +9,8 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 G = 9.81
-K_CAP = 1.0  # x sqrt(h/g): capture-point feedback gain
+K_CAP = 0.15  # x sqrt(h/g): capture-point feedback gain (1.0 moved the touchdown target 5-20 cm within one swing on the velocity noise and the trot fell; MIT's 0.03 s is 0.14 here)
+TD_TICKS = 3  # control ticks (6 ms) of continuous contact that make an early touchdown
 D_MAX = 0.18  # m: farthest touchdown from the hip (leg workspace at the stand height, ~0.4 of the leg length)
 
 
@@ -30,7 +31,9 @@ GAITS = {
     "walk": Gait(
         "walk", 0.6, 0.75, (0.0, 0.5, 0.75, 0.25), 0.10, 0.5
     ),  # three feet down most of the time: steps, ledges
-    "trot": Gait("trot", 0.32, 0.5, (0.0, 0.5, 0.5, 0.0), 0.08, 2.2),
+    "trot": Gait(
+        "trot", 0.32, 0.5, (0.0, 0.5, 0.5, 0.0), 0.05, 2.2
+    ),  # apex: the knee stop limits the lift under the hip to ~7 cm
     "flying_trot": Gait(
         "flying_trot", 0.28, 0.38, (0.0, 0.5, 0.5, 0.0), 0.08, 3.2
     ),  # flight phases: shorter, harder stance per step
@@ -64,7 +67,7 @@ class Scheduler:
     def __init__(self, gait="stand"):
         self.gaits = dict(GAITS)
         self.g, self.next, self.phase = self.gaits[gait], None, 0.0
-        self.early, self._legs = [False] * 4, []
+        self.early, self._legs, self.run = [False] * 4, [], [0] * 4
 
     def set_params(self, name, **kw):
         self.gaits[name] = replace(self.gaits[name], **kw)
@@ -87,10 +90,11 @@ class Scheduler:
             ph = (p + g.offsets[i]) % 1.0
             sched = ph < g.duty
             s = 0.0 if sched else (ph - g.duty) / (1.0 - g.duty)
+            self.run[i] = self.run[i] + 1 if contact[i] else 0
             if sched:
                 self.early[i] = False
-            elif s > 0.5 and contact[i]:
-                self.early[i] = True
+            else:  # early touchdown: contact held for TD_TICKS ticks in the second half of a swing (one noisy estimate must not stand a leg up)
+                self.early[i] = s > 0.5 and self.run[i] >= TD_TICKS
             t_sw = (1.0 - g.duty) * g.period
             legs.append(
                 LegPhase(
@@ -130,6 +134,7 @@ def _mj(a):
 def swing(p0, p1, apex, s, T):
     """Foot position / velocity at swing progress s over T s: xy min-jerk p0 -> p1; z min-jerk up to max(p0z, p1z) + apex at s = 0.5, then down."""
     p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
+    T = max(T, 1e-3)
     b, db = _mj(min(max(s, 0.0), 1.0))
     xy, vxy = p0[:2] + (p1[:2] - p0[:2]) * b, (p1[:2] - p0[:2]) * db / T
     top = max(p0[2], p1[2]) + apex

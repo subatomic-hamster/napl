@@ -16,6 +16,10 @@ G = 9.81
 # call a standing dog airborne; 20 / 10 N sits between the swing-leg inertial equivalent (< ~10 N) and the standing load, and below any
 # trot stance force (> 50 N).
 F_ON, F_OFF = 20.0, 10.0
+H_ON, H_OFF = (
+    0.025,
+    0.05,
+)  # m: a foot higher than this above the map cannot have touched down / has lifted off
 KP_ACC = 1.0  # rad/s per rad: Mahony k_P, ~1 s tilt correction
 SIG_A, SIG_FOOT_ST, SIG_FOOT_SW = (
     0.3,
@@ -61,18 +65,23 @@ class Estimator:
         self.R, self.x, self.P = np.eye(3), np.zeros(18), np.eye(18) * 1e-4
         self.contact = np.ones(4, bool)
         self.hist, self.k = np.zeros((HIST, 3)), 0  # (x, y, yaw) per tick
+        self.dq_prev, self.qdd_f = np.zeros(12), np.zeros(12)
 
-    def reset(self, q):
+    def reset(self, q, p_xy=(0.0, 0.0), yaw=0.0):
+        """Start on level feet at world (p_xy, yaw): the SP5 stand-in's first fix (the harness knows where the dog was put)."""
         r = np.array(
             [L.fk_jac(q[3 * i : 3 * i + 3])[0] for i, L in enumerate(self.legs)]
         )
         rf = self.legs[0].r_foot
+        self.R = rot(np.array([0.0, 0.0, 1.0]), yaw)
+        px, py = float(p_xy[0]), float(p_xy[1])
+        zs = self.map.height(px + (self.R @ r.T)[0], py + (self.R @ r.T)[1])
         z = (
-            float(np.nanmean(self.map.height(r[:, 0], r[:, 1]))) + rf - r[:, 2].mean()
+            float(np.nanmean(zs)) + rf - r[:, 2].mean()
         )  # feet (ball centres) on the map
         self.x[:] = 0.0
-        self.x[2] = z
-        self.x[6:] = (r + self.x[:3]).ravel()
+        self.x[0:3] = (px, py, z)
+        self.x[6:] = (self.x[:3] + r @ self.R.T).ravel()
         self.P = np.eye(18) * 1e-4
 
     def update(self, q, dq, tau, gyro, acc, gate=None):
@@ -97,16 +106,25 @@ class Estimator:
         # ---- contact from the drivers' torque
         r, J = zip(*(L.fk_jac(q[3 * i : 3 * i + 3]) for i, L in enumerate(self.legs)))
         # f_leg = -(J^T)^+ tau, damped: exact away from singularities, finite at the straight (build) pose where J loses rank
-        fg = np.array(
-            [
-                -R
-                @ np.linalg.solve(
-                    J[i] @ J[i].T + 1e-6 * np.eye(3), J[i] @ tau[3 * i : 3 * i + 3]
-                )
-                for i in range(4)
-            ]
-        )
+        # The leg's own inertia and weight are subtracted (a stance leg commanded J^T f would otherwise read back exactly f): the part of the
+        # joint torque that the leg's motion does not explain is the ground force. qdd = low-passed difference of the drivers' dq.
+        qdd = (dq - self.dq_prev) / dt if self.k else np.zeros(12)
+        self.qdd_f += 0.5 * (qdd - self.qdd_f)
+        self.dq_prev = np.array(dq, float)
+        fg = np.zeros((4, 3))
+        for i in range(4):
+            s = slice(3 * i, 3 * i + 3)
+            res = (
+                self.m.leg_required(i, q[s], self.qdd_f[s], a) - tau[s]
+            )  # = J^T F (F: ground force on the foot, trunk frame)
+            fg[i] = R @ np.linalg.solve(J[i] @ J[i].T + 1e-6 * np.eye(3), J[i] @ res)
         on = np.where(self.contact, fg[:, 2] > F_OFF, fg[:, 2] > F_ON)
+        # a foot cannot touch the ground while it is clearly above it: the swing PD torques of a fast leg look like a ground force
+        # (kinematic height of the ball bottom over the map under it; unknown map = no veto)
+        feet_w = self.x[0:3] + np.array([R @ r[i] for i in range(4)])
+        zg = np.asarray(self.map.height(feet_w[:, 0], feet_w[:, 1]), float)
+        h_foot = feet_w[:, 2] - self.legs[0].r_foot - zg
+        on &= ~(np.isfinite(h_foot) & (h_foot > np.where(self.contact, H_OFF, H_ON)))
         if gate is not None:
             on &= ~np.asarray(gate, bool)
         self.contact = on
@@ -124,7 +142,11 @@ class Estimator:
             H.append(h); y.append(R @ r[i] - (self.x[s] - self.x[0:3])); Rn += [SIG_KIN**2] * 3  # fmt: skip
             h = np.zeros((3, 18))
             h[:, 3:6] = np.eye(3)
-            H.append(h); y.append(-R @ (J[i] @ dq[3 * i : 3 * i + 3] + np.cross(w, r[i])) - self.x[3:6]); Rn += [SIG_VEL**2] * 3  # fmt: skip
+            # the ball is rigid with the shank and rolls without slipping: its centre moves at r_foot (omega x z), omega = trunk rate + joint rates
+            ws = self.legs[i]._chain(q[3 * i : 3 * i + 3])[2]
+            omega = R @ (w + sum(ws[j] * dq[3 * i + j] for j in range(3)))
+            roll_v = self.legs[0].r_foot * np.cross(omega, [0.0, 0.0, 1.0])
+            H.append(h); y.append(-R @ (J[i] @ dq[3 * i : 3 * i + 3] + np.cross(w, r[i])) + roll_v - self.x[3:6]); Rn += [SIG_VEL**2] * 3  # fmt: skip
             zf = (
                 float(self.map.height(self.x[s][0], self.x[s][1])) + self.legs[0].r_foot
             )

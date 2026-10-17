@@ -60,6 +60,17 @@ def test_early_touchdown_turns_the_leg_to_stance():
         legs = s.advance(DT, (False, True, True, False))
         if not legs[0].stance and legs[0].s > 0.6:
             break
+    for _ in range(
+        Gt.TD_TICKS - 1
+    ):  # a short blip of contact does not stand the leg up
+        legs = s.advance(DT, (True, True, True, False))
+        assert not legs[0].stance
+    s.advance(
+        DT, (False, True, True, False)
+    )  # ... and a lost contact restarts the count
+    for _ in range(Gt.TD_TICKS - 1):
+        legs = s.advance(DT, (True, True, True, False))
+    assert not legs[0].stance
     legs = s.advance(DT, (True, True, True, False))
     assert legs[0].stance and legs[0].early
     assert not s.gate()[0] and g.duty < 1.0

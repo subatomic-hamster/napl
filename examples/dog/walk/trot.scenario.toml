@@ -1,0 +1,80 @@
+# napl program examples/dog/walk/trot.scenario.toml --runs-dir <dir>
+# SP4: the dog stands up from its build pose (straight legs) and trots straight at 1 m/s on flat ground (convex MPC 50 Hz + leg control
+# 500 Hz on the 12 Qdds; lidar and depth camera removed). examples/dog/dogwalk.py OWNS the Sim, steps examples/dog/loco and writes trace.csv /
+# replay.naplog / native.json; the runner judges the monitors and replays for the state hash.
+name = "dog-trot"
+
+[model]
+script = "trot.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../dogwalk.py", "trot.scenario.toml"]
+
+[limits]
+wall_s = 900
+cpu_s = 900
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the pose-fix noise and (course != flat) the terrain: the same seed and parameters replay to the same state hash."
+
+[[parameters]]
+name = "course"
+type = "choice"
+choices = ["flat", "criterion", "slip", "rubble", "slopes", "scree", "ruins"]
+default = "flat"
+group = "course"
+label = "Course"
+
+[[parameters]]
+name = "v_cmd"
+type = "float"
+default = 1.0
+min = 0.0
+max = 4.5
+unit = "m/s"
+group = "run"
+label = "Commanded speed"
+
+[[parameters]]
+name = "duration"
+type = "float"
+default = 8.0
+min = 2.0
+max = 120.0
+unit = "s"
+group = "run"
+label = "Run length"
+
+[[monitors]]
+name = "tracks_the_commanded_speed"   # mean forward speed over the last 2 s within 10 % of the 1 m/s command
+column = "v_mean_2s"
+op = "final"
+lo = 0.9
+hi = 1.1
+
+[[monitors]]
+name = "never_falls"                  # ground truth: tilt > 60 deg or trunk clearance < 60 % of standing (dogtruth.py)
+column = "fallen"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "no_qdd_fault"
+column = "fault"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "estimator_velocity"           # |v_est - v_true| (xy) after 2 s; 0.3 m/s = 30 % of the command, a broken-estimator alarm
+column = "est_v_err"
+op = "always"
+hi = 0.3
