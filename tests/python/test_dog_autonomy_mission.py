@@ -101,6 +101,62 @@ def test_standing_in_a_wall_block_plans_around_the_wall_not_through_it():
     assert any(b[0] <= 4 and b[1] == 10 for b in blocks)  # it goes through the door
 
 
+def test_return_is_triggered_by_the_real_way_home_not_the_straight_line():
+    mapped = np.zeros((200, 200), bool)
+    d = math.dist((8.0, -8.0), (-8.0, -8.0))
+    t_straight = 100.0 - CFG["plan"]["detour"] * d / CFG["carrier"]["v_max"] - 5.0
+    t = t_straight - 10.0  # still sweeping by the straight-line rule
+
+    def phase(cost):
+        ex = mission.Executive(CFG, (-8.0, -8.0))
+        ex.update(1.0, (-8.0, -8.0, 0.0), cost, mapped, False)
+        for k in range(5):  # the way home is re-planned every 5th update
+            ex.update(t + 0.1 * k, (8.0, -8.0, 0.0), cost, mapped, False)
+        return ex.phase
+
+    free = np.ones((40, 40))
+    wall = free.copy()
+    wall[:, 20] = (
+        np.inf
+    )  # a wall between the robot and home, open only at the far (north) end
+    wall[39, 20] = 1.0
+    assert (
+        phase(free) == mission.Executive.SWEEP
+        and phase(wall) == mission.Executive.RETURN
+    )
+
+
+def test_unstick_backs_off_when_commanded_but_not_moving_then_goes_the_other_way():
+    r = mission.Robot.__new__(mission.Robot)
+    r.cfg, r._ref, r._back_until, r._dir = CFG, None, -1.0, 1.0
+    P, pose = CFG["plan"], (1.0, 2.0, 0.3)
+    assert r._unstick(0.0, pose, 1.0, 0.0) == (1.0, 0.0)  # reference taken
+    assert r._unstick(P["unstick_s"] - 0.1, pose, 1.0, 0.0) == (1.0, 0.0)
+    t = P["unstick_s"] + 0.1
+    assert r._unstick(t, pose, 1.0, 0.0) == (-0.4, 0.0)  # back off
+    assert r._unstick(t + 1.0, pose, 1.0, 0.0) == (-0.4, 0.0)  # still backing
+    t2 = t + P["unstick_back_s"] + 0.1
+    assert r._unstick(t2, pose, 1.0, 0.0) == (1.0, 0.0)  # done, new reference
+    assert r._unstick(t2 + P["unstick_s"] + 0.1, pose, 1.0, 0.0) == (
+        0.4,
+        0.0,
+    )  # next time forward
+    assert r._unstick(99.0, (1.0, 2.0, 0.6), 0.0, 1.0) == (
+        0.0,
+        1.0,
+    )  # turning in place is progress
+
+
+def test_pursuit_lookahead_can_be_shortened_near_walls():
+    lim = {"v_max": 1.5, "wz_max": 1.0}
+    path = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (1.0, 1.0), (1.0, 2.0)]
+    _, wz_short = planner.pursue((0.0, -0.1, 0.0), path, CFG, lim, 0.45)
+    _, wz_def = planner.pursue((0.0, -0.1, 0.0), path, CFG, lim)
+    assert (
+        wz_short > wz_def > 0.0
+    )  # a shorter lookahead steers harder back onto the path
+
+
 def test_return_trigger_and_abort():
     ex = mission.Executive(CFG, (-8.0, -8.0))
     cost, mapped = np.ones((40, 40)), np.zeros((200, 200), bool)

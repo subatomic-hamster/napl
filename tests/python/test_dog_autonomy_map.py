@@ -143,6 +143,17 @@ def test_edge_cells_are_scored_separately():
     )
 
 
+def test_edge_margin_widens_the_edge_band_by_whole_cells():
+    gt = np.zeros((200, 200))
+    gt[80:120, 80:120] = 1.0
+    base = metrics.edge_mask(gt, SMALL)
+    wide = metrics.edge_mask(gt, config.override(SMALL, **{"map.edge_margin": 0.30}))
+    assert (wide & base).sum() == base.sum() and wide.sum() > base.sum()
+    assert (
+        wide[80 - 6, 100] and not wide[80 - 7, 100]
+    )  # 0.30 m = 6 cells out from the wall (the 3x3 test covers the first)
+
+
 def test_rubble_pass_at_20k_rays_with_truth_pose_maps_within_3cm(tmp_path):
     cfg = config.override(CFG, **{"map.size": 20.0})
     f = field(

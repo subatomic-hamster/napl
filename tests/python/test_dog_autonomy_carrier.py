@@ -84,6 +84,29 @@ def test_bump_stops_at_a_wall(tmp_path):
     )
 
 
+def test_a_bump_while_turning_never_leaves_the_feet_in_the_wall(tmp_path):
+    # regression (ruins mission, 7441 bumps): a blocked step kept its new yaw, put a foot inside the wall, and every later step was blocked
+    f = field("ruins", size=20.0, patch=10.0, seed=2)
+    b = max(
+        (b for b in f.boxes if abs(b.rpy[2]) < 1e-9 and b.size[0] > 1.0),
+        key=lambda b: b.size[0],
+    )
+    start = (b.pos[0], b.pos[1] - b.size[1] - 0.45, math.pi / 2)
+    c, f, cfg = make(tmp_path, kind="ruins", start=start, seed=2)
+    c.command(1.0, 0.0, 1.0)
+    for _ in range(60):
+        c.advance(0.1)
+        assert not c._blocked(c.x, c.y, c.yaw)
+    assert c.bumps > 0
+    p0, moved = (c.x, c.y), 0.0
+    for vx in (-1.0, 1.0):  # it is never trapped: backing off or driving on frees it
+        c.command(vx, 0.0, 0.0)
+        for _ in range(20):
+            c.advance(0.1)
+            moved = max(moved, math.dist(p0, (c.x, c.y)))
+    assert moved > 0.2 and not c._blocked(c.x, c.y, c.yaw)
+
+
 def test_sky_blocked_in_an_enclosure_not_in_the_open(tmp_path):
     cfg = config.load()
     walls = "".join(

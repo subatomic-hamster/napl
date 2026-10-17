@@ -209,7 +209,16 @@ class Carrier:
         if self._blocked(x, y, yaw):
             self.bumps += 1
             self.v[:2] = 0.0
-            x, y = self.x, self.y
+            # a blocked step never leaves the body in contact (it used to keep the new yaw: feet inside a wall, every later step
+            # blocked, a permanent trap: ruins mission, 7441 bumps); slide: the move alone, else the turn alone, else stay
+            if self._blocked(x, y, self.yaw):
+                x, y = self.x, self.y
+                if self._blocked(x, y, yaw):
+                    yaw = self.yaw
+                    self.v[2] = 0.0
+            else:
+                yaw = self.yaw
+                self.v[2] = 0.0
         self.distance += math.hypot(x - self.x, y - self.y)
         self.x, self.y, self.yaw = x, y, yaw
         self.p, self.q = terrain_pose(self.f, self.cfg, x, y, yaw)
