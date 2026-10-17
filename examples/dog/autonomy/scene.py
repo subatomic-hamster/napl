@@ -34,13 +34,21 @@ def cfg_for(auto):
         "plan.t_budget": auto["t_budget"],
         "plan.pool": auto["pool"],
     }
-    for k in ("lane_m", "return_margin"):  # optional per-scenario overrides of [plan]
+    for k in (
+        "lane_m",
+        "return_margin",
+        "near_wall_speed",
+        "near_wall_lookahead",
+    ):  # optional per-scenario overrides of [plan]
         if k in auto:
             ov[f"plan.{k}"] = auto[k]
     if (
         "block" in auto
     ):  # optional per-scenario planning block (ruins: doors of 0.8-1.6 m read closed at 0.5 m)
         ov["trav.block"] = auto["block"]
+    for k, key in (("near_lethal", "trav"), ("edge_margin", "map")):
+        if k in auto:  # optional per-scenario scoring / planning margins
+            ov[f"{key}.{k}"] = auto[k]
     return config.override(config.load(), **ov)
 
 

@@ -49,7 +49,10 @@ def edge_mask(gt, cfg):
         for a in (-1, 0, 1)
         for b in (-1, 0, 1)
     ]
-    return np.max(sh, axis=0) - np.min(sh, axis=0) > cfg["map"]["edge_range"]
+    m = np.max(sh, axis=0) - np.min(sh, axis=0) > cfg["map"]["edge_range"]
+    for _ in range(int(round(cfg["map"]["edge_margin"] / cfg["map"]["res"])) - 1):
+        m = traverse.dilate(m)  # margin beyond the 1 cell the 3x3 test already covers
+    return m
 
 
 def targets(gt, cfg, start_xy):

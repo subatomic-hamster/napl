@@ -18,6 +18,7 @@ class Executive:
         self.wps = planner.lanes(cfg, self.P["lane_m"], self.home)
         self.wi, self.phase, self.goal, self.goal_block = 0, self.INIT, None, None
         self.tried, self.best = set(), (math.inf, 0.0)
+        self._n, self._home_len = 0, 0.0
         self.unreachable = (
             False  # the last A* found no path to the goal: skip it on the next update
         )
@@ -37,12 +38,22 @@ class Executive:
             self.phase = self.SWEEP
         xy = (pose[0], pose[1])
         v = self.cfg["carrier"]["v_max"]
+        d_home = P["detour"] * math.dist(xy, self.home)
+        if self.phase != self.RETURN and t >= P["t_budget"] - P["home_check_s"]:
+            # near the end the straight-line estimate is too short in a maze (ruins: the way home was 3x the straight line, the
+            # robot was still out at the budget): plan the way home every 5th update and head back when the real path needs it
+            self._n += 1
+            me = planner.block_of(xy[0], xy[1], self.cfg)
+            if self._n % 5 == 1 and math.isfinite(cost[me]):
+                p = planner.astar(cost, me, planner.block_of(*self.home, self.cfg))
+                if p:
+                    self._home_len = self.T["block"] * sum(
+                        math.dist(a, b) for a, b in zip(p, p[1:])
+                    )
+            d_home = max(d_home, self._home_len)
         if (
             self.phase != self.RETURN
-            and t
-            >= P["t_budget"]
-            - P["detour"] * math.dist(xy, self.home) / v
-            - P["return_margin"]
+            and t >= P["t_budget"] - d_home / v - P["return_margin"]
         ):
             self.phase = self.RETURN
             self._set(self.home, t)
@@ -128,12 +139,45 @@ class Robot:
         }
         self.plan_every = int(round(L["rate_hz"] / P["rate_hz"]))
         self.k, self.path = 0, []
+        self._ref, self._back_until, self._dir = None, -1.0, 1.0
         self.ms = dict.fromkeys(("points", "icp", "fuse", "trav", "plan"), 0.0)
 
     def _tick(self, key, t0):
         t1 = time.perf_counter()
         self.ms[key] += 1e3 * (t1 - t0)
         return t1
+
+    def _near_wall(self, pose):
+        r = int(math.ceil(self.cfg["plan"]["near_wall_m"] / self.cfg["trav"]["block"]))
+        i, j = planner.block_of(pose[0], pose[1], self.cfg)
+        return bool(
+            np.isinf(
+                self.trav.cost[max(i - r, 0) : i + r + 1, max(j - r, 0) : j + r + 1]
+            ).any()
+        )
+
+    def _unstick(self, t, pose, vx, wz):
+        """Commanded to move but the estimated pose is unchanged for unstick_s: back off, alternating back / forward."""
+        P = self.cfg["plan"]
+        if t < self._back_until:
+            return self._dir * 0.4, 0.0
+        ref = self._ref
+        if (
+            (vx == 0.0 and wz == 0.0)
+            or ref is None
+            or math.dist(pose[:2], ref[1:3]) > 0.05
+            or abs(planner.wrap(pose[2] - ref[3])) > 0.05
+        ):
+            self._ref = (t, *pose)
+            return vx, wz
+        if t - ref[0] > P["unstick_s"]:
+            self._back_until, self._dir, self._ref = (
+                t + P["unstick_back_s"],
+                -self._dir,
+                None,
+            )
+            return self._dir * 0.4, 0.0
+        return vx, wz
 
     def frame(self, t):
         cfg, t0 = self.cfg, time.perf_counter()
@@ -170,8 +214,18 @@ class Robot:
                 od.fallen,
                 self.trav.L["known"] < cfg["trav"]["min_known"],
             )
-        lim = self.loco.limits()
-        vx, wz = planner.pursue(pose, self.path, cfg, lim) if self.path else (0.0, 0.0)
+        lim, P = self.loco.limits(), cfg["plan"]
+        near = self._near_wall(pose)
+        if near:  # slower and a shorter lookahead next to walls: tracks a 0.8-1.6 m door within a few cm
+            lim = {**lim, "v_max": min(lim["v_max"], P["near_wall_speed"])}
+        vx, wz = (
+            planner.pursue(
+                pose, self.path, cfg, lim, P["near_wall_lookahead"] if near else None
+            )
+            if self.path
+            else (0.0, 0.0)
+        )
+        vx, wz = self._unstick(od.t, pose, vx, wz)
         self.loco.command(vx, 0.0, wz)
         P = self.loc.P  # SP5 -> SP4 pose fix, 10 Hz, with the localizer's own 1-sigma (SP4 Controller.fix sig_p / sig_yaw)
         self.loco.fix(

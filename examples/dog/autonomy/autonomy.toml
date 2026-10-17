@@ -59,6 +59,7 @@ gate = { value = 3.0, unit = "1", fidelity = "literature", rationale = "Mahalano
 var_floor = { value = 1e-6, unit = "m^2", fidelity = "design", rationale = "Lower bound of a cell's variance (1 mm), keeps the Kalman gain finite." }
 var_mapped = { value = 0.0025, unit = "m^2", fidelity = "design", rationale = "A cell counts as mapped below (5 cm)^2 variance (spec: observed with variance below threshold)." }
 edge_range = { value = 0.10, unit = "m", fidelity = "design", rationale = "Scoring: a cell whose 3x3 ground-truth range exceeds 10 cm is an edge (wall / boulder side), where a 5 cm cell has no single height; edges are scored separately." }
+edge_margin = { value = 0.05, unit = "m", fidelity = "design", rationale = "Scoring: cells within this distance of a vertical discontinuity count as edges (0.05 = the 3x3 range test alone). Ruins scenarios raise it to 0.30 m, the localization tolerance: a wall face smeared by a pose error of a few cm to 30 cm reads as wall height on the floor beside it (ruins seed 1, floor rms 1.09 m within 2 cells of a wall, 0.2 m at 4-6 cells, 0.034 m beyond 8 cells)." }
 
 [trav]
 block = { value = 0.5, unit = "m", fidelity = "design", rationale = "Planning block = about one body length; 200 x 200 blocks keep Python A* within budget (decision 2)." }
@@ -83,6 +84,12 @@ return_margin = { value = 60.0, unit = "s", fidelity = "design", rationale = "He
 detour = { value = 1.4, unit = "1", fidelity = "design", rationale = "Path length home / straight-line distance assumed by the return trigger (ruins doors, boulders)." }
 init_s = { value = 1.0, unit = "s", fidelity = "design", rationale = "Stand still for the first second: the map around the start fills before the first plan." }
 pool = { value = 2, unit = "1", fidelity = "design", rationale = "Coverage scoring cell = pool x map cell at 5k rays (Task 10); 1 at 20k." }
+home_check_s = { value = 600.0, unit = "s", fidelity = "design", rationale = "In the last 10 min the executive plans the actual way home (A* every 5th update) and returns when that path needs the remaining time; before that the straight line x detour is enough." }
+near_wall_m = { value = 0.6, unit = "m", fidelity = "estimated", rationale = "A lethal block within this distance of the robot slows it down and shortens the pursuit lookahead (door jambs, wall corners)." }
+near_wall_speed = { value = 1.5, unit = "m/s", fidelity = "design", rationale = "Speed cap near lethal blocks. 1.5 = v_max = no cap (rubble); ruins scenarios lower it." }
+near_wall_lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pursuit lookahead near lethal blocks. 1.0 = the open-ground lookahead (rubble); ruins scenarios shorten it so the path through a 0.8-1.6 m door is tracked within a few cm." }
+unstick_s = { value = 4.0, unit = "s", fidelity = "estimated", rationale = "Commanded to move but the estimated pose has not changed (< 5 cm, < 0.05 rad) for this long: back off for unstick_back_s (a blocked foot against a wall)." }
+unstick_back_s = { value = 1.5, unit = "s", fidelity = "estimated", rationale = "Duration of the back-off at 0.4 m/s (alternating back / forward)." }
 
 [icp]
 voxel = { value = 0.2, unit = "m", fidelity = "literature", rationale = "Submap voxel for normals (KISS-ICP / LOAM-class choice for a 40 m lidar)." }

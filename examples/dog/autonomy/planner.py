@@ -144,17 +144,18 @@ def view_goal(path, cfg):
     return path[0]
 
 
-def pursue(pose, path_xy, cfg, lim):
+def pursue(pose, path_xy, cfg, lim, lookahead=None):
     P = cfg["plan"]
+    L = P["lookahead"] if lookahead is None else lookahead
     x, y, yaw = pose
     pts = np.asarray(path_xy, float)
     d = np.hypot(pts[:, 0] - x, pts[:, 1] - y)
     k0 = int(np.argmin(d))
-    far = np.flatnonzero(d[k0:] >= P["lookahead"])
+    far = np.flatnonzero(d[k0:] >= L)
     tx, ty = pts[k0 + far[0]] if len(far) else pts[-1]
     a = wrap(math.atan2(ty - y, tx - x) - yaw)
     if abs(a) > P["turn_in_place"]:
         return 0.0, math.copysign(lim["wz_max"], a)
     v = lim["v_max"] * math.cos(a)
-    wz = 2.0 * v * math.sin(a) / P["lookahead"]
+    wz = 2.0 * v * math.sin(a) / L
     return v, max(-lim["wz_max"], min(lim["wz_max"], wz))
