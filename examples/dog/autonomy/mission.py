@@ -25,7 +25,7 @@ class Executive:
     def _set(self, goal, t, block=None):
         self.goal, self.goal_block, self.best = goal, block, (math.inf, t)
 
-    def update(self, t, pose, cost, mapped, fallen):
+    def update(self, t, pose, cost, mapped, fallen, unknown=None):
         P = self.P
         if fallen:
             self.phase = self.ABORT
@@ -64,13 +64,28 @@ class Executive:
                 self.goal = None
         me = planner.block_of(xy[0], xy[1], self.cfg)
         c = cost.copy()
-        c[me] = min(
-            c[me], self.T["unknown_cost"] + self.T["near_lethal"]
-        )  # never plan from a blocked start
+        if unknown is not None and self.phase == self.SWEEP:
+            # a sweep lane is a straight line: unknown ground costs the same as known, else A* walks back over the mapped strip
+            c[unknown & np.isfinite(c)] = 1.0
+        start = me
+        if not math.isfinite(c[me]):
+            # standing in a lethal block (a wall face seen from 0.3 m): plan from the nearest free block, never through the wall
+            # (patching the start block finite lets A* tunnel into the unseen far half of the wall: ruins mission, bumps 12552)
+            nb = c.shape[0]
+            near = [
+                (math.dist(xy, planner.centre((i, j), self.cfg)), (i, j))
+                for i in range(max(me[0] - 2, 0), min(me[0] + 3, nb))
+                for j in range(max(me[1] - 2, 0), min(me[1] + 3, nb))
+                if math.isfinite(c[i, j])
+            ]
+            if near:
+                start = min(near)[1]
+            else:
+                c[me] = self.T["unknown_cost"] + self.T["near_lethal"]
         if self.phase == self.FILL and (self.goal is None or reached or skip):
             if self.goal_block is not None:
                 self.tried.add(self.goal_block)
-            dist, parent = planner.dijkstra(c, me)
+            dist, parent = planner.dijkstra(c, start)
             ij = planner.choose(
                 dist,
                 planner.gain(mapped, self.cfg, int(P["pool"])),
@@ -82,13 +97,13 @@ class Executive:
                 self._set(self.home, t)
             else:
                 vb = planner.view_goal(
-                    planner.path_to(parent, me, ij, c.shape[1]), self.cfg
+                    planner.path_to(parent, start, ij, c.shape[1]), self.cfg
                 )
                 self._set(planner.centre(vb, self.cfg), t, ij)
         if self.phase == self.RETURN and math.dist(xy, self.home) < P["goal_tol"]:
             self.phase = self.DONE
             return []
-        path = planner.astar(c, me, planner.block_of(*self.goal, self.cfg))
+        path = planner.astar(c, start, planner.block_of(*self.goal, self.cfg))
         if path is None:
             self.unreachable = True  # skipped on the next update (plan bug fixed: best=(inf, -inf) was reset by the progress test)
             return []
@@ -153,6 +168,7 @@ class Robot:
                 self.trav.cost,
                 self.map.mapped(int(cfg["plan"]["pool"])),
                 od.fallen,
+                self.trav.L["known"] < cfg["trav"]["min_known"],
             )
         lim = self.loco.limits()
         vx, wz = planner.pursue(pose, self.path, cfg, lim) if self.path else (0.0, 0.0)

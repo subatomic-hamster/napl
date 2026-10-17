@@ -117,4 +117,7 @@ class ScanMatcher:
             U[:, good] @ np.diag(sig2 / lam[good]) @ U[:, good].T
             + U[:, ~good] @ np.diag(np.full((~good).sum(), BIG)) @ U[:, ~good].T
         )
+        cov = cov + np.diag(
+            [self.I["floor_xyz"] ** 2] * 3 + [self.I["floor_yaw"] ** 2]
+        )  # formal sigma is far too tight on rubble
         return Match(x, cov, int(hit.sum()), np.diag(cov) > 1.0)

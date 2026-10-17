@@ -37,6 +37,10 @@ def cfg_for(auto):
     for k in ("lane_m", "return_margin"):  # optional per-scenario overrides of [plan]
         if k in auto:
             ov[f"plan.{k}"] = auto[k]
+    if (
+        "block" in auto
+    ):  # optional per-scenario planning block (ruins: doors of 0.8-1.6 m read closed at 0.5 m)
+        ov["trav.block"] = auto["block"]
     return config.override(config.load(), **ov)
 
 

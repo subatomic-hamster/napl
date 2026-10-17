@@ -88,6 +88,32 @@ def test_gate_rejects_a_2m_jump():
     np.testing.assert_array_equal(loc.x, x)
 
 
+def test_persistent_rejection_resets_the_position_from_the_fix():
+    run = straight()
+    loc = localize.Localizer(CFG, np.r_[run[0][1], 0.7], LEVER)
+    for _, _, _, od in run:
+        loc.predict(od)
+    z = antenna(run[9][1], run[9][2]) + np.array(
+        [2.0, 0.0, 0.0]
+    )  # the estimate is 2 m off, every fix says so
+    n = int(CFG["loc"]["rtk_reset_n"])
+    assert [loc.update_rtk(0.9, z) for _ in range(n)] == [False] * (n - 1) + [True]
+    assert np.linalg.norm(loc.x[:2] - (run[10][1][:2] + np.array([2.0, 0.0]))) < 0.05
+    assert loc.update_rtk(0.9, z)  # consistent again
+
+
+def test_icp_covariance_has_a_floor():
+    rng = np.random.default_rng(0)
+    truth = np.array([0.3, -0.2, 0.45, 0.2])
+    sm = icp.ScanMatcher(CFG)
+    sm.add(room(150000, rng), truth)
+    w = room(8000, rng)
+    m = sm.match((w - truth[:3]) @ localize.rz(truth[3]), truth)
+    assert (np.diag(m.cov)[:3] >= CFG["icp"]["floor_xyz"] ** 2).all() and m.cov[
+        3, 3
+    ] >= CFG["icp"]["floor_yaw"] ** 2
+
+
 class FakeGnss:
     def __init__(self):
         self.tick, self.vals = 0, {}

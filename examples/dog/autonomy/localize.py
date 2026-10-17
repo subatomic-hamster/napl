@@ -89,6 +89,7 @@ class Localizer:
         self.lever = np.asarray(lever, dtype=np.float64)
         self.key_dt = 1.0 / cfg["lidar"]["rate_hz"]
         self.hist, self.last, self.t_fix = {}, None, -math.inf
+        self.rejected = 0  # consecutive rejected RTK fixes
 
     def predict(self, od):
         yaw_o = lidar.yaw_of(od.quat)
@@ -151,7 +152,17 @@ class Localizer:
             lev
         )  # H[0,3] = dp_y - lev_y, H[1,3] = -dp_x + lev_x
         R = np.diag([self.G["horiz_std"] ** 2] * 2 + [self.G["vert_std"] ** 2])
-        ok = self.update(np.asarray(z, float), h, H, R, self.Lc["chi2"])
+        z = np.asarray(z, float)
+        ok = self.update(z, h, H, R, self.Lc["chi2"])
+        self.rejected = 0 if ok else self.rejected + 1
+        if (
+            self.rejected >= self.Lc["rtk_reset_n"]
+        ):  # lost in ICP / odometry: take the position from the fix (recovery)
+            self.x[:3] += z - h
+            self.P[:3, :] = 0.0
+            self.P[:, :3] = 0.0
+            self.P[:3, :3] = R + np.eye(3) * self.Lc["init_sigma"] ** 2
+            self.rejected, ok = 0, True
         if ok:
             self.t_fix = max(self.t_fix, t_meas)
         return ok

@@ -71,7 +71,7 @@ near_lethal = { value = 2.0, unit = "1", fidelity = "design", rationale = "Extra
 
 [plan]
 rate_hz = { value = 1.0, unit = "Hz", fidelity = "design", rationale = "Spec: global planning 1-2 Hz." }
-lane_m = { value = 8.0, unit = "m", fidelity = "design", rationale = "Initial lane spacing; Task 10 replaces it with the measured swath." }
+lane_m = { value = 8.0, unit = "m", fidelity = "measured", rationale = "100 x 100 m rubble, 5k rays, seed 1, coverage at the 20 min return: lane 6 m 78.9 %, 7 m 87.1 %, 8 m 95.5 % (the single-pass 95 % swath of +-2-2.5 m gives 1.8-3.6 m lanes, which cannot finish in 20 min; wider lanes plus gap filling win; docs/dog/autonomy.md Swath)." }
 lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pure-pursuit lookahead (two body lengths)." }
 turn_in_place = { value = 1.0471975511965976, unit = "rad", fidelity = "design", rationale = "Above 60 deg heading error the dog turns on the spot." }
 view_back = { value = 2.5, unit = "m", fidelity = "design", rationale = "A gap is viewed from 2.5 m before it along the path (the lidar sees the ground from 0.72 m to ~8 m)." }
@@ -94,6 +94,8 @@ keep = { value = 12, unit = "1", fidelity = "design", rationale = "Keyframes in 
 huber = { value = 0.1, unit = "m", fidelity = "design", rationale = "Huber threshold of the point-to-plane residual." }
 iters = { value = 8, unit = "1", fidelity = "design", rationale = "Gauss-Newton iterations." }
 sigma = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Residual sigma for the covariance (range noise + plane misfit)." }
+floor_xyz = { value = 0.05, unit = "m", fidelity = "measured", rationale = "Covariance floor of a match: on rubble the ICP is biased by 5-10 cm (3 mm * sqrt(N)-class formal sigma is far too tight; lane6 diagnostic, docs/dog/autonomy.md Localization) and an overconfident ICP made the EKF reject every 2 cm RTK fix." }
+floor_yaw = { value = 0.01, unit = "rad", fidelity = "estimated", rationale = "Yaw covariance floor of a match (0.6 deg), same reason." }
 degen = { value = 0.01, unit = "1", fidelity = "design", rationale = "Hessian eigenvalue below 1 % of the largest = degenerate direction." }
 rate_good = { value = 2.0, unit = "Hz", fidelity = "design", rationale = "ICP while RTK is fixed (keeps the submap and yaw honest)." }
 rate_bad = { value = 10.0, unit = "Hz", fidelity = "design", rationale = "ICP every frame without RTK." }
@@ -101,6 +103,7 @@ rate_bad = { value = 10.0, unit = "Hz", fidelity = "design", rationale = "ICP ev
 [loc]
 chi2 = { value = 16.27, unit = "1", fidelity = "literature", rationale = "chi-square 3 dof, p = 0.999: RTK fix gate." }
 chi2_icp = { value = 18.47, unit = "1", fidelity = "literature", rationale = "chi-square 4 dof, p = 0.999: ICP pose gate." }
+rtk_reset_n = { value = 20, unit = "1", fidelity = "design", rationale = "Consecutive rejected RTK fixes (2 s at 10 Hz) after which the position is re-initialised from the fix: recovery from a lost-in-ICP estimate." }
 rtk_age = { value = 1.0, unit = "s", fidelity = "design", rationale = "RTK counts as good while the last accepted fix is younger than 1 s (10 missed fixes)." }
 init_sigma = { value = 0.05, unit = "m", fidelity = "design", rationale = "Operator initialisation at the start pose (decision 3)." }
 init_yaw = { value = 0.02, unit = "rad", fidelity = "design", rationale = "Operator initialisation heading." }
