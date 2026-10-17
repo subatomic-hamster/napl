@@ -45,3 +45,14 @@ axis = [0.0, 0.0, 1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 360
 note = "Top face: 8.4 mm stud bore for the shank socket."
+
+[[ports]]
+name = "ball"
+kind = "mech"
+type = "sphere-seat.35"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0174625]
+axis = [0.0, 0.0, -1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 360
+note = "Top of the 35.2 mm spherical socket: the rubber ball seat port (ball radius 17.4625 mm) mates here so the ball centre sits on the core origin."

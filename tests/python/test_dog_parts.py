@@ -81,7 +81,12 @@ def test_dog_part_has_usd_price(rel):
     )
 
 
-HANDED = ["hip-housing", "thigh-bracket", "knee-drive-housing", "side-plate"]
+HANDED = [
+    "hip-housing",
+    "thigh-bracket",
+    "side-plate",
+    "knee-crank",  # handed pair (the plate side flips with the leg side), a deviation from the plan's single dog-knee-crank
+]
 
 
 @pytest.mark.parametrize("base", HANDED)
@@ -102,7 +107,18 @@ def test_printed_pairs_are_mirrors(base):
         assert (ROOT / g["mesh"]).stat().st_size > 1000
 
 
-@pytest.mark.parametrize("name", ["shank", "foot-core", "head-mount", "battery-tray"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "shank",
+        "foot-core",
+        "head-mount",
+        "battery-tray",
+        "abad-mount",
+        "bulkhead",
+        "compute-tray",
+    ],
+)
 def test_printed_singles_have_symmetry_and_mesh(name):
     p = load(f"structure/dog-{name}")
     assert p["mirror"]["symmetry"] in ("xy", "yz", "xz")

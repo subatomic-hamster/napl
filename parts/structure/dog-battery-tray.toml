@@ -34,3 +34,14 @@ axis = [0.0, 0.0, -1.0]
 ref = [1.0, 0.0, 0.0]
 symmetry = 1
 note = "Underside of the floor: mounts to the chassis."
+
+[[ports]]
+name = "pocket"
+kind = "mech"
+type = "flat-mount"
+gender = "neutral"
+pos = [0.0, 0.0, 0.004]
+axis = [0.0, 0.0, 1.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Floor of the pack pocket (4 mm above the underside): the pack's base port lies here."
