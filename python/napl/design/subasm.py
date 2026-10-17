@@ -82,6 +82,8 @@ _TYPES = [
     "vessel",
     "rangefinder",
     "jet_vane",
+    "qdd",
+    "foot_contact",
 ]
 REF_FIELDS = {t: _COMMON + _EXTRA.get(t, ()) for t in _TYPES}
 # string-valued binding fields that are NOT references (port names, library ids, verbatim text); `name` / `set` are handled apart
