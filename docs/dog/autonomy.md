@@ -260,6 +260,47 @@ wall 0.3 m too thick at the contact point); (c) held-out seed 2001 returned home
 read unreachable and the fill found nothing, as seen on training seed 3 before the lethal fix; not verified) - not diagnosed, held-out seeds are not used for diagnosis; (d) training seed 2
 still wedges (1388 bumps) in one room.
 
+#### Room tour (`plan.tour = 1`, `plan.sweep = 0`, ruins only)
+
+The lane sweep is gone for ruins. From the start the executive runs the fill step alone, with a different objective
+(`planner.choose_view`): the next viewpoint is the block with the largest unmapped floor area within `fill_radius` 3.5 m (box sum of the
+unmapped scoring cells with a free clearance; wall interiors never get mapped and would keep the value up), divided by path cost + 10.
+That is a greedy nearest-neighbour tour on value density; a doorway that sees two rooms beats the centre of one. Visited viewpoints and the
+2 m around them are not chosen again. If nothing is reachable at the strict clearance the choice is repeated through blocks that only do not
+touch a wall (a door mapped too narrow); only when that also fails does the robot go home. Rubble does not call it (test). Deviation
+from the brief: no explicit room segmentation (connected components split at doors); the value-density tour does the same job with
+one function, and a segmentation would need the map to be complete to be useful. The first version (viewpoint = nearest gap block, no
+value density) crept one block at a time (distance 250 m in 20 min, 30 % mapped).
+Two speed fixes found with a command histogram on training seed 1: reversing next to a wall took 29 % of the time (it is now used only
+within 0.4 m of a wall, 8 %), turning on the spot 23-27 %.
+
+Training seeds 1-8 (never the held-out ones), coverage per seed: lanes + clearance planner 87 / 67 / 88 / 76 / 92 / 69 / 77 / 84 %
+(round 3), room tour 86 / 31 / 85 / 79 / 88 / 87 / 78 / 91 %: seven of eight seeds 78-91 % (mean 85 %), 7 of 8 home; no seed reaches 95 %.
+Seed 2 walls itself in: the robot enters a two-room pocket through a door that later reads closed (the mapped walls are 0.6-0.7 m thick
+against 0.3 m real, so a door is a 0.6 m gap that a few cells of smear close), and neither the relaxed clearance nor planning through every
+obstacle (tried: 5760 bumps against a real wall, no gain, reverted) gets it out. Not fixed.
+
+| ruins 50 m, room tour                    | held-out 3001-3016 (fresh, run once) | held-out 2001-2016 (already seen twice)               |
+| ---------------------------------------- | ------------------------------------ | ----------------------------------------------------- |
+| success (>= 95 %, RMS <= 5 cm, home)     | **0/16, Wilson [0.000, 0.194]**      | 1/16, Wilson [0.011, 0.283]                           |
+| coverage median / max                    | 86.2 % / 94.2 %                      | 87.6 % / 98.0 %                                       |
+| home at the end                          | 15 of 16                             | 16 of 16                                              |
+| map RMS within 5 cm                      | 5 of 16                              | 10 of 16                                              |
+| bumps                                    | 48-683                               | 49-543                                                |
+| round 3 (lanes + clearance) on 2001-2016 |                                      | median 84.7 %, max 90.8 %, 15 of 16 home, RMS 8 of 16 |
+
+The tour lifts the median by 2-3 points and the best seeds above 94 %, but 95 % on every seed is not in reach. What limits it: the robot
+drives 800-960 m in 20 min (average 0.7-0.8 m/s: 25 % of the time turning on the spot, 28 % at full speed), about 0.1 % of the site per
+metre mapped, so 95 % needs about 950 m of useful path with no detour and no stop, i.e. the whole budget with a perfect tour; a route
+through the 50 m maze that sees every room needs about 500 m (an estimate, not computed) (one stop per room pair) but the greedy tour wastes the rest on backtracking
+(viewpoints behind the robot cost a 3 s turn each). Needed to go further, in order: an optimal tour (2-opt or a door-graph TSP over room pairs),
+a turn-free path follower (arc turns instead of turn-in-place), and a thinner mapped wall (erode the obstacle mask, map RMS). The map RMS
+criterion fails on 11 of 16 fresh seeds for the same reason as before (wall-face smear: mapped walls 0.6-0.7 m thick); the cheap fix
+the brief suggested (exclude cells next to wall steps from the RMS fusion) was not tried.
+
+Rubble regression with the final code: `coverage_rubble` training seeds 1-8 identical to before (8/8, 95.2-97.0 %, RMS 3.0 cm, home by
+1182 s, bumps 0 except 42 and 1); the `coverage_smoke` and `map_quality` goldens are unchanged (pinned test passes).
+
 Ruins 100 x 100 m: unchanged (not reachable, see Coverage).
 
 ## Upgrade path: GPU raycaster
