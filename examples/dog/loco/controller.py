@@ -29,12 +29,13 @@ WBC_STANCE_JT = (
     True  # stance torque of the WBC legs from the MPC force through J^T, see _legs_wbc
 )
 H_SCHED, H_FRAC_FAST, H_V0, H_V1, H_SLEW = (
-    False,
-    0.90,
-    0.8,
-    1.6,
+    True,
+    0.85,
+    1.0,
+    1.8,
     0.05,
-)  # speed schedule: H_FRAC up to H_V0 m/s, H_FRAC_FAST from H_V1, linear between; H_SLEW per second
+)  # speed schedule: H_FRAC up to H_V0 m/s, H_FRAC_FAST from H_V1, linear between; H_SLEW per second. Flat auto gait, 4 seeds: 1.5 m/s 0/4 stay up at a
+# constant 0.95, 4/4 scheduled; 1.8 m/s 4/4; 2.0 m/s 1/4. Swing clearance at 0.85 is 2.8 cm (7.4 cm at 0.95): fast runs are for flat ground.
 LEG_CTLS = (
     "wbc",
     "jt",

@@ -11,7 +11,7 @@ import numpy as np
 G = 9.81
 K_CAP = 0.15  # x sqrt(h/g): capture-point feedback gain (1.0 moved the touchdown target 5-20 cm within one swing on the velocity noise and the trot fell; MIT's 0.03 s is 0.14 here)
 TD_TICKS = 3  # control ticks (6 ms) of continuous contact that make an early touchdown
-D_MAX = 0.18  # m: farthest touchdown from the hip (leg workspace at the stand height, ~0.4 of the leg length)
+D_MAX = 0.18  # (dogtop experiments override it) m: farthest touchdown from the hip (leg workspace at the stand height, ~0.4 of the leg length)
 
 
 @dataclass(frozen=True)
