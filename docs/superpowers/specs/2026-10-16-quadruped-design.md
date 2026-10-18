@@ -206,7 +206,8 @@ Also fix the known bug: the status-bar DRC message stays stale while the DRC chi
 
 ## 7. Success criteria (MC over seeds; reported honestly if missed)
 
-- flat top speed >= 3.5 m/s;
+- flat top speed >= 2.0 m/s (user decision 2026-10-18; was 3.5 m/s. LOCO fix round 1 measured 2.0-2.25 m/s with the pack
+  at 114-142 A against its 120 A limit, so 3.5 m/s needs a higher-voltage pack the BOM cannot carry; see risk 3);
 - rocky field mean speed >= 1.5 m/s;
 - 25-degree slopes and 15 cm steps traversed;
 - > = 90% no-fall per terrain family (MC n per family stated, with a 95% lower bound);
@@ -231,7 +232,7 @@ CAD-like UI, honest captions. Recorder `tools/record_dog.py`, non-GPL encoder, n
 2. **Contact on rocky hfields:** MuJoCo hfield contact with small feet can be stiff or jittery. Choose solref/solimp and
    timestep from a contact-validation test in SP2.
 3. **3.5 m/s with low-cost actuators:** a voltage/torque-speed limit may cap speed. The SP3 sweep decides early; the shortfall
-   is reported honestly.
+   is reported honestly. Outcome: capped at 2.0-2.25 m/s by pack current; target lowered to 2.0 m/s (2026-10-18).
 4. **Mirror correctness:** a wrong-hand part is invisible in tests that only count items. Hence the pose-equality test and
    the unmirrorable-part DRC.
 5. **Sub-assembly refactor ripple:** flatten-on-load keeps downstream unchanged; the split-equivalence test (same state
