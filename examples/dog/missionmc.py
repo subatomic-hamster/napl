@@ -115,11 +115,20 @@ def results_table(by_family, extra):
         L.append(f"| {fam} | {s['k_nofall']}/{s['n']} | {s['k_nofall'] / s['n']:.2f} | [{lo:.2f}, {hi:.2f}] | {s['k_success']}/{s['n']} | "
                  + " ".join(str(s["fails"][k]) for k in FAIL_KEYS) + f" | {med} |")  # fmt: skip
     L += ["", "| spec criterion | measured | verdict |", "|---|---|---|"]
+    L += [
+        f"| {r['text']} | {r['measured']} | {r['verdict']} |"
+        for r in criteria_rows(by_family, extra)
+    ]
+    return "\n".join(L) + "\n"
+
+
+def criteria_rows(by_family, extra):
+    """[{key, text, measured, verdict}] for every entry of CRITERIA: verdict is 'MET', 'NOT MET', 'MET on rate, lower bound under 0.90 for <families>' (no-fall only) or
+    'not measured' (no value: extra[key] is None / absent, no family run). Shared by the Markdown table and the JSON the README, the video card and their tests read."""
+    out = []
     for key, text, op, target in CRITERIA:
-        if key == "nofall":
-            if not by_family:
-                L.append(f"| {text} | | not measured |")
-                continue
+        meas, verdict = "", "not measured"
+        if key == "nofall" and by_family:
             rate = {f: s["k_nofall"] / s["n"] for f, s in by_family.items()}
             meas = "; ".join(
                 f"{f} {s['k_nofall']}/{s['n']} = {rate[f]:.2f}, lower bound {s['wilson_nofall'][0]:.2f}"
@@ -127,22 +136,35 @@ def results_table(by_family, extra):
             )
             met = all(v >= target for v in rate.values())
             low = [f for f, s in by_family.items() if s["wilson_nofall"][0] < target]
-            note = (
+            verdict = ("MET" if met else "NOT MET") + (
                 f" on rate, lower bound under {target:.2f} for {', '.join(low)}"
                 if met and low
                 else ""
             )
-            L.append(f"| {text} | {meas} | {'MET' if met else 'NOT MET'}{note} |")
-            continue
-        v = extra.get(key)
-        if v is None:
-            L.append(f"| {text} | | not measured |")
-            continue
-        met = bool(v) if op == "bool" else (v >= target if op == ">=" else v <= target)
-        L.append(
-            f"| {text} | {v if op == 'bool' else format(v, 'g')} | {'MET' if met else 'NOT MET'} |"
-        )
-    return "\n".join(L) + "\n"
+        elif key != "nofall" and extra.get(key) is not None:
+            v = extra[key]
+            met = (
+                bool(v)
+                if op == "bool"
+                else (v >= target if op == ">=" else v <= target)
+            )
+            meas, verdict = (
+                (str(v) if op == "bool" else format(v, "g")),
+                ("MET" if met else "NOT MET"),
+            )
+        out.append(dict(key=key, text=text, measured=meas, verdict=verdict))
+    return out
+
+
+def results_json(by_family, extra, rev, missions=None):
+    """The numbers docs/dog/missions.json carries: per-family summaries, the criteria verdicts, the 100 m mission rows, the code revision."""
+    return dict(
+        rev=rev,
+        families=by_family,
+        criteria=criteria_rows(by_family, extra),
+        extra=extra,
+        missions=missions or {},
+    )
 
 
 def scenario_path(family):

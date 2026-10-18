@@ -204,3 +204,80 @@ def test_hud_draws_from_the_tap_and_marks_the_map_shot(tmp_path):
     assert (
         orbit.size == flat.size == (RD.W, RD.H) and orbit.tobytes() != flat.tobytes()
     )  # the map shot adds the mask, path and trail overlay
+
+
+def test_timeline_fits_the_budget_and_orders_the_three_parts():
+    parts = [p for p, _, _ in RD.TIMELINE]
+    assert parts == sorted(parts, key=["card", "A", "B", "C", "result"].index)
+    assert sum(s for _, _, s in RD.TIMELINE) <= RD.TOTAL_MAX_S
+    assert RD.PART_A_MAX_S + RD.PART_B_MAX_S + RD.PART_C_MAX_S <= RD.TOTAL_MAX_S
+
+
+def test_encoder_is_non_gpl_by_default():
+    import shutil
+
+    import videnc
+
+    ids = [c[0] for c in videnc._candidates(".webm", gpl=False)] + [
+        c[0] for c in videnc._candidates(".mp4", gpl=False)
+    ]
+    assert "ffmpeg" not in ids  # ffmpeg VAAPI / libx264 are the --gpl opt-in
+    if shutil.which("ffmpeg"):
+        assert "ffmpeg" in [c[0] for c in videnc._candidates(".webm", gpl=True)]
+    args = RD.build_parser().parse_args(["encode", "r", "o.webm"])
+    assert (
+        args.gpl is False
+        and RD.build_parser().parse_args(["encode", "r", "o.webm", "--gpl"]).gpl is True
+    )
+
+
+def test_cards_take_numbers_from_the_results_json(tmp_path):
+    mj = tmp_path / "missions.json"
+    mj.write_text(
+        json.dumps(
+            {
+                "families": {
+                    "rubble": {"n": 36, "k_nofall": 30, "wilson_nofall": [0.71, 0.93]}
+                },
+                "missions": {
+                    "rubble": [{"seed": 31001, "fell_ever": 1, "coverage": 0.12}]
+                },
+                "criteria": [
+                    {
+                        "text": "BOM about 3-4.5 k USD",
+                        "measured": "5554",
+                        "verdict": "NOT MET",
+                    }
+                ],
+            }
+        )
+    )
+    lines = RD.mc_card_lines(mj)
+    assert any("30/36" in ln and "0.71" in ln for ln in lines)
+    assert any("seed 31001: fell" in ln and "12 %" in ln for ln in lines)
+    assert any(
+        ln.startswith("NOT MET") and "BOM" in ln and "5554" in ln for ln in lines
+    )
+
+
+def test_results_json_round_trips_into_the_card(tmp_path):
+    import missionmc as MC
+
+    row = dict(
+        seed=1,
+        coverage=0.5,
+        rms=0.03,
+        phase=3,
+        t=300.0,
+        fell_ever=1,
+        fallen=0,
+        bumps=0,
+        distance=40.0,
+    )
+    by = {"rubble": MC.summarize([row, dict(row, seed=2, fell_ever=0)], 420.0)}
+    mj = tmp_path / "missions.json"
+    mj.write_text(json.dumps(MC.results_json(by, {"bom_usd": 5554.0}, "abc")))
+    lines = RD.mc_card_lines(mj)
+    assert any("1/2" in ln and "rubble" in ln for ln in lines) and any(
+        ln.startswith("NOT MET") and "BOM" in ln for ln in lines
+    )
