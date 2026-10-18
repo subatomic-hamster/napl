@@ -51,6 +51,12 @@ foot_b = { value = 0.15, unit = "m", fidelity = "design", rationale = "Half the 
 base_h = { value = 0.30, unit = "m", fidelity = "design", rationale = "Base origin above the mean foot height." }
 step_max = { value = 0.18, unit = "m", fidelity = "design", rationale = "Highest step the carrier climbs = the dog's step limit (spec: 15 cm steps with margin)." }
 
+[dog]
+v_max = { value = 0.4, unit = "m/s", fidelity = "measured", rationale = "Command ceiling on the legged robot, found with the ruins 50 m mission (flat floor, seed 1, 40 s, docs/dog/autonomy.md On the dog): v 1.5 / wz 1.0 fell at 3 s, 0.8 / 0.5 at 5 s, 0.6 / 0.3 at 13 s, 0.5 / 0.2 at 16 s, 0.4 / 0.3 stood the 40 s. One seed, not a validated limit; docs/dog/locomotion.md holds 1.0 m/s straight on flat ground." }
+wz_max = { value = 0.3, unit = "rad/s", fidelity = "measured", rationale = "Turn rate ceiling, same runs as v_max (0.3 rad/s with 0.4 m/s stood 40 s on flat ruins; 0.5 and 0.3 rad/s with faster speeds fell)." }
+wall_m = { value = 0.35, unit = "m", fidelity = "estimated", rationale = "Map cells higher than this above the ground under the dog are not handed to SP4 as terrain (walls, boulders: its rough-terrain detector read a 1.8 m ruin wall as a step and switched to the walk gait, which falls on flat ground); 0 = hand over everything. Above the 18 cm step limit plus margin." }
+leg_ctl = { value = 1, unit = "1", fidelity = "design", rationale = "1 = SP4's WBC (C++ port when built, else the Python class at 35x the cost), 0 = the J^T baseline." }
+
 [map]
 res = { value = 0.05, unit = "m", fidelity = "design", rationale = "Spec section 6: 5 cm cells." }
 size = { value = 100.0, unit = "m", fidelity = "design", rationale = "Field side (spec section 7)." }

@@ -117,7 +117,7 @@ def points(scan, pos, quat, ang_sigma=0.0, rng=None):
     return np.asarray(pos, float) + (scan.r[:, None] * d) @ qmat(quat).T
 
 
-def _local(el):
+def _local(el, unit=math.radians(1.0)):
     p = np.array([float(v) for v in el.get("pos", "0 0 0").split()])
     bad = [k for k in ("axisangle", "xyaxes", "zaxis") if k in el.attrib]
     if bad:
@@ -127,22 +127,28 @@ def _local(el):
     if "quat" in el.attrib:
         return p, np.array([float(v) for v in el.get("quat").split()])
     if "euler" in el.attrib:
-        a, b, c = (math.radians(float(v)) for v in el.get("euler").split())
+        a, b, c = (unit * float(v) for v in el.get("euler").split())
         return p, qmul(
             qmul(_axis(0, a), _axis(1, b)), _axis(2, c)
-        )  # MuJoCo default eulerseq "xyz", degrees
+        )  # MuJoCo default eulerseq "xyz", in the compiler's angle unit
     return p, np.array([1.0, 0, 0, 0])
 
 
 def extrinsic(xml_text, site, body):
     root = ET.fromstring(xml_text)
     comp = root.find("compiler")
-    if comp is not None and (
-        comp.get("angle", "degree") != "degree" or comp.get("eulerseq", "xyz") != "xyz"
-    ):
-        raise ValueError(
-            "extrinsic: compiler angle / eulerseq must be MuJoCo's defaults"
-        )
+    unit = math.radians(1.0)
+    if comp is not None:
+        if (
+            comp.get("angle", "degree") not in ("degree", "radian")
+            or comp.get("eulerseq", "xyz") != "xyz"
+        ):
+            raise ValueError(
+                "extrinsic: compiler angle must be degree / radian and eulerseq xyz"
+            )
+        unit = (
+            1.0 if comp.get("angle", "degree") == "radian" else unit
+        )  # the dog's MJCF is in radians
     parent = {c: p for p in root.iter() for c in p}
     el = next(s for s in root.iter("site") if s.get("name") == site)
     chain = []
@@ -151,6 +157,6 @@ def extrinsic(xml_text, site, body):
         el = parent[el]
     pos, q = np.zeros(3), np.array([1.0, 0, 0, 0])
     for e in reversed(chain):
-        p, qe = _local(e)
+        p, qe = _local(e, unit)
         pos, q = pos + qmat(q) @ p, qmul(q, qe)
     return pos, q
