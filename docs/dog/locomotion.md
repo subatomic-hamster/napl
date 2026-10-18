@@ -99,7 +99,10 @@ Solve time (`test_dog_wbc.py::test_solve_time_budget`, trot pose, joint speeds d
 Profile of the Python solve: 86 % of the time is the kinematics (`_elements` is evaluated four times per solve and `np.cross` costs 60 % of
 it), the QP itself is small. Decision (Step 6 rule: Python over budget): **C++ port**, `examples/dog/loco/cpp/wbc.cpp` (Eigen 3.4.0 MPL-2.0
 with `EIGEN_MPL2_ONLY`, OSQP C v1.0.0 Apache-2.0, nanobind), built with `cmake -S . -B build -DNAPL_LOCO_CPP=ON && cmake --build build
---target loco_wbc_cpp` into `build/loco/`; `loco.wbc.make()` loads it when it is there and falls back to the Python class (same maths, ~35 times
+--target loco_wbc_cpp` into `build/loco/` (the default build has `NAPL_LOCO_CPP` OFF; on a fresh build dir the configure uses `.venv/bin/python`
+when `-DPython_EXECUTABLE=...` is not given; `test_dog_wbc.py::test_solve_time_budget` fails with the build line when the module is missing);
+the controller pins BLAS / OpenMP to one thread at `import loco` (an unpinned BLAS measured 366 ms per MPC solve on a loaded box;
+`test_solve_time_budget_does_not_depend_on_the_callers_thread_env`); `loco.wbc.make()` loads it when it is there and falls back to the Python class (same maths, ~35 times
 slower, different last bits: the trot golden below is the C++ one and is skipped without the module). The kinematics are computed once per solve.
 Python and C++ agree to 1e-3 relative (`test_cpp_dynamics_match_python`, `test_cpp_wbc_matches_python`). The WBC therefore runs at the full
 500 Hz; no spec deviation.

@@ -6,7 +6,6 @@ constraint pattern), so every solve is an `update` of values with a warm start. 
 import numpy as np
 import osqp
 import scipy.sparse as sp
-from scipy.linalg import expm
 
 N, DT = (
     12,
@@ -103,9 +102,10 @@ class Mpc:
         Ads, Bds = [], []
         for k in range(N):
             A, B = self._ab(xref[k, 2], r_feet[k])
-            Md = expm(
-                np.block([[A, B], [np.zeros((NU, NX + NU))]]) * DT
-            )  # zero-order hold
+            Ma = np.block([[A, B], [np.zeros((NU, NX + NU))]]) * DT
+            # zero-order hold. Ma is nilpotent of order 3 (rpy <- w <- u, p <- v <- u, p_z <- v_z <- g), so the series stops at Ma^2 / 2 and equals
+            # expm(Ma) (test_dog_mpc.py::test_zero_order_hold_series_is_the_matrix_exponential); expm cost 0.6 ms of the 6 ms solve
+            Md = np.eye(NX + NU) + Ma + 0.5 * Ma @ Ma
             Ads.append(Md[:NX, :NX])
             Bds.append(Md[:NX, NX:])
         # x_{k+1} = Ad_k x_k + Bd_k u_k  ->  X = Sx x0 + Su U (block lower triangular Su)

@@ -156,6 +156,11 @@ def test_cpp_wbc_matches_python(m):
 def test_solve_time_budget(m):
     args, *_ = trot_problem(m)
     wbc, rng, ts = Wb.make(m), np.random.default_rng(2), []
+    assert not isinstance(wbc, Wb.Wbc), (
+        "C++ WBC not built (the 1 ms budget is the C++ port's; Python measures 9 ms): "
+        "cmake --preset dev -DNAPL_LOCO_CPP=ON && cmake --build --preset dev --target loco_wbc_cpp "
+        "(add -DPython_EXECUTABLE=$PWD/.venv/bin/python if cmake cannot find the interpreter); output build/loco/"
+    )
     for _ in range(200):
         a = list(args)
         a[5] = rng.normal(0, 3.0, 12)  # joint speeds of a fast trot

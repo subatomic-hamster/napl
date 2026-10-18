@@ -71,3 +71,50 @@ def test_solve_time_budget():
         ts.append(time.perf_counter() - t0)
     print(f"MPC solve: median {np.median(ts) * 1e3:.2f} ms, max {max(ts) * 1e3:.2f} ms")
     assert np.median(ts) < 0.008  # 40 % of the 20 ms MPC period (50 Hz)
+
+
+def test_solve_time_budget_does_not_depend_on_the_callers_thread_env():
+    """A fresh interpreter with no thread variables, and one with OPENBLAS_NUM_THREADS=64 set by the caller, imports numpy FIRST and loco second:
+    the median solve stays inside the budget (an unpinned multi-threaded BLAS measured 366 ms on a loaded box)."""
+    import os
+    import subprocess
+
+    code = (
+        "import sys, time, numpy as np; sys.path[:0] = [%r, %r]\n"
+        "import test_dog_mpc as T\n"
+        "ts = []\n"
+        "m = T.mpc.Mpc(T.M, T.IB); rng = np.random.default_rng(1)\n"
+        "for k in range(60):\n"
+        "    p = T.problem(contact=(1, 0, 0, 1) if k %% 2 else (0, 1, 1, 0), v0=rng.uniform(-1, 1, 3) * [2, 0.5, 0.2])\n"
+        "    t0 = time.perf_counter(); m.solve(*p, np.full(4, 0.6)); ts.append(time.perf_counter() - t0)\n"
+        "print('MEDIAN_MS', np.median(ts) * 1e3)\n"
+    ) % (
+        str(Path(__file__).resolve().parent),
+        str(Path(__file__).resolve().parents[2] / "examples" / "dog"),
+    )
+    for extra in ({}, {"OPENBLAS_NUM_THREADS": "64", "OMP_NUM_THREADS": "64"}):
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
+        }
+        env.update(extra)
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        med = float(out.split("MEDIAN_MS")[1])
+        assert med < 8.0, (extra, med)
+
+
+def test_zero_order_hold_series_is_the_matrix_exponential():
+    from scipy.linalg import expm
+
+    m = mpc.Mpc(M, IB)
+    A, B = m._ab(0.7, FEET)
+    Ma = np.block([[A, B], [np.zeros((mpc.NU, mpc.NX + mpc.NU))]]) * mpc.DT
+    series = np.eye(mpc.NX + mpc.NU) + Ma + 0.5 * Ma @ Ma
+    assert np.abs(series - expm(Ma)).max() < 1e-12
