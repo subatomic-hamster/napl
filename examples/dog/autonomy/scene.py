@@ -2,6 +2,7 @@
 scores it against ground truth (trace.csv for the napl program monitors, summary.json)."""
 
 import json
+import os
 import time
 import tomllib
 from pathlib import Path
@@ -12,7 +13,7 @@ from napl import params as nparams
 from napl.marine import write_native
 from napl.terrain import field
 
-from . import carrier, config, lidar, metrics, mission
+from . import carrier, config, lidar, metrics, mission, videotap
 
 COLS = ["t", "x", "y", "x_est", "y_est", "err_xy", "err_z", "err_yaw", "phase", "coverage", "rms", "rms_edges", "rtk_ok",
         "gnss_lost", "bumps", "distance", "fallen", "ms_points", "ms_icp", "ms_fuse", "ms_trav", "ms_plan", "ms_metrics"]  # fmt: skip
@@ -21,6 +22,11 @@ DENSITY = {
     "rubble": {"rocks": 2500, "boulders": 40},
     "scree": {"rocks": 6000},
 }  # napl.terrain.field defaults per 100 x 100 m
+
+
+def fell_ever(rows):
+    """1 if the ground-truth `fallen` column was ever set (the last row alone loses a fall that ends in a safe sit)."""
+    return int(max(r[COLS.index("fallen")] for r in rows) > 0)
 
 
 def scenario(path):
@@ -141,6 +147,11 @@ def run(model, scenario_path, out, t_max=None):
     gt = metrics.truth_grid(f, cfg["map"]["res"])
     edges, tgt = metrics.edge_mask(gt, cfg), metrics.targets(gt, cfg, start[:2])
     pool = int(cfg["plan"]["pool"])
+    tap = (
+        videotap.Tap(os.environ["DOG_TAP_DIR"], pool=pool)
+        if os.environ.get("DOG_TAP_DIR")
+        else None
+    )
     fdt = 1.0 / cfg["lidar"]["rate_hz"]
     t_max = t_max or cfg["plan"]["t_budget"] + cfg["plan"]["return_margin"]
     every = int(round(METRIC_EVERY_S / fdt))
@@ -162,6 +173,8 @@ def run(model, scenario_path, out, t_max=None):
     for k in range(int(round(t_max / fdt))):
         car.advance(fdt)
         rob.frame(car.time_of_last_frame)
+        if tap is not None:
+            tap(k, car, rob)
         done = rob.ex.phase in (rob.ex.DONE, rob.ex.ABORT)
         if k % every == 0 or done or k == int(round(t_max / fdt)) - 1:
             cov, r, dm = score()
@@ -177,10 +190,13 @@ def run(model, scenario_path, out, t_max=None):
         if done:
             break
     write_native(sim, car.dt, COLS, rows, out)
+    if tap is not None:
+        tap.close(state_hash=f"{sim.state_hash():016x}", dt=fdt)
     last = dict(zip(COLS, rows[-1]))
     nfr = len(rows)
     summ = {
         **last,
+        "fell_ever": fell_ever(rows),
         "frames": nfr,
         "ms_per_frame": {k: rob.ms[k] / nfr for k in rob.ms},
         "metrics_ms_per_frame": ms_m / nfr,
