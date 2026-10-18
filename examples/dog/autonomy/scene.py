@@ -36,6 +36,12 @@ def cfg_for(auto):
     }
     for k in (
         "lane_m",
+        "sweep",
+        "tour",
+        "fill_radius",
+        "fill_min",
+        "fill_d0",
+        "tried_m",
         "return_margin",
         "near_wall_speed",
         "near_wall_lookahead",

@@ -16,6 +16,10 @@ start_y = { value = -22.5, unit = "m", fidelity = "design", rationale = "A ruins
 start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east." }
 block = { value = 0.2, unit = "m", fidelity = "estimated", rationale = "At 0.5 m blocks the 0.8-1.6 m doors read closed (docs/dog/autonomy.md Coverage, ruins); 0.2 m keeps a block centre within 0.1 m of any door axis." }
 clearance = { value = 1, unit = "1", fidelity = "design", rationale = "Plan on the distance transform of the obstacle geometry (clearance.py), not on block lethality (one-sided, narrowed the doors: held-out 0/16)." }
+sweep = { value = 0, unit = "1", fidelity = "design", rationale = "No lanes: a nearest-unmapped-gap tour from the start (frontier / room tour); the lanes shuttled between far lane ends through the maze." }
+tour = { value = 1, unit = "1", fidelity = "design", rationale = "Room tour by value density (planner.choose_view)." }
+fill_radius = { value = 3.5, unit = "m", fidelity = "estimated", rationale = "Floor within 3.5 m of a viewpoint counts as seen (Mid-360 reach through open doors)." }
+tried_m = { value = 2.0, unit = "m", fidelity = "estimated", rationale = "Viewpoints within 2 m of a visited one are not chosen again." }
 lane_m = { value = 5.0, unit = "m", fidelity = "estimated", rationale = "One lane per row of rooms: the lane centres are the room centres of the 5 m maze grid." }
 near_lethal = { value = 6.0, unit = "1", fidelity = "estimated", rationale = "Cost next to a wall block: the feet are 0.29 m from the body centre (docs/dog/autonomy.md Coverage, ruins)." }
 near_wall_speed = { value = 0.8, unit = "m/s", fidelity = "estimated", rationale = "Speed cap within 0.6 m of a wall (doors of 0.8-1.6 m)." }
