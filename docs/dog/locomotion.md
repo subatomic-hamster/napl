@@ -99,7 +99,10 @@ Solve time (`test_dog_wbc.py::test_solve_time_budget`, trot pose, joint speeds d
 Profile of the Python solve: 86 % of the time is the kinematics (`_elements` is evaluated four times per solve and `np.cross` costs 60 % of
 it), the QP itself is small. Decision (Step 6 rule: Python over budget): **C++ port**, `examples/dog/loco/cpp/wbc.cpp` (Eigen 3.4.0 MPL-2.0
 with `EIGEN_MPL2_ONLY`, OSQP C v1.0.0 Apache-2.0, nanobind), built with `cmake -S . -B build -DNAPL_LOCO_CPP=ON && cmake --build build
---target loco_wbc_cpp` into `build/loco/`; `loco.wbc.make()` loads it when it is there and falls back to the Python class (same maths, ~35 times
+--target loco_wbc_cpp` into `build/loco/` (the default build has `NAPL_LOCO_CPP` OFF; on a fresh build dir the configure uses `.venv/bin/python`
+when `-DPython_EXECUTABLE=...` is not given; `test_dog_wbc.py::test_solve_time_budget` fails with the build line when the module is missing);
+the controller pins BLAS / OpenMP to one thread at `import loco` (an unpinned BLAS measured 366 ms per MPC solve on a loaded box;
+`test_solve_time_budget_does_not_depend_on_the_callers_thread_env`); `loco.wbc.make()` loads it when it is there and falls back to the Python class (same maths, ~35 times
 slower, different last bits: the trot golden below is the C++ one and is skipped without the module). The kinematics are computed once per solve.
 Python and C++ agree to 1e-3 relative (`test_cpp_dynamics_match_python`, `test_cpp_wbc_matches_python`). The WBC therefore runs at the full
 500 Hz; no spec deviation.
@@ -350,15 +353,82 @@ first. The 0.5 m/s "recovered 5/5" is therefore a value at one phase, not an env
 module, built by `cmake -DNAPL_LOCO_CPP=ON`; the Python QP stays as the fallback and the reference). Everything in this MC ran the C++ WBC. The MPC
 (OSQP, 50 Hz) stays Python: median 5.2 ms unloaded (13.9-19.7 ms on a loaded hfbox, where its timing test fails; also at HEAD before this work).
 
+## LOCO fix round 1 (after Task 11)
+
+**MPC budget.** Condensed MPC (6 ms median, then 4.4 ms after replacing `expm` by its exact 3-term series and pinning BLAS threads in
+`loco/__init__.py`; pinned by `test_dog_mpc.py` in fresh interpreters with the thread env unset and set to 64).
+
+**Flat ground, pushes: root cause found.** A 0.4 m/s lateral push at 8 gait phases x 3 seeds (seeds 21000-21002, trot 1 m/s, no payload/bias):
+WBC stayed up in 5/24, the J^T leg controller in 21/24. Swapping one WBC output at a time for J^T's: stance torque -> 24/24, stance velocity target
+-> 0/24, both -> 1/24. So the WBC's own stance joint torque was the cause. Fix (`WBC_STANCE_JT`): stance joints take `J^T(-R^T f_mpc)` plus the
+leg's required torque; the WBC keeps swing torques and all velocity targets. Full MC dispersion (payload, IMU bias, two pushes, 1.0 m/s, 14 s,
+seeds 21000-21015, `dogflat.py`): WBC 9/16 -> 13/16 up (J^T 13/16). The 3 remaining falls follow a double push of 0.4-0.5 m/s within 1-2 s.
+The old finding "pushes survived to 0.5 m/s" held at one gait phase only; the phase sweep showed 19/24 falls of the old WBC. `POSTURE` is 0.7
+(0.3 and 0.5 fall at the ramp foot with the J^T stance torque; 0.7 and 0.9 climb the 15 deg ramp).
+
+Levers tried and NOT adopted (counts of runs staying up): trot duty 0.5 / 0.54 / 0.58 / 0.60 -> 5 / 7 / 17 / 13 of 24 (0.62, 0.66 fall undisturbed),
+but on the full dispersion 0.58 gave 1/8 vs 5/8; capture-gain boost 13/24 alone, 9/24 with duty 0.58; contact-held stance 0/8 and 5/8; gyro-bias
+integrator in the attitude filter (tilt error 2.2 -> 0.8 deg, no MC gain); velocity-jump covariance inflation 6/24 and 5/16 (worse); `MU_NOM` 0.7
+10/16 vs 9/16 (not significant). Single runs are chaotic: compare at n >= 16 only.
+
+**Speed.** `H_SCHED`: stand height fraction 0.95 -> 0.85 between 1.0 and 1.8 m/s commanded (quantised 0.01, slewed 0.05 /s). Flat auto gait, 4 seeds, no
+dispersion: constant 0.95 at 1.5 m/s 0/4 up; scheduled 1.5 m/s 4/4, 1.8 m/s 4/4, 2.0 m/s 1/4. Swing clearance at 0.85 is 2.8 cm (7.4 cm at
+0.95), below the 6 cm asked for. `dogtop` with the J^T stance torque (forced gaits, held-out n = 5, 0.95 / 0.90 / 0.85): v_top 1.25 / 1.75 / 2.25 m/s
+(trot and flying trot alike; held-out median 1.25 / 2.0 / 2.0). **Flat 3.5 m/s is NOT met (about 2.0-2.25 m/s).** Failing rungs end in a velocity
+shortfall (v_mean < 0.95 v_try) or a fall; the pack peak at the failing 0.85 rungs is 114-142 A, over the 120 A BMS limit. Tried without effect:
+`D_MAX` 0.23 (speed is not stride-limited), a velocity-reference integral trim.
+
+**Why J^T beat the WBC (answered).** The WBC's stance torque, not its force plan: with J^T stance torque the WBC matches J^T on pushes (above)
+and reaches 2.25 m/s at 0.85 (J^T's best in the older table: 2.5 m/s, flying trot at 0.95; not re-measured after this round).
+
+**Terrain families: no lever landed.** Training MC (10 seeds per family, 1000-1009, dispersion on): rubble 0/10, slopes 0/10, scree 1/10,
+ruins 0/10, criterion 0/6. Classified so far, from traces:
+
+- _slopes_: all 10 seeds fall within 2-4 s of the START: the harness drops the dog level at the highest ground point +1 cm on 8-29 deg ground
+  (20-40 cm height range under the footprint); even 6-9 deg starts fall. A start filter finds no route (the family has almost no flat ground).
+  A harness change to set the dog down on the fitted plane, body z along the normal, with the estimator initialised to that attitude, was built
+  and measured on seeds 1000-1007: still 8/8 falls inside 2 s (tilt 33-176 deg), so it was reverted. Standing on a 10-30 deg slope is outside
+  what the controller does; the 25 deg ramp xfail is the same limit.
+- _ruins_ (seed 1000): trot is clean to x = -9.8, then a step down/up gives a flight phase (no foot in contact, 0.4 s), tilt 14-19 deg, the
+  constraint relaxation fires 579 times, and the dog falls at 8-9 s. No swing apex or foothold adaptation to local height exists.
+- _rubble_, _scree_ seed 1000 are clean to 9 s / 13 s at the current code (fell at 4-12 s before the speed schedule and J^T stance torque:
+  the single-seed outcome changed, the family result did not).
+  Levers still open (not built; each is a feature, not a tune): foothold selection on the height map, swing apex from local terrain height,
+  body pitch to the slope, a step-up trajectory, the walk gait on rough ground (its flat-ground fall has no cause yet).
+
+**Final MC, fresh held-out seeds 31000-31039** (n = 40 per family, WBC with J^T stance torque, code `e9cc4f1`, `build/mc-final`, 200 runs, about
+2 h at 4 jobs; `dogmc.TEST_BASE` moved from 21000 to 31000 because 21000-21015 were used for the flat tuning):
+
+| family    | n   | success k/n (Wilson 95 %) | no-fall k/n (Wilson 95 %) | no-fall lower bound | mean speed of successful runs m/s |
+| --------- | --- | ------------------------- | ------------------------- | ------------------- | --------------------------------- |
+| rubble    | 40  | 0/40 (0-9 %)              | 0/40 (0-9 %)              | 0 %                 | -                                 |
+| slopes    | 40  | 0/40 (0-9 %)              | 0/40 (0-9 %)              | 0 %                 | -                                 |
+| scree     | 40  | 2/40 (1-17 %)             | 2/40 (1-17 %)             | 1 %                 | 1.06                              |
+| ruins     | 40  | 1/40 (0-13 %)             | 1/40 (0-13 %)             | 0 %                 | 1.03                              |
+| criterion | 40  | 0/40 (0-9 %)              | 0/40 (0-9 %)              | 0 %                 | -                                 |
+
+3 successes of 200 (previous round: 2 of 100). The terrain families are unchanged by this round. Flat ground with the same dispersion:
+13/16 up for 14 s (Wilson 95 %: 57-93 %), also below the 90 % target.
+
+**SP5 on the dog** (`coverage_smoke_dog` rubble training seeds 1-8, 0.4 m/s / 0.3 rad/s, C++ WBC, cap 120 s): falls at 33 / 4 / 4 / 47 / 10 / (up at
+120 s) / 26 / 69 s, 7 of 8 (before this round 31 / 4 / 116 / 51 / 9 / 74 / 26 / 11 s, 8 of 8). Within noise of the same locomotion limit. `dog_smoke`
+golden re-recorded (`27ffca55529022aa`): the J^T stance torque, POSTURE 0.7 and the stand-height schedule change the trajectory.
+
+**Recommendations (not decisions).** (1) 90 % no-fall on rubble / slopes / scree / ruins / criterion needs terrain features that do not exist yet
+(foothold selection, swing height from the map, slope-attitude control, step-up); the spec numbers (3.5 m/s flat, 1.5 m/s rocky, 25 deg, 15 cm,
+90 %) are not reachable by tuning of the present controller. (2) 3.5 m/s needs more than the 0.85 stand height: the pack hits 114-142 A at 2.5 m/s, so
+either a higher-voltage / second-class actuator pack or a lower spec (about 2 m/s is what is demonstrated). (3) Decide whether slope starts are
+in scope; a standing start on 10-30 deg ground is a different task from walking up it.
+
 ## Spec criteria (quadruped design s7)
 
-| criterion                                            | measured                                                                                                              | verdict                         |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| flat top speed >= 3.5 m/s                            | WBC flying trot 2.0 m/s (median and minimum of 5 held-out seeds; 2.25 on the training seed), J^T 2.25 median; Task 10 | **NOT met** (gap 1.25-1.5 m/s)  |
-| rocky field mean speed >= 1.5 m/s                    | no rubble run succeeded (0/20), so there is no mean speed; the only successful MC runs (scree) averaged 1.0 m/s       | **NOT met**                     |
-| 25-degree slopes and 15 cm steps traversed           | criterion course 0/20 (WBC), 0/10 (J^T); the 15 deg ramp is climbed (Task 8 test); 25 deg and 15 cm steps are not     | **NOT met**                     |
-| >= 90 % no-fall per terrain family, 95 % lower bound | no-fall lower bounds (WBC, n = 20 / 19): rubble 0 %, slopes 1 %, scree 3 %, ruins 0 %, criterion 0 %                  | **NOT met** in every family     |
-| BOM ~ 3-4.5 k USD                                    | 5,554 USD (SP3b, unchanged)                                                                                           | outside the plan's range (SP3b) |
+| criterion                                            | measured                                                                                                          | verdict                         |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| flat top speed >= 3.5 m/s                            | WBC (J^T stance torque, h 0.85) 2.0 m/s held-out median and minimum, 2.25 on the training seed; LOCO fix round 1  | **NOT met** (gap 1.25-1.5 m/s)  |
+| rocky field mean speed >= 1.5 m/s                    | no rubble run succeeded (0/20), so there is no mean speed; the only successful MC runs (scree) averaged 1.0 m/s   | **NOT met**                     |
+| 25-degree slopes and 15 cm steps traversed           | criterion course 0/20 (WBC), 0/10 (J^T); the 15 deg ramp is climbed (Task 8 test); 25 deg and 15 cm steps are not | **NOT met**                     |
+| >= 90 % no-fall per terrain family, 95 % lower bound | no-fall lower bounds (WBC, n = 40, 31000-31039): rubble 0 %, slopes 0 %, scree 1 %, ruins 0 %, crit. 0 %          | **NOT met** in every family     |
+| BOM ~ 3-4.5 k USD                                    | 5,554 USD (SP3b, unchanged)                                                                                       | outside the plan's range (SP3b) |
 
 (The coverage criterion is SP5's.)
 
@@ -367,11 +437,10 @@ module, built by `cmake -DNAPL_LOCO_CPP=ON`; the Python QP stays as the fallback
 - **No self-righting**: a dog that falls stays down (Task 9); the MC counts the fall as the failure.
 - **Terrain**: the 25 deg ramp, 15 cm steps, rubble, slopes, scree and ruins families are not traversed (0-10 % success); the walk gait falls on flat
   ground and is disabled (`WALK_ROUGH = False`), so rough ground is trotted with a 0.5 m/s cap; causes in the "Terrain (Task 8)" section.
-- **Disturbance rejection is weaker than the Task 9 envelope suggests**: random-phase pushes of 0.2-0.5 m/s, and a 1 kg payload, topple the dog on flat ground
-  (see "Where the failures come from"). The slip handling is validated on a synthetic statistic and a mud strip, not on a slide the dog recovers from.
-- **Stand height**: the shipped `H_FRAC = 0.95` caps the WBC's flat speed near 1 m/s (0.85 gives 2.0 m/s); a speed-scheduled height with a terrain
-  regression is the open follow-up (Task 10).
-- **J^T beats the WBC at speed** (2.25 vs 2.0 m/s median) and the cause is not established; the WBC stays the design's leg controller.
+- **Disturbance rejection**: after the J^T stance torque fix the flat dispersion MC stays up 13/16 (was 9/16); double pushes of 0.4-0.5 m/s still topple it. The slip handling is validated on a synthetic statistic and a mud strip, not on a slide the dog recovers from.
+- **Stand height**: now scheduled (`H_SCHED`, see "LOCO fix round 1"); swing clearance is 2.8 cm at speed; terrain regression of the schedule was
+  the existing terrain tests only (they pass), not a terrain MC at speed.
+- **J^T beat the WBC at speed** because of the WBC's stance torque, fixed in LOCO fix round 1; the WBC is the design's leg controller.
 - **Bound gait** is not viable with the current controller; the flying trot gains little over the trot (2.0 vs 2.25 m/s).
 - **SP5 stand-ins**: the height map is the ground truth, the pose fix is truth plus noise, routes are ground-truth A* (SP5 plans its own); the lidar is off.
 - **Inertia approximation** in the controller's model (point masses per link); **leg dynamics are not in the contact estimate**; the knee linkage ratio is

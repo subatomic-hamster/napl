@@ -35,7 +35,10 @@ FAMILIES = {  # family: (course, commanded speed m/s)
     "ruins": ("ruins", 1.2),
     "criterion": ("criterion", 0.8),
 }
-TRAIN_BASE, TEST_BASE = 1000, 21000
+TRAIN_BASE, TEST_BASE = (
+    1000,
+    31000,
+)  # 21000-21015 were spent on the flat push tuning (dogflat) in LOCO fix round 1
 SCRATCH = Path(
     os.environ.get("NAPL_MC_TMP", Path(tempfile.gettempdir()) / "napl-dog-mc")
 )

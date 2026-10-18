@@ -226,7 +226,16 @@ def main():
     ap.add_argument("--validate", type=int, default=0)
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--out", default="build/dog-top")
+    ap.add_argument(
+        "--set",
+        default="",
+        help="module constants for experiments, e.g. gait.D_MAX:0.22 (inherited by the pool workers)",
+    )
     a = ap.parse_args()
+    for s in filter(None, a.set.split(",")):
+        name, val = s.split(":")
+        mod, attr = name.split(".")
+        setattr(__import__(f"loco.{mod}", fromlist=[attr]), attr, float(val))
     gaits, legs = a.gaits.split(","), a.leg.split(",")
     todo = [
         (leg, g, prm, TRAIN_SEED, "train")
