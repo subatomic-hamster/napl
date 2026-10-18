@@ -1,6 +1,7 @@
 """Convex MPC on the single-rigid-body model (Di Carlo, Wensing, Katz, Bledt, Kim, "Dynamic Locomotion in the MIT Cheetah 3 Through Convex
-Model-Predictive Control", IROS 2018), solved by OSQP (Apache-2.0) in sparse form with a FIXED sparsity pattern (explicit zeros kept), so every
-solve is an `update` of values with a warm start. World frame; decision variables = ground reaction forces on the 4 feet over the horizon."""
+Model-Predictive Control", IROS 2018), solved by OSQP (Apache-2.0) in condensed form (states eliminated; a dense 144 x 144 Hessian and a FIXED
+constraint pattern), so every solve is an `update` of values with a warm start. World frame; decision variables = ground reaction forces on the
+4 feet over the horizon."""
 
 import numpy as np
 import osqp
@@ -22,6 +23,7 @@ NX, NU, G = 13, 12, 9.81
 # truth-state trot holds 0.93-1.0 m/s.
 Q_DIAG = np.array([2.5, 2.5, 10.0, 2.0, 2.0, 50.0, 1.0, 1.0, 0.3, 3.0, 3.0, 0.1, 0.0])
 ALPHA = 4e-6
+EPS = 1e-6  # OSQP absolute / relative tolerance (1e-4 let the 15 deg ramp fall: the closed loop is sensitive to the force accuracy; 1e-6 costs 6.0 ms vs 4.2 ms median)
 F_MIN, F_MAX = (
     2.0,
     300.0,
@@ -53,41 +55,34 @@ def pyramid(mu, n=None):
 class Mpc:
     def __init__(self, mass, inertia_body):
         self.m, self.Ib = float(mass), np.asarray(inertia_body, float)
-        self.nz = N * (NX + NU)
-        rows, cols = self._pattern()
+        # Condensed form: x = Sx x0 + Su u, decision variables = the forces u only (N*12 = 144), dense Hessian, 5 friction rows per
+        # (step, foot). With the state equalities kept as constraints (the first version, 300 variables) ADMM needed 300-850 iterations on
+        # the test problems and the stress-test median was 9 ms; condensed it needs about 75 and the forces agree with a 1e-7 solve to 0.03 N.
+        self.nu, self.nc = N * NU, N * 20
+        r, c = [], []
+        for k in range(N):
+            for i in range(4):
+                rr, cc = np.meshgrid(np.arange(5), np.arange(3), indexing="ij")
+                r.append((k * 20 + 5 * i + rr).ravel())
+                c.append((k * NU + 3 * i + cc).ravel())
         A0 = sp.coo_matrix(
-            (np.arange(1, len(rows) + 1, dtype=float), (rows, cols)),
-            shape=(self.nc, self.nz),
+            (
+                np.arange(1, sum(map(len, r)) + 1, dtype=float),
+                (np.concatenate(r), np.concatenate(c)),
+            ),
+            shape=(self.nc, self.nu),
         ).tocsc()
         self.perm = (A0.data - 1).astype(int)  # CSC data slot -> pattern entry
         self.A = A0
-        self.P = sp.diags(
-            np.concatenate([np.tile(Q_DIAG, N), np.full(N * NU, ALPHA)])
-        ).tocsc()
+        cols, rows = np.nonzero(
+            np.triu(np.ones((self.nu, self.nu), bool)).T
+        )  # upper triangle, column-major = CSC order
+        self.p_idx = (rows, cols)
+        self.P = sp.csc_matrix(
+            (np.ones(len(rows)), (rows, cols)), shape=(self.nu, self.nu)
+        )
+        self.qb = np.tile(Q_DIAG, N)
         self.prob, self.n_fail = None, 0
-
-    def _pattern(self):
-        r, c = [], []
-
-        def block(r0, c0, nr, nc):
-            rr, cc = np.meshgrid(np.arange(nr), np.arange(nc), indexing="ij")
-            r.append((r0 + rr).ravel())
-            c.append((c0 + cc).ravel())
-
-        for k in range(N):  # x_{k+1} at columns k*NX, u_k at N*NX + k*NU
-            block(k * NX, k * NX, NX, NX)
-            if k:
-                block(k * NX, (k - 1) * NX, NX, NX)
-            block(k * NX, N * NX + k * NU, NX, NU)
-        r0 = N * NX
-        for k in range(N):
-            for i in range(4):
-                block(
-                    r0, N * NX + k * NU + 3 * i, 5, 3
-                )  # 4 friction-pyramid rows + the fz row
-                r0 += 5
-        self.nc = r0
-        return np.concatenate(r), np.concatenate(c)
 
     def _ab(self, yaw, r):
         Rz = rz(yaw)
@@ -113,38 +108,42 @@ class Mpc:
             )  # zero-order hold
             Ads.append(Md[:NX, :NX])
             Bds.append(Md[:NX, NX:])
-        vals = []
-        for k in range(N):
-            vals += (
-                [np.eye(NX).ravel()]
-                + ([(-Ads[k]).ravel()] if k else [])
-                + [(-Bds[k]).ravel()]
-            )
-        for k in range(N):
-            for i in range(4):
-                vals.append(pyr[i].ravel())
-        Ax = np.concatenate(vals)[self.perm]
-        l, u = np.zeros(self.nc), np.zeros(self.nc)
-        l[:NX] = u[:NX] = Ads[0] @ x0
-        fr = np.arange(N * NX, self.nc).reshape(N, 4, 5)
-        l[fr[..., :4]] = -np.inf
+        # x_{k+1} = Ad_k x_k + Bd_k u_k  ->  X = Sx x0 + Su U (block lower triangular Su)
+        Su, Sx, P = np.zeros((N * NX, N * NU)), np.zeros((N * NX, NX)), np.eye(NX)
+        for i in range(N):
+            P = Ads[i] @ P
+            Sx[i * NX : (i + 1) * NX] = P
+        for j in range(N):
+            M = Bds[j]
+            for i in range(j, N):
+                Su[i * NX : (i + 1) * NX, j * NU : (j + 1) * NU] = M
+                if i + 1 < N:
+                    M = Ads[i + 1] @ M
+        Ax = np.concatenate([pyr[i].ravel() for _ in range(N) for i in range(4)])[
+            self.perm
+        ]
+        l, u = np.full(self.nc, -np.inf), np.zeros(self.nc)
+        fr = np.arange(self.nc).reshape(N, 4, 5)
         l[fr[..., 4]], u[fr[..., 4]] = (
             F_MIN * contact,
             F_MAX * contact,
-        )  # normal force n . f
+        )  # normal force n . f; the four pyramid rows are <= 0
         # force penalty about the static weight share (not about zero): the reference state is then an exact equilibrium, with a plain
         # alpha |u|^2 the optimum sags toward the end of the horizon and the first-step force at the reference is 11 % over the weight
         ns = np.maximum(contact.sum(axis=1), 1.0)
         u_ff = np.zeros((N, 4, 3))
         u_ff[:, :, 2] = contact * (self.m * G / ns)[:, None]
-        q = np.concatenate([-(xref * Q_DIAG).ravel(), -ALPHA * u_ff.ravel()])
+        H = Su.T @ (self.qb[:, None] * Su)
+        H[np.diag_indices_from(H)] += ALPHA
+        q = Su.T @ (self.qb * (Sx @ x0 - xref.ravel())) - ALPHA * u_ff.ravel()
+        Px = H[self.p_idx]
         if self.prob is None:
-            self.A.data = Ax
+            self.A.data, self.P.data = Ax, Px
             self.prob = osqp.OSQP()
-            self.prob.setup(sp.triu(self.P, format="csc"), q, self.A, l, u, warm_start=True, verbose=False, polish=False,
-                            eps_abs=1e-4, eps_rel=1e-4, max_iter=4000)  # fmt: skip
+            self.prob.setup(self.P, q, self.A, l, u, warm_start=True, verbose=False, polish=False,
+                            eps_abs=EPS, eps_rel=EPS, max_iter=4000)  # fmt: skip
         else:
-            self.prob.update(q=q, l=l, u=u, Ax=Ax)
+            self.prob.update(Px=Px, q=q, l=l, u=u, Ax=Ax)
         res = self.prob.solve()
         if res.info.status not in ("solved", "solved inaccurate"):
             self.n_fail += 1
@@ -154,4 +153,21 @@ class Mpc:
                 self.m * G / max(1, st.sum())
             )  # static share: keep standing through a failed solve
             return f, False
-        return res.x[N * NX : N * NX + NU].reshape(4, 3), True
+        f = res.x[:NU].reshape(4, 3)
+        # ADMM stops at a residual of ~1e-4 x |f|: project the first step onto the exact bounds (normal force, friction pyramid); a swing foot pushes nothing
+        for i in range(4):
+            if contact[0, i] <= 0:
+                f[i] = 0.0
+                continue
+            t1, t2, n = (
+                (pyr[i][0] - pyr[i][1]) / 2,
+                (pyr[i][2] - pyr[i][3]) / 2,
+                pyr[i][4],
+            )
+            fn = float(np.clip(f[i] @ n, F_MIN, F_MAX))
+            f[i] = (
+                fn * n
+                + np.clip(f[i] @ t1, -mu[i] * fn, mu[i] * fn) * t1
+                + np.clip(f[i] @ t2, -mu[i] * fn, mu[i] * fn) * t2
+            )
+        return f, True

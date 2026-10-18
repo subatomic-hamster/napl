@@ -27,9 +27,16 @@ Decision: **I/O per control tick with `Sim.set` is 2.99 ms (rule: > 1.0 ms -> St
 pinned by `tests/python/test_dog_loco_io.py::test_set_many_is_set_in_a_loop`). I/O per control tick is now 0.09 ms (read 40 us + write 54 us),
 about 5 % of the 2 ms tick; `Hw` uses `set_many` when the Sim has it. Reads stay Python (`Sim.query` is a direct solver read).
 
-Convex MPC (`tests/python/test_dog_mpc.py::test_solve_time_budget`, 100 solves, OSQP 1.1.3, N = 12 steps of 25 ms, sparse fixed pattern, warm
-start, hfbox with `OMP_NUM_THREADS=1`): **median 5.21 ms, max 10.33 ms** per solve against the 8 ms budget (40 % of the 20 ms MPC period); N
-stays 12. The MPC runs every 10th control tick, so it adds 0.5 ms per tick on average.
+Convex MPC (`tests/python/test_dog_mpc.py::test_solve_time_budget`, 100 solves, OSQP 1.1.3, N = 12 steps of 25 ms, condensed form, warm
+start, `EPS = 1e-6`, hfbox with `OMP_NUM_THREADS=1`): **median about 6.0 ms, max about 40 ms (first solves and load spikes)** per solve against the
+8 ms budget (the test asserts the median); N stays 12. The MPC runs every 10th control tick, so it adds 0.6 ms per tick on average.
+The first version (states kept as equality constraints, 300 variables) measured 9.2 ms median on an idle box and failed the test: profiling put
+7.3 ms of 8.4-9.9 in the OSQP call itself (300-850 ADMM iterations at 13 us), 1.3 ms in model building, 0.36 ms in `update`; settings (rho,
+alpha, sigma, check_termination) changed nothing robust, and Python overhead is not the cost, so a C++ port would not help. Eliminating the states
+(x = Sx x0 + Su u, 144 variables, dense Hessian) needs about 75 iterations and its forces agree with a 1e-7 solve to 0.03 N median (the sparse
+form: 39 N max). ADMM stops at a residual, so the first-step forces are projected onto the exact friction pyramid and force bounds before use
+(0.07 N over the pyramid and 1e-3 N on swing feet otherwise). Tolerance trade (median / max, idle box): 1e-4 4.2 / 36.6 ms, 1e-5 5.0 / 38.1,
+1e-6 6.0 / 41.5; 1e-4 let the 15 deg ramp test fall (the closed loop is sensitive to force accuracy), so 1e-6.
 
 ## Flat ground (Task 6)
 
@@ -371,4 +378,8 @@ module, built by `cmake -DNAPL_LOCO_CPP=ON`; the Python QP stays as the fallback
   constant 1.5 (SP3b measured 1.46-1.61).
 - **MC scale**: 30 x 30 m fields (object counts scaled by (30/100)^2 from the 100 m generator), n = 20 (WBC) / 10 (J^T) per family, so the 90 % criterion
   is unprovable at this n; one seed in 100 had no route (ruins, 21015) and is not counted.
-- **MPC timing test** `test_dog_mpc.py::test_solve_time_budget` fails when hfbox is loaded (13.9-19.7 ms vs 8 ms) and also at HEAD without these changes.
+- **MPC timing test** `test_dog_mpc.py::test_solve_time_budget` passes on an idle box after the condensed rewrite (median about 6 ms); under heavy
+  load (other jobs on hfbox) the median still rises above 8 ms.
+- **Stand creep**: the four-foot stand walks each foot inward at 2.4 mm/s (4.8 mm/s of width), unchanged between the sparse and the condensed MPC and
+  independent of the MPC lateral force (about 0.03 N), the stance joint damping (0.8 to 8 N m s/rad: same rate).
+  Cause not found; rung b now pins the creep rate (< 10 mm/s of width) and the shove slide (< 3 cm) separately instead of one cumulative width.

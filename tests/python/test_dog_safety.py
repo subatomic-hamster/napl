@@ -21,8 +21,8 @@ from loco import wbc as Wb
 
 needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 GOLDEN = {
-    "push": "2f3b3706cb51a5b5"
-}  # res["sim"]["state_hash"] of walk/push.scenario.toml with the C++ WBC
+    "push": "628c2645672cfdcf"
+}  # res["sim"]["state_hash"] of walk/push.scenario.toml with the C++ WBC (fix round 1: condensed MPC; 2f3b3706cb51a5b5 before)
 c = W.COLS.index
 
 

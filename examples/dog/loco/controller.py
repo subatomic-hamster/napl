@@ -38,7 +38,7 @@ A_CMD = 1.0  # m/s^2: slew limit of the velocity command inside the controller (
 LATE_REACH = False
 LEAD = 0.0  # s: the swing reference runs this far ahead of the clock (joint PD lag)
 S_LAND = 1.0  # fraction of the swing at which the swing curve reaches its target
-POSTURE = 0.7  # lean 70 % into a slope
+POSTURE = 0.5  # lean 50 % into a slope (0.7 climbed the 15 deg ramp only with the loose sparse MPC's force error; with the exact condensed solve 0.5 holds tilt < 7 deg, 0.85 / 1.0 fall at the ramp foot)
 Z_RATE, ANG_RATE = (
     0.25,
     0.5,
