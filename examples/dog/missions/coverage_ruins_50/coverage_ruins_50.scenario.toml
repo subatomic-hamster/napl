@@ -16,6 +16,7 @@ start_y = { value = -22.5, unit = "m", fidelity = "design", rationale = "A ruins
 start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east." }
 block = { value = 0.2, unit = "m", fidelity = "estimated", rationale = "At 0.5 m blocks the 0.8-1.6 m doors read closed (docs/dog/autonomy.md Coverage, ruins); 0.2 m keeps a block centre within 0.1 m of any door axis." }
 clearance = { value = 1, unit = "1", fidelity = "design", rationale = "Plan on the distance transform of the obstacle geometry (clearance.py), not on block lethality (one-sided, narrowed the doors: held-out 0/16)." }
+support = { value = 0.3, unit = "1", fidelity = "estimated", rationale = "Obstacle cells need 30 % of the largest wall-return count within 10 cm (half-maximum edge of the blurred wall image)." }
 sweep = { value = 0, unit = "1", fidelity = "design", rationale = "No lanes: a nearest-unmapped-gap tour from the start (frontier / room tour); the lanes shuttled between far lane ends through the maze." }
 tour = { value = 1, unit = "1", fidelity = "design", rationale = "Room tour by value density (planner.choose_view)." }
 fill_radius = { value = 3.5, unit = "m", fidelity = "estimated", rationale = "Floor within 3.5 m of a viewpoint counts as seen (Mid-360 reach through open doors)." }

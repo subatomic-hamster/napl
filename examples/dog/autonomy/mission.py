@@ -267,7 +267,13 @@ class Robot:
             ]:  # ruins: plan on the clearance of the obstacle geometry, not on block lethality
                 res = cfg["map"]["res"]
                 self.D = clearance.edt(
-                    clearance.obstacles(self.map.hn, res, cfg["trav"]["step_max"]), res
+                    clearance.obstacles(
+                        self.map.hn,
+                        res,
+                        cfg["trav"]["step_max"],
+                        self.map.support() if self.map.sup else None,
+                    ),
+                    res,
                 )
                 cost = clearance.block_cost(self.trav.L["known"], self.D, cfg)
                 kb = int(round(cfg["trav"]["block"] / res))
@@ -299,6 +305,21 @@ class Robot:
         near = self._near_wall(pose)
         if near:  # slower and a shorter lookahead next to walls: tracks a 0.8-1.6 m door within a few cm
             lim = {**lim, "v_max": min(lim["v_max"], P["near_wall_speed"])}
+        dh = (  # clearance at the robot (clearance mode only)
+            float(
+                clearance.sample(
+                    self.D, pose[0], pose[1], -cfg["map"]["size"] / 2, cfg["map"]["res"]
+                )
+            )
+            if self.D is not None
+            else None
+        )
+        back = (
+            P["reverse_speed"]
+            if near and dh is not None and dh < P["reverse_m"]
+            else 0.0
+        )
+        arc = P["arc_speed"] if dh is not None and dh >= P["arc_clear"] else 0.0
         vx, wz = (
             planner.pursue(
                 pose,
@@ -306,18 +327,8 @@ class Robot:
                 cfg,
                 lim,
                 P["near_wall_lookahead"] if near else None,
-                P["reverse_speed"]
-                if near
-                and self.D is not None
-                and clearance.sample(
-                    self.D,
-                    pose[0],
-                    pose[1],
-                    -cfg["map"]["size"] / 2,
-                    cfg["map"]["res"],
-                )
-                < P["reverse_m"]
-                else 0.0,
+                back,
+                arc,
             )
             if self.path
             else (0.0, 0.0)

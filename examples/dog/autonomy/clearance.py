@@ -14,9 +14,9 @@ GROUND_BLOCK = 2.0  # m: the ground level of a cell is the lowest known cell of 
 GROUND_PCT = 20.0  # percent: robust to the few low outliers (training seed 3: one -0.2 m cell made a 0.05 m cell an obstacle)
 
 
-def obstacles(hn, res, step_max):
+def obstacles(hn, res, step_max, support=None):
     """Known cells higher than the ground of their 2 m block (its GROUND_PCT percentile) by more than the step the body climbs;
-    isolated single cells (noise) are dropped."""
+    isolated single cells (noise) are dropped; with `support` (ElevationMap.support) only cells with enough wall returns."""
     n = hn.shape[0]
     k = max(int(round(GROUND_BLOCK / res)), 1)
     nb = n // k
@@ -34,6 +34,8 @@ def obstacles(hn, res, step_max):
     out[: nb * k, : nb * k] = np.isfinite(ground) & (
         hn[: nb * k, : nb * k] - ground > step_max
     )
+    if support is not None:
+        out &= support
     near = out.astype(np.int8)
     cnt = near.copy()
     cnt[1:] += near[:-1]

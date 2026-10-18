@@ -60,6 +60,9 @@ var_floor = { value = 1e-6, unit = "m^2", fidelity = "design", rationale = "Lowe
 var_mapped = { value = 0.0025, unit = "m^2", fidelity = "design", rationale = "A cell counts as mapped below (5 cm)^2 variance (spec: observed with variance below threshold)." }
 edge_range = { value = 0.10, unit = "m", fidelity = "design", rationale = "Scoring: a cell whose 3x3 ground-truth range exceeds 10 cm is an edge (wall / boulder side), where a 5 cm cell has no single height; edges are scored separately." }
 edge_margin = { value = 0.05, unit = "m", fidelity = "design", rationale = "Scoring: cells within this distance of a vertical discontinuity count as edges (0.05 = the 3x3 range test alone). Ruins scenarios raise it to 0.30 m, the localization tolerance: a wall face smeared by a pose error of a few cm to 30 cm reads as wall height on the floor beside it (ruins seed 1, floor rms 1.09 m within 2 cells of a wall, 0.2 m at 4-6 cells, 0.034 m beyond 8 cells)." }
+support = { value = 0.0, unit = "1", fidelity = "design", rationale = "Ruins: obstacle cells must hold at least this fraction of the largest high-return count within 2 cells (ElevationMap.support); 0 = off (rubble)." }
+support_close = { value = 3, unit = "cells", fidelity = "design", rationale = "Support mask is closed (dilate then erode) by this many cells, so the 0.3 m between the two faces of a wall stays wall." }
+support_z = { value = 0.4, unit = "m", fidelity = "design", rationale = "Returns above this height count as wall returns (flat ground: ruins)." }
 
 [trav]
 block = { value = 0.5, unit = "m", fidelity = "design", rationale = "Planning block = about one body length; 200 x 200 blocks keep Python A* within budget (decision 2)." }
@@ -102,6 +105,8 @@ near_wall_m = { value = 0.6, unit = "m", fidelity = "estimated", rationale = "A 
 near_wall_speed = { value = 1.5, unit = "m/s", fidelity = "design", rationale = "Speed cap near lethal blocks. 1.5 = v_max = no cap (rubble); ruins scenarios lower it." }
 near_wall_lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pursuit lookahead near lethal blocks. 1.0 = the open-ground lookahead (rubble); ruins scenarios shorten it so the path through a 0.8-1.6 m door is tracked within a few cm." }
 unstick_s = { value = 4.0, unit = "s", fidelity = "estimated", rationale = "Commanded to move but the estimated pose has not changed (< 5 cm, < 0.05 rad) for this long: back off for unstick_back_s (a blocked foot against a wall)." }
+arc_speed = { value = 0.5, unit = "m/s", fidelity = "estimated", rationale = "Clearance mode (ruins) only: a heading error above turn_in_place is turned on an arc at this speed (radius 0.5 m at wz_max) where the clearance is at least arc_clear, instead of on the spot; 0 = always on the spot." }
+arc_clear = { value = 0.9, unit = "m", fidelity = "estimated", rationale = "Arc turns only with this clearance: the arc radius 0.5 m plus the feet at 0.29 m." }
 reverse_m = { value = 0.4, unit = "m", fidelity = "estimated", rationale = "Reversing instead of turning only within this clearance of a wall (the feet reach 0.29 m); farther out the robot turns on the spot (reversing was 29 % of the time in the first tour runs: slow)." }
 reverse_speed = { value = 0.3, unit = "m/s", fidelity = "estimated", rationale = "Clearance mode (ruins) only: next to a wall a target behind the robot (> 90 deg) is reached by reversing, not by turning on the spot (the feet, 0.29 m from the centre, wedge against the wall)." }
 unstick_back_s = { value = 1.5, unit = "s", fidelity = "estimated", rationale = "Duration of the back-off at 0.4 m/s (alternating back / forward)." }

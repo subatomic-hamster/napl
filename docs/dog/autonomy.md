@@ -301,6 +301,49 @@ the brief suggested (exclude cells next to wall steps from the RMS fusion) was n
 Rubble regression with the final code: `coverage_rubble` training seeds 1-8 identical to before (8/8, 95.2-97.0 %, RMS 3.0 cm, home by
 1182 s, bumps 0 except 42 and 1); the `coverage_smoke` and `map_quality` goldens are unchanged (pinned test passes).
 
+#### Round 5: wall smear measured and cut, arc turns (`map.support`, `plan.arc_speed`, ruins only)
+
+Where the smear comes from (ruins seed 1, 400 s of the tour, mapped obstacles against the truth heightmap, `scratch` harness not
+committed). Wall returns (z > 0.5 m) lie on average 2.8 cm (p90 6 cm) from the true wall, independent of speed and yaw rate (a lidar
+scan is a snapshot, so no motion skew): the lateral error of the point cloud is about 4 cm (pose 2-3 cm, attitude 0.3 deg x 5 m, range
+2 cm), a blur of the wall edge. The Fankhauser rule takes any far-higher measurement as the new height, so the tail of the blur flags
+the floor beside the wall: cells 6-11 cm from a true wall were flagged obstacle 91 % of the time, 11-16 cm 41 %; median mapped N-S
+wall thickness 0.50 m (mean 1.1 m) against 0.30 m. A majority rule over two height modes per cell (written, tried, deleted) only took
+6-11 cm to 66 %, because high hits outnumber floor hits there.
+
+Fix: count the returns above 0.4 m per cell (`nhi`); an obstacle cell must hold at least 30 % of the largest count within 2 cells (the
+half-maximum edge of the blurred wall image), and the mask is closed by 3 cells so the gap between the two faces stays wall
+(`ElevationMap.support`, `clearance.obstacles(..., support)`). Same harness: 6-11 cm flagged 91 -> 24 %, 11-16 cm 41 -> 10 %, median
+thickness 0.50 -> 0.35 m (mean 0.56 m); wall centre cells flagged 75 % (0.30 support without the closing: 39 %, which made holes and
+2-3x the bumps). The height map itself is not changed, so the RMS metric and `edge_margin` 0.30 m (an existing scoring accommodation of
+the ruins scenario, not touched, no cells dropped) are as before. Arc turns: with a clearance at the robot of at least 0.9 m a heading
+error above `turn_in_place` is turned at 0.5 m/s and wz_max instead of on the spot.
+
+Training seeds 1-8, coverage / RMS: round 4 86 / 31 / 85 / 79 / 88 / 87 / 78 / 91 % (7 of 8 home); round 5 84 / 87 / 92 / 83 / 90 / 80 /
+84 / 73 % (RMS 3.7 / 2.3 / 3.8 / 5.6 / 4.8 / 5.0 / 5.9 / 2.5 cm; 5 of 8 home, 3 still driving at 1240 s). Seed 2 gets out of its pocket
+(31 -> 87 %), the others move by -18..+7 points; mean 84.2 % against 78.1 % (83.7 % against 84.9 % without seed 2: no gain elsewhere). Support 0.2 instead of 0.3 was
+tried (median 81 %, RMS 3-10 cm) and dropped. Bumps went up (100-2600 against 48-683): the thinner walls let the robot plan closer.
+
+| ruins 50 m, round 5                  | held-out 4001-4016 (fresh, run once) | 3001-3016 (already seen, round 4) |
+| ------------------------------------ | ------------------------------------ | --------------------------------- |
+| success (>= 95 %, RMS <= 5 cm, home) | **0/16, Wilson [0.000, 0.194]**      | 0/16, Wilson [0.000, 0.194]       |
+| coverage median / max                | 84.3 % / 93.7 %                      | 86.2 % / 94.2 %                   |
+| home at the end                      | 13 of 16                             | 15 of 16                          |
+| map RMS within 5 cm                  | 11 of 16                             | 5 of 16                           |
+| walled in (< 55 %)                   | 2 (4010 41 %, 4013 52 %)             | not counted                       |
+
+Verdict. The fix does what it was meant to: map RMS within 5 cm goes from 5 to 11 of 16 fresh seeds and the wall is 0.35 m, not 0.5 m.
+Coverage does not follow: the median is 2 points lower and two more seeds wall themselves in, so the success rate is still 0/16 (Wilson
+upper bound 19 %). The limit is path length, as in round 4: 800-980 m driven in 20 min, about 0.1 % of the site per metre, with
+the best seeds at 91-94 %. Turning on the spot is cut by the arcs, but the freed time did not buy coverage (the tour still backtracks and
+two seeds end in a pocket). Recommendation (the user decides): either relax the ruins criterion to what the hardware and tour deliver
+(about 85 % coverage at 20 min, RMS 5 cm), or keep 95 % and give the mission more time (at 0.1 % per metre the missing 10 points are
+about 100 m of path plus the backtracking; an estimate, not run), or change the assumption (a faster gait outdoors than 0.8 m/s near walls, or a lidar with a longer
+useful reach than 3.5 m in rooms). More tour tuning on this robot is unlikely to close 10 points. 2-opt on the tour was not tried.
+
+Rubble regression with the round 5 code: training seeds 1-8 identical (8/8, 95.2-97.0 %, RMS 3.0 cm, home by 1182 s, bumps 0 except 42
+and 1); goldens unchanged (pinned test passes). `support` defaults to 0 and `arc_*` only act in clearance mode, so rubble maps are untouched.
+
 Ruins 100 x 100 m: unchanged (not reachable, see Coverage).
 
 ## Upgrade path: GPU raycaster
