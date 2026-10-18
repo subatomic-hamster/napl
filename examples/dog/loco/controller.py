@@ -7,6 +7,7 @@ import numpy as np
 
 from . import gait as Gt
 from . import mpc as Mp
+from . import safety as Sf
 from . import terrain as Tr
 from . import wbc as Wb
 from .estimator import Estimator
@@ -30,7 +31,6 @@ LEG_CTLS = (
 )  # whole-body QP (Task 7), Jacobian-transpose leg controller (the measured baseline)
 T_WARM = 0.64  # s: two trot periods of stepping in place before the velocity command is released
 T_STANDUP = 1.2  # s
-MU_NOM = 0.5  # MPC friction: below rock 0.8 / grass 0.6 / gravel 0.55 (napl.terrain MATERIALS); slip handling lowers it (Task 9)
 TD_PEN = 0.02  # m: swing curves end this far below the ground
 A_CMD = 1.0  # m/s^2: slew limit of the velocity command inside the controller (2.0 fell in 1 of 8 launches at 1 m/s, 1.0 in 0 of 8)
 # A scheduled-stance foot without contact yet: True = leave the MPC's stance set and reach down on the swing PD (leaves the diagonal partner as
@@ -97,7 +97,9 @@ class Controller:
         self.legs = list(model.legs.values())
         self.mode, self.k, self.t_mode = "STANDUP", 0, 0.0
         self.f = np.zeros((4, 3))
-        self.mu = np.full(4, MU_NOM)
+        self.safety = Sf.Safety()  # slip -> per-foot MPC friction (Sf.MU_NOM = 0.5: below rock 0.8 / grass 0.6 / gravel 0.55, napl.terrain MATERIALS)
+        self.mu = self.safety.mu
+        self.q_fall0 = None
         self.h_frac = H_FRAC
         self._sf = None
         self.rough = False  # steps or a steep slope ahead (refreshed at 50 Hz)
@@ -178,7 +180,18 @@ class Controller:
             if a >= 1.0:
                 self._enter("STAND")
             return
+        if self.mode in ("FALLEN", "SIT"):
+            self._down(st, q)
+            return
+        if self.safety.fallen(st, self.h_stand()):
+            self.q_fall0 = q.copy()
+            self._enter("FALLEN")
+            self._down(st, q)
+            return
         raw = np.asarray(cmd, float)
+        raw = np.r_[
+            raw[:2] * self.safety.speed_scale, raw[2]
+        ]  # a slip slows the command for T_SLOW s
         if self.k % MPC_EVERY == 0 and self.mode in ("STAND", "WALK"):
             self.rough = Tr.rough_ahead(
                 self.map, st.p[:2], st.rpy[2], 0.8
@@ -209,6 +222,9 @@ class Controller:
                 Gt.choose(aim, self.rough and WALK_ROUGH) if moving else "stand"
             )
         phases = self.sched.advance(DT, st.contact)
+        if self.safety.update(st, phases, q, dq, self.legs, DT) == "slip":
+            self.stats["n_slip"] += 1
+        self.mu = self.safety.mu
         self.t_gait = 0.0 if self.sched.g.name == "stand" else self.t_gait + DT
         if (
             self.sched.g.name == "stand" or not LATE_REACH
@@ -226,6 +242,43 @@ class Controller:
         self.hw.send(
             *(self._legs_wbc if self.wbc else self._legs)(st, cmd, phases, q, dq)
         )
+
+    def _down(self, st, q):
+        """FALLEN: fold the legs to a sit over a third of T_FALL_WAIT (soft gains), then go limp (damping only); after T_FALL_WAIT stand up
+        when the estimated tilt is below TILT_STANDUP, else stay down (SIT, limp). No self-righting."""
+        T = Sf.T_FALL_WAIT
+        if self.mode == "SIT" or self.t_mode >= T / 3:
+            self.hw.send(
+                q, np.zeros(12), np.zeros(12), np.full(12, Sf.KD_SIT), np.zeros(12)
+            )
+        else:
+            a = self.t_mode / (T / 3)
+            tgt = self.q_fall0 + (self.m.stand_q(0.55) - self.q_fall0) * a
+            self.hw.send(
+                tgt,
+                np.zeros(12),
+                np.full(12, Sf.KP_SIT),
+                np.full(12, Sf.KD_SIT),
+                np.zeros(12),
+            )
+        if self.mode == "FALLEN" and self.t_mode >= T:
+            if np.degrees(np.hypot(st.rpy[0], st.rpy[1])) < Sf.TILT_STANDUP:
+                self._restart(q, st)
+            else:
+                self._enter("SIT")
+
+    def _restart(self, q, st):
+        """Stand up from where it lies: a fresh estimator, scheduler, references and safety state, then STANDUP from the current joints."""
+        self.est.reset(q, st.p[:2], st.rpy[2])
+        self.q0 = q.copy()
+        self.sched = Gt.Scheduler("stand")
+        self.safety = Sf.Safety()
+        self.mu = self.safety.mu
+        self.wbc_ref, self._ref, self.yaw_ref = None, None, None
+        self.cmd_f, self.t_gait = np.zeros(3), 0.0
+        self.was_stance[:] = True
+        self._sset = (True,) * 4
+        self._enter("STANDUP")
 
     def _enter(self, mode):
         if (
@@ -357,7 +410,10 @@ class Controller:
         v_cmd_w = Mp.rz(yaw) @ [cmd[0], cmd[1], 0.0]
         if self.was_stance[i] or not np.any(self.target[i]):
             self.lift[i] = p + R @ r
-        nom = self.stand_feet()[i]
+        nom = self.stand_feet()[i].copy()
+        nom[1] += (
+            np.sign(nom[1]) * self.safety.widen
+        )  # after a slip: a wider stance (outward of the body centre line)
         hip_td = p + R @ np.array([nom[0], nom[1], 0.0]) + v_cmd_w * lp.t_to_td
         xy = Gt.nominal_foothold(
             hip_td,

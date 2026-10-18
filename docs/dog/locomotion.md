@@ -162,3 +162,31 @@ is `xfail(strict=True)`. What the diagnosis found, in order:
 
 Deviations: `dogcourse` scales the rock / boulder / scree counts of the 30 m fields by (30/100)^2 (the generator's defaults are for 100 m);
 `rubble` uses seed 1 as in the plan's scenario (wet rock start), no seed was picked for a result.
+
+## Slips, pushes, falls (Task 9)
+
+`loco/safety.py`. Slip: a stance foot (estimated contact, > 20 ms after touchdown) whose world velocity exceeds `SLIP_V = 0.25 m/s` for
+`SLIP_TICKS` ticks gets its MPC friction lowered by 0.15 (floor 0.2), the stance widened by 3 cm and the command scaled to 0.6 for 2 s; mu
+recovers at 0.05 per s. Fall: tilt > 40 deg, or > 25 deg while rolling faster than 4 rad/s, or body under half the stand height -> legs fold to a
+sit with soft gains (kp 20 / kd 1), then limp; after 1.5 s the dog stands up again if tilt < 30 deg, else stays down. **There is no self-righting:
+a dog on its back or side stays down.**
+
+Deviation: `SLIP_TICKS = 40` (80 ms), the plan has 3. Evidence: the estimator's lateral velocity lags the truth after a push (est 0.05-0.14 vs
+true 0.5 m/s for about 50 ms; an error of 0.2-0.4 m/s lasts up to 26 ticks), so with 3 ticks a 0.5 m/s push read as a slip on three feet, mu fell
+to 0.35 / 0.21, the command dropped to 0.6 and the dog fell; with 40 ticks it recovers (vx 1.02 at 6 s). On the mud strip at 1.0 m/s the dog does
+not slide at all (only 20 ms touchdown transients of 0.2-0.4 m/s): 3 ticks fired 4 false slips and cost 15 % of the speed (mean 0.845), 40 ticks
+give n_slip 0, mean 0.903, strip crossed. The plan's "slip detected on the mud crossing" is therefore replaced by two tests: no false slip on the
+crossing, and a real slide (1 m/s kick on the mud) is detected (n_slip >= 1, mu lowered). Kicks of 1.0 and 1.5 m/s on mud are detected (n_slip 2
+and 4) but the dog falls anyway; recovery from a slide is not claimed.
+
+Push envelope (sideways velocity step at t = 5 s, flat, trot 1.0 m/s, 10 s, WBC C++, 5 seeds each):
+
+| push (m/s)         | no fall  | note                                      |
+| ------------------ | -------- | ----------------------------------------- |
+| 0.25               | 5/5      | speed back to 0.96-0.97, tilt max 2.3 deg |
+| 0.50               | 5/5      | speed back to 0.96-0.98, tilt max 4.3 deg |
+| 0.75               | 0/5      | all fall                                  |
+| 1.00 / 1.25 / 1.50 | 0/5 each | all fall                                  |
+
+The limit lies between 0.5 and 0.75 m/s. It is not the slip logic: with slip detection off (`SLIP_TICKS` huge) 0.75 and 1.0 m/s kicks still fall
+(seeds 1, 2: 4/4 fell, n_slip 0). The plan's scenario push (0.5 m/s) passes with a golden (`push.scenario.toml`).
