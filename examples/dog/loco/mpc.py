@@ -37,6 +37,19 @@ def rz(yaw):
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
+def pyramid(mu, n=None):
+    """(5, 3) rows of the friction pyramid about the unit ground normal n (default world up) on a world-frame foot force f: four rows
+    `row . f <= 0` (|f . t1|, |f . t2| <= mu f . n) and the normal-force row `n . f` (bounded F_MIN..F_MAX by the callers)."""
+    if n is None or not np.any(n[:2]):
+        return np.array(
+            [[1, 0, -mu], [-1, 0, -mu], [0, 1, -mu], [0, -1, -mu], [0, 0, 1]], float
+        )
+    t1 = np.array([1.0, 0.0, 0.0]) - n[0] * n
+    t1 /= np.linalg.norm(t1)
+    t2 = np.cross(n, t1)
+    return np.array([t1 - mu * n, -t1 - mu * n, t2 - mu * n, -t2 - mu * n, n])
+
+
 class Mpc:
     def __init__(self, mass, inertia_body):
         self.m, self.Ib = float(mass), np.asarray(inertia_body, float)
@@ -87,7 +100,11 @@ class Mpc:
             B[9:12, 3 * i : 3 * i + 3] = np.eye(3) / self.m
         return A, B
 
-    def solve(self, x0, xref, r_feet, contact, mu):
+    def solve(self, x0, xref, r_feet, contact, mu, normals=None):
+        """normals (4, 3): unit ground normal per foot (the friction cones' axes); None = world up."""
+        pyr = [
+            pyramid(mu[i], None if normals is None else normals[i]) for i in range(4)
+        ]
         Ads, Bds = [], []
         for k in range(N):
             A, B = self._ab(xref[k, 2], r_feet[k])
@@ -105,23 +122,16 @@ class Mpc:
             )
         for k in range(N):
             for i in range(4):
-                vals.append(
-                    np.array(
-                        [
-                            [1, 0, -mu[i]],
-                            [-1, 0, -mu[i]],
-                            [0, 1, -mu[i]],
-                            [0, -1, -mu[i]],
-                            [0, 0, 1],
-                        ]
-                    ).ravel()
-                )
+                vals.append(pyr[i].ravel())
         Ax = np.concatenate(vals)[self.perm]
         l, u = np.zeros(self.nc), np.zeros(self.nc)
         l[:NX] = u[:NX] = Ads[0] @ x0
         fr = np.arange(N * NX, self.nc).reshape(N, 4, 5)
         l[fr[..., :4]] = -np.inf
-        l[fr[..., 4]], u[fr[..., 4]] = F_MIN * contact, F_MAX * contact
+        l[fr[..., 4]], u[fr[..., 4]] = (
+            F_MIN * contact,
+            F_MAX * contact,
+        )  # normal force n . f
         # force penalty about the static weight share (not about zero): the reference state is then an exact equilibrium, with a plain
         # alpha |u|^2 the optimum sags toward the end of the horizon and the first-step force at the reference is 11 % over the weight
         ns = np.maximum(contact.sum(axis=1), 1.0)

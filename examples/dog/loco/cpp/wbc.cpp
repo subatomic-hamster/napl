@@ -66,6 +66,21 @@ struct Kin {
   std::array<Vec3, 4> r;  // foot ball centre, trunk frame
 };
 
+// mpc.pyramid: rows of the friction pyramid about the unit normal n on a world-frame force (4 rows <= 0, then n . f)
+static Eigen::Matrix<double, 5, 3> pyramid(double m, const Vec3 &n) {
+  Eigen::Matrix<double, 5, 3> r;
+  if (n[0] == 0 && n[1] == 0) {
+    r << 1, 0, -m, -1, 0, -m, 0, 1, -m, 0, -1, -m, 0, 0, 1;
+    return r;
+  }
+  Vec3 t1 = Vec3::UnitX() - n[0] * n;
+  t1.normalize();
+  Vec3 t2 = n.cross(t1);
+  r.row(0) = (t1 - m * n).transpose(), r.row(1) = (-t1 - m * n).transpose(), r.row(2) = (t2 - m * n).transpose(), r.row(3) = (-t2 - m * n).transpose();
+  r.row(4) = n.transpose();
+  return r;
+}
+
 struct Wbc {
   std::array<Leg, 4> legs;
   std::vector<Link> links;
@@ -79,7 +94,7 @@ struct Wbc {
   OSQPCscMatrix Pm, Am;
   std::vector<OSQPFloat> Px, Ax, lv, uv, qv;
   std::vector<OSQPInt> Pi, Pp, Ai, Ap;
-  int n_fail = 0;
+  int n_fail = 0, n_relaxed = 0, status = 0;
 
   explicit Wbc(nb::object model) {
     nb::module_ W = nb::module_::import_("loco.wbc"), Mp = nb::module_::import_("loco.mpc");
@@ -208,7 +223,10 @@ struct Wbc {
   }
 
   nb::object solve(const Vec3 &p, const Mat3 &R, const Vec3 &w, const Vec3 &v, const VecX &q, const VecX &dq, const Mat43 &f_mpc, nb::object stance_o,
-                   const VecX &mu, nb::tuple body_ref, nb::tuple swing) {
+                   const VecX &mu, nb::tuple body_ref, nb::tuple swing, nb::object normals_o) {
+    Mat43 normals;
+    if (normals_o.is_none()) normals << 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1;
+    else normals = nb::cast<Mat43>(normals_o);
     bool stance[4];
     for (int i = 0; i < 4; i++) stance[i] = PyObject_IsTrue(stance_o[nb::int_(i)].ptr()) == 1;
     Vec3 p_ref = nb::cast<Vec3>(body_ref[0]), v_ref = nb::cast<Vec3>(body_ref[1]);
@@ -272,18 +290,19 @@ struct Wbc {
     M.block<6, 6>(0, 0) = A.block<6, 6>(0, 0), M.block<6, 12>(0, 6) = -JcT.topRows<6>();
     lo.head(6) = up.head(6) = -h.head(6);
     for (int i = 0; i < 4; i++) {
-      double m = mu[i];
-      Eigen::Matrix<double, 5, 3> rows;
-      rows << 1, 0, -m, -1, 0, -m, 0, 1, -m, 0, -1, -m, 0, 0, 1;
+      Eigen::Matrix<double, 5, 3> rows = pyramid(mu[i], normals.row(i).transpose());
       int r0 = 6 + 5 * i;
       M.block<5, 3>(r0, 6 + 3 * i) = rows;
       Vec3 fr = f_ref.segment<3>(3 * i);
       Eigen::Matrix<double, 4, 1> ub = -(rows.topRows<4>() * fr);
+      double fn = rows.row(4).dot(fr);  // normal force of the reference
       for (int r = 0; r < 4; r++) lo[r0 + r] = -OSQP_INFTY, up[r0 + r] = ub[r];
-      lo[r0 + 4] = F_MIN * stance[i] - fr[2], up[r0 + 4] = F_MAX * stance[i] - fr[2];
+      lo[r0 + 4] = F_MIN * stance[i] - fn, up[r0 + 4] = F_MAX * stance[i] - fn;
     }
     M.block<12, 6>(26, 0) = A.block<12, 6>(6, 0), M.block<12, 12>(26, 6) = -JcT.bottomRows<12>();
     lo.tail(12) = -tau_max - h.tail(12), up.tail(12) = tau_max - h.tail(12);
+    for (int j = 0; j < 12; j++)  // torque limits bind the stance legs' joints only (see wbc.py); a swing joint is clipped after the solve
+      if (!stance[j / 3]) lo[26 + j] = -OSQP_INFTY, up[26 + j] = OSQP_INFTY;
     for (int j = 0; j < NV; j++)
       for (int r = 0; r < NC; r++) Ax[j * NC + r] = M(r, j);
     for (int r = 0; r < NC; r++) lv[r] = std::max(lo[r], -OSQP_INFTY), uv[r] = std::min(up[r], OSQP_INFTY);
@@ -300,7 +319,18 @@ struct Wbc {
       ok = osqp_update_data_mat(solver, nullptr, nullptr, 0, Ax.data(), nullptr, 0) == 0 &&
            osqp_update_data_vec(solver, nullptr, lv.data(), uv.data()) == 0;
     }
-    if (ok) ok = osqp_solve(solver) == 0 && (solver->info->status_val == OSQP_SOLVED || solver->info->status_val == OSQP_SOLVED_INACCURATE);
+    if (ok) {
+      ok = osqp_solve(solver) == 0;
+      status = solver->info->status_val;
+      ok = ok && (status == OSQP_SOLVED || status == OSQP_SOLVED_INACCURATE);
+      if (!ok) {  // pyramids and torque limits cannot both hold: keep the pyramids, drop the torque rows, the clip below saturates (see wbc.py)
+        for (int r = 26; r < NC; r++) lv[r] = -OSQP_INFTY, uv[r] = OSQP_INFTY;
+        n_relaxed++;
+        ok = osqp_update_data_vec(solver, nullptr, lv.data(), uv.data()) == 0 && osqp_solve(solver) == 0;
+        status = solver->info->status_val;
+        ok = ok && (status == OSQP_SOLVED || status == OSQP_SOLVED_INACCURATE);
+      }
+    }
     VecX qj = q;
     if (!ok) {
       n_fail++;
@@ -319,7 +349,10 @@ struct Wbc {
 NB_MODULE(loco_wbc_cpp, m) {
   nb::class_<Wbc>(m, "Wbc")
       .def(nb::init<nb::object>())
-      .def("solve", &Wbc::solve)
+      .def("solve", &Wbc::solve, nb::arg("p"), nb::arg("R"), nb::arg("w"), nb::arg("v"), nb::arg("q"), nb::arg("dq"), nb::arg("f_mpc"),
+           nb::arg("stance"), nb::arg("mu"), nb::arg("body_ref"), nb::arg("swing"), nb::arg("normals") = nb::none())
       .def("debug", &Wbc::debug)
-      .def_prop_ro("n_fail", [](const Wbc &w) { return w.n_fail; });
+      .def_prop_ro("n_fail", [](const Wbc &w) { return w.n_fail; })
+      .def_prop_ro("n_relaxed", [](const Wbc &w) { return w.n_relaxed; })
+      .def_prop_ro("status", [](const Wbc &w) { return w.status; });  // OSQP status_val of the last solve (1 solved, 2 inaccurate, -3 / -4 infeasible, -2 max iter)
 }

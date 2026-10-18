@@ -39,6 +39,27 @@ LATE_REACH = False
 LEAD = 0.0  # s: the swing reference runs this far ahead of the clock (joint PD lag)
 S_LAND = 1.0  # fraction of the swing at which the swing curve reaches its target
 POSTURE = 0.7  # lean 70 % into a slope
+Z_RATE, ANG_RATE = (
+    0.25,
+    0.5,
+)  # m/s, rad/s: fastest the terrain-derived height and posture references may move
+WALK_ROUGH = False  # the walk gait for steps / steep ground: it falls on FLAT ground with both leg controllers (docs/dog/locomotion.md), so rough ground trots
+REACH_LO, REACH_HI = (
+    0.6,
+    0.95,
+)  # hip pitch point to foot distance, fraction of the straight leg: the support height keeps every foot inside
+
+
+def rot_x(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+
+def rot_y(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+
+
 YAW_LEAD = 0.3  # rad: the heading reference stays this close to the actual yaw
 MODES = ("STANDUP", "STAND", "WALK", "FALLEN", "SIT")
 
@@ -78,6 +99,15 @@ class Controller:
         self.f = np.zeros((4, 3))
         self.mu = np.full(4, MU_NOM)
         self.h_frac = H_FRAC
+        self._sf = None
+        self.rough = False  # steps or a steep slope ahead (refreshed at 50 Hz)
+        self._ref, self._k_ref = (
+            None,
+            0,
+        )  # rate-limited terrain references (roll, pitch, support z)
+        self.normals = np.tile(
+            [0.0, 0.0, 1.0], (4, 1)
+        )  # ground normal under each foot (friction cone axes), refreshed at 50 Hz
         self.lift = np.zeros((4, 3))  # world lift-off point of each swing
         self.target = np.zeros((4, 3))  # world touchdown target of each swing
         self.was_stance = np.ones(4, bool)
@@ -97,7 +127,16 @@ class Controller:
     # ---- model-derived constants ------------------------------------------------------------------------------------------------
     def stand_feet(self):
         """(4, 3) nominal feet (ball centres) in the trunk frame at the stand pose."""
-        return self.m.feet(self.m.stand_q(self.h_frac))
+        if (
+            self._sf is None or self._sf[0] != self.h_frac
+        ):  # 20-iteration IK on four legs: 80 % of the run time when redone every tick
+            q = self.m.stand_q(self.h_frac)
+            self._sf = (self.h_frac, self.m.feet(q), q)
+        return self._sf[1].copy()
+
+    def stand_q(self):
+        self.stand_feet()
+        return self._sf[2].copy()
 
     def h_stand(self):
         """Trunk origin above the ball centres at the stand pose."""
@@ -128,7 +167,7 @@ class Controller:
         self.t_mode += DT
         if self.mode == "STANDUP":
             a = min(1.0, self.t_mode / T_STANDUP)
-            tgt = self.q0 + (self.m.stand_q(self.h_frac) - self.q0) * a
+            tgt = self.q0 + (self.stand_q() - self.q0) * a
             self.hw.send(
                 tgt,
                 np.zeros(12),
@@ -140,6 +179,16 @@ class Controller:
                 self._enter("STAND")
             return
         raw = np.asarray(cmd, float)
+        if self.k % MPC_EVERY == 0 and self.mode in ("STAND", "WALK"):
+            self.rough = Tr.rough_ahead(
+                self.map, st.p[:2], st.rpy[2], 0.8
+            ) or Tr.steep_ahead(self.map, st.p[:2], st.rpy[2], 0.8)
+        if (
+            self.rough
+        ):  # steps or a steep slope ahead: the walk gait, at the speed it covers
+            s, vmax = np.linalg.norm(raw[:2]), Gt.GAITS["walk"].v_max
+            if s > vmax:
+                raw = np.r_[raw[:2] * vmax / s, raw[2]]
         # launch: the gait steps in place for T_WARM before the velocity command is released (a trot started while accelerating at 2 m/s^2 flies
         # and falls in 2 of 4 seeds; stepping in place first, 0 of 4)
         cmd = self._slew(raw if self.t_gait >= T_WARM else np.zeros(3))
@@ -156,8 +205,9 @@ class Controller:
         if self.mode == "STAND" and moving:
             self._enter("WALK")
         if self.mode == "WALK":
-            rough = Tr.rough_ahead(self.map, st.p[:2], st.rpy[2], 0.8)
-            self.sched.request(Gt.choose(aim, rough) if moving else "stand")
+            self.sched.request(
+                Gt.choose(aim, self.rough and WALK_ROUGH) if moving else "stand"
+            )
         phases = self.sched.advance(DT, st.contact)
         self.t_gait = 0.0 if self.sched.g.name == "stand" else self.t_gait + DT
         if (
@@ -198,6 +248,40 @@ class Controller:
         self.cmd_f = self.cmd_f + d
         return self.cmd_f
 
+    def _terrain_ref(self, roll, pitch, z):
+        """The terrain-derived body references (posture plane, support height) move at most Z_RATE m/s and ANG_RATE rad/s: a front foot landing on
+        a ramp or a step makes them jump, and a stiff MPC answers a 10 cm height jump with a thrust that launches the dog."""
+        want = np.array([roll, pitch, z])
+        if self._ref is None:
+            self._ref = want.copy()
+        dt = max(self.k - self._k_ref, 1) * DT
+        self._k_ref = self.k
+        lim = np.array([ANG_RATE, ANG_RATE, Z_RATE]) * dt
+        self._ref = self._ref + np.clip(want - self._ref, -lim, lim)
+        return float(self._ref[0]), float(self._ref[1]), float(self._ref[2])
+
+    def _reach_clip(self, st, yaw, pts, roll, pitch, z_foot):
+        """Support height limited so that every foot (stance where it is, swing where it lands) stays within [REACH_LO, REACH_HI] of its leg's
+        straight length from its hip pitch point at the posture the MPC is asked to hold. The height and the posture planes are rate-limited
+        separately, so at the foot of a ramp the height reference outruns the nose-up reference and the hind legs, still on the flat, run out
+        of leg (knee at 0 rad: no torque margin, the dog pitches over)."""
+        Rr = Mp.rz(yaw) @ rot_y(POSTURE * pitch) @ rot_x(POSTURE * roll)
+        h0 = self.h_stand()
+        lo, hi = -np.inf, np.inf
+        for i, L in enumerate(self.legs):
+            lmax = np.linalg.norm(L.foot0 - L.p[1])
+            hip = Rr @ L.p[1]
+            dxy2 = np.sum((st.p[:2] + hip[:2] - pts[i, :2]) ** 2)
+            up = np.sqrt(max((REACH_HI * lmax) ** 2 - dxy2, 0.0))
+            dn = np.sqrt(max((REACH_LO * lmax) ** 2 - dxy2, 0.0))
+            base = (
+                pts[i, 2] - hip[2]
+            )  # trunk origin height for the hip level with the foot
+            lo, hi = max(lo, base + dn), min(hi, base + up)
+        z_t = z_foot + h0
+        z_t = 0.5 * (lo + hi) if lo > hi else min(max(z_t, lo), hi)
+        return z_t - h0
+
     # ---- MPC (50 Hz) ------------------------------------------------------------------------------------------------------------
     def _mpc(self, st, cmd, phases):
         R, m = st.R, self.m
@@ -208,18 +292,43 @@ class Controller:
         dyaw = self.yaw_ref - yaw  # |dyaw| <= YAW_LEAD (step() keeps it)
         roll_p, pitch_p, zg = Tr.plane(self.map, c[:2], yaw)
         v_w = Mp.rz(yaw) @ np.array([cmd[0], cmd[1], 0.0])
-        z_ref = (
-            zg + self.m.legs["fl"].r_foot + self.h_stand() + m.com[2] + self.body_ref[0]
-        )
+        z_foot = (
+            zg + self.m.legs["fl"].r_foot
+        )  # ball centres under the trunk: flat ground
+        if not isinstance(self.map, Tr.FlatMap):
+            # the body rides at the stand height over the feet (stance feet where they are, swing feet where they will land), not over the terrain
+            # under the CoM: at the foot of a ramp the plane under the CoM is already rising while the legs are still on the flat (the legs
+            # straighten, the knee torque limit binds). The posture plane goes through the same four points: with the body plane a ramp lifts the
+            # nose by 15 deg while the hind feet are still on the flat and unloads them
+            pts = np.array(
+                [
+                    st.feet[i]
+                    if (lp.stance and not lp.late) or not np.any(self.target[i])
+                    else self.target[i]
+                    for i, lp in enumerate(phases)
+                ]
+            )
+            ry = Mp.rz(yaw)[:2, :2].T @ (pts[:, :2] - pts[:, :2].mean(0)).T
+            a, b, _ = np.linalg.lstsq(
+                np.column_stack([ry.T, np.ones(4)]), pts[:, 2], rcond=None
+            )[0]
+            roll_p, pitch_p = float(np.arctan(b)), float(-np.arctan(a))
+            z_foot = float(pts[:, 2].mean())
+        roll_p, pitch_p, z_foot = self._terrain_ref(roll_p, pitch_p, z_foot)
+        if not isinstance(self.map, Tr.FlatMap):
+            z_foot = self._reach_clip(st, yaw, pts, roll_p, pitch_p, z_foot)
+        z_ref = z_foot + self.h_stand() + m.com[2] + self.body_ref[0]
         xref = np.zeros((Mp.N, Mp.NX))
         r = np.zeros((Mp.N, 4, 3))
         # standing: the CoM is held over the feet (a reference that follows the CoM leaves the position loop open and the body drifts out of the
         # support polygon after a push); walking: the position reference follows the CoM, only the velocity is tracked
         base_xy = st.feet[:, :2].mean(0) if self.sched.g.name == "stand" else c[:2]
+        # on a slope the trunk climbs with the ground: z rate = ground slope (yaw frame) x commanded velocity (0.0 on flat ground)
+        vz = float(np.tan(-pitch_p) * cmd[0] + np.tan(roll_p) * cmd[1]) + 0.0
         for k in range(Mp.N):
             t = (k + 1) * Mp.DT
-            xref[k] = [POSTURE * roll_p + self.body_ref[1], POSTURE * pitch_p + self.body_ref[2], yaw + dyaw + cmd[2] * t, base_xy[0] + v_w[0] * t, base_xy[1] + v_w[1] * t, z_ref,
-                       0.0, 0.0, cmd[2], v_w[0], v_w[1], 0.0, -Mp.G]  # fmt: skip
+            xref[k] = [POSTURE * roll_p + self.body_ref[1], POSTURE * pitch_p + self.body_ref[2], yaw + dyaw + cmd[2] * t, base_xy[0] + v_w[0] * t, base_xy[1] + v_w[1] * t, z_ref + vz * t,
+                       0.0, 0.0, cmd[2], v_w[0], v_w[1], vz, -Mp.G]  # fmt: skip
         # lever arms about where the CoM will actually be (the current CoM carried along at the commanded velocity), not about the position
         # REFERENCE: standing with the CoM 1 cm off the reference, the reference-based arms miss the m g x offset torque and the MPC balances a
         # body that is not there (the slow lateral divergence of rung b)
@@ -228,7 +337,12 @@ class Controller:
         for i, lp in enumerate(phases):
             foot = st.feet[i] if lp.stance else self.target[i]
             r[:, i] = foot - com_path
-        f, ok = self.mpc.solve(x0, xref, r, self.sched.table(Mp.N, Mp.DT), self.mu)
+            self.normals[i] = Tr.normal(
+                self.map, foot[:2]
+            )  # the friction cone of a foot is about the ground normal under it
+        f, ok = self.mpc.solve(
+            x0, xref, r, self.sched.table(Mp.N, Mp.DT), self.mu, self.normals
+        )
         self.f = f
         self.stats["mpc_fail"] = self.mpc.n_fail
         rr, rp, ry = xref[0, 0], xref[0, 1], xref[0, 2]
@@ -343,9 +457,16 @@ class Controller:
             self.mu,
             self.wbc_ref,
             (sx, sv),
+            self.normals,
         )
+        self.stats["wbc_relaxed"] = (
+            self.wbc.n_relaxed
+        )  # ticks that needed the torque rows dropped
         if not out.ok:
             self.stats["wbc_fail"] += 1
+            self.stats["wbc_status"] = (
+                self.wbc.status
+            )  # OSQP status of the last failure (diagnosis)
             return self._legs(st, cmd, phases, q, dq)  # this tick on J^T
         sw = np.repeat(~stance, 3)
         kpm = np.concatenate([L.kp_max for L in self.legs])

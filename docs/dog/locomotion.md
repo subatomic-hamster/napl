@@ -108,9 +108,57 @@ the MPC stance of |F_true| - |f_mpc|, per m g, t > 3 s):
 | 4    | 0.974  | 0.018         | 0.075         | 0.963 | 0.012        | 0.140        |
 
 No fall in any run. The WBC realizes the MPC forces about twice as accurately as J^T and has no stumbling seed (J^T seed 3 drifts to y = 0.79 m).
-Scenario `walk/trot.scenario.toml` (default `leg_ctl = "wbc"`, seed 1): passes, replay matches, golden `9ed76c26537ef5fa`. Hardening that was
+Scenario `walk/trot.scenario.toml` (default `leg_ctl = "wbc"`, seed 1): passes, replay matches, golden `092d213d8df922d8` (Task 8 made the
+swing-joint torque rows free, see below; it was `9ed76c26537ef5fa` before). Hardening that was
 needed (not tuning): damped pseudo-inverses (an undamped one sent a swing joint to +-100 rad at the straight-leg singularity) and the same
 joint-step (0.3 rad) and velocity (40 rad/s) clips as the J^T path's IK. No gain of `wbc.py` was changed from the plan's values.
 
 Naming deviation: the WBC's body reference is `Controller.wbc_ref` (the plan called it `body_ref`, which the ladder harness already uses for its
 (dz, droll, dpitch) array).
+
+## Terrain (Task 8)
+
+Built (all of it pure map maths on the height-map interface, `loco/terrain.py`; the flat map takes a fast path that returns the nominal, so the
+flat trot is bit-identical apart from the WBC change below): footholds off edges and holes (`foothold`), swing apex over the highest ground on the
+path capped at `APEX_MAX = 0.12 m` (`apex_over`; an uncapped apex of 0.4-0.5 m folded a hind leg under the body in a rubble run), a ground
+normal per foot (`normal`) that tilts the friction pyramids of the MPC and the WBC (`mpc.pyramid(mu, n)`), a posture plane and a support height
+from the four feet (stance feet where they are, swing feet at their targets) instead of the terrain under the CoM, both rate-limited
+(`Z_RATE` 0.25 m/s, `ANG_RATE` 0.5 rad/s), and a reach clip (`Controller._reach_clip`: the support height keeps every hip pitch point within
+0.6-0.95 of the straight leg from its foot at the posture the MPC is asked for). `rough_ahead` (a riser above 8 cm per 5 cm) and `steep_ahead`
+(over 12 deg per 0.3 m, separate because the plan's test wants the 25 deg ramp not to be `rough_ahead`) cap the speed at 0.5 m/s.
+The WBC's swing-joint torque rows are free (only the stance legs' torques are bound) and, when a QP is infeasible, it is solved once more with
+all torque rows dropped and the torques clipped afterwards (`wbc_relaxed`); with bound swing rows the 25 deg ramp made the QP infeasible
+whenever a swing foot was asked for more than the drivers give.
+
+Measured (hfbox, seed 1 unless stated, WBC C++). Criterion course (flat, ramp up, plateau, two 15 cm steps up and down, ramp down), trot at
+0.5 m/s, `dogcourse.RAMP_DEG` varied:
+
+| ramp   | result                                                                                      |
+| ------ | ------------------------------------------------------------------------------------------- |
+| 10 deg | climbed to the plateau, no fall; falls at the first 15 cm step (x = -4.1 m, t = 20 s)       |
+| 15 deg | climbed to the plateau (tilt 9 deg on the ramp), no fall; falls or stalls at the first step |
+| 20 deg | falls at the foot of the ramp (t = 10 s, tilt 37 deg at x = -8.9 m)                         |
+| 25 deg | falls at the foot of the ramp (0.25 and 0.5 m/s alike, so not a speed limit)                |
+
+`test_trot_climbs_a_15_degree_ramp_and_stands_on_the_plateau` pins the 15 deg result. **The 25 deg ramp, the 15 cm steps and the rubble field
+are NOT achieved**: `stairs` and `rubble` fail their monitors (`reaches_the_end`, `never_falls`), so they have no golden and their scenario test
+is `xfail(strict=True)`. What the diagnosis found, in order:
+
+- At the foot of a 25 deg ramp the feet are 0.25-0.3 m apart in height over a 0.65 m span while the posture reference follows only 70 % of the
+  plane and is rate-limited; the hind legs, still on the flat, then reach full extension (knee 0.06 rad) and the QP has no feasible torque
+  (`wbc_relaxed` climbs from 0 to 100 in 0.6 s). The reach clip and a full-plane posture (`POSTURE = 1.0`) move the failure, they do not remove it
+  (stalled low at the ramp foot instead of flipping). J^T falls at the same place, so it is not the WBC.
+- Walk gait: forced on FLAT ground at 0.3 m/s it falls with both leg controllers (tilt grows 11 -> 29 deg; falls at 4-5 s with the plan's
+  period 0.6 s, at 8 s with 1.2 s). The cause is not found (the contact set the MPC loads and the feet that touch differ: all four feet
+  leave the ground within a step). `WALK_ROUGH = False` in `controller.py` therefore keeps rough ground on the trot (a deviation from the plan,
+  where `rough` selects the walk); `gait.choose(.., rough=True)` still returns walk and is unchanged.
+- Trot speed: the swing-leg feed-forward torque saturates (knee 44 N*m) at about 1.3 m/s; a flat trot commanded 1.6 m/s falls at 5 s. This is
+  the Task 10 top-speed question, but it also means the plan's rubble scenario (1.8 m/s) is out of reach at the moment.
+- Rubble seed 9 (a route entirely on rock) at 1.0 m/s: 7 m of the route covered in 8 s, then a stance leg runs to the end of its workspace on flat ground
+  (hip 0.27, knee -0.06 rad), the knee torque pegs at 44 N*m and the leg is thrown up to 0.5 m. Seed 1 starts on wet rock (mu 0.35, below
+  `MU_NOM = 0.5`) and slips at launch; with `MU_NOM = 0.3` it reaches 1.6 m/s and then fails the same way. Slip handling is Task 9.
+- Untested idea, not a finding: the estimator takes the map height under the estimated stance foot position, which at a 15 cm riser is a 15 cm
+  error for a 2 cm position error (its `feet_z` read 0.1-0.3 m above the true ground on the step).
+
+Deviations: `dogcourse` scales the rock / boulder / scree counts of the 30 m fields by (30/100)^2 (the generator's defaults are for 100 m);
+`rubble` uses seed 1 as in the plan's scenario (wet rock start), no seed was picked for a result.

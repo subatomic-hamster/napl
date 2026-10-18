@@ -20,8 +20,8 @@ from loco import wbc as Wb
 
 needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 GOLDEN = {
-    "trot": "9ed76c26537ef5fa"
-}  # res["sim"]["state_hash"] of walk/trot.scenario.toml with the C++ WBC (Task 7 Step 5; the J^T trot of Task 6 was b3a9d5997271ab5a); re-record if a later task changes the trot
+    "trot": "092d213d8df922d8"
+}  # res["sim"]["state_hash"] of walk/trot.scenario.toml with the C++ WBC (Task 8 Step 5: the swing-joint torque rows became free, 9ed76c26537ef5fa in Task 7; the J^T trot of Task 6 was b3a9d5997271ab5a); re-record if a later task changes the trot
 LEGS = ("fl", "fr", "rl", "rr")
 c = W.COLS.index
 

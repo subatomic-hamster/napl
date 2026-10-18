@@ -129,9 +129,12 @@ class Wbc:
         self.A_qp = sp.csc_matrix(
             np.ones((self.nc, 18))
         )  # dense pattern, explicit entries everywhere (values set per solve)
-        self.prob, self.n_fail = None, 0
+        self.prob, self.n_fail, self.n_relaxed, self.status = None, 0, 0, ""
 
-    def solve(self, p, R, w, v, q, dq, f_mpc, stance, mu, body_ref, swing):
+    def solve(
+        self, p, R, w, v, q, dq, f_mpc, stance, mu, body_ref, swing, normals=None
+    ):
+        """normals (4, 3): unit ground normal per foot, the friction pyramids' axes (None = world up)."""
         u = np.r_[v, w, dq]
         A, b, g = dynamics(self.m, R, q, u)
         Ainv = np.linalg.inv(A)
@@ -177,25 +180,23 @@ class Wbc:
         M[0:6, 0:6], M[0:6, 6:] = A[0:6, 0:6], -JcT[0:6]
         l[0:6] = up[0:6] = -h[0:6]
         for i in range(4):
-            rows = np.array(
-                [
-                    [1, 0, -mu[i]],
-                    [-1, 0, -mu[i]],
-                    [0, 1, -mu[i]],
-                    [0, -1, -mu[i]],
-                    [0, 0, 1],
-                ]
-            )
+            rows = Mp.pyramid(mu[i], None if normals is None else normals[i])
             r0 = 6 + 5 * i
             M[r0 : r0 + 5, 6 + 3 * i : 9 + 3 * i] = rows
             fr = f_ref[3 * i : 3 * i + 3]
+            fn = rows[4] @ fr  # normal force of the reference
             l[r0 : r0 + 4], up[r0 : r0 + 4] = -np.inf, -(rows[:4] @ fr)
             l[r0 + 4], up[r0 + 4] = (
-                Mp.F_MIN * stance[i] - fr[2],
-                Mp.F_MAX * stance[i] - fr[2],
+                Mp.F_MIN * stance[i] - fn,
+                Mp.F_MAX * stance[i] - fn,
             )
         M[26:, 0:6], M[26:, 6:] = A[6:, 0:6], -JcT[6:]
-        l[26:], up[26:] = -self.tau_max - h[6:], self.tau_max - h[6:]
+        # torque limits bind the STANCE legs' joints (the ground forces can move them); a swing joint's torque is set by the swing task and no
+        # force changes it much: a hard bound there makes the QP infeasible when the swing foot is asked for more than the drivers give (the
+        # 25 deg ramp), so a swing joint is only clipped to its limit after the solve (the swing task then lags, as a saturated driver would)
+        free = np.repeat(~stance, 3)
+        l[26:] = np.where(free, -np.inf, -self.tau_max - h[6:])
+        up[26:] = np.where(free, np.inf, self.tau_max - h[6:])
         Ax = M.ravel(order="F")  # CSC of a dense pattern = column-major values
         if self.prob is None:
             self.A_qp.data = Ax
@@ -205,6 +206,16 @@ class Wbc:
         else:
             self.prob.update(Ax=Ax, l=l, u=up)
         res = self.prob.solve()
+        self.status = res.info.status
+        if res.info.status not in ("solved", "solved inaccurate"):
+            # the friction pyramids and the drivers' torque limits cannot both hold (a stance leg that must carry its own weight while the MPC
+            # leaves its foot nearly unloaded, a leg at full extension): keep the pyramids, drop the torque rows and let the clip below saturate
+            # the torque like the driver does (the realized force is then below the command; counted in n_relaxed)
+            l[26:], up[26:] = -np.inf, np.inf
+            self.prob.update(l=l, u=up)
+            res = self.prob.solve()
+            self.status = res.info.status
+            self.n_relaxed += 1
         if res.info.status not in ("solved", "solved inaccurate"):
             self.n_fail += 1
             return WbcOut(
@@ -216,9 +227,10 @@ class Wbc:
             )
         z = res.x
         f = f_ref + z[6:]
+        self.tau_raw = h[6:] + A[6:, 0:6] @ z[0:6] - JcT[6:] @ z[6:]
         tau = np.clip(
-            h[6:] + A[6:, 0:6] @ z[0:6] - JcT[6:] @ z[6:], -self.tau_max, self.tau_max
-        )  # clip = solver tolerance only
+            self.tau_raw, -self.tau_max, self.tau_max
+        )  # stance joints: solver tolerance only; swing joints: the limit of the driver
         return WbcOut(
             np.clip(q + dpos[6:], q - STEP_MAX, q + STEP_MAX),
             np.clip(dvel[6:], -V_MAX, V_MAX),

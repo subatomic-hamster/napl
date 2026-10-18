@@ -84,7 +84,9 @@ def setup(model, p, log=True, audit=False):
     st = c.inf.get("start", [0.0, 0.0, 0.0])
     c.ctl.set_pose(st[:2], c.tr.yaw())
     c.fix = dogtruth.PoseFix(c.tr, p["seed"])
-    c.fol = None
+    c.fol = (
+        dogcourse.Follower(c.inf["route"], p["v_cmd"]) if c.inf.get("route") else None
+    )
     c.pushes = list(p.get("pushes") or ()) + (
         [(p["push_t"], (0.0, p["push_dv"], 0.0))] if p.get("push_dv") else []
     )
