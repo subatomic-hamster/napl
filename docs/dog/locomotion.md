@@ -190,6 +190,7 @@ Push envelope (sideways velocity step at t = 5 s, flat, trot 1.0 m/s, 10 s, WBC 
 
 The limit lies between 0.5 and 0.75 m/s. It is not the slip logic: with slip detection off (`SLIP_TICKS` huge) 0.75 and 1.0 m/s kicks still fall
 (seeds 1, 2: 4/4 fell, n_slip 0). The plan's scenario push (0.5 m/s) passes with a golden (`push.scenario.toml`).
+All of these pushes are at t = 5.0 s, i.e. one gait phase; other phases were not measured, and the Monte Carlo's random-phase pushes of 0.2-0.5 m/s do topple the dog (see "Monte Carlo").
 
 ## Top speed (Task 10)
 
@@ -285,3 +286,89 @@ at the default height reaches 2.5 m/s where the WBC fails at 1.0 (J^T does not c
 force tracking is what fails: it is not, force RMS 0.13-0.19 m g at the top rungs); a higher bus voltage within the drivers' rating (hardware: raises
 the no-load speed, but the speed was not what failed); the other sweep points (knee ratio 2.0, leg 0.25 m: the measured column does not rank them); the AK70-9
 class (actuator study: 2.8 m/s trot bound, +2.2 k USD; not measured here).
+
+## Monte Carlo (Task 11)
+
+`examples/dog/dogmc.py`: per run a new 30 x 30 m field of the family (terrain seed = run seed; criterion: the fixed course), a ground-truth A*
+route (15-20 m asked, `dogcourse.route`; ruins routes came out at about 38 m), plant dispersion the controller does not know (payload 0-1 kg at
++-3 / +-2 cm, IMU gyro bias N(0, 0.005 rad/s) and accel bias N(0, 0.05 m/s^2), two lateral pushes of 0.2-0.5 m/s at random times in 4-12 s), pose-fix
+noise, lidar off. Verdicts from ground truth (`dogtruth`), never from the controller's fall detector. Commanded speeds: rubble 1.8, slopes 1.0, scree
+1.2, ruins 1.2, criterion 0.8 m/s. Code revision `136d4e7` + the uncommitted `dogmc.py` (the commit of this task). Held-out seeds 21000...,
+flown once with the final code; **nothing was tuned, so the tuning block (seeds 1000...) was not used for tuning** (it was used for one stand-height
+A/B below).
+
+**n per family.** WBC: n = 20 per family (100 runs, 58 min at 4 parallel jobs; real-time factor 0.33-0.73 sim-s per wall-s per job, longest the ruins
+routes). J^T baseline: n = 10 per family. The plan's n = 100 / 30 were not run: at this speed n = 100 per family is about 4.5 h of the shared box
+with 4 jobs, and the result could not have moved (no run in 100 passes any criterion but 2). With n = 20 the best possible no-fall lower bound is
+84 % (20 of 20), with n = 10 it is 72 %: **the 90 % criterion cannot be demonstrated with these n even by a perfect controller**; the Wilson
+bound is reported next to the rate as the spec asks.
+
+WBC (default stand height 0.95; `build/dog-mc` = `locomotion-mc.md`), held-out seeds 21000-21019:
+
+| family    | n                            | success k/n (Wilson 95 %) | no-fall k/n (Wilson 95 %) | no-fall lower bound | mean / median speed of successful runs m/s | failures           | slips | MPC failures |
+| --------- | ---------------------------- | ------------------------- | ------------------------- | ------------------- | ------------------------------------------ | ------------------ | ----- | ------------ |
+| rubble    | 20                           | 0/20 (0-16 %)             | 0/20 (0-16 %)             | 0 %                 | -                                          | fall 20            | 0     | 0            |
+| slopes    | 20                           | 0/20 (0-16 %)             | 1/20 (1-24 %)             | 1 %                 | -                                          | fall 19, timeout 1 | 0     | 0            |
+| scree     | 20                           | 2/20 (3-30 %)             | 2/20 (3-30 %)             | 3 %                 | 1.01 / 1.01                                | fall 18            | 1     | 0            |
+| ruins     | 19 (+1 seed without a route) | 0/19 (0-17 %)             | 0/19 (0-17 %)             | 0 %                 | -                                          | fall 19            | 1     | 0            |
+| criterion | 20                           | 0/20 (0-16 %)             | 0/20 (0-16 %)             | 0 %                 | -                                          | fall 20            | 0     | 0            |
+
+J^T baseline (same seeds 21000-21009, `build/dog-mc-jt`):
+
+| family    | n   | success k/n (Wilson 95 %) | no-fall k/n (Wilson 95 %) | no-fall lower bound | mean / median speed of successful runs m/s | failures          | slips | MPC failures |
+| --------- | --- | ------------------------- | ------------------------- | ------------------- | ------------------------------------------ | ----------------- | ----- | ------------ |
+| rubble    | 10  | 0/10 (0-28 %)             | 0/10 (0-28 %)             | 0 %                 | -                                          | fall 10           | 5     | 0            |
+| slopes    | 10  | 0/10 (0-28 %)             | 1/10 (2-40 %)             | 2 %                 | -                                          | fall 9, timeout 1 | 0     | 0            |
+| scree     | 10  | 2/10 (6-51 %)             | 2/10 (6-51 %)             | 6 %                 | 0.98 / 0.98                                | fall 8            | 6     | 0            |
+| ruins     | 10  | 0/10 (0-28 %)             | 0/10 (0-28 %)             | 0 %                 | -                                          | fall 10           | 0     | 0            |
+| criterion | 10  | 0/10 (0-28 %)             | 0/10 (0-28 %)             | 0 %                 | -                                          | fall 10           | 1     | 0            |
+
+The two controllers fail alike; neither is a usable terrain walker in this MC. Every run that did not succeed is a fall by ground truth (one slopes
+run timed out upright). The 2 successful scree runs are seeds 21001 and 21009; their speed is 1.0 m/s against the commanded 1.2.
+
+**Where the failures come from (diagnostics, held-out seeds, WBC).** (1) _Terrain alone_: the same fields and routes without any dispersion
+(`--over '{"no_disp": 1}'`, n = 10 per family, `build/dog-mc-nodisp`): rubble 0/10, slopes 0/10 (no-fall 1/10), scree 3/10, ruins 0/10, criterion 0/10.
+The terrain results of Task 8 stand: the dog does not traverse these fields with or without dispersion. (2) _Dispersion alone is also not
+survivable_ (flat ground, 1.0 m/s, 14 s, an ad-hoc harness script that is not committed, seeds 21000-21007 with the MC's draw): 7 of 8 fell. Ablated on seeds 21000-21003: the two
+pushes alone: 1 of 4 stayed up (falls with pushes of 0.48 m/s at 7.6 s and 0.45 m/s at 11.6 s on seed 21000, 0.46 m/s at 6.0 s and 0.34 m/s at 7.0 s on
+21001, 0.27 m/s at 10.4 s and 0.4 m/s at 11.7 s on 21003); IMU biases alone: 4 of 4 up; a 1.0 kg payload at +-3 / +-2 cm alone (seed 21001, payload 1.00 kg): fell, the other three payloads
+(0.03-0.85 kg) stayed up. Two caveats on the Task 9 push envelope follow: it was measured at one gait phase only (a push at exactly 5.0 s, 15.6 gait
+periods in, so essentially one gait phase for all seeds), and the MC pushes arrive at random phases and the second one may land during the recovery of the
+first. The 0.5 m/s "recovered 5/5" is therefore a value at one phase, not an envelope (the phase dependence was not measured). Not investigated further: which phase is worst, and why a 1 kg payload
+(9 % of the mass, 3 cm offset, unmodelled by the controller) topples the trot.
+(3) _Stand height_: a paired A/B of the stand height fraction 0.95 (default) vs 0.85 on the tuning seeds 1000-1004 of each family (25 runs each):
+0/25 successes and 0/25 no-fall at both. The stand height that lifts the flat top speed (Task 10) does not make the terrain pass.
+
+**Compute: Python vs C++.** WBC solve on a trot pose: Python 9.21 ms median, C++ 0.26 ms median (budget 1.0 ms at 500 Hz): **C++** (the `loco_wbc_cpp`
+module, built by `cmake -DNAPL_LOCO_CPP=ON`; the Python QP stays as the fallback and the reference). Everything in this MC ran the C++ WBC. The MPC
+(OSQP, 50 Hz) stays Python: median 5.2 ms unloaded (13.9-19.7 ms on a loaded hfbox, where its timing test fails; also at HEAD before this work).
+
+## Spec criteria (quadruped design s7)
+
+| criterion                                            | measured                                                                                                              | verdict                         |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| flat top speed >= 3.5 m/s                            | WBC flying trot 2.0 m/s (median and minimum of 5 held-out seeds; 2.25 on the training seed), J^T 2.25 median; Task 10 | **NOT met** (gap 1.25-1.5 m/s)  |
+| rocky field mean speed >= 1.5 m/s                    | no rubble run succeeded (0/20), so there is no mean speed; the only successful MC runs (scree) averaged 1.0 m/s       | **NOT met**                     |
+| 25-degree slopes and 15 cm steps traversed           | criterion course 0/20 (WBC), 0/10 (J^T); the 15 deg ramp is climbed (Task 8 test); 25 deg and 15 cm steps are not     | **NOT met**                     |
+| >= 90 % no-fall per terrain family, 95 % lower bound | no-fall lower bounds (WBC, n = 20 / 19): rubble 0 %, slopes 1 %, scree 3 %, ruins 0 %, criterion 0 %                  | **NOT met** in every family     |
+| BOM ~ 3-4.5 k USD                                    | 5,554 USD (SP3b, unchanged)                                                                                           | outside the plan's range (SP3b) |
+
+(The coverage criterion is SP5's.)
+
+## Known gaps
+
+- **No self-righting**: a dog that falls stays down (Task 9); the MC counts the fall as the failure.
+- **Terrain**: the 25 deg ramp, 15 cm steps, rubble, slopes, scree and ruins families are not traversed (0-10 % success); the walk gait falls on flat
+  ground and is disabled (`WALK_ROUGH = False`), so rough ground is trotted with a 0.5 m/s cap; causes in the "Terrain (Task 8)" section.
+- **Disturbance rejection is weaker than the Task 9 envelope suggests**: random-phase pushes of 0.2-0.5 m/s, and a 1 kg payload, topple the dog on flat ground
+  (see "Where the failures come from"). The slip handling is validated on a synthetic statistic and a mud strip, not on a slide the dog recovers from.
+- **Stand height**: the shipped `H_FRAC = 0.95` caps the WBC's flat speed near 1 m/s (0.85 gives 2.0 m/s); a speed-scheduled height with a terrain
+  regression is the open follow-up (Task 10).
+- **J^T beats the WBC at speed** (2.25 vs 2.0 m/s median) and the cause is not established; the WBC stays the design's leg controller.
+- **Bound gait** is not viable with the current controller; the flying trot gains little over the trot (2.0 vs 2.25 m/s).
+- **SP5 stand-ins**: the height map is the ground truth, the pose fix is truth plus noise, routes are ground-truth A* (SP5 plans its own); the lidar is off.
+- **Inertia approximation** in the controller's model (point masses per link); **leg dynamics are not in the contact estimate**; the knee linkage ratio is
+  constant 1.5 (SP3b measured 1.46-1.61).
+- **MC scale**: 30 x 30 m fields (object counts scaled by (30/100)^2 from the 100 m generator), n = 20 (WBC) / 10 (J^T) per family, so the 90 % criterion
+  is unprovable at this n; one seed in 100 had no route (ruins, 21015) and is not counted.
+- **MPC timing test** `test_dog_mpc.py::test_solve_time_budget` fails when hfbox is loaded (13.9-19.7 ms vs 8 ms) and also at HEAD without these changes.
