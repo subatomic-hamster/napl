@@ -124,7 +124,9 @@ class DriftOdom:
         return Odom(t, self.p.copy(), q, np.zeros(3), np.zeros(3), False)
 
 
-def sky_blocked(sim, p, cfg):
+def sky_blocked(sim, p, cfg, r_min=0.0):
+    """r_min: hits closer than this are the robot's own body (the legged robot's antenna sits inside its trunk geometry and
+    Sim.raycast has no body exclusion)."""
     G = cfg["gnss"]
     n, el = int(G["sky_az"]), G["sky_elev"]
     az = 2 * math.pi * np.arange(n) / n
@@ -137,7 +139,9 @@ def sky_blocked(sim, p, cfg):
         axis=1,
     )
     r = np.asarray(sim.raycast(p, d))
-    return bool(((r >= 0) & (r <= G["sky_range"])).mean() >= G["sky_block"])
+    return bool(
+        ((r >= r_min) & (r <= G["sky_range"])).mean() >= G["sky_block"]
+    )  # ponytail: a first hit inside r_min counts as open sky (the ray cannot see past its own body)
 
 
 class Carrier:
@@ -209,7 +213,16 @@ class Carrier:
         if self._blocked(x, y, yaw):
             self.bumps += 1
             self.v[:2] = 0.0
-            x, y = self.x, self.y
+            # a blocked step never leaves the body in contact (it used to keep the new yaw: feet inside a wall, every later step
+            # blocked, a permanent trap: ruins mission, 7441 bumps); slide: the move alone, else the turn alone, else stay
+            if self._blocked(x, y, self.yaw):
+                x, y = self.x, self.y
+                if self._blocked(x, y, yaw):
+                    yaw = self.yaw
+                    self.v[2] = 0.0
+            else:
+                yaw = self.yaw
+                self.v[2] = 0.0
         self.distance += math.hypot(x - self.x, y - self.y)
         self.x, self.y, self.yaw = x, y, yaw
         self.p, self.q = terrain_pose(self.f, self.cfg, x, y, yaw)

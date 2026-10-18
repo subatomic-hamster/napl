@@ -55,7 +55,7 @@
       "v_swing": 2.5391715369965833,
       "v_stance": 0.0,
       "v_trot_bound": 0.0,
-      "v_top_trot": null,
+      "v_top_trot": 1.9551053217607433,
       "cot": null
     },
     {
@@ -84,7 +84,7 @@
       "v_swing": 2.589954967736515,
       "v_stance": 0.0,
       "v_trot_bound": 0.0,
-      "v_top_trot": null,
+      "v_top_trot": 2.4377699596075257,
       "cot": null
     },
     {
@@ -113,7 +113,7 @@
       "v_swing": 2.569399769579876,
       "v_stance": 0.0,
       "v_trot_bound": 0.0,
-      "v_top_trot": null,
+      "v_top_trot": 2.458304283564112,
       "cot": null
     },
     {
@@ -142,7 +142,7 @@
       "v_swing": 2.5391715369965833,
       "v_stance": 0.0,
       "v_trot_bound": 0.0,
-      "v_top_trot": null,
+      "v_top_trot": 1.9531327233638927,
       "cot": null
     },
     {
@@ -171,7 +171,7 @@
       "v_swing": 2.589954967736515,
       "v_stance": 0.0,
       "v_trot_bound": 0.0,
-      "v_top_trot": null,
+      "v_top_trot": 2.4443378330770837,
       "cot": null
     },
     {
@@ -200,7 +200,7 @@
       "v_swing": 2.569399769579876,
       "v_stance": 0.0,
       "v_trot_bound": 0.0,
-      "v_top_trot": null,
+      "v_top_trot": 2.462816502164078,
       "cot": null
     },
     {
@@ -229,7 +229,7 @@
       "v_swing": 3.4078354838638356,
       "v_stance": 1.356971494077053,
       "v_trot_bound": 1.356971494077053,
-      "v_top_trot": null,
+      "v_top_trot": 1.9588316533310517,
       "cot": null
     },
     {
@@ -258,7 +258,7 @@
       "v_swing": 3.474329834768496,
       "v_stance": 0.9151385194127186,
       "v_trot_bound": 0.9151385194127186,
-      "v_top_trot": null,
+      "v_top_trot": 1.969743735292122,
       "cot": null
     },
     {
@@ -287,7 +287,7 @@
       "v_swing": 3.597159677411826,
       "v_stance": 0.04976326867512541,
       "v_trot_bound": 0.04976326867512541,
-      "v_top_trot": null,
+      "v_top_trot": 2.466151003924029,
       "cot": null
     },
     {
@@ -316,7 +316,7 @@
       "v_swing": 3.4078354838638356,
       "v_stance": 1.357111780772337,
       "v_trot_bound": 1.357111780772337,
-      "v_top_trot": null,
+      "v_top_trot": 1.4698968025369037,
       "cot": null
     },
     {
@@ -345,7 +345,7 @@
       "v_swing": 3.474329834768496,
       "v_stance": 0.9152537368625394,
       "v_trot_bound": 0.9152537368625394,
-      "v_top_trot": null,
+      "v_top_trot": 1.9605941975251615,
       "cot": null
     },
     {
@@ -374,7 +374,7 @@
       "v_swing": 3.597159677411826,
       "v_stance": 0.0497714617925127,
       "v_trot_bound": 0.0497714617925127,
-      "v_top_trot": null,
+      "v_top_trot": 1.9714615614722337,
       "cot": null
     }
   ],
@@ -404,8 +404,8 @@
     "v_swing": 3.4078354838638356,
     "v_stance": 1.357111780772337,
     "v_trot_bound": 1.357111780772337,
-    "v_top_trot": null,
+    "v_top_trot": 1.4698968025369037,
     "cot": null
   },
-  "generated": "2026-10-17"
+  "generated": "2026-10-18"
 }

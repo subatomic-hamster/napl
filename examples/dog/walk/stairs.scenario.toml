@@ -1,0 +1,88 @@
+# napl program examples/dog/walk/stairs.scenario.toml --runs-dir <dir>
+# SP4: the dog walks the criterion course of the spec (a 25 deg ramp up 3 m, a plateau with two 15 cm steps up and two down, a 25 deg ramp down; rock)
+# along +x from x = -12 to 12, steered by a pure-pursuit follower on the TRUE pose (route planning is SP5). The controller sees the terrain through
+# the height-map interface only (ground truth stand-in). examples/dog/dogwalk.py OWNS the Sim and writes trace.csv / replay.naplog / native.json.
+name = "dog-stairs"
+
+[model]
+script = "stairs.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../dogwalk.py", "stairs.scenario.toml"]
+
+[limits]
+wall_s = 1800
+cpu_s = 1800
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the pose-fix noise and (course != flat, criterion, slip) the terrain: the same seed and parameters replay to the same state hash."
+
+[[parameters]]
+name = "course"
+type = "choice"
+choices = ["flat", "criterion", "slip", "rubble", "slopes", "scree", "ruins"]
+default = "criterion"
+group = "course"
+label = "Course"
+
+[[parameters]]
+name = "leg_ctl"
+type = "choice"
+choices = ["wbc", "jt"]
+default = "wbc"
+group = "controller"
+label = "Leg controller"
+doc = "wbc: QP whole-body controller (WBIC-style, the SP4 design). jt: Jacobian-transpose leg controller, the measured baseline."
+
+[[parameters]]
+name = "v_cmd"
+type = "float"
+default = 0.8
+min = 0.0
+max = 4.5
+unit = "m/s"
+group = "run"
+label = "Commanded speed"
+
+[[parameters]]
+name = "duration"
+type = "float"
+default = 40.0
+min = 2.0
+max = 120.0
+unit = "s"
+group = "run"
+label = "Run length"
+
+[[monitors]]
+name = "reaches_the_end"              # the follower's remaining route length at the last sample
+column = "dist_goal"
+op = "final"
+hi = 0.5
+
+[[monitors]]
+name = "never_falls"                  # ground truth: tilt > 60 deg or trunk clearance < 60 % of standing (dogtruth.py)
+column = "fallen"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "no_qdd_fault"
+column = "fault"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "stays_upright"                # the 25 deg ramp plus 10 deg of gait motion
+column = "tilt"
+op = "always"
+hi = 35.0

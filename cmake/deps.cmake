@@ -84,6 +84,20 @@ FetchContent_Declare(tomlplusplus
   GIT_SHALLOW TRUE
   SOURCE_SUBDIR napl_sources_only)
 
+# Dog whole-body controller in C++ (examples/dog/loco/cpp, option NAPL_LOCO_CPP, SP4 Task 7 Step 6). Declared only: made available in
+# that directory's CMakeLists.txt, so a normal build never fetches them.
+# Eigen 3.4.0 (MPL-2.0; header-only, used as sources: SOURCE_SUBDIR keeps its own tests/docs out of the build)
+FetchContent_Declare(eigen
+  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+  GIT_TAG 3.4.0  # 3147391d946bb4b6c68edd901f2add6ac1f31f8c
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR napl_sources_only)
+# OSQP C library v1.0.0 (Apache-2.0), builtin algebra (QDLDL, Apache-2.0, fetched by OSQP itself); the QP solver of the Python wheel too
+FetchContent_Declare(osqp
+  GIT_REPOSITORY https://github.com/osqp/osqp.git
+  GIT_TAG v1.0.0  # 236713ce9a56c182ac3230d52108f952afce1523
+  GIT_SHALLOW TRUE)
+
 FetchContent_MakeAvailable(mujoco flatbuffers googletest vulkan_headers volk vma mavlink tomlplusplus)
 
 # Viewer deps (M10, Linux/X11 only for now: the Windows/macOS GLFW source lists are not written or tested). Sources only,

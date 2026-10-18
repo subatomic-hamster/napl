@@ -14,6 +14,11 @@ start_x = { value = -47.5, unit = "m", fidelity = "design", rationale = "A ruins
 start_y = { value = -47.5, unit = "m", fidelity = "design", rationale = "A ruins cell centre." }
 start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east." }
 block = { value = 0.3, unit = "m", fidelity = "measured", rationale = "At the default 0.5 m blocks the 0.8-1.6 m doors read closed (wall jambs make the neighbouring block lethal): the robot's reachable set stayed inside its first rooms (1177 of 40000 blocks, mission ended at 5 % coverage). 0.3 m blocks: 108515 of 110889 reachable (docs/dog/autonomy.md Coverage)." }
+near_lethal = { value = 6.0, unit = "1", fidelity = "estimated", rationale = "Cost of a block next to a wall: the body (feet 0.29 m from its centre) must keep off walls, a 0.3 m block's centre is only 0.15 m from the lethal block's edge; at the default 2 the path hugged corners and wedged the feet in walls." }
+near_wall_speed = { value = 0.8, unit = "m/s", fidelity = "estimated", rationale = "Speed cap within 0.6 m of a wall (doors of 0.8-1.6 m, feet 0.29 m from the body centre)." }
+return_margin = { value = 120.0, unit = "s", fidelity = "estimated", rationale = "Head home with two minutes in hand: the way home through a maze is walked at the near-wall speed, well below v_max, which the return estimate assumes." }
+near_wall_lookahead = { value = 0.45, unit = "m", fidelity = "estimated", rationale = "Short lookahead next to walls: the path through a door is tracked within a few cm." }
+edge_margin = { value = 0.30, unit = "m", fidelity = "measured", rationale = "Map RMS is scored on floor cells at least 0.30 m (the localized_within_30cm tolerance) from a wall; closer in, the pose error of a few cm smears the wall face onto the floor (docs/dog/autonomy.md Coverage, ruins)." }
 
 [model]
 script = "coverage_ruins.py"

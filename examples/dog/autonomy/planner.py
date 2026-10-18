@@ -123,6 +123,30 @@ def gain(mapped, cfg, pool):
     return un.reshape(nb, k, nb, k).sum(axis=(1, 3)) / (k * k)
 
 
+def box_sum(a, r):
+    """Sum of `a` over the (2r+1)^2 window around every cell (integral image)."""
+    n, m = a.shape
+    s = np.zeros((n + 1, m + 1))
+    s[1:, 1:] = a.cumsum(0).cumsum(1)
+    i0, i1 = np.clip(np.arange(n) - r, 0, n), np.clip(np.arange(n) + r + 1, 0, n)
+    j0, j1 = np.clip(np.arange(m) - r, 0, m), np.clip(np.arange(m) + r + 1, 0, m)
+    return s[i1][:, j1] - s[i0][:, j1] - s[i1][:, j0] + s[i0][:, j0]
+
+
+def choose_view(dist, g, clear, tried, cfg):
+    """Room-tour step (clearance mode): the viewpoint with the most unmapped floor within the lidar reach `fill_radius`, per unit of
+    path cost (greedy nearest-neighbour on value density). Floor = blocks with a free clearance (wall interiors never get mapped and
+    would keep the value up for ever). tried: bool grid of viewpoints already visited."""
+    P, T = cfg["plan"], cfg["trav"]
+    r = int(round(P["fill_radius"] / T["block"]))
+    v = box_sum(g * (clear >= T["clear_lethal"]) * T["block"] ** 2, r)
+    cand = np.isfinite(dist) & (v >= P["fill_min"]) & ~tried
+    if not cand.any():
+        return None
+    score = np.where(cand, v / (dist + P["fill_d0"]), -np.inf)
+    return tuple(int(x) for x in np.unravel_index(int(np.argmax(score)), score.shape))
+
+
 def choose(dist, g, tried, cfg):
     cand = np.isfinite(dist) & (g >= cfg["plan"]["min_gain"])
     for ij in tried:
@@ -144,17 +168,29 @@ def view_goal(path, cfg):
     return path[0]
 
 
-def pursue(pose, path_xy, cfg, lim):
+def pursue(pose, path_xy, cfg, lim, lookahead=None, back=0.0, arc=0.0):
+    """Pure pursuit. back > 0 (m/s): a target behind the robot is reached by reversing, never by turning on the spot (next to a wall
+    the feet, 0.29 m from the centre, wedge against it: ruins training seed 2, 100-800 bumps in one place). arc > 0 (m/s): where
+    there is room a large heading error is turned on an arc at that speed instead of on the spot (turning on the spot was 25 % of
+    the ruins mission time)."""
     P = cfg["plan"]
+    L = P["lookahead"] if lookahead is None else lookahead
     x, y, yaw = pose
     pts = np.asarray(path_xy, float)
     d = np.hypot(pts[:, 0] - x, pts[:, 1] - y)
     k0 = int(np.argmin(d))
-    far = np.flatnonzero(d[k0:] >= P["lookahead"])
+    far = np.flatnonzero(d[k0:] >= L)
     tx, ty = pts[k0 + far[0]] if len(far) else pts[-1]
     a = wrap(math.atan2(ty - y, tx - x) - yaw)
     if abs(a) > P["turn_in_place"]:
+        if back > 0.0 and abs(a) > math.pi / 2:
+            b = wrap(a - math.pi)  # heading error of the rear
+            return -back * math.cos(b), max(-0.5, min(0.5, 1.5 * b))
+        if (
+            arc > 0.0
+        ):  # open floor: turn on an arc (radius arc / wz_max) instead of on the spot, the dog keeps walking
+            return min(arc, lim["v_max"]), math.copysign(lim["wz_max"], a)
         return 0.0, math.copysign(lim["wz_max"], a)
     v = lim["v_max"] * math.cos(a)
-    wz = 2.0 * v * math.sin(a) / P["lookahead"]
+    wz = 2.0 * v * math.sin(a) / L
     return v, max(-lim["wz_max"], min(lim["wz_max"], wz))

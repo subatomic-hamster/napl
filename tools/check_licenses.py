@@ -29,7 +29,20 @@ NAME = re.compile(r"(licen[sc]e|copying|copyright|unlicense|notice)", re.IGNOREC
 # linked or shipped. ccd's src/testsuites/cu is the LGPL "CU" unit-test harness; ccd only adds
 # it when BUILD_TESTING and not CCD_HIDE_ALL_SYMBOLS (MuJoCo hides symbols) and the generated
 # build.ninja has no testsuites target (verified at M0). Re-verify when bumping MuJoCo/ccd.
-EXCLUDE = ("ccd-src/src/testsuites/cu/",)
+# Eigen 3.4.0 (MPL-2.0, header-only, dog WBC in C++): the archive ships the texts of the licenses of its few LGPL files
+# (COPYING.GPL / COPYING.LGPL / bench/btl/COPYING, COPYING.README, the MPL-2.0 text that names the GPL as a "Secondary License",
+# scripts/relicense.py). The LGPL code is in unsupported/ and Eigen/src/IterativeLinearSolvers/IncompleteLUT.h, and is never included:
+# examples/dog/loco/cpp/CMakeLists.txt compiles with -DEIGEN_MPL2_ONLY, which turns an #include of any LGPL Eigen file into a
+# compile error (Eigen's own guarantee, COPYING.README). Path-exact; re-verify when bumping Eigen.
+EXCLUDE = (
+    "ccd-src/src/testsuites/cu/",
+    "eigen-src/COPYING.GPL",
+    "eigen-src/COPYING.LGPL",
+    "eigen-src/COPYING.MPL2",
+    "eigen-src/COPYING.README",
+    "eigen-src/bench/btl/COPYING",
+    "eigen-src/scripts/relicense.py",
+)
 # Path-exact, content-checked justification (never a pattern). slangc (build-time tool, M9) ships LICENSE and
 # LICENSES/LLVM-exception.txt: Apache-2.0 plus the "LLVM Exceptions to the Apache 2.0 License", whose second paragraph
 # says that when the Software is combined with GPLv2 software a conflicting Apache section may be waived. That is a

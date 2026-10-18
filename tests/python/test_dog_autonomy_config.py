@@ -20,6 +20,7 @@ def test_shipped_config_loads_with_provenance_on_every_leaf():
         "gnss",
         "odom",
         "carrier",
+        "dog",
         "map",
         "trav",
         "plan",

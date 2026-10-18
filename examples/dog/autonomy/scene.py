@@ -34,13 +34,32 @@ def cfg_for(auto):
         "plan.t_budget": auto["t_budget"],
         "plan.pool": auto["pool"],
     }
-    for k in ("lane_m", "return_margin"):  # optional per-scenario overrides of [plan]
+    for k in (
+        "lane_m",
+        "sweep",
+        "tour",
+        "fill_radius",
+        "fill_min",
+        "fill_d0",
+        "tried_m",
+        "return_margin",
+        "near_wall_speed",
+        "near_wall_lookahead",
+    ):  # optional per-scenario overrides of [plan]
         if k in auto:
             ov[f"plan.{k}"] = auto[k]
     if (
         "block" in auto
     ):  # optional per-scenario planning block (ruins: doors of 0.8-1.6 m read closed at 0.5 m)
         ov["trav.block"] = auto["block"]
+    for k, key in (
+        ("near_lethal", "trav"),
+        ("clearance", "trav"),
+        ("edge_margin", "map"),
+        ("support", "map"),
+    ):
+        if k in auto:  # optional per-scenario scoring / planning margins
+            ov[f"{key}.{k}"] = auto[k]
     return config.override(config.load(), **ov)
 
 
@@ -60,6 +79,12 @@ def build(out, path):
     auto, prm, _ = scenario(path)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    if auto.get("body", "carrier") == "dog":
+        from . import dogloco
+
+        return dogloco.build(
+            make_field(auto, prm["seed"]), auto, prm["seed"], _start(auto), out
+        )
     return carrier.build(
         make_field(auto, prm["seed"]),
         cfg_for(auto),
@@ -74,7 +99,17 @@ def build_for(out, script_file):
 
 
 def _loco(sim, model, auto, cfg, f, seed, start):
-    """-> (locomotion, lidar extrinsic, GNSS lever arm, cfg). Task 11 adds body = "dog"."""
+    """-> (locomotion, lidar extrinsic, GNSS lever arm, cfg). body = "dog": SP4's controller on the legged robot."""
+    if auto.get("body", "carrier") == "dog":
+        from . import dogloco
+
+        xml = Path(model).read_text()
+        lid, gn = dogloco.devices(xml)
+        cfg = dogloco.cfg_from_devices(cfg, lid, gn)
+        dog = dogloco.DogLoco(
+            sim, model, cfg, f, start, float(f.height(start[0], start[1]))
+        )
+        return dog, lidar.extrinsic(xml, lid["site"], dogloco.TRUNK), dog.lever, cfg
     car = carrier.Carrier(sim, f, cfg, start, seed=seed)
     ext = lidar.extrinsic(Path(model).read_text(), "lidar", "carrier")
     return (
@@ -99,6 +134,10 @@ def run(model, scenario_path, out, t_max=None):
     )  # operator initialisation error (decision 3)
     x0 = np.r_[p0 + L["init_sigma"] * g[:3], lidar.yaw_of(q0) + L["init_yaw"] * g[3]]
     rob = mission.Robot(car, cfg, int(auto["rays"]), ext, x0, lever, seed)
+    if hasattr(car, "attach"):
+        car.attach(
+            rob.map
+        )  # the legged robot walks on the autonomy's own elevation map
     gt = metrics.truth_grid(f, cfg["map"]["res"])
     edges, tgt = metrics.edge_mask(gt, cfg), metrics.targets(gt, cfg, start[:2])
     pool = int(cfg["plan"]["pool"])

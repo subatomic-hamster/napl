@@ -15,14 +15,14 @@ high-level construction breakdown, brief overview of the complex programming, si
 
 **Decisions taken with the user:**
 
-| Topic | Decision |
-|---|---|
-| Size / budget | ~12 kg Go2 / Mini-Cheetah class, 12 low-cost QDD BLDC actuators, BOM target ~$3-4.5k |
-| Locomotion | model-based: convex MPC on ground reaction forces + whole-body control + terrain-aware footstep planning |
-| Sensors | 360-degree 3D lidar (Livox Mid-360 class) + forward depth camera + IMU + joint encoders + foot contact + RTK GNSS |
-| Terrain families | rocky field + boulders; slopes + stairs/ledges; loose/slippery ground; ruins/urban rubble |
-| Sub-assemblies | linked, CAD-component style, per-instance overrides of exported params; flatten-on-load (approach A) |
-| Targets | "ambitious" (section 7) |
+| Topic            | Decision                                                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Size / budget    | ~12 kg Go2 / Mini-Cheetah class, 12 low-cost QDD BLDC actuators, BOM target ~$3-4.5k                              |
+| Locomotion       | model-based: convex MPC on ground reaction forces + whole-body control + terrain-aware footstep planning          |
+| Sensors          | 360-degree 3D lidar (Livox Mid-360 class) + forward depth camera + IMU + joint encoders + foot contact + RTK GNSS |
+| Terrain families | rocky field + boulders; slopes + stairs/ledges; loose/slippery ground; ruins/urban rubble                         |
+| Sub-assemblies   | linked, CAD-component style, per-instance overrides of exported params; flatten-on-load (approach A)              |
+| Targets          | "ambitious" (section 7)                                                                                           |
 
 **Assumptions (not stated by the user, kept from earlier rounds):** sim-first, real purchasable parts with provenance,
 printable custom parts, pin-level wiring, wires never through parts, golden hashes, honest MC numbers, no media in git,
@@ -30,14 +30,14 @@ no GPL deps. Recon only: no weapon or payload-delivery features.
 
 ## 2. Decomposition
 
-| # | Sub-project | Depends on | Output |
-|---|---|---|---|
-| SP1 | Platform: sub-assemblies (schema, flatten, mirror, BOM roll-up, viewer workspace, backend ops) + controls icon + stale DRC message fix | - | napl feature, tests, docs |
-| SP2 | Ground kernel: QDD actuator device (MIT mode), foot-contact device, Mid-360 scan pattern, small-scale terrain kinds with per-patch friction | - | devices, terrain kinds, tests |
-| SP3 | Dog hardware: parts (actuators, lidar, power, printed brackets), leg / head / power-module sub-assemblies, chassis, wiring, BOM, speed design sweep | SP1, SP2 parts schema | `assemblies/dog/*.toml`, parts, CAD |
-| SP4 | Locomotion: estimator, gait scheduler, convex MPC, WBC, swing/footstep planning, slip recovery | SP2, SP3 | `examples/dog/` controller, MC |
-| SP5 | Autonomy: lidar-inertial-leg-RTK localization, elevation map, traversability, frontier/coverage planner, mapping-accuracy metrics | SP2 (perception can start on a kinematic carrier) | `examples/dog/` autonomy, MC |
-| SP6 | Integration missions (4 terrain families) + MC + E2E video | SP3-SP5 | scenarios, goldens, video |
+| #   | Sub-project                                                                                                                                         | Depends on                                        | Output                              |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------- |
+| SP1 | Platform: sub-assemblies (schema, flatten, mirror, BOM roll-up, viewer workspace, backend ops) + controls icon + stale DRC message fix              | -                                                 | napl feature, tests, docs           |
+| SP2 | Ground kernel: QDD actuator device (MIT mode), foot-contact device, Mid-360 scan pattern, small-scale terrain kinds with per-patch friction         | -                                                 | devices, terrain kinds, tests       |
+| SP3 | Dog hardware: parts (actuators, lidar, power, printed brackets), leg / head / power-module sub-assemblies, chassis, wiring, BOM, speed design sweep | SP1, SP2 parts schema                             | `assemblies/dog/*.toml`, parts, CAD |
+| SP4 | Locomotion: estimator, gait scheduler, convex MPC, WBC, swing/footstep planning, slip recovery                                                      | SP2, SP3                                          | `examples/dog/` controller, MC      |
+| SP5 | Autonomy: lidar-inertial-leg-RTK localization, elevation map, traversability, frontier/coverage planner, mapping-accuracy metrics                   | SP2 (perception can start on a kinematic carrier) | `examples/dog/` autonomy, MC        |
+| SP6 | Integration missions (4 terrain families) + MC + E2E video                                                                                          | SP3-SP5                                           | scenarios, goldens, video           |
 
 SP1 and SP2 run in parallel; SP3 parts research runs alongside them; SP5 perception starts on a kinematic sensor carrier
 (a floating base driven along recorded trajectories) so it does not wait for walking.
@@ -185,6 +185,7 @@ Also fix the known bug: the status-bar DRC message stays stale while the DRC chi
 **Rates:** physics 1 kHz; joint commands (WBC) 500 Hz over CAN; MPC 30-50 Hz; mapping 10 Hz; global planning 1-2 Hz.
 
 **SP4 locomotion (examples/dog):**
+
 - estimator: contact-aided EKF (IMU + leg kinematics + foot contact) at 500 Hz, RTK and lidar pose corrections at 10 Hz;
 - gait scheduler: trot, flying trot (top speed), walk/crawl (steps, ledges); contact-event handling (early/late touchdown);
 - convex MPC (single rigid body, friction cones, 10-16 step horizon) with OSQP (Apache-2.0);
@@ -195,6 +196,7 @@ Also fix the known bug: the status-bar DRC message stays stale while the DRC chi
 - controller uses its own model (leg kinematics/inertia from the design report), never MuJoCo internals.
 
 **SP5 autonomy (examples/dog):**
+
 - localization: EKF fusion of leg-inertial odometry, RTK (10 Hz), and lidar scan-to-map registration (point-to-plane ICP)
   for degraded-GNSS areas (ruins: multipath/blocked sky);
 - elevation map (5 cm cells, height + variance, Fankhauser-style fusion), traversability (slope, step height, roughness);
@@ -207,9 +209,11 @@ Also fix the known bug: the status-bar DRC message stays stale while the DRC chi
 - flat top speed >= 3.5 m/s;
 - rocky field mean speed >= 1.5 m/s;
 - 25-degree slopes and 15 cm steps traversed;
-- >= 90% no-fall per terrain family (MC n per family stated, with a 95% lower bound);
+- > = 90% no-fall per terrain family (MC n per family stated, with a 95% lower bound);
 - full autonomous coverage of a 100 x 100 m rocky field in <= 20 min with map height RMS <= 5 cm and >= 95% of the
   traversable area mapped;
+- ruins: the same criteria (<= 20 min, RMS <= 5 cm, >= 95% mapped) on a 50 x 50 m ruins site (~100 rooms). User decision
+  2026-10-17: 100 x 100 m ruins (400 rooms) needs >= 1995 m of path (~1330 s at 1.5 m/s), so 95% in 20 min is unreachable;
 - BOM ~$3-4.5k with the estimated share stated.
 
 ## 8. Video (SP6)
