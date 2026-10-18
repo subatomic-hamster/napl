@@ -89,7 +89,7 @@ def setup(model, p, log=True, audit=False, sim=None, inf=None):
         if p.get("gait_params"):
             c.ctl.sched.set_params(p["gait"], **p["gait_params"])
     if p.get("h_frac"):
-        c.ctl.h_frac = p["h_frac"]
+        c.ctl.h_frac, c.ctl.h_sched = p["h_frac"], False
     c.fix = dogtruth.PoseFix(c.tr, p["seed"])
     c.fol = (
         dogcourse.Follower(c.inf["route"], p["v_cmd"]) if c.inf.get("route") else None

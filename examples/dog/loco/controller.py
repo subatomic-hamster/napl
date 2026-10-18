@@ -25,6 +25,16 @@ KP_STAND, KD_STAND = (
 # Hip-pitch-to-foot distance as a fraction of the straight leg while walking. The SP3b stand is 0.92; walking needs foot clearance and the knee
 # stops at 1.32 rad (= 0.79 of the straight leg), so a swing foot passing under the hip can rise only (H_FRAC - 0.79) x 0.465 m: 0.92 -> 6 cm, 0.95 -> 7.4 cm.
 H_FRAC = 0.95
+WBC_STANCE_JT = (
+    True  # stance torque of the WBC legs from the MPC force through J^T, see _legs_wbc
+)
+H_SCHED, H_FRAC_FAST, H_V0, H_V1, H_SLEW = (
+    False,
+    0.90,
+    0.8,
+    1.6,
+    0.05,
+)  # speed schedule: H_FRAC up to H_V0 m/s, H_FRAC_FAST from H_V1, linear between; H_SLEW per second
 LEG_CTLS = (
     "wbc",
     "jt",
@@ -38,7 +48,7 @@ A_CMD = 1.0  # m/s^2: slew limit of the velocity command inside the controller (
 LATE_REACH = False
 LEAD = 0.0  # s: the swing reference runs this far ahead of the clock (joint PD lag)
 S_LAND = 1.0  # fraction of the swing at which the swing curve reaches its target
-POSTURE = 0.5  # lean 50 % into a slope (0.7 climbed the 15 deg ramp only with the loose sparse MPC's force error; with the exact condensed solve 0.5 holds tilt < 7 deg, 0.85 / 1.0 fall at the ramp foot)
+POSTURE = 0.7  # lean 70 % into a slope (15 deg ramp, seed 1: 0.3 and 0.5 fall at the ramp foot with the J^T stance torque, 0.7 and 0.9 climb)
 Z_RATE, ANG_RATE = (
     0.25,
     0.5,
@@ -101,6 +111,10 @@ class Controller:
         self.mu = self.safety.mu
         self.q_fall0 = None
         self.h_frac = H_FRAC
+        self.h_sched, self._h_cont = (
+            H_SCHED,
+            H_FRAC,
+        )  # speed-scheduled stand height (dogwalk's explicit h_frac turns it off)
         self.forced_gait = None  # dogtop: a gait name bypasses Gt.choose (a moving command still leaves "stand")
         self._sf = None
         self.rough = False  # steps or a steep slope ahead (refreshed at 50 Hz)
@@ -206,6 +220,15 @@ class Controller:
         # launch: the gait steps in place for T_WARM before the velocity command is released (a trot started while accelerating at 2 m/s^2 flies
         # and falls in 2 of 4 seeds; stepping in place first, 0 of 4)
         cmd = self._slew(raw if self.t_gait >= T_WARM else np.zeros(3))
+        if self.h_sched:  # lower stand at speed: a straight leg at 0.95 pegs the knee torque in a fast stance; 0.9+ keeps the swing clearance
+            f = np.clip((np.hypot(cmd[0], cmd[1]) - H_V0) / (H_V1 - H_V0), 0.0, 1.0)
+            tgt = H_FRAC - (H_FRAC - H_FRAC_FAST) * f
+            self._h_cont += float(
+                np.clip(tgt - self._h_cont, -H_SLEW * DT, H_SLEW * DT)
+            )
+            self.h_frac = round(
+                self._h_cont, 2
+            )  # the IK of the stand pose is cached per value
         if self.yaw_ref is None:
             self.yaw_ref = st.rpy[2]
         d = (self.yaw_ref + cmd[2] * DT - st.rpy[2] + np.pi) % (2 * np.pi) - np.pi
@@ -531,4 +554,18 @@ class Controller:
         kpm = np.concatenate([L.kp_max for L in self.legs])
         kp = np.where(sw, np.minimum(KP_SWING, kpm), 0.0)
         kd = np.where(sw, KD_SWING, KD_STANCE)
-        return np.where(sw, out.p_des, q), out.v_des, kp, kd, out.tau
+        tau = out.tau.copy()
+        if WBC_STANCE_JT:
+            # Stance joints carry the MPC force through J^T (plus the leg's own weight), as in the J^T leg controller; the WBC supplies the swing
+            # legs' torques and every joint's velocity target. With the WBC's own stance torque (dynamically consistent, with the leg
+            # accelerations of the body tasks and the QP's force change) a 0.4 m/s lateral push at 24 phases / seeds leaves 5 dogs standing, with
+            # this one 24 of 24 (J^T alone: 21 of 24; docs/dog/locomotion.md "Flat ground robustness").
+            R = st.R
+            for i, L in enumerate(self.legs):
+                if stance[i]:
+                    s = slice(3 * i, 3 * i + 3)
+                    J = L.fk_jac(q[s])[1]
+                    tau[s] = J.T @ (-R.T @ self.f[i]) + self.m.leg_required(
+                        i, q[s], np.zeros(3), R.T @ np.array([0.0, 0.0, Mp.G])
+                    )
+        return np.where(sw, out.p_des, q), out.v_des, kp, kd, tau

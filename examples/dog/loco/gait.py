@@ -33,7 +33,8 @@ GAITS = {
     ),  # three feet down most of the time: steps, ledges
     "trot": Gait(
         "trot", 0.32, 0.5, (0.0, 0.5, 0.5, 0.0), 0.05, 2.2
-    ),  # apex: the knee stop limits the lift under the hip to ~7 cm
+    ),  # apex: the knee stop limits the lift under the hip to ~7 cm. Duty 0.58 (double support 26 ms at each swap) took a 0.4 m/s lateral push at
+    # 24 phases x seeds from 5 to 17 of 24 stay up WITHOUT IMU bias / payload, but 1 of 8 vs 5 of 8 on the full dispersion: not adopted (docs/dog/locomotion.md)
     "flying_trot": Gait(
         "flying_trot", 0.28, 0.38, (0.0, 0.5, 0.5, 0.0), 0.08, 3.2
     ),  # flight phases: shorter, harder stance per step
