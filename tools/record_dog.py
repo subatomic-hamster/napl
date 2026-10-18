@@ -1,5 +1,5 @@
-"""Recording harness of the recon-quadruped video (media is never committed: frames and the webm stay on the host). Part (a), construction, is here;
-parts (b) programming overview and (c) sim demo come with SP6 Tasks 7-9.
+"""Recording harness of the recon-quadruped video (media is never committed: frames and the webm stay on the host). Part (a) construction, part (b) programming
+overview (diagrams drawn from a tap of the run) and part (c) sim demo (tick-exact replay); the cards and the encode come with SP6 Task 9.
 
 Reuses the existing pipelines instead of copying them:
   build / wiring / program  tools/record_turret.py's xvfb viewer capture (`build OPLOG OUT --open assemblies/dog/dog.toml`); this tool only generates the op log
@@ -8,6 +8,8 @@ Reuses the existing pipelines instead of copying them:
     probe   [DIR]          read-only: MJCF group structure of dogsim.build + the wiring sheets' card preview (what explode_xml / cmd_oplog rely on)
     oplog   OUT.json       construction + wiring + program op log generated from assemblies/dog/dog.toml (needs the Design: run it on the host)
     explode OUT_DIR        frames x*.rgz + explode.json (factor and camera per frame). GPU
+    diagrams RUN_DIR OUT_DIR   the seven programming diagrams d*.rgz + diagrams.json from RUN_DIR/tap (a run recorded with DOG_TAP_DIR); refuses a stale tap. CPU
+    sim     RUN_DIR OUT_DIR    the run's replay.naplog applied tick-exact, orbit / map cameras: f*.rgz + sim.json; exit 1 if the replay hash differs from the run's. GPU
 """
 
 import argparse
@@ -417,6 +419,865 @@ def cmd_probe(a):
             )  # ttsr-ignore: py/no-print
 
 
+# ---- part (b): the programming overview, block diagrams drawn from the run's tap --------------------------------------------------------------
+PART_B_MAX_S = 110.0
+DIAGRAMS = [  # (key, title, blurb, seconds): seven diagrams, 12-16 s each
+    ("estimator", "State estimator", "IMU + leg kinematics + foot contact in a Kalman filter; the numbers are this run's estimate against ground truth.", 15.0),
+    ("mpc_wbc", "Convex MPC and whole-body controller", "The MPC picks stance-foot forces at 50 Hz, the QP whole-body controller turns them into joint torques at 500 Hz.", 16.0),
+    ("footholds", "Gait and footholds", "The gait scheduler picks stance and swing; each swing foot gets a touchdown target (Raibert + capture point, terrain-aware).", 15.0),
+    ("elevmap", "Elevation map", "Each lidar frame is fused into a 5 cm height grid with a variance per cell; a cell is mapped once its variance is below (5 cm)^2.", 15.0),
+    ("localizer", "Localization", "Leg odometry predicts; RTK GNSS and scan-to-map ICP correct. Outages of the sky view hand the pose to ICP.", 14.0),
+    ("planner", "Coverage planner", "Lanes over the mapped, traversable area; the path avoids lethal cells and tells the controller where to go.", 15.0),
+    ("executive", "Mission executive", "SWEEP the lanes, FILL the holes, RETURN home before the budget is spent, then DONE (or ABORT on a fall).", 14.0),
+]  # fmt: skip
+FEET = ("FL", "FR", "RL", "RR")  # loco.model.LEGS order
+BG, LINE, ACC, GOOD, BAD, TXT, DIM = (
+    (12, 14, 18),
+    (90, 100, 115),
+    (255, 196, 60),
+    (110, 220, 120),
+    (255, 100, 90),
+    (225, 228, 235),
+    (150, 156, 168),
+)
+_F = {}
+
+
+def _fonts():
+    if not _F:
+        import record_cuas_lite as rc
+
+        _F.update(rc._fonts())
+    return _F
+
+
+def phase_names():
+    """{phase int: name} read from the executive (SP5), so a renamed phase follows."""
+    from autonomy import mission
+
+    return {
+        v: k
+        for k, v in vars(mission.Executive).items()
+        if k.isupper() and isinstance(v, int)
+    }
+
+
+class TapData:
+    """A mission run dir recorded with DOG_TAP_DIR=<run>/tap: the tap arrays plus the run's trace.csv (optional columns read as nan). A tap whose state hash differs from
+    the run's result.json is refused: the diagrams must come from the run the sim frames replay."""
+
+    def __init__(self, run_dir):
+        d = Path(run_dir)
+        meta = json.loads((d / "tap" / "tap.json").read_text())
+        have = json.loads((d / "result.json").read_text())["sim"]["state_hash"]
+        if str(meta["state_hash"]) != str(have):
+            raise SystemExit(
+                f"stale tap: tap hash {meta['state_hash']} != run hash {have} ({d})"
+            )
+        z = np.load(d / "tap" / "tap.npz")
+        self.z, self.meta, self.dir = {k: z[k] for k in z.files}, meta, d
+        self.n, self.t = len(self.z["t"]), self.z["t"]
+        self.cum = np.r_[0, np.cumsum(self.z["path_len"])]
+        self.tr = {}
+        if (d / "trace.csv").exists():
+            import csv
+
+            rows = list(csv.DictReader(open(d / "trace.csv")))
+            self.tr = {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
+
+    def est_error(self, i):
+        return float(np.hypot(*(self.z["est_xy"][i] - self.z["truth_xy"][i])))
+
+    def force_sum(self, i):
+        return float(np.nansum(self.z["force_z"][i]))
+
+    def gait_name(self, i):
+        from autonomy import videotap
+
+        g = int(self.z["gait"][i])
+        return videotap.GAITS[g] if 0 <= g < len(videotap.GAITS) else "?"
+
+    def mode_name(self, i):
+        from autonomy import videotap
+
+        m = int(self.z["mode"][i])
+        return videotap.MODES[m] if 0 <= m < len(videotap.MODES) else "?"
+
+    def col(self, name, i):
+        """A trace.csv column at tap sample i (interpolated in time); nan if the run has no trace."""
+        return (
+            float(np.interp(self.t[i], self.tr["t"], self.tr[name]))
+            if name in self.tr
+            else float("nan")
+        )
+
+    def mapped(self, i):
+        """-> bool (n, n) mask of the newest map snapshot at or before sample i (rows = y, cols = x, origin at the field's south-west corner)."""
+        j = max(int(np.searchsorted(self.z["map_t"], self.t[i], side="right")) - 1, 0)
+        shape = tuple(int(v) for v in self.z["mapped_shape"])
+        return (
+            np.unpackbits(self.z["mapped_packed"][j])[: shape[0] * shape[1]]
+            .reshape(shape)
+            .astype(bool)
+        )
+
+    def path(self, i):
+        return self.z["path_xy"][self.cum[i] : self.cum[i + 1]]
+
+    def map_geometry(self):
+        """(x0, cell) of the mapped mask: the field is centred on the origin; cell = map.res x plan.pool (autonomy.toml)."""
+        from autonomy import config
+
+        cell = config.load()["map"]["res"] * self.meta["pool"]
+        return -0.5 * self.z["mapped_shape"][0] * cell, cell
+
+
+def _canvas(size, title, blurb, files):
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", size, BG)
+    dr = ImageDraw.Draw(img)
+    F = _fonts()
+    dr.text((40, 22), title.upper(), font=F["t"], fill=TXT)
+    dr.text((40, 76), blurb, font=F["s"], fill=DIM)
+    dr.text((40, size[1] - 34), "code: " + "   ".join(files), font=F["sm"], fill=ACC)
+    return img, dr, F
+
+
+def _box(dr, F, x, y, w, h, head, sub="", col=LINE):
+    dr.rectangle([x, y, x + w, y + h], outline=col, width=2, fill=(20, 23, 29))
+    dr.text((x + 10, y + 8), head, font=F["b"], fill=TXT)
+    for k, ln in enumerate(sub.split("\n") if sub else []):
+        dr.text((x + 10, y + 38 + 19 * k), ln, font=F["sm"], fill=DIM)
+
+
+def _arrow(dr, a, b, col=LINE):
+    dr.line([a, b], fill=col, width=3)
+    ang = math.atan2(b[1] - a[1], b[0] - a[0])
+    for s in (-0.45, 0.45):
+        dr.line(
+            [b, (b[0] - 14 * math.cos(ang + s), b[1] - 14 * math.sin(ang + s))],
+            fill=col,
+            width=3,
+        )
+
+
+def _lights(dr, F, x, y, vals, names=FEET):
+    for k, v in enumerate(vals):
+        c = DIM if not np.isfinite(v) else (GOOD if v > 0.5 else BAD)
+        dr.ellipse([x + 62 * k, y, x + 62 * k + 22, y + 22], fill=c)
+        dr.text((x + 62 * k + 28, y + 2), names[k], font=F["sm"], fill=TXT)
+
+
+def _fmt(v, f, unit=""):
+    return "n/a" if not np.isfinite(v) else f"{v:{f}}{unit}"
+
+
+def _trail(dr, box, series, i, cols, win=200):
+    """Polylines of the last `win` samples of each (n, 2) series, shared scale, drawn into box = (x, y, w, h)."""
+    x, y, w, h = box
+    dr.rectangle([x, y, x + w, y + h], outline=LINE, width=1)
+    lo = max(0, i - win)
+    pts = np.concatenate([s[lo : i + 1] for s in series])
+    c, r = pts.mean(0), max(float(np.ptp(pts, axis=0).max()), 0.5) * 0.6
+    for s, col in zip(series, cols):
+        p = [
+            (
+                x + w / 2 + (q[0] - c[0]) / r * w / 2,
+                y + h / 2 - (q[1] - c[1]) / r * h / 2,
+            )
+            for q in s[lo : i + 1]
+        ]
+        if len(p) > 1:
+            dr.line(p, fill=col, width=2)
+        dr.ellipse([p[-1][0] - 5, p[-1][1] - 5, p[-1][0] + 5, p[-1][1] + 5], fill=col)
+
+
+def _mask_image(tap, i, side):
+    from PIL import Image
+
+    m = tap.mapped(i)[::-1]  # y up
+    a = np.where(
+        m[..., None], np.array(GOOD, np.uint8) // 2, np.array((30, 34, 42), np.uint8)
+    ).astype(np.uint8)
+    return Image.fromarray(a).resize((side, side), Image.NEAREST)
+
+
+def _to_px(p, x0, cell, n, ox, oy, side):
+    """World (x, y) -> pixel on a mask image of `side` px drawn at (ox, oy) (y up)."""
+    return ox + (p[0] - x0) / (n * cell) * side, oy + side - (p[1] - x0) / (
+        n * cell
+    ) * side
+
+
+def draw_estimator(tap, i, size):
+    img, dr, F = _canvas(
+        size,
+        "State estimator",
+        DIAGRAMS[0][2],
+        ["examples/dog/loco/estimator.py", "examples/dog/loco/hw.py"],
+    )
+    _box(dr, F, 40, 140, 300, 90, "IMU", "gyro + accel, 500 Hz")
+    _box(
+        dr,
+        F,
+        40,
+        270,
+        300,
+        90,
+        "Leg kinematics",
+        "joint q, dq from the QDD drives\nfoot contact: virtual f_z threshold",
+    )
+    _box(
+        dr,
+        F,
+        40,
+        400,
+        300,
+        90,
+        "Pose fixes (SP5)",
+        "RTK GNSS + scan ICP, loco Estimator.fix",
+    )
+    _box(
+        dr,
+        F,
+        450,
+        220,
+        330,
+        190,
+        "Kalman estimator",
+        "stance feet are still: p_foot = p + R r(q)\nswing feet free; process v += (R a + g) dt",
+        ACC,
+    )
+    for y in (185, 315, 445):
+        _arrow(dr, (340, y), (450, 315 if y != 445 else 380))
+    _arrow(dr, (780, 315), (860, 315))
+    _box(dr, F, 860, 260, 190, 110, "pose, velocity", "-> gait, MPC, WBC")
+    dr.text((450, 440), "foot contact (from f_z)", font=F["sm"], fill=DIM)
+    _lights(dr, F, 450, 465, tap.z["contact"][i])
+    e = tap.est_error(i)
+    dr.text(
+        (450, 515),
+        f"estimate vs ground truth: {100 * e:.1f} cm",
+        font=F["b"],
+        fill=GOOD if e < 0.3 else BAD,
+    )
+    dr.text(
+        (450, 548),
+        f"t = {tap.t[i]:6.1f} s   mode {tap.mode_name(i)}",
+        font=F["m"],
+        fill=TXT,
+    )
+    dr.text((860, 395), "truth (white) / estimate (amber)", font=F["sm"], fill=DIM)
+    _trail(
+        dr,
+        (860, 420, 360, 240),
+        [tap.z["truth_xy"], tap.z["est_xy"]],
+        i,
+        [(235, 235, 240), ACC],
+    )
+    return img
+
+
+def draw_mpc_wbc(tap, i, size):
+    from loco.controller import DT, MPC_EVERY
+
+    img, dr, F = _canvas(
+        size,
+        "Convex MPC and whole-body controller",
+        DIAGRAMS[1][2],
+        [
+            "examples/dog/loco/mpc.py",
+            "examples/dog/loco/wbc.py",
+            "examples/dog/loco/controller.py",
+        ],
+    )
+    _box(
+        dr,
+        F,
+        40,
+        180,
+        300,
+        150,
+        "Convex MPC",
+        f"{1 / (DT * MPC_EVERY):.0f} Hz, condensed QP\nstate: pose, velocity\ncommand: foot forces over the horizon",
+        ACC,
+    )
+    _arrow(dr, (340, 255), (470, 255))
+    f = tap.z["force_z"][i]
+    dr.text(
+        (480, 150),
+        f"stance force per foot (z), sum {_fmt(tap.force_sum(i), '.0f', ' N')}",
+        font=F["s"],
+        fill=TXT,
+    )
+    top = max(
+        float(np.nanmax(tap.z["force_z"]))
+        if np.isfinite(tap.z["force_z"]).any()
+        else 1.0,
+        1.0,
+    )
+    for k in range(4):
+        v = 0.0 if not np.isfinite(f[k]) else float(f[k])
+        x = 490 + 90 * k
+        dr.rectangle(
+            [x, 330 - 140 * v / top, x + 60, 330],
+            fill=(70, 150, 230) if v > 0 else (40, 44, 52),
+        )
+        dr.text((x + 10, 336), FEET[k], font=F["s"], fill=TXT)
+        dr.text((x, 358), _fmt(v, ".0f", " N"), font=F["sm"], fill=DIM)
+    _arrow(dr, (860, 255), (930, 255))
+    _box(
+        dr,
+        F,
+        930,
+        180,
+        300,
+        150,
+        "Whole-body QP",
+        f"{1 / DT:.0f} Hz\nforces + swing accelerations\n-> 12 joint torques, limits",
+        ACC,
+    )
+    _arrow(dr, (1080, 330), (1080, 420))
+    _box(dr, F, 930, 420, 300, 80, "12 QDD drives", "abduction, hip, knee x 4 (CAN)")
+    dr.text(
+        (40, 420),
+        f"gait {tap.gait_name(i)}   mode {tap.mode_name(i)}",
+        font=F["b"],
+        fill=TXT,
+    )
+    dr.text((40, 456), "contact", font=F["sm"], fill=DIM)
+    _lights(dr, F, 40, 480, tap.z["contact"][i])
+    return img
+
+
+def draw_footholds(tap, i, size):
+    img, dr, F = _canvas(
+        size,
+        "Gait and footholds",
+        DIAGRAMS[2][2],
+        [
+            "examples/dog/loco/gait.py",
+            "examples/dog/loco/terrain.py",
+            "examples/dog/loco/controller.py",
+        ],
+    )
+    cx, cy, s = (
+        430,
+        410,
+        220.0,
+    )  # pixels per metre, dog at the centre, world axes (not rotated with the heading)
+    dr.rectangle([60, 130, 800, 690], outline=LINE, width=1)
+    c, tgt = tap.z["truth_xy"][i], tap.z["foot_xy"][i]
+    dr.ellipse([cx - 12, cy - 12, cx + 12, cy + 12], outline=TXT, width=3)
+    stance = []
+    for k in range(4):
+        d = tgt[k] - c
+        if not np.all(np.isfinite(d)) or np.hypot(*d) > 1.2 or not np.any(tgt[k]):
+            continue
+        p = (cx + s * d[0], cy - s * d[1])
+        down = tap.z["contact"][i][k] > 0.5
+        dr.ellipse(
+            [p[0] - 14, p[1] - 14, p[0] + 14, p[1] + 14],
+            fill=GOOD if down else None,
+            outline=ACC,
+            width=3,
+        )
+        dr.text((p[0] + 18, p[1] - 10), FEET[k], font=F["sm"], fill=TXT)
+        if down:
+            stance.append(p)
+    if len(stance) >= 3:
+        cen = np.mean(stance, 0)
+        order = sorted(stance, key=lambda q: math.atan2(q[1] - cen[1], q[0] - cen[0]))
+        dr.line(order + [order[0]], fill=GOOD, width=2)
+    dr.text((840, 150), f"gait: {tap.gait_name(i)}", font=F["t"], fill=TXT)
+    dr.text(
+        (840, 210),
+        "touchdown targets (rings), feet down (filled),",
+        font=F["sm"],
+        fill=DIM,
+    )
+    dr.text((840, 232), "support polygon (green).", font=F["sm"], fill=DIM)
+    _lights(dr, F, 840, 280, tap.z["contact"][i])
+    dr.text((840, 330), f"mode {tap.mode_name(i)}", font=F["m"], fill=TXT)
+    dr.text(
+        (840, 360),
+        f"feet down: {int(np.nansum(tap.z['contact'][i]))} of 4",
+        font=F["m"],
+        fill=TXT,
+    )
+    return img
+
+
+def draw_elevmap(tap, i, size):
+    from autonomy import config
+
+    img, dr, F = _canvas(
+        size,
+        "Elevation map",
+        DIAGRAMS[3][2],
+        ["examples/dog/autonomy/elevmap.py", "examples/dog/autonomy/lidar.py"],
+    )
+    cfg = config.load()
+    side, m = 560, tap.mapped(i)
+    img.paste(_mask_image(tap, i, side), (60, 120))
+    x0, cell = tap.map_geometry()
+    p = _to_px(tap.z["est_xy"][i], x0, cell, m.shape[0], 60, 120, side)
+    dr.ellipse([p[0] - 6, p[1] - 6, p[0] + 6, p[1] + 6], fill=ACC)
+    dr.text(
+        (680, 140),
+        f"mapped: {100 * m.mean():.1f} % of the field's cells",
+        font=F["b"],
+        fill=TXT,
+    )
+    dr.text(
+        (680, 180),
+        f"cell {100 * cell:.0f} cm (map {100 * cfg['map']['res']:.0f} cm, pooled {tap.meta['pool']}x)",
+        font=F["s"],
+        fill=DIM,
+    )
+    dr.text(
+        (680, 210),
+        f"mapped = variance below ({100 * np.sqrt(cfg['map']['var_mapped']):.0f} cm)^2",
+        font=F["s"],
+        fill=DIM,
+    )
+    dr.text(
+        (680, 240),
+        f"lidar {cfg['lidar']['rate_hz']:.0f} Hz, {cfg['lidar']['rays_mission']} rays per frame",
+        font=F["s"],
+        fill=DIM,
+    )
+    dr.rectangle([680, 300, 704, 324], fill=tuple(int(v) // 2 for v in GOOD))
+    dr.text((712, 300), "mapped", font=F["s"], fill=TXT)
+    dr.rectangle([680, 336, 704, 360], fill=(30, 34, 42), outline=LINE)
+    dr.text((712, 336), "not yet seen", font=F["s"], fill=TXT)
+    dr.ellipse([680, 372, 704, 396], fill=ACC)
+    dr.text((712, 372), "the dog (estimate)", font=F["s"], fill=TXT)
+    dr.text((680, 440), f"t = {tap.t[i]:6.1f} s", font=F["m"], fill=TXT)
+    return img
+
+
+def draw_localizer(tap, i, size):
+    img, dr, F = _canvas(
+        size,
+        "Localization",
+        DIAGRAMS[4][2],
+        ["examples/dog/autonomy/localize.py", "examples/dog/autonomy/icp.py"],
+    )
+    _box(dr, F, 40, 140, 300, 90, "Leg odometry", "predict (loco Estimator pose)")
+    _box(dr, F, 40, 260, 300, 90, "RTK GNSS", "position fix, sigma from the receiver")
+    _box(
+        dr,
+        F,
+        40,
+        380,
+        300,
+        90,
+        "Scan-to-map ICP",
+        "lidar scan against the elevation map",
+    )
+    _box(
+        dr,
+        F,
+        450,
+        220,
+        300,
+        190,
+        "EKF (x, y, z, yaw)",
+        "predict + gated updates\nfixes handed back to the Estimator",
+        ACC,
+    )
+    for y, ty in ((185, 280), (305, 315), (425, 350)):
+        _arrow(dr, (340, y), (450, ty))
+    rtk, lost, err = tap.col("rtk_ok", i), tap.col("gnss_lost", i), tap.col("err_xy", i)
+    yn = lambda v: "n/a" if not np.isfinite(v) else ("yes" if v > 0.5 else "no")
+    dr.text(
+        (450, 440),
+        f"RTK fix available: {yn(rtk)}",
+        font=F["b"],
+        fill=GOOD if rtk > 0.5 else BAD,
+    )
+    dr.text((450, 474), f"sky view lost: {yn(lost)}", font=F["s"], fill=TXT)
+    dr.text(
+        (450, 504),
+        f"position error: {_fmt(100 * err, '.1f', ' cm')} (limit 30 cm)",
+        font=F["s"],
+        fill=GOOD if err < 0.3 else BAD,
+    )
+    if "err_xy" in tap.tr:  # error history up to now, the 30 cm monitor line in red
+        x, y, w, h = 800, 220, 420, 200
+        dr.rectangle([x, y, x + w, y + h], outline=LINE, width=1)
+        sel = tap.tr["t"] <= tap.t[i]
+        t, e = tap.tr["t"][sel], tap.tr["err_xy"][sel]
+        top = max(0.4, float(e.max()) if len(e) else 0.4)
+        if len(t) > 1:
+            dr.line(
+                [
+                    (x + w * (a - t[0]) / max(t[-1] - t[0], 1e-6), y + h - h * b / top)
+                    for a, b in zip(t, e)
+                ],
+                fill=ACC,
+                width=2,
+            )
+        dr.line(
+            [(x, y + h - h * 0.3 / top), (x + w, y + h - h * 0.3 / top)],
+            fill=BAD,
+            width=1,
+        )
+        dr.text((x, y - 24), "position error over time", font=F["sm"], fill=DIM)
+    return img
+
+
+def draw_planner(tap, i, size):
+    img, dr, F = _canvas(
+        size,
+        "Coverage planner",
+        DIAGRAMS[5][2],
+        ["examples/dog/autonomy/planner.py", "examples/dog/autonomy/traverse.py"],
+    )
+    side, m = 560, tap.mapped(i)
+    img.paste(_mask_image(tap, i, side), (60, 120))
+    x0, cell = tap.map_geometry()
+    pa = tap.path(i)
+    px = [_to_px(q, x0, cell, m.shape[0], 60, 120, side) for q in pa]
+    if len(px) > 1:
+        dr.line(px, fill=GOOD, width=3)
+    trail = [
+        _to_px(q, x0, cell, m.shape[0], 60, 120, side)
+        for q in tap.z["truth_xy"][max(0, i - 400) : i + 1]
+    ]
+    if len(trail) > 1:
+        dr.line(trail, fill=TXT, width=2)
+    p = _to_px(tap.z["est_xy"][i], x0, cell, m.shape[0], 60, 120, side)
+    dr.ellipse([p[0] - 6, p[1] - 6, p[0] + 6, p[1] + 6], fill=ACC)
+    dr.text((680, 140), f"planned path: {len(pa)} waypoints", font=F["b"], fill=TXT)
+    dr.text(
+        (680, 180),
+        f"mapped: {100 * m.mean():.1f} % of the cells",
+        font=F["s"],
+        fill=DIM,
+    )
+    dr.line([(680, 250), (730, 250)], fill=GOOD, width=3)
+    dr.text((740, 238), "planned lane path", font=F["s"], fill=TXT)
+    dr.line([(680, 286), (730, 286)], fill=TXT, width=2)
+    dr.text((740, 274), "where the dog has been", font=F["s"], fill=TXT)
+    return img
+
+
+def draw_executive(tap, i, size):
+    img, dr, F = _canvas(
+        size, "Mission executive", DIAGRAMS[6][2], ["examples/dog/autonomy/mission.py"]
+    )
+    names = phase_names()
+    cur = int(tap.z["phase"][i])
+    chips = [(v, n) for v, n in sorted(names.items()) if n != "INIT"]
+    for k, (v, n) in enumerate(chips):
+        x = 60 + 230 * k
+        on = v == cur
+        dr.rounded_rectangle(
+            [x, 220, x + 200, 300],
+            radius=14,
+            outline=ACC if on else LINE,
+            width=4 if on else 2,
+            fill=(40, 34, 14) if on else (20, 23, 29),
+        )
+        dr.text((x + 20, 245), n, font=F["t"], fill=TXT if on else DIM)
+        if k + 1 < len(chips):
+            _arrow(dr, (x + 204, 260), (x + 228, 260))
+    dr.text((60, 350), f"phase now: {names.get(cur, '?')}", font=F["b"], fill=TXT)
+    dr.text(
+        (60, 390),
+        f"t = {tap.t[i]:6.1f} s   mode {tap.mode_name(i)}   gait {tap.gait_name(i)}",
+        font=F["m"],
+        fill=TXT,
+    )
+    dr.text(
+        (60, 440),
+        f"coverage of the reachable area: {_fmt(100 * tap.col('coverage', i), '.1f', ' %')}",
+        font=F["b"],
+        fill=TXT,
+    )
+    dr.text(
+        (60, 480),
+        f"map RMS: {_fmt(100 * tap.col('rms', i), '.1f', ' cm')}   walked: {_fmt(tap.col('distance', i), '.1f', ' m')}",
+        font=F["s"],
+        fill=DIM,
+    )
+    return img
+
+
+def draw(key, tap, i, size):
+    """One diagram frame (PIL RGB image of `size`) from tap sample i; every number on it is read from the tap / trace."""
+    return globals()[f"draw_{key}"](tap, i, size)
+
+
+def cmd_diagrams(a):
+    import videnc
+
+    tap, out = TapData(a.run_dir), Path(a.out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    meta, n = [], 0
+    for key, _, _, secs in DIAGRAMS:
+        nf = int(secs * FPS)
+        for f in range(
+            nf
+        ):  # the tap index advances from the run's start to its end during each diagram, so the numbers move
+            i = int(round((tap.n - 1) * f / max(nf - 1, 1)))
+            videnc.save_frame(out, f"d{n:05d}", np.asarray(draw(key, tap, i, (W, H))))
+            meta.append(dict(k=n, key=key, tap=i))
+            n += 1
+    (out / "diagrams.json").write_text(
+        json.dumps(dict(fps=FPS, frames=meta, state_hash=tap.meta["state_hash"]))
+    )
+    print(f"{n} frames = {n / FPS:.1f} s in {out}")  # ttsr-ignore: py/no-print
+
+
+# ---- part (c): the sim demo, the run replayed tick-exact with an orbit camera, the map and the path overlaid ------------------------------------
+PART_C_MAX_S = 180.0
+SPEED = [
+    (0.0, 25.0, 1.0),
+    (25.0, None, 4.0),
+]  # (video s from, to, sim s per video s): real time while the gait is readable, then 4x
+ORBIT_R, ORBIT_EL, ORBIT_DEG_S, LOOK_TAU, MAP_H = 2.2, 22.0, 6.0, 0.25, 35.0
+
+
+def sim_time(v):
+    """Sim time shown at video time v (s) under SPEED."""
+    t = 0.0
+    for a, b, s in SPEED:
+        hi = v if b is None else min(v, b)
+        if hi > a:
+            t += (hi - a) * s
+    return t
+
+
+def video_time(t):
+    """Inverse of sim_time: the video second at which sim time t is shown."""
+    for a, b, s in SPEED:
+        if b is None or t <= sim_time(b):
+            return a + (t - sim_time(a)) / s
+    raise AssertionError("SPEED must end with an open segment")
+
+
+def shot_at(v, total=PART_C_MAX_S):
+    """'orbit' or 'map' at video second v: orbit for 0-25 s, then 20 s orbit / 12 s map alternating, the last 20 s of `total` all map."""
+    if v < 25.0:
+        return "orbit"
+    if v >= total - 20.0:
+        return "map"
+    return "orbit" if (v - 25.0) % 32.0 < 20.0 else "map"
+
+
+class Director:
+    """Sequential camera (frame k after frame k-1): orbit around the dog at ORBIT_R m, azimuth advancing ORBIT_DEG_S deg per VIDEO second, the look-at point a low-pass
+    (LOOK_TAU s) of the dog's ground-truth position so a trotting trunk cannot jitter the frame; `kind == "map"` is a high wide shot straight above the dog."""
+
+    def __init__(self, trace):
+        self.tr, self.az, self.look = trace, 0.0, None
+
+    def dog(self, t, z=None):
+        p = [float(np.interp(t, self.tr["t"], self.tr[k])) for k in ("x", "y")]
+        zz = (
+            z
+            if z is not None
+            else (
+                float(np.interp(t, self.tr["t"], self.tr["z"]))
+                if "z" in self.tr
+                else 0.4
+            )
+        )
+        return np.array([p[0], p[1], zz + 0.1])
+
+    def step(self, t, dt, kind="orbit", z=None):
+        """-> (camera dict for Sim.render: pos, lookat, fovy; kind). `dt` is the VIDEO time since the last call."""
+        target = self.dog(t, z)
+        a = 1.0 - math.exp(-dt / LOOK_TAU)
+        self.look = (
+            target if self.look is None else self.look + a * (target - self.look)
+        )
+        self.az += math.radians(ORBIT_DEG_S) * dt
+        if kind == "map":
+            c = self.look
+            return dict(
+                pos=np.array([c[0], c[1] - 0.5, MAP_H]),
+                lookat=np.array([c[0], c[1], 0.0]),
+                fovy=50.0,
+            ), "map"
+        el = math.radians(ORBIT_EL)
+        off = ORBIT_R * np.array(
+            [math.cos(self.az), math.sin(self.az), 0.0]
+        ) + np.array([0.0, 0.0, ORBIT_R * math.tan(el)])
+        return dict(pos=self.look + off, lookat=self.look.copy(), fovy=50.0), "orbit"
+
+
+def project(cam, pt, size=(W, H)):
+    """Pixel of a world point in a `Sim.render` camera (vertical fov), None behind the camera (the same pinhole as tools/record_skydio.project)."""
+    d = cam["lookat"] - cam["pos"]
+    d = d / np.linalg.norm(d)
+    right = np.cross(d, [0, 0, 1.0])
+    right /= np.linalg.norm(right)
+    up = np.cross(right, d)
+    c = np.asarray(pt, float) - cam["pos"]
+    z = c @ d
+    if z < 0.3:
+        return None
+    f = (size[1] / 2) / math.tan(math.radians(cam["fovy"]) / 2)
+    return size[0] / 2 + f * (c @ right) / z, size[1] / 2 - f * (c @ up) / z
+
+
+def hud(w, tap, i, m, base, speedup=1.0):
+    """The frame with the HUD from tap sample i: phase chip and a key-value panel (gait, speed, mode, coverage, map RMS, localization error, elapsed); in `map` shots the
+    mapped cells, the planned path (green), the dog's trail (white) and the estimated pose (amber) against the true one (white ring), projected with the frame's own camera `m`."""
+    from PIL import Image, ImageDraw
+
+    F = getattr(w, "F", None) or _fonts()
+    cam = {
+        k: np.array(m[k], float) if k != "fovy" else m[k]
+        for k in ("pos", "lookat", "fovy")
+    }
+    img = base.convert("RGBA")
+    ov = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    dr = ImageDraw.Draw(ov)
+    if m.get("shot") == "map":
+        x0, cell = tap.map_geometry()
+        mk = tap.mapped(i)
+        n = mk.shape[0]
+        b = max(
+            1, int(round(max(0.5, n * cell / 60.0) / cell))
+        )  # draw blocks of >= 0.5 m: at most ~3600 polygons per frame
+        nb = n // b
+        frac = mk[: nb * b, : nb * b].reshape(nb, b, nb, b).mean(axis=(1, 3))
+        for r_, c_ in zip(*np.nonzero(frac > 0.5)):
+            xs, ys = x0 + c_ * b * cell, x0 + r_ * b * cell
+            q = [
+                project(cam, (xs + dx * b * cell, ys + dy * b * cell, 0.02), img.size)
+                for dx, dy in ((0, 0), (1, 0), (1, 1), (0, 1))
+            ]
+            if all(q):
+                dr.polygon(q, fill=(110, 220, 120, 70))
+        pa = [project(cam, (q[0], q[1], 0.05), img.size) for q in tap.path(i)]
+        if sum(1 for q in pa if q) > 1:
+            dr.line([q for q in pa if q], fill=(90, 255, 130, 230), width=3)
+        tr = [
+            project(cam, (q[0], q[1], 0.05), img.size)
+            for q in tap.z["truth_xy"][max(0, i - 400) : i + 1]
+        ]
+        if sum(1 for q in tr if q) > 1:
+            dr.line([q for q in tr if q], fill=(255, 255, 255, 200), width=2)
+        for xy, col, ring in (
+            (tap.z["truth_xy"][i], (255, 255, 255, 255), True),
+            (tap.z["est_xy"][i], (255, 196, 60, 255), False),
+        ):
+            q = project(cam, (xy[0], xy[1], 0.1), img.size)
+            if q:
+                dr.ellipse(
+                    [q[0] - 9, q[1] - 9, q[0] + 9, q[1] + 9], outline=col, width=3
+                ) if ring else dr.rectangle(
+                    [q[0] - 5, q[1] - 5, q[0] + 5, q[1] + 5], fill=col
+                )
+    names = phase_names()
+    chip = names.get(int(tap.z["phase"][i]), "?")
+    bad = chip == "ABORT" or tap.mode_name(i) == "FALLEN"
+    dr.rounded_rectangle(
+        [14, 14, 14 + 28 + dr.textlength(chip, font=F["b"]), 54],
+        radius=8,
+        fill=(0, 0, 0, 175),
+    )
+    dr.text(
+        (28, 21),
+        chip,
+        font=F["b"],
+        fill=(255, 100, 90, 255) if bad else (255, 196, 60, 255),
+    )
+    d_now, d_before = (
+        tap.col("distance", i),
+        float(np.interp(tap.t[i] - 1.0, tap.tr["t"], tap.tr["distance"]))
+        if "distance" in tap.tr
+        else float("nan"),
+    )
+    rows = [
+        ("t", f"{tap.t[i]:7.1f} s" + (f"   {speedup:g}x" if speedup != 1 else "")),
+        ("gait", f"{tap.gait_name(i)}  {tap.mode_name(i)}"),
+        ("speed", _fmt(d_now - d_before, ".2f", " m/s")),
+        ("coverage", _fmt(100 * tap.col("coverage", i), ".1f", " %")),
+        ("map RMS", _fmt(100 * tap.col("rms", i), ".1f", " cm")),
+        ("loc error", _fmt(100 * tap.est_error(i), ".1f", " cm")),
+    ]
+    x1 = img.size[0] - 14
+    dr.rounded_rectangle(
+        [x1 - 270, 14, x1, 14 + 30 * len(rows) + 14], radius=8, fill=(0, 0, 0, 175)
+    )
+    for k, (a_, b_) in enumerate(rows):
+        dr.text((x1 - 258, 22 + 30 * k), a_, font=F["h"], fill=(255, 196, 60, 255))
+        dr.text((x1 - 168, 18 + 30 * k), b_, font=F["m"], fill=(235, 238, 245, 255))
+    return Image.alpha_composite(img, ov).convert("RGB")
+
+
+def cmd_sim(a):
+    import napl
+    import videnc
+    from screenshots import Replay
+
+    run, out = Path(a.run_dir), Path(a.out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    import csv
+
+    rows = list(csv.DictReader(open(run / "trace.csv")))
+    trace = {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
+    native = json.loads((run / "native.json").read_text())
+    t_end = native["tick"] * native["dt"]
+    napl.render_style("outdoor,shadows")
+    r = Replay(run)
+    r.dt = native[
+        "dt"
+    ]  # the kernel step; the trace's last row (a lidar frame) is not necessarily the last tick
+    trunk = next(
+        (p for p in r.sim.body_positions() if p.endswith("deck_top")), None
+    )  # the trunk's prim path, for its z
+    d = Director(trace)
+    total = min(PART_C_MAX_S, video_time(t_end))
+    n = int(total * FPS)
+    meta = []
+    for k in range(n):
+        v = k / FPS
+        t = sim_time(v)
+        r.to(t)
+        z = float(r.sim.query(trunk, "pos")[0][2]) if trunk else None
+        cam, kind = d.step(t, 1.0 / FPS, shot_at(v, total), z)
+        img, _ = r.sim.render(width=W, height=H, **cam)
+        videnc.save_frame(out, f"f{k:05d}", np.asarray(img))
+        meta.append(
+            dict(
+                k=k,
+                t=round(t, 3),
+                shot=kind,
+                pos=cam["pos"].round(3).tolist(),
+                lookat=cam["lookat"].round(3).tolist(),
+                fovy=cam["fovy"],
+            )
+        )
+    h, ok = r.finish()
+    (out / "sim.json").write_text(
+        json.dumps(
+            dict(
+                run=str(run),
+                fps=FPS,
+                speed=SPEED,
+                replay_hash=h,
+                replay_matches_run=ok,
+                native_hash=native["state_hash"],
+                t_end=t_end,
+                frames=meta,
+            )
+        )
+    )
+    print(
+        f"{n} frames in {out}; replay hash {h} {'MATCHES' if ok else 'DIFFERS FROM'} native.json"
+    )  # ttsr-ignore: py/no-print
+    sys.exit(0 if ok else 1)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -427,8 +1288,20 @@ def main(argv=None):
     s.add_argument("out")
     s = sub.add_parser("explode")
     s.add_argument("out_dir")
+    s = sub.add_parser("diagrams")
+    s.add_argument("run_dir")
+    s.add_argument("out_dir")
+    s = sub.add_parser("sim")
+    s.add_argument("run_dir")
+    s.add_argument("out_dir")
     a = ap.parse_args(argv)
-    {"probe": cmd_probe, "oplog": cmd_oplog, "explode": cmd_explode}[a.cmd](a)
+    {
+        "probe": cmd_probe,
+        "oplog": cmd_oplog,
+        "explode": cmd_explode,
+        "diagrams": cmd_diagrams,
+        "sim": cmd_sim,
+    }[a.cmd](a)
 
 
 if __name__ == "__main__":

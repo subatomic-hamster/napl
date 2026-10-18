@@ -80,3 +80,127 @@ def test_explode_keeps_every_body_and_moves_only_groups(tmp_path):  # Review Foc
     assert (
         vec["fl:"][1] > 0 > vec["fr:"][1] and vec["rl:"][1] > 0 > vec["rr:"][1]
     )  # outward along each leg's own side
+
+
+def fake_run(tmp_path, h="h1", th="h1"):
+    d = tmp_path / "run"
+    (d / "tap").mkdir(parents=True)
+    n = 12
+    np.savez_compressed(
+        d / "tap" / "tap.npz", t=np.arange(n) * 0.5, truth_xy=np.zeros((n, 2)), est_xy=np.full((n, 2), 0.04), est_yaw=np.zeros(n), phase=np.ones(n),
+        mode=np.full(n, 2), gait=np.full(n, 2), contact=np.tile([1, 0, 1, 0], (n, 1)).astype(float), force_z=np.full((n, 4), 30.0),
+        foot_xy=np.zeros((n, 4, 2)), path_len=np.full(n, 2), path_xy=np.tile(np.array([[0, 0], [5, 0]], np.float32), (n, 1)),
+        map_t=np.array([0.0, 5.0]), mapped_packed=np.stack([np.packbits(np.eye(8, dtype=bool))] * 2), mapped_shape=np.array([8, 8]),
+    )  # fmt: skip
+    (d / "tap" / "tap.json").write_text(
+        json.dumps(dict(n=n, dt=0.1, state_hash=th, every=5, pool=2, cols=[]))
+    )
+    (d / "result.json").write_text(json.dumps(dict(sim=dict(state_hash=h))))
+    return d
+
+
+def test_overlay_numbers_come_from_the_tap_and_stale_tap_is_refused(
+    tmp_path,
+):  # Review Focus 4
+    d = fake_run(tmp_path)
+    tap = RD.TapData(d)
+    assert tap.est_error(3) == pytest.approx(
+        np.hypot(0.04, 0.04)
+    )  # the number printed on the estimator diagram
+    assert tap.force_sum(3) == pytest.approx(120.0) and tap.gait_name(3) == "trot"
+    with pytest.raises(SystemExit, match="stale"):
+        RD.TapData(fake_run(tmp_path / "x", h="h1", th="h2"))
+    pytest.importorskip(
+        "PIL"
+    )  # the drawing needs Pillow (the video venv; hfbox .venv has it installed for this test)
+    for key, *_ in RD.DIAGRAMS:
+        img = RD.draw(key, tap, 3, (RD.W, RD.H))
+        assert img.size == (RD.W, RD.H)
+
+
+def test_diagram_numbers_change_with_the_tap_sample(tmp_path):
+    """The picture is a function of the tap: a different force on the tap gives a different estimator / MPC frame."""
+    pytest.importorskip("PIL")
+    d = fake_run(tmp_path)
+    tap = RD.TapData(d)
+    a = RD.draw("mpc_wbc", tap, 3, (RD.W, RD.H)).tobytes()
+    tap.z["force_z"][3] = 60.0
+    assert RD.draw("mpc_wbc", tap, 3, (RD.W, RD.H)).tobytes() != a
+
+
+def test_diagram_layout_is_deterministic(tmp_path):
+    import hashlib
+
+    pytest.importorskip("PIL")
+    tap = RD.TapData(fake_run(tmp_path))
+    h = lambda: [
+        hashlib.sha1(RD.draw(k, tap, 5, (RD.W, RD.H)).tobytes()).hexdigest()
+        for k, *_ in RD.DIAGRAMS
+    ]  # checked in memory, never written
+    assert h() == h()
+    assert sum(s for *_, s in RD.DIAGRAMS) <= RD.PART_B_MAX_S
+
+
+def test_director_orbits_at_constant_radius_and_is_deterministic():
+    tr = {
+        "t": np.arange(0, 60, 0.1),
+        "x": np.linspace(0, 30, 600),
+        "y": np.zeros(600),
+        "z": np.full(600, 0.4),
+    }
+    d1, d2 = RD.Director(tr), RD.Director(tr)
+    ts = np.arange(0, 20, 0.05)
+    cams = [d1.step(t, 0.05) for t in ts]
+    again = [d2.step(t, 0.05) for t in ts]
+    assert all(
+        np.array_equal(c["pos"], c2["pos"])
+        and np.array_equal(c["lookat"], c2["lookat"])
+        for (c, _), (c2, _) in zip(cams, again)
+    )
+    r = [np.hypot(*(c["pos"][:2] - c["lookat"][:2])) for c, k in cams if k == "orbit"]
+    assert (
+        max(r) - min(r) < 0.35
+    )  # smoothing lags the dog a little, the orbit radius stays ORBIT_R
+    assert {k for _, k in cams} == {"orbit"}
+    az = [np.arctan2(*(c["pos"][:2] - c["lookat"][:2])[::-1]) for c, _ in cams]
+    assert abs(np.unwrap(az)[-1] - np.unwrap(az)[0]) == pytest.approx(
+        np.radians(RD.ORBIT_DEG_S) * 19.95, rel=1e-6
+    )  # 6 deg per video second
+    c, k = RD.Director(tr).step(3.0, 0.05, "map")
+    assert (
+        k == "map" and c["pos"][2] == RD.MAP_H and c["lookat"][2] == 0.0
+    )  # straight above the dog
+
+
+def test_shot_schedule_ends_on_the_map_and_fits_part_c_budget():
+    kinds = [RD.shot_at(t) for t in range(int(RD.PART_C_MAX_S))]
+    assert (
+        kinds[0] == "orbit"
+        and kinds[24] == "orbit"
+        and kinds[-1] == "map"
+        and set(kinds) == {"orbit", "map"}
+    )
+    assert all(k == "map" for k in kinds[int(RD.PART_C_MAX_S) - 20 :])
+    assert RD.PART_C_MAX_S <= 190.0
+
+
+def test_speed_schedule_maps_video_time_to_sim_time_and_back():
+    assert (
+        RD.sim_time(10.0) == 10.0
+        and RD.sim_time(25.0) == 25.0
+        and RD.sim_time(35.0) == 25.0 + 4 * 10.0
+    )
+    for t in (0.0, 12.0, 25.0, 100.0, 640.0):
+        assert RD.sim_time(RD.video_time(t)) == pytest.approx(t)
+
+
+def test_hud_draws_from_the_tap_and_marks_the_map_shot(tmp_path):
+    Image = pytest.importorskip("PIL.Image")
+    tap = RD.TapData(fake_run(tmp_path))
+    base = Image.new("RGB", (RD.W, RD.H), (60, 60, 60))
+    cam = dict(pos=[0.0, -0.5, 35.0], lookat=[0.0, 0.0, 0.0], fovy=50.0)
+    orbit = RD.hud(None, tap, 3, dict(cam, shot="orbit"), base)
+    flat = RD.hud(None, tap, 3, dict(cam, shot="map"), base)
+    assert (
+        orbit.size == flat.size == (RD.W, RD.H) and orbit.tobytes() != flat.tobytes()
+    )  # the map shot adds the mask, path and trail overlay
