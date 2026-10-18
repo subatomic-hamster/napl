@@ -15,12 +15,26 @@ class Executive:
     def __init__(self, cfg, home_xy):
         self.cfg, self.P, self.T = cfg, cfg["plan"], cfg["trav"]
         self.home = tuple(float(v) for v in home_xy)
-        self.wps = planner.lanes(cfg, self.P["lane_m"], self.home)
+        self.wps = (
+            planner.lanes(cfg, self.P["lane_m"], self.home) if self.P["sweep"] else []
+        )
         self.wi, self.phase, self.goal, self.goal_block = 0, self.INIT, None, None
         self.tried, self.best = set(), (math.inf, 0.0)
         self._n, self._home_len = 0, 0.0
+        nb = int(round(cfg["map"]["size"] / cfg["trav"]["block"]))
+        self.tried_mask = np.zeros((nb, nb), bool)
+        self.relaxed = False
         self.unreachable = (
             False  # the last A* found no path to the goal: skip it on the next update
+        )
+
+    def _relax(self, c, clear):
+        """Blocks closed only by the clearance (not touching a wall) open at the unknown-ground cost plus the full wall penalty."""
+        r = self.T["clear_relaxed"]
+        return np.where(
+            np.isinf(c) & (clear >= r),
+            self.T["unknown_cost"] + self.T["near_lethal"],
+            c,
         )
 
     def _set(self, goal, t, block=None):
@@ -34,7 +48,7 @@ class Executive:
         c[:k], c[-k:], c[:, :k], c[:, -k:] = np.inf, np.inf, np.inf, np.inf
         return c
 
-    def update(self, t, pose, cost, mapped, fallen, unknown=None):
+    def update(self, t, pose, cost, mapped, fallen, unknown=None, clear=None):
         P = self.P
         if fallen:
             self.phase = self.ABORT
@@ -92,12 +106,16 @@ class Executive:
             # standing in a lethal block (a wall face seen from 0.3 m): plan from the nearest free block, never through the wall
             # (patching the start block finite lets A* tunnel into the unseen far half of the wall: ruins mission, bumps 12552)
             nb = c.shape[0]
-            near = [
-                (math.dist(xy, planner.centre((i, j), self.cfg)), (i, j))
-                for i in range(max(me[0] - 2, 0), min(me[0] + 3, nb))
-                for j in range(max(me[1] - 2, 0), min(me[1] + 3, nb))
-                if math.isfinite(c[i, j])
-            ]
+            for rr in (2, 4) if clear is not None else (2,):
+                # ruins: pressed against a wall the whole 5 x 5 neighbourhood can be closed (training seed 2 stood still to the end)
+                near = [
+                    (math.dist(xy, planner.centre((i, j), self.cfg)), (i, j))
+                    for i in range(max(me[0] - rr, 0), min(me[0] + rr + 1, nb))
+                    for j in range(max(me[1] - rr, 0), min(me[1] + rr + 1, nb))
+                    if math.isfinite(c[i, j])
+                ]
+                if near:
+                    break
             if near:
                 start = min(near)[1]
             else:
@@ -106,23 +124,43 @@ class Executive:
             if self.goal_block is not None:
                 self.tried.add(self.goal_block)
             dist, parent = planner.dijkstra(c, start)
-            ij = planner.choose(
-                dist,
-                planner.gain(mapped, self.cfg, int(P["pool"])),
-                self.tried,
-                self.cfg,
-            )
+            g = planner.gain(mapped, self.cfg, int(P["pool"]))
+            if clear is not None:
+                # ruins: room tour. The next viewpoint is the block with the most unmapped floor within the lidar reach per unit of
+                # path cost; visited viewpoints (and their surroundings) are not chosen again
+                if self.goal_block is not None:
+                    r = int(round(P["tried_m"] / self.T["block"]))
+                    i, j = self.goal_block
+                    self.tried_mask[
+                        max(i - r, 0) : i + r + 1, max(j - r, 0) : j + r + 1
+                    ] = True
+                ij = planner.choose_view(dist, g, clear, self.tried_mask, self.cfg)
+                self.relaxed = False
+                if ij is None:
+                    # nothing reachable at the strict clearance (a door mapped too narrow): look again through blocks that only
+                    # do not touch a wall (training seed 2 went home at 352 s with 27 % mapped)
+                    d2, _ = planner.dijkstra(self._relax(c, clear), start)
+                    ij = planner.choose_view(d2, g, clear, self.tried_mask, self.cfg)
+                    self.relaxed = ij is not None
+            else:
+                ij = planner.choose(dist, g, self.tried, self.cfg)
             if ij is None:
                 self.phase = self.RETURN
                 self._set(self.home, t)
             else:
-                vb = planner.view_goal(
-                    planner.path_to(parent, start, ij, c.shape[1]), self.cfg
+                vb = (
+                    ij
+                    if clear is not None
+                    else planner.view_goal(
+                        planner.path_to(parent, start, ij, c.shape[1]), self.cfg
+                    )
                 )
                 self._set(planner.centre(vb, self.cfg), t, ij)
         if self.phase == self.RETURN and math.dist(xy, self.home) < P["goal_tol"]:
             self.phase = self.DONE
             return []
+        if self.relaxed and clear is not None:
+            c = self._relax(c, clear)
         path = planner.astar(c, start, planner.block_of(*self.goal, self.cfg))
         if path is None:
             self.unreachable = True  # skipped on the next update (plan bug fixed: best=(inf, -inf) was reset by the progress test)
@@ -232,10 +270,20 @@ class Robot:
                     clearance.obstacles(self.map.hn, res, cfg["trav"]["step_max"]), res
                 )
                 cost = clearance.block_cost(self.trav.L["known"], self.D, cfg)
+                kb = int(round(cfg["trav"]["block"] / res))
+                nb = cost.shape[0]
+                clr = (
+                    clearance.block_clearance(self.D, kb)[:nb, :nb]
+                    if cfg["plan"]["tour"]
+                    else None
+                )
+            else:
+                clr = None
             args = (
                 self.map.mapped(int(cfg["plan"]["pool"])),
                 od.fallen,
                 self.trav.L["known"] < cfg["trav"]["min_known"],
+                clr,
             )
             self.path = self.ex.update(t, pose, cost, *args)
             if self.D is not None and not self.path and self.ex.phase == self.ex.RETURN:
@@ -258,7 +306,18 @@ class Robot:
                 cfg,
                 lim,
                 P["near_wall_lookahead"] if near else None,
-                P["reverse_speed"] if near and self.D is not None else 0.0,
+                P["reverse_speed"]
+                if near
+                and self.D is not None
+                and clearance.sample(
+                    self.D,
+                    pose[0],
+                    pose[1],
+                    -cfg["map"]["size"] / 2,
+                    cfg["map"]["res"],
+                )
+                < P["reverse_m"]
+                else 0.0,
             )
             if self.path
             else (0.0, 0.0)

@@ -78,6 +78,12 @@ clear_approach = { value = 0.5, unit = "m", fidelity = "estimated", rationale = 
 
 [plan]
 rate_hz = { value = 1.0, unit = "Hz", fidelity = "design", rationale = "Spec: global planning 1-2 Hz." }
+sweep = { value = 1, unit = "1", fidelity = "design", rationale = "1 = boustrophedon lanes first, then gap filling (rubble). 0 = no lanes: the nearest-unmapped-gap fill tour from the start (ruins: the lanes shuttle between far lane ends through the maze)." }
+tour = { value = 0, unit = "1", fidelity = "design", rationale = "1 = room tour (needs trav.clearance = 1): the fill step picks the viewpoint with the most unmapped floor within fill_radius per unit of path cost, instead of the nearest gap block 2.5 m back along the path." }
+fill_radius = { value = 2.5, unit = "m", fidelity = "estimated", rationale = "Tour: floor within this distance of a viewpoint counts as seen from it (a 5 m room is covered from its centre or a doorway)." }
+fill_min = { value = 1.0, unit = "m^2", fidelity = "estimated", rationale = "Tour: a viewpoint is worth a visit if at least this much unmapped floor lies within fill_radius." }
+fill_d0 = { value = 10.0, unit = "1", fidelity = "estimated", rationale = "Tour: path-cost offset in value / (cost + d0), so near viewpoints do not win by division by ~0." }
+tried_m = { value = 1.0, unit = "m", fidelity = "estimated", rationale = "Tour: viewpoints within this distance of a visited one are not chosen again." }
 lane_m = { value = 8.0, unit = "m", fidelity = "measured", rationale = "100 x 100 m rubble, 5k rays, seed 1, coverage at the 20 min return: lane 6 m 78.9 %, 7 m 87.1 %, 8 m 95.5 % (the single-pass 95 % swath of +-2-2.5 m gives 1.8-3.6 m lanes, which cannot finish in 20 min; wider lanes plus gap filling win; docs/dog/autonomy.md Swath)." }
 lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pure-pursuit lookahead (two body lengths)." }
 turn_in_place = { value = 1.0471975511965976, unit = "rad", fidelity = "design", rationale = "Above 60 deg heading error the dog turns on the spot." }
@@ -96,6 +102,7 @@ near_wall_m = { value = 0.6, unit = "m", fidelity = "estimated", rationale = "A 
 near_wall_speed = { value = 1.5, unit = "m/s", fidelity = "design", rationale = "Speed cap near lethal blocks. 1.5 = v_max = no cap (rubble); ruins scenarios lower it." }
 near_wall_lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pursuit lookahead near lethal blocks. 1.0 = the open-ground lookahead (rubble); ruins scenarios shorten it so the path through a 0.8-1.6 m door is tracked within a few cm." }
 unstick_s = { value = 4.0, unit = "s", fidelity = "estimated", rationale = "Commanded to move but the estimated pose has not changed (< 5 cm, < 0.05 rad) for this long: back off for unstick_back_s (a blocked foot against a wall)." }
+reverse_m = { value = 0.4, unit = "m", fidelity = "estimated", rationale = "Reversing instead of turning only within this clearance of a wall (the feet reach 0.29 m); farther out the robot turns on the spot (reversing was 29 % of the time in the first tour runs: slow)." }
 reverse_speed = { value = 0.3, unit = "m/s", fidelity = "estimated", rationale = "Clearance mode (ruins) only: next to a wall a target behind the robot (> 90 deg) is reached by reversing, not by turning on the spot (the feet, 0.29 m from the centre, wedge against the wall)." }
 unstick_back_s = { value = 1.5, unit = "s", fidelity = "estimated", rationale = "Duration of the back-off at 0.4 m/s (alternating back / forward)." }
 
