@@ -1,0 +1,76 @@
+# napl program examples/dog/missions/dog_ruins/dog_ruins.scenario.toml --runs-dir <dir>
+# coverage_ruins on the legged robot (100 x 100 m ruins, 20 min budget, 0.3 m planning blocks). SP6 headline mission; long run: `remote.sh bg`.
+# Flat ruins floor sim speed is ~0.30-0.35 sim-s per wall-s (docs/dog/autonomy.md "On the dog"): 1200 s of mission = 1-1.3 h wall.
+name = "dog-dog-ruins"
+
+[auto]
+body = "dog"
+kind = "ruins"
+size = { value = 100.0, unit = "m", fidelity = "design", rationale = "Spec section 7 field." }
+patch = { value = 10.0, unit = "m", fidelity = "measured", rationale = "10 m and 5 m patches cost the same on ruins (docs/dog/autonomy.md); 10 m kept." }
+rays = { value = 5000, unit = "1", fidelity = "design", rationale = "Mission ray count (autonomy.toml lidar.rays_mission)." }
+pool = { value = 2, unit = "1", fidelity = "design", rationale = "5k rays: 10 cm scoring cells (SP5 Task 10 density equivalence)." }
+t_budget = { value = 1200.0, unit = "s", fidelity = "design", rationale = "Spec section 7: 20 min." }
+start_x = { value = -47.5, unit = "m", fidelity = "design", rationale = "A ruins cell centre: walls lie on the 5 m grid from -50." }
+start_y = { value = -47.5, unit = "m", fidelity = "design", rationale = "A ruins cell centre." }
+start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east." }
+block = { value = 0.3, unit = "m", fidelity = "measured", rationale = "autonomy.md: 0.5 m blocks read 0.8-1.6 m doors closed (the robot's reachable set stayed inside its first rooms); 0.3 m blocks: 108515 of 110889 reachable." }
+near_lethal = { value = 6.0, unit = "1", fidelity = "estimated", rationale = "As coverage_ruins: cost of a block next to a wall so the body keeps off walls." }
+near_wall_speed = { value = 0.8, unit = "m/s", fidelity = "estimated", rationale = "As coverage_ruins: speed cap within 0.6 m of a wall (above the dog's [dog] limit of 0.4 m/s, which clamps it anyway)." }
+return_margin = { value = 120.0, unit = "s", fidelity = "estimated", rationale = "As coverage_ruins: head home with two minutes in hand." }
+near_wall_lookahead = { value = 0.45, unit = "m", fidelity = "estimated", rationale = "As coverage_ruins: short lookahead next to walls." }
+edge_margin = { value = 0.30, unit = "m", fidelity = "measured", rationale = "As coverage_ruins: map RMS scored on floor cells at least 0.30 m from a wall (docs/dog/autonomy.md Coverage, ruins)." }
+
+[model]
+script = "dog_ruins.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../../automission.py", "{dir}/dog_ruins.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain, the lidar / GNSS noise, the odometry drift and the initial pose error: one seed, one run."
+
+[limits]
+wall_s = 7200            # ruins 5k ~ 11-13 min carrier x 3-4 for the dog (docs/dog/autonomy.md)
+cpu_s = 7200
+address_space_mb = 16384
+
+[[monitors]]
+name = "map_rms_within_5cm"   # spec section 7
+column = "rms"
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "localized_within_30cm"  # design: 6x the RTK 1 sigma; the map budget assumes ~2 cm
+column = "err_xy"
+op = "always"
+hi = 0.3
+
+[[monitors]]
+name = "covers_95_percent"      # spec section 7
+column = "coverage"
+op = "final"
+lo = 0.95
+
+[[monitors]]
+name = "returns_home"           # phase 4 = DONE
+column = "phase"
+op = "final"
+lo = 4
+hi = 4
+
+[[monitors]]
+name = "never_falls"
+column = "fallen"
+op = "always"
+hi = 0
