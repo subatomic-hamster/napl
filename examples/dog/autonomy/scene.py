@@ -56,6 +56,7 @@ def cfg_for(auto):
         ("near_lethal", "trav"),
         ("clearance", "trav"),
         ("edge_margin", "map"),
+        ("support", "map"),
     ):
         if k in auto:  # optional per-scenario scoring / planning margins
             ov[f"{key}.{k}"] = auto[k]

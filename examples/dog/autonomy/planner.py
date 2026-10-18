@@ -168,9 +168,11 @@ def view_goal(path, cfg):
     return path[0]
 
 
-def pursue(pose, path_xy, cfg, lim, lookahead=None, back=0.0):
+def pursue(pose, path_xy, cfg, lim, lookahead=None, back=0.0, arc=0.0):
     """Pure pursuit. back > 0 (m/s): a target behind the robot is reached by reversing, never by turning on the spot (next to a wall
-    the feet, 0.29 m from the centre, wedge against it: ruins training seed 2, 100-800 bumps in one place)."""
+    the feet, 0.29 m from the centre, wedge against it: ruins training seed 2, 100-800 bumps in one place). arc > 0 (m/s): where
+    there is room a large heading error is turned on an arc at that speed instead of on the spot (turning on the spot was 25 % of
+    the ruins mission time)."""
     P = cfg["plan"]
     L = P["lookahead"] if lookahead is None else lookahead
     x, y, yaw = pose
@@ -184,6 +186,10 @@ def pursue(pose, path_xy, cfg, lim, lookahead=None, back=0.0):
         if back > 0.0 and abs(a) > math.pi / 2:
             b = wrap(a - math.pi)  # heading error of the rear
             return -back * math.cos(b), max(-0.5, min(0.5, 1.5 * b))
+        if (
+            arc > 0.0
+        ):  # open floor: turn on an arc (radius arc / wz_max) instead of on the spot, the dog keeps walking
+            return min(arc, lim["v_max"]), math.copysign(lim["wz_max"], a)
         return 0.0, math.copysign(lim["wz_max"], a)
     v = lim["v_max"] * math.cos(a)
     wz = 2.0 * v * math.sin(a) / L
