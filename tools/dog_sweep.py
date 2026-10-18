@@ -382,7 +382,9 @@ def run_point(point, quick=False, gait=None):
             D.enable(sim, sg)
             _stand(sim, sg, *D.leg_lengths(sim), D.STAND, [])
             out["v_top_trot"] = float(
-                getattr(importlib.import_module(mod), fn)(sim, sg, rep)
+                getattr(importlib.import_module(mod), fn)(
+                    sim, sg, {**rep, "xml": str(free)}
+                )
             )
         return {c: out[c] for c in COLUMNS}
     finally:
@@ -440,20 +442,25 @@ def write_md(out, data, cmd):
         "* **measured**: on the full model in this run (stall, swing, push, jump, drop, hold; see `tools/dog_sweep.py`).",
         "* **derived (study formulas, sim-measured inputs)**: `tools/dog_actuator_study.py` formulas fed with measured t_move, stall torque and pack voltage: `w0`, `pack_margin`, `v_swing`, `v_stance`, `v_trot_bound`. These are bounds of a trot, NOT a gait speed.",
         "* **bom**: from the build report (`design.build` BOM / mass).",
-        "* **not measured (SP4)**: `v_top_trot`, `cot` need a gait controller (`--gait module:function`); they stay empty here.",
+        (
+            "* **measured gait (SP4)**: `v_top` = the highest speed rung (1.0 / 1.5 / 2.0 / 2.5 m/s) of the dog's flying trot (WBC, stand height 0.85) that"
+            " held 95 % of the commanded speed for 3 s on this variant (`examples/dog/dogtop.py:sweep_gait`); `cot` is not measured here."
+            if any(p["v_top_trot"] is not None for p in pts)
+            else "* **not measured (SP4)**: `v_top_trot`, `cot` need a gait controller (`--gait module:function`); they stay empty here."
+        ),
         "",
         "GIM6010-8 points are a probe: GIM6010-8 electrics and mass in the GIM8108-8 seats (there are no GIM6010 printed parts). Knee ratio only sets the Qdd `gear_ratio` = 8 x ratio; the crank / lug geometry stays 1.5, so ratio 2.0 is an electrical what-if.",
         "",
         "## Points",
         "",
-        "| point | mass kg | cost USD | stall hip/knee N m | t_move s | push F/mg | jump rise m | I peak A | margin | drop tau N m | drop fault | hold dT K | hold W | v_swing | v_stance | v_trot_bound m/s |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| point | mass kg | cost USD | stall hip/knee N m | t_move s | push F/mg | jump rise m | I peak A | margin | drop tau N m | drop fault | hold dT K | hold W | v_swing | v_stance | v_trot_bound m/s | v_top m/s (measured) |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for p in pts:
         L.append(
             f"| {_name(p)} | {f(p['mass'], 3)} | {f(p['cost'], 0)} | {f(p['stall_hip'], 1)} / {f(p['stall_knee'], 1)} | {f(p['t_move'], 3)} | {f(p['push_force_ratio'])} | {f(p['jump_rise'], 3)} | "
             f"{f(p['i_pack_peak'], 1)} | {f(p['pack_margin'])} | {f(p['drop_tau_peak'], 1)} | {int(p['drop_fault'])} | {f(p['hold_temp_rise'], 1)} | {f(p['hold_power'], 0)} | "
-            f"{f(p['v_swing'])} | {f(p['v_stance'])} | {f(p['v_trot_bound'])} |"
+            f"{f(p['v_swing'])} | {f(p['v_stance'])} | {f(p['v_trot_bound'])} | {f(p['v_top_trot'])} |"
         )
     L += [
         "",
@@ -474,7 +481,11 @@ def write_md(out, data, cmd):
             "",
             f"Gap to the 3.5 m/s criterion (spec s7): {f(3.5 - ch['v_trot_bound'])} m/s {'short' if ch['v_trot_bound'] < 3.5 else '(met on paper)'}; "
             f"to the 4.5 k USD target: {f(ch['cost'] - 4500, 0)} USD {'over' if ch['cost'] > 4500 else 'under'}. "
-            "The real top speed needs SP4's gait (flying trot / bound); this table claims none.",
+            + (
+                f'Measured flying-trot top speed of this point: {f(ch["v_top_trot"])} m/s (docs/dog/locomotion.md "Top speed").'
+                if ch["v_top_trot"] is not None
+                else "The real top speed needs SP4's gait (flying trot / bound); this table claims none."
+            ),
         ]
     else:
         L.append("No point is eligible.")

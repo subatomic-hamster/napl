@@ -235,3 +235,10 @@ if(NAPL_PYTHON)
   set_target_properties(_napl PROPERTIES INSTALL_RPATH "$ORIGIN")  # libmujoco.so is installed next to it
   install(TARGETS _napl mujoco LIBRARY DESTINATION napl COMPONENT napl_python)
 endif()
+
+# loco_wbc_cpp: the dog's whole-body controller in C++ (SP4 Task 7 Step 6), a small nanobind module for examples/dog/loco/wbc.py to load.
+# Off by default; not part of the installed napl package. Output: build/loco/.
+option(NAPL_LOCO_CPP "Build examples/dog/loco/cpp (the C++ whole-body controller)" OFF)
+if(NAPL_LOCO_CPP)
+  add_subdirectory(examples/dog/loco/cpp)
+endif()

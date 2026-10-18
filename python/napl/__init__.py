@@ -139,6 +139,10 @@ class Sim:
             raise ValueError(r["message"])
         return r
 
+    def set_many(self, paths, attrs, values) -> None:
+        """Batch of single-value SetAttrs through the bus (logged and replayed exactly like set()); raises on the first failure."""
+        self._c.set_many(list(paths), list(attrs), [float(v) for v in values])
+
     def body_positions(self) -> dict:
         """{prim path: world position (3,)} of every body prim (those that answer a `pos` query)."""
         out = {}

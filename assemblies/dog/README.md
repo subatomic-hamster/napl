@@ -84,6 +84,16 @@ derived with the actuator-study formulas. The rule's pick is GIM8108-8, ratio 2.
 bound 0.92 m/s, 5,554 USD) because ratio 2.0 needs a lug / crank not drawn and wins by 3 % of a worst-case pack current. Neither reaches 3.5 m/s as a bound: the hip stall (22 N m) limits the stance.
 Pareto front (v_trot_bound max, cost min, mass min, eligible points): GIM6010-8 r2.0 L250 (0.00 m/s, 4,572 USD, 11.60 kg) and GIM8108-8 r2.0 L200 (1.36 m/s, 5,552 USD, 11.63 kg).
 
+**Measured flat top speed (SP4, `examples/dog/dogtop.py`, `docs/dog/locomotion.md` "Top speed"): flying trot with the whole-body controller 2.0 m/s (median and minimum of 5 held-out
+seeds; 2.25 m/s on the training seed), Jacobian-transpose baseline 2.25 m/s median. The 3.5 m/s spec criterion is NOT met (gap 1.25-1.5 m/s).** The sweep's measured column (1.5-2.5 m/s, one run per rung)
+does not separate the 12 points. The derived `v_trot_bound` above is pessimistic for this controller, not a bound.
+
+## Locomotion Monte Carlo (SP4, `docs/dog/locomotion.md` "Monte Carlo")
+
+Held-out terrain-family Monte Carlo (`examples/dog/dogmc.py`; 30 x 30 m fields, payload / IMU bias / pushes, lidar off, ground-truth verdicts; WBC n = 20 per family, J^T n = 10):
+no-fall 0-2 of 20 per family (Wilson 95 % lower bounds 0-3 %), 2 of 100 runs reached the route end. The >= 90 % no-fall, rocky 1.5 m/s and 25 deg / 15 cm criteria are NOT met; flat-ground
+diagnostics show that random-phase pushes and a 1 kg payload also topple the dog. Details, spec-criteria table and known gaps are in the doc.
+
 ## Open items
 
 - Inrush precharge for the 100 A contactor and the PDB's 940 uF bus capacitance (not modelled).

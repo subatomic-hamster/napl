@@ -1,0 +1,88 @@
+# napl program examples/dog/walk/rubble.scenario.toml --runs-dir <dir>
+# SP4: the dog crosses a 30 x 30 m rubble field (5-20 cm rock bumps, boulders, rock / gravel / wet rock patches) along a truth-traversable route of
+# 15-20 m, steered by a pure-pursuit follower on the TRUE pose (route planning is SP5). The controller sees the terrain through the height-map
+# interface only (ground truth stand-in). examples/dog/dogwalk.py OWNS the Sim and writes trace.csv / replay.naplog / native.json.
+name = "dog-rubble"
+
+[model]
+script = "rubble.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../dogwalk.py", "rubble.scenario.toml"]
+
+[limits]
+wall_s = 1800
+cpu_s = 1800
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the pose-fix noise and the terrain and route: the same seed and parameters replay to the same state hash."
+
+[[parameters]]
+name = "course"
+type = "choice"
+choices = ["flat", "criterion", "slip", "rubble", "slopes", "scree", "ruins"]
+default = "rubble"
+group = "course"
+label = "Course"
+
+[[parameters]]
+name = "leg_ctl"
+type = "choice"
+choices = ["wbc", "jt"]
+default = "wbc"
+group = "controller"
+label = "Leg controller"
+doc = "wbc: QP whole-body controller (WBIC-style, the SP4 design). jt: Jacobian-transpose leg controller, the measured baseline."
+
+[[parameters]]
+name = "v_cmd"
+type = "float"
+default = 1.8
+min = 0.0
+max = 4.5
+unit = "m/s"
+group = "run"
+label = "Commanded speed"
+
+[[parameters]]
+name = "duration"
+type = "float"
+default = 25.0
+min = 2.0
+max = 120.0
+unit = "s"
+group = "run"
+label = "Run length"
+
+[[monitors]]
+name = "reaches_the_end"
+column = "dist_goal"
+op = "final"
+hi = 0.5
+
+[[monitors]]
+name = "never_falls"
+column = "fallen"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "no_qdd_fault"
+column = "fault"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "rocky_mean_speed"             # spec s7: 1.5 m/s on rocky ground (the per-run peak of the 2 s mean; the Monte Carlo reports the mean)
+column = "v_mean_2s"
+op = "eventually"
+lo = 1.5

@@ -1,0 +1,109 @@
+# napl program examples/dog/walk/push.scenario.toml --runs-dir <dir>
+# SP4: the trot of trot.scenario.toml (1 m/s on flat ground) takes a sideways velocity kick of push_dv m/s at push_t s (an impulse of
+# push_dv x 11.65 kg: dogtruth.Truth.push adds it to the trunk's world velocity) and must stay up and recover the commanded speed.
+# examples/dog/dogwalk.py OWNS the Sim, steps examples/dog/loco and writes trace.csv / replay.naplog / native.json.
+name = "dog-push"
+
+[model]
+script = "push.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../dogwalk.py", "push.scenario.toml"]
+
+[limits]
+wall_s = 900
+cpu_s = 900
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the pose-fix noise: the same seed and parameters replay to the same state hash."
+
+[[parameters]]
+name = "course"
+type = "choice"
+choices = ["flat", "criterion", "slip", "rubble", "slopes", "scree", "ruins"]
+default = "flat"
+group = "course"
+label = "Course"
+
+[[parameters]]
+name = "leg_ctl"
+type = "choice"
+choices = ["wbc", "jt"]
+default = "wbc"
+group = "controller"
+label = "Leg controller"
+doc = "wbc: QP whole-body controller (WBIC-style, the SP4 design). jt: Jacobian-transpose leg controller, the measured baseline."
+
+[[parameters]]
+name = "v_cmd"
+type = "float"
+default = 1.0
+min = 0.0
+max = 4.5
+unit = "m/s"
+group = "run"
+label = "Commanded speed"
+
+[[parameters]]
+name = "duration"
+type = "float"
+default = 10.0
+min = 2.0
+max = 120.0
+unit = "s"
+group = "run"
+label = "Run length"
+
+[[parameters]]
+name = "push_t"
+type = "float"
+default = 5.0
+min = 0.0
+max = 120.0
+unit = "s"
+group = "push"
+label = "Push time"
+
+[[parameters]]
+name = "push_dv"
+type = "float"
+default = 0.5
+min = 0.0
+max = 5.0
+unit = "m/s"
+group = "push"
+label = "Push velocity change (sideways, +y)"
+
+[[monitors]]
+name = "never_falls"
+column = "fallen"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "no_qdd_fault"
+column = "fault"
+op = "always"
+hi = 0.0
+
+[[monitors]]
+name = "recovers_the_speed"           # the mean forward speed over the last 2 s, 3 s after the push
+column = "v_mean_2s"
+op = "final"
+lo = 0.85
+hi = 1.15
+
+[[monitors]]
+name = "stays_upright"
+column = "tilt"
+op = "always"
+hi = 20.0

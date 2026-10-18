@@ -170,6 +170,21 @@ void bind_common(nb::class_<T>& c) {
              });
            },
            "origin"_a, "directions"_a)
+      // Batch of single-value SetAttrs (SP4 dog leg control, 36-60 per 2 ms tick): one Envelope per entry through the same command bus as
+      // call(), so each is logged and replayed exactly like a JSON SetAttr; only the JSON round trip is skipped. Stops at the first failure.
+      .def("set_many",
+           [](T& s, const std::vector<std::string>& paths, const std::vector<std::string>& attrs, const std::vector<double>& values) {
+             if (paths.size() != attrs.size() || paths.size() != values.size()) throw nb::value_error("set_many: lengths differ");
+             for (std::size_t i = 0; i < paths.size(); ++i) {
+               flatbuffers::FlatBufferBuilder fbb;
+               const double v = values[i];
+               fbb.Finish(napl::CreateEnvelope(fbb, 0, fbb.CreateString("python"), napl::Command::SetAttr,
+                                               napl::CreateSetAttr(fbb, fbb.CreateString(paths[i]), fbb.CreateString(attrs[i]),
+                                                                   fbb.CreateString(""), fbb.CreateVector(&v, 1)).Union()));
+               read_command(s, fbb, [](const napl::Reply&) { return 0; });
+             }
+           },
+           "paths"_a, "attrs"_a, "values"_a)
       // The cables the renderer draws as tubes (spatial tendons through sites): [(radius, length, rgba, points (n, 3))], world frame.
       .def("tubes",
            [](T& s) {
