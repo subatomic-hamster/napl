@@ -346,6 +346,51 @@ and 1); goldens unchanged (pinned test passes). `support` defaults to 0 and `arc
 
 Ruins 100 x 100 m: unchanged (not reachable, see Coverage).
 
+## On the dog (SP5 Task 11, `autonomy/dogloco.py`, `body = "dog"`)
+
+The whole autonomy stack drives SP4's controller (`loco.controller.Controller`, WBC) instead of the carrier. The carrier stays the default
+and the reference; `body = "dog"` in a scenario's `[auto]` selects the dog. SP4's code is not edited. The adapter builds the dog scene with
+its Mid-360 and GNSS kept (`dogcourse.base_model()` + the field), runs the 500 Hz loop (`Controller.step` + `sim.step(2)`), hands SP5 the
+estimator's pose as odometry with SP5's own fixes taken back out (`FixLedger`), forwards SP5's pose fixes with the localizer's sigmas
+(floored at SP4's 2 cm / 1 deg), serves SP5's elevation map as SP4's `HeightMap`, and clamps SP5's commands to the `[dog]` limits. Setup:
+`cmake --preset dev -DNAPL_LOCO_CPP=ON ... --target loco_wbc_cpp` (the Python WBC is 35x slower), `OMP_NUM_THREADS=1`.
+
+What the adapter had to work around (none of it in SP4):
+
+- `lidar.extrinsic` refused the dog's MJCF (`<compiler angle="radian">`): it now reads the angle unit.
+- The GNSS sky-view ray starts inside the trunk geometry (the antenna site is in the compute box) and `Sim.raycast` has no body exclusion:
+  every ray hit at 0 m and the receiver read "no sky" from the first frame. `carrier.sky_blocked(.., r_min)`; the dog passes 0.5 m.
+- SP4's estimator is reset on its first tick; the first odometry snapshot came before it and SP5 saw an 8 m jump. The adapter now starts
+  the estimator in its constructor.
+- SP5's map has no cells under and behind the feet at the start: unknown cells are handed to SP4 as the last known ground height at the dog,
+  not NaN. Cells more than 0.35 m above that (walls, boulders) are not handed over either: they are obstacles SP5 plans around, not
+  footholds (`dog.wall_m`). Without it `Controller.rough` read True 0.8 m before a ruin wall (speed cap); with it False.
+- `scene.py` (the only shared file touched): `build` and `_loco` get a `body = "dog"` branch, `run` calls `car.attach(rob.map)` when the body
+  has `attach`. The carrier path is unchanged (its goldens pass).
+
+Results (hfbox, C++ WBC, 5k rays, `OMP_NUM_THREADS=1`):
+
+- Sim speed 0.19-0.20 sim-s per wall-s on rubble, 0.30-0.35 on the flat ruins floor. The plan estimated 35-45 min for a 20 min mission; the
+  measure is 1.0-1.7 h. The 100 m dog mission (`coverage_rubble_dog`, listed in `LONG`) was not run: no run survives 2 minutes.
+- Falls (the controller enters FALLEN, the mission aborts): `coverage_smoke_dog` (20 x 20 m rubble, sweep / fill / return, budget 300 s),
+  training seeds 1-8. At `[dog]` 0.8 m/s / 0.5 rad/s: falls at 20 / 3 / 11 / 24 / 7 / 13 / 15 / 29 s (8 of 8). At 0.4 m/s / 0.3 rad/s:
+  31 / 4 / 116 / 51 / 9 / 74 / 26 / 11 s (8 of 8). The same seeds with the TRUE height map instead of SP5's (0.8 / 0.5) fall at 18 / 3 / 4 / 9 /
+  8 / 27 / 15 / 4 s: it is the locomotion on rubble (docs/dog/locomotion.md: no-fall 0-10 %, rubble xfail), not the map handed to it.
+  On the flat ruins floor (seed 1, 50 m site, 40 s): 0.8 / 0.5 fell at 5 s, 0.6 / 0.3 at 13 s, 0.5 / 0.2 at 16 s, 0.4 / 0.3 stood the 40 s
+  (the only one that did, one seed). The plan's carrier speeds (1.5 m/s, 1.0 rad/s) fell at 2.8 s on rubble seed 1. `[dog] v_max 0.4`,
+  `wz_max 0.3` are those runs, not a validated limit. SP5 pose fixes are not the cause: without them the 0.8 / 0.5 ruins run fell at 8 s
+  instead of 5 s.
+- At 0.4 m/s: coverage at the fall 10-90 % of the 20 m field (seed 3: 90 % at 116 s), map RMS 2.3-3.8 cm, localization error 2-11 cm, 0
+  bumps. Mapping and localization hold on the legged robot; the mission does not finish.
+- Leg odometry drift (ledger against truth, 5 runs, 2-11 m of walking): 1-4 % of distance (0.03-0.16 m), in line with the 2 % in `[odom]`.
+  That is not a Monte Carlo and SP4 publishes no drift number, so `[odom]` stays `estimated`.
+- `dog_smoke` (20 m rubble, 15 s; the plan's 40 s falls at 17-20 s on seed 1): RMS under 5 cm, localized under 30 cm, no fall, replays;
+  state hash `6a591b6deaec8e35` (C++ WBC; the Python WBC differs in the last bits).
+
+What SP4 limits, in the order it bit: falls on rubble even at 0.4 m/s; a 0.4 m/s / 0.3 rad/s ceiling against the plan's 1.5 / 1.0 (the 20
+min, 100 m mission needs about 4-5x the path); sim speed. Request to SP4 (not tested here): the pose fix blends yaw with a fixed 0.5 (a
+documented `ponytail` in `Estimator.fix`), a yaw state in the filter would take SP5's yaw corrections more gently.
+
 ## Upgrade path: GPU raycaster
 
 The lidar dominates the cost. A batched GPU ray caster (MuJoCo Warp's ray kernels, or a CUDA/HIP BVH over the hfield triangles) would

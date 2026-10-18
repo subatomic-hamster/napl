@@ -220,6 +220,7 @@ LONG = [
     "coverage_rubble_20k/coverage_rubble_20k",
     "coverage_ruins/coverage_ruins",
     "coverage_ruins_50/coverage_ruins_50",
+    "coverage_rubble_dog/coverage_rubble_dog",
 ]  # bg only, never run by pytest
 SIZE = {
     "coverage_ruins_50/coverage_ruins_50": 50.0
