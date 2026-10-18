@@ -405,6 +405,7 @@ def cmd_build(a):
         argv += ["--expect", a.expect] if a.expect else []
         argv += ["--save", a.save] if a.save else []
         argv += ["--open", a.open] if a.open else []
+        argv += ["--program-root", a.program_root] if a.program_root else []
         argv += ["--quick-until", str(a.quick_until), "--steps", str(a.steps)]
         subprocess.run(argv, check=True, timeout=a.timeout)
 
@@ -425,7 +426,7 @@ def _build(a):
         else Design.new(NAME, REPO / "parts", description=DESC)
     )
     work = Path(tempfile.mkdtemp(prefix="napl-rec-"))
-    b = Backend(lambda: d, work / "build")
+    b = Backend(lambda: d, work / "build", program_root=a.program_root)
     b.auto_thumbs = not a.open  # --open (cuas-lite video) never shows the library page
     if not a.open:
         b.thumbs.start()  # the library page needs its thumbnails from frame 1 (cached in build/thumbs after the first run)
@@ -787,6 +788,10 @@ def main():
         s.add_argument("--expect")
         s.add_argument("--save")
         s.add_argument("--open")
+        s.add_argument(
+            "--program-root",
+            help="the directory the PROGRAM page edits (default: the design's folder; dog video: examples/dog)",
+        )
         s.add_argument("--timeout", type=float, default=800)
         s.add_argument(
             "--quick-until",

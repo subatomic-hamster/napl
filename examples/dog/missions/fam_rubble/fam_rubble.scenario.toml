@@ -1,0 +1,72 @@
+# napl program examples/dog/missions/fam_rubble/fam_rubble.scenario.toml --runs-dir <dir>
+# SP6 full-stack family Monte Carlo: 30 x 30 m rocky field on the dog (SP4 controller + SP5 autonomy). Seeds from examples/dog/missionmc.py.
+# Budget and N: docs/dog/missions.md. Long run: `remote.sh bg` (sim speed ~0.2-0.35 sim-s per wall-s on the dog).
+name = "dog-fam-rubble"
+
+[auto]
+body = "dog"
+kind = "rubble"
+size = { value = 30.0, unit = "m", fidelity = "design", rationale = "SP6 family MC: ~11x fewer lidar-hit cells than 100 m (docs/dog/missions.md budget)." }
+patch = { value = 5.0, unit = "m", fidelity = "measured", rationale = "5 m patches are 1.4x faster than 10 m on rubble (docs/dog/autonomy.md)." }
+rays = { value = 5000, unit = "1", fidelity = "design", rationale = "Mission ray count (autonomy.toml lidar.rays_mission)." }
+pool = { value = 2, unit = "1", fidelity = "design", rationale = "5k rays: 10 cm scoring cells (SP5 Task 10 density equivalence)." }
+t_budget = { value = 420.0, unit = "s", fidelity = "estimated", rationale = "30 m field: ~4 lanes of 30 m plus fill and return = ~140 m of path at the 0.34 m/s the dog averaged in the ruins probe (docs/dog/missions.md Budget; no probe got home, so this is a path / speed estimate, not 1.3 x a measured time-to-home)." }
+start_x = { value = -12.0, unit = "m", fidelity = "design", rationale = "3 m inside the south-west corner of the 30 m field (the 100 m files use 4 m)." }
+start_y = { value = -12.0, unit = "m", fidelity = "design", rationale = "3 m inside the south-west corner." }
+start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east, along the first lane." }
+lane_m = { value = 9.0, unit = "m", fidelity = "measured", rationale = "As coverage_rubble_dog (tuned on the carrier, training seeds 1-8)." }
+return_margin = { value = 18.0, unit = "s", fidelity = "measured", rationale = "As coverage_rubble_dog (tuned on the carrier)." }
+
+[model]
+script = "fam_rubble.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../../automission.py", "{dir}/fam_rubble.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 5001
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain, the lidar / GNSS noise and the initial pose error: one seed, one run."
+
+[limits]
+wall_s = 3600            # 420 s mission at 0.19-0.20 sim-s per wall-s on rubble (docs/dog/autonomy.md "On the dog") = ~36 min
+cpu_s = 3600
+address_space_mb = 16384
+
+[[monitors]]
+name = "map_rms_within_5cm"   # spec section 7
+column = "rms"
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "localized_within_30cm"  # design: 6x the RTK 1 sigma; the map budget assumes ~2 cm
+column = "err_xy"
+op = "always"
+hi = 0.3
+
+[[monitors]]
+name = "covers_95_percent"      # spec section 7
+column = "coverage"
+op = "final"
+lo = 0.95
+
+[[monitors]]
+name = "returns_home"           # phase 4 = DONE
+column = "phase"
+op = "final"
+lo = 4
+hi = 4
+
+[[monitors]]
+name = "never_falls"
+column = "fallen"
+op = "always"
+hi = 0
