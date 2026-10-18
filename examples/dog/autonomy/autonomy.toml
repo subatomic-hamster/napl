@@ -1,0 +1,142 @@
+# SP5 autonomy numbers (numbers rule: every leaf is { value, unit, fidelity, rationale }).
+
+[lidar]
+rays_mission = { value = 5000, unit = "1", fidelity = "design", rationale = "Missions and MC: 4x cheaper than the real 20k (docs/models.md Ground sim budget); scored pooled, see Task 10." }
+rays_quality = { value = 20000, unit = "1", fidelity = "datasheet", rationale = "Mid-360 200000 pts/s at 10 Hz (parts/electronics/livox-mid-360.toml point_rate / frame_rate)." }
+rate_hz = { value = 10.0, unit = "Hz", fidelity = "datasheet", rationale = "Mid-360 frame_rate." }
+fov_v_min = { value = -0.12217304763960307, unit = "rad", fidelity = "datasheet", rationale = "Mid-360 fov_vertical_min (-7 deg)." }
+fov_v_max = { value = 0.9075712110370514, unit = "rad", fidelity = "datasheet", rationale = "Mid-360 fov_vertical_max (52 deg)." }
+min_range = { value = 0.1, unit = "m", fidelity = "datasheet", rationale = "Mid-360 min_range." }
+max_range = { value = 40.0, unit = "m", fidelity = "datasheet", rationale = "Mid-360 range at 10 % reflectivity." }
+sigma0 = { value = 0.02, unit = "m", fidelity = "datasheet", rationale = "Mid-360 range_precision_10m (1 sigma), used flat over range." }
+ang_sigma = { value = 2.618e-3, unit = "rad", fidelity = "datasheet", rationale = "Mid-360 angular_precision (0.15 deg); the kernel's rays are exact, so lidar.points adds it." }
+tilt = { value = 0.4363323129985824, unit = "rad", fidelity = "design", rationale = "25 deg nose-down head mount (docs/dog/actuator-study.md: sees the ground from 0.72 m ahead)." }
+mount_height = { value = 0.45, unit = "m", fidelity = "design", rationale = "Lidar optical centre above the ground at standing height (actuator study)." }
+mount_x = { value = 0.25, unit = "m", fidelity = "design", rationale = "Lidar ahead of the base origin (head module on the front deck)." }
+pattern_seed = { value = 1, unit = "1", fidelity = "design", rationale = "Rosette sequence offset, as tools/bench_ground.py." }
+seed = { value = 1, unit = "1", fidelity = "design", rationale = "Range-noise RNG stream." }
+
+[gnss]
+rate_hz = { value = 10.0, unit = "Hz", fidelity = "datasheet", rationale = "ZED-F9P RTK navigation rate (assemblies/skydio-land.toml binding)." }
+latency_s = { value = 0.1, unit = "s", fidelity = "estimated", rationale = "As the skydio-land RTK binding." }
+horiz_std = { value = 0.02, unit = "m", fidelity = "datasheet", rationale = "ZED-F9P RTK 0.01 m CEP -> ~0.02 m 1 sigma per axis with margin (skydio-land binding)." }
+vert_std = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "RTK vertical ~1.5x horizontal (skydio-land binding)." }
+corr_time_s = { value = 20.0, unit = "s", fidelity = "estimated", rationale = "Multipath / residual-error correlation time (skydio-land binding)." }
+corr_frac = { value = 0.5, unit = "1", fidelity = "estimated", rationale = "Half the error variance correlated (skydio-land binding)." }
+lat0 = { value = 47.3769, unit = "deg", fidelity = "design", rationale = "Scene origin, same as the other napl GNSS scenes." }
+lon0 = { value = 8.5417, unit = "deg", fidelity = "design", rationale = "Scene origin." }
+alt0 = { value = 0.0, unit = "m", fidelity = "design", rationale = "World z = 0 is the GNSS origin altitude, so ENU = world." }
+lever_x = { value = -0.10, unit = "m", fidelity = "design", rationale = "Antenna behind the base origin on the rear deck." }
+lever_z = { value = 0.20, unit = "m", fidelity = "design", rationale = "Antenna mast height above the base origin." }
+sky_elev = { value = 0.5235987755982988, unit = "rad", fidelity = "estimated", rationale = "30 deg elevation mask: RTK needs satellites above ~15-30 deg; walls block the low ones." }
+sky_az = { value = 16, unit = "1", fidelity = "design", rationale = "Sky-view probe rays per check (22.5 deg spacing)." }
+sky_range = { value = 60.0, unit = "m", fidelity = "design", rationale = "Probe length: beyond any wall or boulder in a 100 m field." }
+sky_block = { value = 0.75, unit = "1", fidelity = "estimated", rationale = "RTK float / lost when >= 75 % of the 30 deg ring is blocked (narrow ruins corridors); confirm (decision 4)." }
+reconverge_s = { value = 10.0, unit = "s", fidelity = "estimated", rationale = "RTK fixed-ambiguity reacquisition after an outage, typically 5-30 s for a dual-band receiver." }
+
+[odom]
+drift_xy = { value = 0.02, unit = "m/m", fidelity = "estimated", rationale = "Leg-inertial odometry 1-3 % of distance (Bloesch 2013, Camurri 2020); replaced by SP4's MC number in Task 11." }
+drift_z = { value = 0.01, unit = "m/m", fidelity = "estimated", rationale = "Vertical drift per metre (same sources)." }
+drift_yaw = { value = 0.0035, unit = "rad/m", fidelity = "estimated", rationale = "0.2 deg per metre walked; yaw is unobservable for leg odometry." }
+att_sigma = { value = 0.0052, unit = "rad", fidelity = "estimated", rationale = "0.3 deg roll / pitch error of a gravity-referenced attitude filter while walking." }
+
+[carrier]
+v_max = { value = 1.5, unit = "m/s", fidelity = "design", rationale = "Spec section 7 rocky-field mean speed target; assumes SP4 reaches it (decision 8)." }
+wz_max = { value = 1.0, unit = "rad/s", fidelity = "design", rationale = "Turn rate of a trotting dog of this size." }
+a_max = { value = 1.0, unit = "m/s^2", fidelity = "design", rationale = "Gentle trot acceleration." }
+alpha_max = { value = 2.0, unit = "rad/s^2", fidelity = "design", rationale = "Turn acceleration." }
+dt = { value = 0.01, unit = "s", fidelity = "design", rationale = "Carrier physics step: no contacts, 10 steps per lidar frame." }
+foot_a = { value = 0.25, unit = "m", fidelity = "design", rationale = "Half the fore-aft foot spacing (SP3b stance)." }
+foot_b = { value = 0.15, unit = "m", fidelity = "design", rationale = "Half the lateral foot spacing." }
+base_h = { value = 0.30, unit = "m", fidelity = "design", rationale = "Base origin above the mean foot height." }
+step_max = { value = 0.18, unit = "m", fidelity = "design", rationale = "Highest step the carrier climbs = the dog's step limit (spec: 15 cm steps with margin)." }
+
+[dog]
+v_max = { value = 0.4, unit = "m/s", fidelity = "measured", rationale = "Command ceiling on the legged robot, found with the ruins 50 m mission (flat floor, seed 1, 40 s, docs/dog/autonomy.md On the dog): v 1.5 / wz 1.0 fell at 3 s, 0.8 / 0.5 at 5 s, 0.6 / 0.3 at 13 s, 0.5 / 0.2 at 16 s, 0.4 / 0.3 stood the 40 s. One seed, not a validated limit; docs/dog/locomotion.md holds 1.0 m/s straight on flat ground." }
+wz_max = { value = 0.3, unit = "rad/s", fidelity = "measured", rationale = "Turn rate ceiling, same runs as v_max (0.3 rad/s with 0.4 m/s stood 40 s on flat ruins; 0.5 and 0.3 rad/s with faster speeds fell)." }
+wall_m = { value = 0.35, unit = "m", fidelity = "estimated", rationale = "Map cells higher than this above the ground under the dog are not handed to SP4 as terrain (walls, boulders: its rough-terrain detector read a 1.8 m ruin wall as a step and switched to the walk gait, which falls on flat ground); 0 = hand over everything. Above the 18 cm step limit plus margin." }
+leg_ctl = { value = 1, unit = "1", fidelity = "design", rationale = "1 = SP4's WBC (C++ port when built, else the Python class at 35x the cost), 0 = the J^T baseline." }
+
+[map]
+res = { value = 0.05, unit = "m", fidelity = "design", rationale = "Spec section 6: 5 cm cells." }
+size = { value = 100.0, unit = "m", fidelity = "design", rationale = "Field side (spec section 7)." }
+max_range = { value = 12.0, unit = "m", fidelity = "design", rationale = "Points beyond 12 m are skipped: grazing angle and attitude error grow with range (Task 6 error budget)." }
+gate = { value = 3.0, unit = "1", fidelity = "literature", rationale = "Mahalanobis gate of the height fusion (Fankhauser 2014)." }
+var_floor = { value = 1e-6, unit = "m^2", fidelity = "design", rationale = "Lower bound of a cell's variance (1 mm), keeps the Kalman gain finite." }
+var_mapped = { value = 0.0025, unit = "m^2", fidelity = "design", rationale = "A cell counts as mapped below (5 cm)^2 variance (spec: observed with variance below threshold)." }
+edge_range = { value = 0.10, unit = "m", fidelity = "design", rationale = "Scoring: a cell whose 3x3 ground-truth range exceeds 10 cm is an edge (wall / boulder side), where a 5 cm cell has no single height; edges are scored separately." }
+edge_margin = { value = 0.05, unit = "m", fidelity = "design", rationale = "Scoring: cells within this distance of a vertical discontinuity count as edges (0.05 = the 3x3 range test alone). Ruins scenarios raise it to 0.30 m, the localization tolerance: a wall face smeared by a pose error of a few cm to 30 cm reads as wall height on the floor beside it (ruins seed 1, floor rms 1.09 m within 2 cells of a wall, 0.2 m at 4-6 cells, 0.034 m beyond 8 cells)." }
+support = { value = 0.0, unit = "1", fidelity = "design", rationale = "Ruins: obstacle cells must hold at least this fraction of the largest high-return count within 2 cells (ElevationMap.support); 0 = off (rubble)." }
+support_close = { value = 3, unit = "cells", fidelity = "design", rationale = "Support mask is closed (dilate then erode) by this many cells, so the 0.3 m between the two faces of a wall stays wall." }
+support_z = { value = 0.4, unit = "m", fidelity = "design", rationale = "Returns above this height count as wall returns (flat ground: ruins)." }
+
+[trav]
+block = { value = 0.5, unit = "m", fidelity = "design", rationale = "Planning block = about one body length; 200 x 200 blocks keep Python A* within budget (decision 2)." }
+slope_max = { value = 0.5235987755982988, unit = "rad", fidelity = "design", rationale = "30 deg: above the spec's 25 deg slope capability with margin for the plane fit." }
+step_max = { value = 0.18, unit = "m", fidelity = "design", rationale = "Same as carrier.step_max." }
+rough_max = { value = 0.08, unit = "m", fidelity = "design", rationale = "RMS residual of the block plane; rubble rocks of 5-20 cm stay passable on average." }
+min_known = { value = 0.3, unit = "1", fidelity = "design", rationale = "A block needs 30 % of its cells observed to be judged." }
+unknown_cost = { value = 2.0, unit = "1", fidelity = "design", rationale = "Unknown blocks cost twice a free block: the planner prefers known ground but may explore." }
+near_lethal = { value = 2.0, unit = "1", fidelity = "design", rationale = "Extra cost next to a lethal block (keeps the body off walls). In clearance mode: the penalty reached at clear_lethal." }
+clearance = { value = 0, unit = "1", fidelity = "design", rationale = "1 = ruins mode: plan on the clearance (distance transform of the obstacle cells of the 5 cm map) instead of block lethality, pull waypoints to the medial axis, approach doorways straight (clearance.py); 0 = rubble." }
+clear_lethal = { value = 0.20, unit = "m", fidelity = "measured", rationale = "Clearance below which a block is impassable. The feet are 0.15 m off the centre line when walking straight (carrier.foot_b; 0.29 m only while turning, which the straight approach avoids), and a mapped 0.8 m door is only 0.6 m wide (the wall faces smear 5-10 cm onto the floor cells): at 0.30 m and at 0.25 m the doors read closed (training seeds 2, 7: the way home cut off)." }
+clear_relaxed = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Return only: when no way home exists at clear_lethal, plan again with this lethal clearance (a block not touching a wall), instead of standing still until the end." }
+clear_margin = { value = 0.45, unit = "m", fidelity = "estimated", rationale = "Above this clearance there is no penalty and no pull; between clear_lethal and here the cost rises to near_lethal. A 0.8 m doorway has 0.40 m on its centre line." }
+clear_shift = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "How far (across the path) a waypoint may be pulled towards more clearance: more than the block half-width, so a centre line is found from any block." }
+clear_approach = { value = 0.5, unit = "m", fidelity = "estimated", rationale = "A straight approach waypoint this far before a narrow passage (the body is 0.5 m long)." }
+
+[plan]
+rate_hz = { value = 1.0, unit = "Hz", fidelity = "design", rationale = "Spec: global planning 1-2 Hz." }
+sweep = { value = 1, unit = "1", fidelity = "design", rationale = "1 = boustrophedon lanes first, then gap filling (rubble). 0 = no lanes: the nearest-unmapped-gap fill tour from the start (ruins: the lanes shuttle between far lane ends through the maze)." }
+tour = { value = 0, unit = "1", fidelity = "design", rationale = "1 = room tour (needs trav.clearance = 1): the fill step picks the viewpoint with the most unmapped floor within fill_radius per unit of path cost, instead of the nearest gap block 2.5 m back along the path." }
+fill_radius = { value = 2.5, unit = "m", fidelity = "estimated", rationale = "Tour: floor within this distance of a viewpoint counts as seen from it (a 5 m room is covered from its centre or a doorway)." }
+fill_min = { value = 1.0, unit = "m^2", fidelity = "estimated", rationale = "Tour: a viewpoint is worth a visit if at least this much unmapped floor lies within fill_radius." }
+fill_d0 = { value = 10.0, unit = "1", fidelity = "estimated", rationale = "Tour: path-cost offset in value / (cost + d0), so near viewpoints do not win by division by ~0." }
+tried_m = { value = 1.0, unit = "m", fidelity = "estimated", rationale = "Tour: viewpoints within this distance of a visited one are not chosen again." }
+lane_m = { value = 8.0, unit = "m", fidelity = "measured", rationale = "100 x 100 m rubble, 5k rays, seed 1, coverage at the 20 min return: lane 6 m 78.9 %, 7 m 87.1 %, 8 m 95.5 % (the single-pass 95 % swath of +-2-2.5 m gives 1.8-3.6 m lanes, which cannot finish in 20 min; wider lanes plus gap filling win; docs/dog/autonomy.md Swath)." }
+lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pure-pursuit lookahead (two body lengths)." }
+turn_in_place = { value = 1.0471975511965976, unit = "rad", fidelity = "design", rationale = "Above 60 deg heading error the dog turns on the spot." }
+view_back = { value = 2.5, unit = "m", fidelity = "design", rationale = "A gap is viewed from 2.5 m before it along the path (the lidar sees the ground from 0.72 m to ~8 m)." }
+min_gain = { value = 0.4, unit = "1", fidelity = "design", rationale = "A gap block is worth a detour if >= 40 % of its scoring cells are unmapped." }
+goal_tol = { value = 0.5, unit = "m", fidelity = "design", rationale = "Goal reached within one block." }
+stuck_s = { value = 20.0, unit = "s", fidelity = "design", rationale = "No progress towards a goal for 20 s -> skip it." }
+t_budget = { value = 1200.0, unit = "s", fidelity = "design", rationale = "Spec section 7: 20 min mission." }
+return_margin = { value = 60.0, unit = "s", fidelity = "design", rationale = "Head home with a minute in hand." }
+detour = { value = 1.4, unit = "1", fidelity = "design", rationale = "Path length home / straight-line distance assumed by the return trigger (ruins doors, boulders)." }
+init_s = { value = 1.0, unit = "s", fidelity = "design", rationale = "Stand still for the first second: the map around the start fills before the first plan." }
+pool = { value = 2, unit = "1", fidelity = "design", rationale = "Coverage scoring cell = pool x map cell at 5k rays (Task 10); 1 at 20k." }
+home_check_s = { value = 600.0, unit = "s", fidelity = "design", rationale = "In the last 10 min the executive plans the actual way home (A* every 5th update) and returns when that path needs the remaining time; before that the straight line x detour is enough." }
+border_m = { value = 0.5, unit = "m", fidelity = "measured", rationale = "Keep-out strip along the field edge in every plan (rounded up to whole blocks): the carrier stops 0.25 m inside the edge and the pursuit overshoots corners; rubble lane 9 m bumped the edge (bumps at |x| or |y| = 49.7) 160-900 times without it." }
+near_wall_m = { value = 0.6, unit = "m", fidelity = "estimated", rationale = "A lethal block within this distance of the robot slows it down and shortens the pursuit lookahead (door jambs, wall corners)." }
+near_wall_speed = { value = 1.5, unit = "m/s", fidelity = "design", rationale = "Speed cap near lethal blocks. 1.5 = v_max = no cap (rubble); ruins scenarios lower it." }
+near_wall_lookahead = { value = 1.0, unit = "m", fidelity = "design", rationale = "Pursuit lookahead near lethal blocks. 1.0 = the open-ground lookahead (rubble); ruins scenarios shorten it so the path through a 0.8-1.6 m door is tracked within a few cm." }
+unstick_s = { value = 4.0, unit = "s", fidelity = "estimated", rationale = "Commanded to move but the estimated pose has not changed (< 5 cm, < 0.05 rad) for this long: back off for unstick_back_s (a blocked foot against a wall)." }
+arc_speed = { value = 0.5, unit = "m/s", fidelity = "estimated", rationale = "Clearance mode (ruins) only: a heading error above turn_in_place is turned on an arc at this speed (radius 0.5 m at wz_max) where the clearance is at least arc_clear, instead of on the spot; 0 = always on the spot." }
+arc_clear = { value = 0.9, unit = "m", fidelity = "estimated", rationale = "Arc turns only with this clearance: the arc radius 0.5 m plus the feet at 0.29 m." }
+reverse_m = { value = 0.4, unit = "m", fidelity = "estimated", rationale = "Reversing instead of turning only within this clearance of a wall (the feet reach 0.29 m); farther out the robot turns on the spot (reversing was 29 % of the time in the first tour runs: slow)." }
+reverse_speed = { value = 0.3, unit = "m/s", fidelity = "estimated", rationale = "Clearance mode (ruins) only: next to a wall a target behind the robot (> 90 deg) is reached by reversing, not by turning on the spot (the feet, 0.29 m from the centre, wedge against the wall)." }
+unstick_back_s = { value = 1.5, unit = "s", fidelity = "estimated", rationale = "Duration of the back-off at 0.4 m/s (alternating back / forward)." }
+
+[icp]
+voxel = { value = 0.2, unit = "m", fidelity = "literature", rationale = "Submap voxel for normals (KISS-ICP / LOAM-class choice for a 40 m lidar)." }
+min_pts = { value = 6, unit = "1", fidelity = "design", rationale = "Points per voxel for a normal." }
+planarity = { value = 0.1, unit = "1", fidelity = "design", rationale = "Smallest / middle eigenvalue below 0.1 = planar voxel." }
+kf_dist = { value = 0.5, unit = "m", fidelity = "design", rationale = "New keyframe after 0.5 m." }
+kf_yaw = { value = 0.1, unit = "rad", fidelity = "design", rationale = "New keyframe after 5.7 deg." }
+keep = { value = 12, unit = "1", fidelity = "design", rationale = "Keyframes in the submap (~6 m of travel)." }
+huber = { value = 0.1, unit = "m", fidelity = "design", rationale = "Huber threshold of the point-to-plane residual." }
+iters = { value = 8, unit = "1", fidelity = "design", rationale = "Gauss-Newton iterations." }
+sigma = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Residual sigma for the covariance (range noise + plane misfit)." }
+floor_xyz = { value = 0.05, unit = "m", fidelity = "measured", rationale = "Covariance floor of a match: on rubble the ICP is biased by 5-10 cm (3 mm * sqrt(N)-class formal sigma is far too tight; lane6 diagnostic, docs/dog/autonomy.md Localization) and an overconfident ICP made the EKF reject every 2 cm RTK fix." }
+floor_yaw = { value = 0.01, unit = "rad", fidelity = "estimated", rationale = "Yaw covariance floor of a match (0.6 deg), same reason." }
+degen = { value = 0.01, unit = "1", fidelity = "design", rationale = "Hessian eigenvalue below 1 % of the largest = degenerate direction." }
+rate_good = { value = 2.0, unit = "Hz", fidelity = "design", rationale = "ICP while RTK is fixed (keeps the submap and yaw honest)." }
+rate_bad = { value = 10.0, unit = "Hz", fidelity = "design", rationale = "ICP every frame without RTK." }
+
+[loc]
+chi2 = { value = 16.27, unit = "1", fidelity = "literature", rationale = "chi-square 3 dof, p = 0.999: RTK fix gate." }
+chi2_icp = { value = 18.47, unit = "1", fidelity = "literature", rationale = "chi-square 4 dof, p = 0.999: ICP pose gate." }
+rtk_reset_n = { value = 20, unit = "1", fidelity = "design", rationale = "Consecutive rejected RTK fixes (2 s at 10 Hz) after which the position is re-initialised from the fix: recovery from a lost-in-ICP estimate." }
+rtk_age = { value = 1.0, unit = "s", fidelity = "design", rationale = "RTK counts as good while the last accepted fix is younger than 1 s (10 missed fixes)." }
+init_sigma = { value = 0.05, unit = "m", fidelity = "design", rationale = "Operator initialisation at the start pose (decision 3)." }
+init_yaw = { value = 0.02, unit = "rad", fidelity = "design", rationale = "Operator initialisation heading." }

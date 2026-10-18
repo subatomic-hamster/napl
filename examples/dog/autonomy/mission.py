@@ -1,0 +1,347 @@
+"""Mission executive and the robot's 10 Hz loop: localize -> fuse the scan -> traversability -> (1 Hz) plan -> pure pursuit.
+Robot side only: it sees the Locomotion door, device attributes and its own estimates, never ground truth."""
+
+import math
+import time
+
+import numpy as np
+
+from . import clearance, elevmap, icp, lidar, localize, planner, traverse
+
+
+class Executive:
+    INIT, SWEEP, FILL, RETURN, DONE, ABORT = range(6)
+
+    def __init__(self, cfg, home_xy):
+        self.cfg, self.P, self.T = cfg, cfg["plan"], cfg["trav"]
+        self.home = tuple(float(v) for v in home_xy)
+        self.wps = (
+            planner.lanes(cfg, self.P["lane_m"], self.home) if self.P["sweep"] else []
+        )
+        self.wi, self.phase, self.goal, self.goal_block = 0, self.INIT, None, None
+        self.tried, self.best = set(), (math.inf, 0.0)
+        self._n, self._home_len = 0, 0.0
+        nb = int(round(cfg["map"]["size"] / cfg["trav"]["block"]))
+        self.tried_mask = np.zeros((nb, nb), bool)
+        self.relaxed = False
+        self.unreachable = (
+            False  # the last A* found no path to the goal: skip it on the next update
+        )
+
+    def _relax(self, c, clear):
+        """Blocks closed only by the clearance (not touching a wall) open at the unknown-ground cost plus the full wall penalty."""
+        r = self.T["clear_relaxed"]
+        return np.where(
+            np.isinf(c) & (clear >= r),
+            self.T["unknown_cost"] + self.T["near_lethal"],
+            c,
+        )
+
+    def _set(self, goal, t, block=None):
+        self.goal, self.goal_block, self.best = goal, block, (math.inf, t)
+
+    def _border(self, cost):
+        """The field edge is a wall: keep `plan.border_m` of it out of the plans (paths that detoured round rocks along the edge
+        pushed the body into it: rubble lane 9 m, 160-900 bumps, lost sweep time)."""
+        k = math.ceil(self.P["border_m"] / self.T["block"])
+        c = cost.copy()
+        c[:k], c[-k:], c[:, :k], c[:, -k:] = np.inf, np.inf, np.inf, np.inf
+        return c
+
+    def update(self, t, pose, cost, mapped, fallen, unknown=None, clear=None):
+        P = self.P
+        if fallen:
+            self.phase = self.ABORT
+        if self.phase in (self.DONE, self.ABORT):
+            return []
+        if self.phase == self.INIT:
+            if t < P["init_s"]:
+                return []
+            self.phase = self.SWEEP
+        cost = self._border(cost)
+        xy = (pose[0], pose[1])
+        v = self.cfg["carrier"]["v_max"]
+        d_home = P["detour"] * math.dist(xy, self.home)
+        if self.phase != self.RETURN and t >= P["t_budget"] - P["home_check_s"]:
+            # near the end the straight-line estimate is too short in a maze (ruins: the way home was 3x the straight line, the
+            # robot was still out at the budget): plan the way home every 5th update and head back when the real path needs it
+            self._n += 1
+            me = planner.block_of(xy[0], xy[1], self.cfg)
+            if self._n % 5 == 1 and math.isfinite(cost[me]):
+                p = planner.astar(cost, me, planner.block_of(*self.home, self.cfg))
+                if p:
+                    self._home_len = self.T["block"] * sum(
+                        math.dist(a, b) for a, b in zip(p, p[1:])
+                    )
+            d_home = max(d_home, self._home_len)
+        if (
+            self.phase != self.RETURN
+            and t >= P["t_budget"] - d_home / v - P["return_margin"]
+        ):
+            self.phase = self.RETURN
+            self._set(self.home, t)
+        skip, self.unreachable = self.unreachable, False
+        if self.goal is not None:
+            d = math.dist(xy, self.goal)
+            if d < self.best[0] - 0.5:
+                self.best = (d, t)
+            elif t - self.best[1] > P["stuck_s"]:
+                skip = True
+        reached = self.goal is not None and math.dist(xy, self.goal) < P["goal_tol"]
+        if self.phase == self.SWEEP and (self.goal is None or reached or skip):
+            if self.goal is not None:
+                self.wi += 1
+            if self.wi < len(self.wps):
+                self._set(self.wps[self.wi], t)
+            else:
+                self.phase = self.FILL
+                self.goal = None
+        me = planner.block_of(xy[0], xy[1], self.cfg)
+        c = cost.copy()
+        if unknown is not None and self.phase == self.SWEEP:
+            # a sweep lane is a straight line: unknown ground costs the same as known, else A* walks back over the mapped strip
+            c[unknown & np.isfinite(c)] = 1.0
+        start = me
+        if not math.isfinite(c[me]):
+            # standing in a lethal block (a wall face seen from 0.3 m): plan from the nearest free block, never through the wall
+            # (patching the start block finite lets A* tunnel into the unseen far half of the wall: ruins mission, bumps 12552)
+            nb = c.shape[0]
+            for rr in (2, 4) if clear is not None else (2,):
+                # ruins: pressed against a wall the whole 5 x 5 neighbourhood can be closed (training seed 2 stood still to the end)
+                near = [
+                    (math.dist(xy, planner.centre((i, j), self.cfg)), (i, j))
+                    for i in range(max(me[0] - rr, 0), min(me[0] + rr + 1, nb))
+                    for j in range(max(me[1] - rr, 0), min(me[1] + rr + 1, nb))
+                    if math.isfinite(c[i, j])
+                ]
+                if near:
+                    break
+            if near:
+                start = min(near)[1]
+            else:
+                c[me] = self.T["unknown_cost"] + self.T["near_lethal"]
+        if self.phase == self.FILL and (self.goal is None or reached or skip):
+            if self.goal_block is not None:
+                self.tried.add(self.goal_block)
+            dist, parent = planner.dijkstra(c, start)
+            g = planner.gain(mapped, self.cfg, int(P["pool"]))
+            if clear is not None:
+                # ruins: room tour. The next viewpoint is the block with the most unmapped floor within the lidar reach per unit of
+                # path cost; visited viewpoints (and their surroundings) are not chosen again
+                if self.goal_block is not None:
+                    r = int(round(P["tried_m"] / self.T["block"]))
+                    i, j = self.goal_block
+                    self.tried_mask[
+                        max(i - r, 0) : i + r + 1, max(j - r, 0) : j + r + 1
+                    ] = True
+                ij = planner.choose_view(dist, g, clear, self.tried_mask, self.cfg)
+                self.relaxed = False
+                if ij is None:
+                    # nothing reachable at the strict clearance (a door mapped too narrow): look again through blocks that only
+                    # do not touch a wall (training seed 2 went home at 352 s with 27 % mapped)
+                    d2, _ = planner.dijkstra(self._relax(c, clear), start)
+                    ij = planner.choose_view(d2, g, clear, self.tried_mask, self.cfg)
+                    self.relaxed = ij is not None
+            else:
+                ij = planner.choose(dist, g, self.tried, self.cfg)
+            if ij is None:
+                self.phase = self.RETURN
+                self._set(self.home, t)
+            else:
+                vb = (
+                    ij
+                    if clear is not None
+                    else planner.view_goal(
+                        planner.path_to(parent, start, ij, c.shape[1]), self.cfg
+                    )
+                )
+                self._set(planner.centre(vb, self.cfg), t, ij)
+        if self.phase == self.RETURN and math.dist(xy, self.home) < P["goal_tol"]:
+            self.phase = self.DONE
+            return []
+        if self.relaxed and clear is not None:
+            c = self._relax(c, clear)
+        path = planner.astar(c, start, planner.block_of(*self.goal, self.cfg))
+        if path is None:
+            self.unreachable = True  # skipped on the next update (plan bug fixed: best=(inf, -inf) was reset by the progress test)
+            return []
+        return [planner.centre(b, self.cfg) for b in path[:-1]] + [self.goal]
+
+
+class Robot:
+    def __init__(self, loco, cfg, rays, ext, x0, lever, seed):
+        self.loco, self.cfg, self.ext = loco, cfg, ext
+        L, I, P = cfg["lidar"], cfg["icp"], cfg["plan"]
+        self.ros = lidar.Rosette(loco.sim, loco.lidar, rays, loco.dt, cfg)
+        self.gnss = localize.GnssReader(loco.sim, loco.gnss, cfg, loco.dt)
+        self.loc = localize.Localizer(cfg, x0, lever)
+        self.sm = icp.ScanMatcher(cfg)
+        self.map = elevmap.ElevationMap(cfg)
+        self.trav = traverse.Traversability(cfg, self.map.n)
+        self.ex = Executive(cfg, x0[:2])
+        self.rng = np.random.default_rng([seed, 0x11DA])
+        self.icp_every = {
+            True: int(round(L["rate_hz"] / I["rate_good"])),
+            False: int(round(L["rate_hz"] / I["rate_bad"])),
+        }
+        self.plan_every = int(round(L["rate_hz"] / P["rate_hz"]))
+        self.k, self.path, self.D = 0, [], None
+        self._ref, self._back_until, self._dir = None, -1.0, 1.0
+        self.ms = dict.fromkeys(("points", "icp", "fuse", "trav", "plan"), 0.0)
+
+    def _tick(self, key, t0):
+        t1 = time.perf_counter()
+        self.ms[key] += 1e3 * (t1 - t0)
+        return t1
+
+    def _near_wall(self, pose):
+        if self.D is not None:
+            x0, res = -self.cfg["map"]["size"] / 2, self.cfg["map"]["res"]
+            return bool(
+                clearance.sample(self.D, pose[0], pose[1], x0, res)
+                < self.cfg["plan"]["near_wall_m"]
+            )
+        r = int(math.ceil(self.cfg["plan"]["near_wall_m"] / self.cfg["trav"]["block"]))
+        i, j = planner.block_of(pose[0], pose[1], self.cfg)
+        return bool(
+            np.isinf(
+                self.trav.cost[max(i - r, 0) : i + r + 1, max(j - r, 0) : j + r + 1]
+            ).any()
+        )
+
+    def _unstick(self, t, pose, vx, wz):
+        """Commanded to move but the estimated pose is unchanged for unstick_s: back off, alternating back / forward."""
+        P = self.cfg["plan"]
+        if t < self._back_until:
+            return self._dir * 0.4, 0.0
+        ref = self._ref
+        if (
+            (vx == 0.0 and wz == 0.0)
+            or ref is None
+            or math.dist(pose[:2], ref[1:3]) > 0.05
+            or abs(planner.wrap(pose[2] - ref[3])) > 0.05
+        ):
+            self._ref = (t, *pose)
+            return vx, wz
+        if t - ref[0] > P["unstick_s"]:
+            self._back_until, self._dir, self._ref = (
+                t + P["unstick_back_s"],
+                -self._dir,
+                None,
+            )
+            return self._dir * 0.4, 0.0
+        return vx, wz
+
+    def frame(self, t):
+        cfg, t0 = self.cfg, time.perf_counter()
+        od = self.loco.odometry()
+        self.loc.predict(od)
+        fix = self.gnss.poll()
+        if fix is not None:
+            self.loc.update_rtk(*fix)
+        scan = self.ros.latest()
+        q_rp = lidar.qmul(localize._qz(-lidar.yaw_of(od.quat)), od.quat)
+        pts = icp.levelled(scan, self.ext, od.quat, cfg["lidar"]["ang_sigma"], self.rng)
+        t0 = self._tick("points", t0)
+        if self.k and self.k % self.icp_every[self.loc.rtk_ok(od.t)] == 0:
+            m = self.sm.match(pts, self.loc.x.copy())
+            if m is not None:
+                self.loc.update_icp(m.x, m.cov)
+        R = localize.rz(self.loc.x[3])
+        world = pts @ R.T + self.loc.x[:3]
+        self.sm.add(world, self.loc.x)
+        t0 = self._tick("icp", t0)
+        origin = R @ (lidar.qmat(q_rp) @ self.ext[0]) + self.loc.x[:3]
+        self.map.fuse(world, origin, self.loc.var_z, cfg["odom"]["att_sigma"])
+        t0 = self._tick("fuse", t0)
+        if self.map.dirty is not None:
+            self.trav.update(self.map.hn, self.map.dirty)
+        t0 = self._tick("trav", t0)
+        pose = (self.loc.x[0], self.loc.x[1], self.loc.x[3])
+        if self.k % self.plan_every == 0:
+            cost = self.trav.cost
+            if cfg[
+                "trav"
+            ][
+                "clearance"
+            ]:  # ruins: plan on the clearance of the obstacle geometry, not on block lethality
+                res = cfg["map"]["res"]
+                self.D = clearance.edt(
+                    clearance.obstacles(
+                        self.map.hn,
+                        res,
+                        cfg["trav"]["step_max"],
+                        self.map.support() if self.map.sup else None,
+                    ),
+                    res,
+                )
+                cost = clearance.block_cost(self.trav.L["known"], self.D, cfg)
+                kb = int(round(cfg["trav"]["block"] / res))
+                nb = cost.shape[0]
+                clr = (
+                    clearance.block_clearance(self.D, kb)[:nb, :nb]
+                    if cfg["plan"]["tour"]
+                    else None
+                )
+            else:
+                clr = None
+            args = (
+                self.map.mapped(int(cfg["plan"]["pool"])),
+                od.fallen,
+                self.trav.L["known"] < cfg["trav"]["min_known"],
+                clr,
+            )
+            self.path = self.ex.update(t, pose, cost, *args)
+            if self.D is not None and not self.path and self.ex.phase == self.ex.RETURN:
+                # no way home with the strict clearance (a door mapped too narrow): the robot stood still to the end (training seeds 2, 6, 7);
+                # plan again accepting any block that is not touching a wall
+                cost = clearance.block_cost(
+                    self.trav.L["known"], self.D, cfg, cfg["trav"]["clear_relaxed"]
+                )
+                self.path = self.ex.update(t, pose, cost, *args)
+            if self.D is not None and self.path:
+                self.path = clearance.refine(self.path, self.D, cfg)
+        lim, P = self.loco.limits(), cfg["plan"]
+        near = self._near_wall(pose)
+        if near:  # slower and a shorter lookahead next to walls: tracks a 0.8-1.6 m door within a few cm
+            lim = {**lim, "v_max": min(lim["v_max"], P["near_wall_speed"])}
+        dh = (  # clearance at the robot (clearance mode only)
+            float(
+                clearance.sample(
+                    self.D, pose[0], pose[1], -cfg["map"]["size"] / 2, cfg["map"]["res"]
+                )
+            )
+            if self.D is not None
+            else None
+        )
+        back = (
+            P["reverse_speed"]
+            if near and dh is not None and dh < P["reverse_m"]
+            else 0.0
+        )
+        arc = P["arc_speed"] if dh is not None and dh >= P["arc_clear"] else 0.0
+        vx, wz = (
+            planner.pursue(
+                pose,
+                self.path,
+                cfg,
+                lim,
+                P["near_wall_lookahead"] if near else None,
+                back,
+                arc,
+            )
+            if self.path
+            else (0.0, 0.0)
+        )
+        vx, wz = self._unstick(od.t, pose, vx, wz)
+        self.loco.command(vx, 0.0, wz)
+        P = self.loc.P  # SP5 -> SP4 pose fix, 10 Hz, with the localizer's own 1-sigma (SP4 Controller.fix sig_p / sig_yaw)
+        self.loco.fix(
+            self.loc.x[:2].copy(),
+            float(self.loc.x[3]),
+            od.t,
+            float(math.sqrt(max(P[0, 0], P[1, 1]))),
+            float(math.sqrt(P[3, 3])),
+        )
+        self._tick("plan", t0)
+        self.k += 1

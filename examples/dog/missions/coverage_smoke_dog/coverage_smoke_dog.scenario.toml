@@ -1,0 +1,72 @@
+# napl program examples/dog/missions/coverage_smoke_dog/coverage_smoke_dog.scenario.toml --runs-dir <dir>
+# The reduced-length legged coverage check: coverage_smoke (20 x 20 m rubble, sweep, fill, return home, 5k rays) on the legged robot.
+# A full 100 x 100 m mission is ~1.5-2 h wall on the dog (sim speed ~0.2 sim-s per wall-s), too slow for seeds; this field is 1/25 of the
+# area and reports falls, distance, coverage, RMS and localization of the same stack. Not part of pytest (minutes of wall time per seed).
+name = "dog-auto-coverage-smoke-dog"
+
+[auto]
+body = "dog"
+kind = "rubble"
+size = { value = 20.0, unit = "m", fidelity = "design", rationale = "Short run: a 20 m field (100 x 100 m densities scaled)." }
+patch = { value = 10.0, unit = "m", fidelity = "design", rationale = "Terrain patch size (Task 4 decision)." }
+rays = { value = 5000, unit = "1", fidelity = "design", rationale = "Mission ray count (autonomy.toml lidar.rays_mission)." }
+pool = { value = 2, unit = "1", fidelity = "design", rationale = "5k rays: 10 cm scoring cells (Task 10 density equivalence)." }
+t_budget = { value = 300.0, unit = "s", fidelity = "design", rationale = "20 x 20 m with 8 m lanes at 0.8 m/s: ~100 s of sweep (carrier: 1.5 m/s, 150 s budget), the rest is fill and return." }
+return_margin = { value = 20.0, unit = "s", fidelity = "design", rationale = "Home is at most ~25 m away on a 20 m field: 20 s in hand at 0.8 m/s." }
+start_x = { value = -8.0, unit = "m", fidelity = "design", rationale = "South-west corner, 2 m inside." }
+start_y = { value = -8.0, unit = "m", fidelity = "design", rationale = "South-west corner, 2 m inside." }
+start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east, along the first lane." }
+
+[model]
+script = "coverage_smoke_dog.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../../automission.py", "{dir}/coverage_smoke_dog.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain, the lidar / GNSS noise and the initial pose error: one seed, one run."
+
+[limits]
+wall_s = 3600            # 300 sim-s at ~0.2 sim-s per wall-s = 25 min, x 2
+cpu_s = 3600
+address_space_mb = 16384
+
+[[monitors]]
+name = "map_rms_within_5cm"   # spec section 7
+column = "rms"
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "localized_within_30cm"  # design: 6x the RTK 1 sigma; the map budget assumes ~2 cm
+column = "err_xy"
+op = "always"
+hi = 0.3
+
+[[monitors]]
+name = "covers_95_percent"      # spec section 7
+column = "coverage"
+op = "final"
+lo = 0.95
+
+[[monitors]]
+name = "returns_home"           # phase 4 = DONE
+column = "phase"
+op = "final"
+lo = 4
+hi = 4
+
+[[monitors]]
+name = "never_falls"
+column = "fallen"
+op = "always"
+hi = 0

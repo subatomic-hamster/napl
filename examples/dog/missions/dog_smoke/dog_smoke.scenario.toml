@@ -1,0 +1,58 @@
+# napl program examples/dog/missions/dog_smoke/dog_smoke.scenario.toml --runs-dir <dir>
+# SP5 on the dog: the whole autonomy stack drives SP4's controller (the legged robot, not the carrier) on a 20 x 20 m rubble field for
+# 15 s (sweep start), 5k rays.
+name = "dog-auto-dog-smoke"
+
+[auto]
+body = "dog"
+kind = "rubble"
+size = { value = 20.0, unit = "m", fidelity = "design", rationale = "Short run: a 20 m field (100 x 100 m densities scaled)." }
+patch = { value = 10.0, unit = "m", fidelity = "design", rationale = "Terrain patch size (Task 4 decision)." }
+rays = { value = 5000, unit = "1", fidelity = "design", rationale = "The dog's instance parameter lidar.rays_per_frame_sim; mission ray count." }
+pool = { value = 2, unit = "1", fidelity = "design", rationale = "5k rays: 10 cm scoring cells (Task 10 density equivalence)." }
+t_budget = { value = 15.0, unit = "s", fidelity = "design", rationale = "Stand-up plus ~13 s of walking: wiring check only. Seed 1 on this field falls at t = 17-20 s (rubble is beyond the locomotion, docs/dog/locomotion.md); the plan's 40 s would fail never_falls." }
+return_margin = { value = 0.0, unit = "s", fidelity = "design", rationale = "A smoke run: no reserve for the way home." }
+start_x = { value = -8.0, unit = "m", fidelity = "design", rationale = "South-west corner, 2 m inside." }
+start_y = { value = -8.0, unit = "m", fidelity = "design", rationale = "South-west corner, 2 m inside." }
+start_yaw = { value = 0.0, unit = "rad", fidelity = "design", rationale = "Facing east, along the first lane." }
+
+[model]
+script = "dog_smoke.py"
+
+[interfaces.native]
+
+[program]
+cmd = ["python", "{dir}/../../automission.py", "{dir}/dog_smoke.scenario.toml"]
+
+[[parameters]]
+name = "seed"
+type = "int"
+default = 1
+min = 1
+max = 1000000
+group = "run"
+label = "Seed"
+doc = "Seeds the terrain, the lidar / GNSS noise and the initial pose error: one seed, one run."
+
+[limits]
+wall_s = 1800            # ~35-45 min per 20 min mission at 5k on the dog -> ~2 min for 40 s, x 15 for SP4's controller uncertainty
+cpu_s = 1800
+address_space_mb = 16384
+
+[[monitors]]
+name = "map_rms_within_5cm"   # spec section 7
+column = "rms"
+op = "final"
+hi = 0.05
+
+[[monitors]]
+name = "localized_within_30cm"  # design: 6x the RTK 1 sigma; the map budget assumes ~2 cm
+column = "err_xy"
+op = "always"
+hi = 0.3
+
+[[monitors]]
+name = "never_falls"
+column = "fallen"
+op = "always"
+hi = 0
