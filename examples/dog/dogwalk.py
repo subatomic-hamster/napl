@@ -62,12 +62,13 @@ class Ctx:
     """One run in progress: the Sim, the harness-side truth, the controller and the stand-ins."""
 
 
-def setup(model, p, log=True, audit=False):
+def setup(model, p, log=True, audit=False, sim=None, inf=None):
+    """sim / inf: an already loaded Sim and a course.json-like dict (dogtop.sweep_gait runs on SP3b sweep variants, which have no scene)."""
     c = Ctx()
     c.p, c.model = p, model
-    c.inf = dogcourse.info(model)
+    c.inf = inf or dogcourse.info(model)
     c.field = dogcourse.field_of(c.inf)
-    c.sim = napl.Sim.load(str(model))
+    c.sim = sim or napl.Sim.load(str(model))
     if log:
         c.sim.start_log()
     if p.get(
@@ -83,6 +84,12 @@ def setup(model, p, log=True, audit=False):
     )
     st = c.inf.get("start", [0.0, 0.0, 0.0])
     c.ctl.set_pose(st[:2], c.tr.yaw())
+    if p.get("gait", "auto") != "auto":  # dogtop: a forced gait with its own parameters
+        c.ctl.forced_gait = p["gait"]
+        if p.get("gait_params"):
+            c.ctl.sched.set_params(p["gait"], **p["gait_params"])
+    if p.get("h_frac"):
+        c.ctl.h_frac = p["h_frac"]
     c.fix = dogtruth.PoseFix(c.tr, p["seed"])
     c.fol = (
         dogcourse.Follower(c.inf["route"], p["v_cmd"]) if c.inf.get("route") else None

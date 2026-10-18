@@ -190,3 +190,98 @@ Push envelope (sideways velocity step at t = 5 s, flat, trot 1.0 m/s, 10 s, WBC 
 
 The limit lies between 0.5 and 0.75 m/s. It is not the slip logic: with slip detection off (`SLIP_TICKS` huge) 0.75 and 1.0 m/s kicks still fall
 (seeds 1, 2: 4/4 fell, n_slip 0). The plan's scenario push (0.5 m/s) passes with a golden (`push.scenario.toml`).
+
+## Top speed (Task 10)
+
+`examples/dog/dogtop.py`: each run stands up, ramps the command at 1 m/s^2 to `v_try`, holds 4 s; ok = TRUE mean forward speed over the last 3 s
+
+> = 0.95 `v_try`, no fall, no driver fault, MPC failures < 5 %. A ladder climbs `v_try` in 0.25 m/s steps from 0.5 until two consecutive failures;
+> `v_top` = the last ok rung. The gait is forced (`Controller.forced_gait`), so the flying trot is flown at any speed. Training seed 1001
+> (PoseFix noise), held-out seeds 21000-21004 (payload 0-1 kg at +-3 / +-2 cm, IMU biases, as the Monte Carlo of Task 11).
+
+```
+- flat top speed (measured, flying_trot, wbc): 2.25 m/s; held-out seeds n = 5: median 2.00, min 2.00 m/s
+- spec target 3.5 m/s: NOT met (gap 1.25 m/s)
+- leg controller: wbc 2.25 m/s, jt 2.50 m/s
+- at the first failing speed (2.5 m/s): hip torque at its limit 19 % of ticks, knee 6 %; 0 slips; pack peak 128 A
+```
+
+The 3.5 m/s criterion is **NOT met**. The validated flying-trot speed of the WBC is 2.0 m/s (median and minimum of 5 held-out seeds), 2.25 m/s on
+the training seed. The J^T baseline is faster at its best: flying trot at the default stand height, 2.5 m/s on the training seed, median 2.25 on the
+held-out seeds (2.25 / 2.25 / 2.25 / 2.5 / 2.75). **J^T beats the WBC at speed**; the WBC stays the design's leg controller (it is better at 1 m/s:
+force RMS 0.073-0.080 vs 0.132-0.156 of m g, Task 7) and the gap is a finding for the orchestrator. Its cause is not established (see below).
+
+| leg | gait        | stand height fraction | v_top train m/s  | held-out v_top (n = 5)  | pack peak A at v_top / at the first failing rung | CoT at v_top | force RMS / m g at v_top |
+| --- | ----------- | --------------------- | ---------------- | ----------------------- | ------------------------------------------------ | ------------ | ------------------------ |
+| wbc | trot        | 0.95 (default)        | 0.75             | not run                 | 52 / 122                                         | 1.51         | 0.125                    |
+| wbc | flying_trot | 0.95 (default)        | 1.00             | not run                 | 59 / 112                                         | 1.40         | 0.134                    |
+| wbc | bound       | 0.95 (default)        | 0.50             | not run                 | 122 / 123                                        | 10.2         | 0.722                    |
+| wbc | trot        | 0.85                  | 2.00             | 2.25 2.0 1.75 2.0 2.0   | 28 / 147                                         | 1.04         | 0.131                    |
+| wbc | flying_trot | 0.85                  | **2.25**         | 2.0 2.25 2.0 2.0 2.25   | 42 / 128                                         | 1.29         | 0.188                    |
+| wbc | bound       | 0.85                  | 0 (fails at 0.5) | not run                 | - / 57                                           | -            | -                        |
+| jt  | trot        | 0.95 (default)        | 1.25             | not run                 | 71 / 71                                          | 1.10         | 0.150                    |
+| jt  | flying_trot | 0.95 (default)        | **2.50**         | 2.25 2.25 2.25 2.5 2.75 | 58 / 73                                          | 1.98         | 0.497                    |
+| jt  | bound       | 0.95 (default)        | 0 (fails at 0.5) | not run                 | - / 93                                           | -            | -                        |
+| jt  | trot        | 0.85                  | 2.00             | 1.75 2.0 1.75 2.0 1.75  | 49 / 70                                          | 1.37         | 0.227                    |
+| jt  | flying_trot | 0.85                  | 0.75             | not run                 | 22 / 22                                          | 1.86         | 0.177                    |
+| jt  | bound       | 0.85                  | 0 (fails at 0.5) | not run                 | - / 80                                           | -            | -                        |
+
+All gaits are at their built-in period / duty / apex (`gait.GAITS`); `v_try` rungs are 0.25 m/s, so a value is good to one rung, and a rung
+is one run: the held-out spreads (1.75-2.75) are the honest uncertainty. The tests in `test_dog_topspeed.py` fly the flying trot at
+1.9 m/s (`FLOOR`; the plan rule min(2.0, floor(0.85 x 2.25, 0.1))) with the WBC at stand height 0.85 and J^T at 0.95.
+
+**What limits the speed, measured.**
+
+- **The stand height was the first limit of the WBC (root cause found, mechanism verified from a trace).** At the shipped `H_FRAC = 0.95` the leg is
+  95 % extended while standing, so a stance foot that moves 12 cm from under the hip is straight (hip-pitch-to-foot distance 0.95 of the straight
+  leg, so the horizontal reach is sqrt(1 - 0.95^2) = 0.31 of it). Trace of a WBC flying trot at 1.25 m/s (`dogtop`, seed 1001): the rear-right
+  stance leg's knee goes from -0.6 to +0.1 rad (straight and past it) at the end of stance, the swing IK then picks the other elbow branch
+  (swing target knee +0.4 rad against a current -0.6 / 0.1), `v_des` pegs at 40 rad/s and tau_ff at 44 N*m, the hip is driven to -1.8 rad, the pack
+  current goes to 120 A, tilt grows, and the controller declares the fall at 3.9 s. Setting the stand height fraction to 0.85 (one change, `ctl.h_frac`)
+  takes the WBC from 0.75-1.0 m/s to 2.0-2.25 m/s (flying trot: the 1.25 m/s rung fails at 112 A at 0.95, the 1.5 m/s rung passes at 42 A at 0.85). The cost is swing clearance: the knee stop leaves
+  (H_FRAC - 0.79) x 0.465 m under the hip, 2.8 cm at 0.85 against 7.4 cm at 0.95 (the comment at `H_FRAC`). So `H_FRAC` was **not changed**:
+  the terrain results of Tasks 8 and 9 (15 deg ramp, push envelope) were recorded at 0.95 and the 15 cm steps need the clearance. Recommendation: a
+  stand height scheduled by the speed command (0.95 below about 1 m/s, 0.85 above), with a terrain regression; it is an SP4 follow-up, not done here.
+  The same cause is probably behind the Task 8 observation of stance legs at the end of their workspace, but 0.85 did not rescue the 25 deg ramp
+  (both fell at the ramp foot) or rubble seeds 1 and 9 at 1.0 m/s (fell), so it is not the only one there.
+- **Beyond that, the WBC's failures coincide with the pack current**: every failing rung of the WBC at speed (the falls) shows a pack peak of
+  112-147 A, against 120 A on the BMS (the sim has no BMS cut-off, so the run is not stopped by it; real hardware would brown out or trip at the first
+  of these). J^T's failing rungs are lower (70-107 A; its trot at 1.5 / 1.75 m/s only reaches 0.94 of the command, no fall). At the highest ok rung the
+  peak is 28-59 A (WBC), 49-58 A (J^T). Whether the current is the cause of the fall or its consequence (a leg thrown about) was not separated.
+- Hip torque at its limit 19-26 % of ticks, knee 5-6 % at the first failing rung (WBC), 3-11 % (J^T), 0 % at the ok rungs: the 22 / 44 N*m limits
+  are reached when the run is already failing, not before.
+- Joint speed: the 99th percentile of the worst joint is 1.0-1.1 x the estimated no-load speed (V_pack / (ke N), 23 rad/s) in EVERY run, also at 0.5 m/s
+  and in the ok rungs, so this statistic does not discriminate and is not used as a finding (it may be touchdown spikes or the estimate; not investigated).
+- Slips: 0 in every ladder run.
+- **Bound**: not viable with the current controller. At its default parameters the WBC bound manages 0.5 m/s with a pack peak of 122 A, cost of
+  transport 10.2 and force RMS 0.72 m g; at stand height 0.85 neither controller completes a 0.5 m/s rung. It was not tuned (no search).
+- The old finding of Task 8 ("swing feed-forward saturates at about 1.3 m/s") is superseded: it was this reach limit.
+
+**Pack-current peaks per gait** (both packs summed, whole run incl. stand-up and launch; the contract keeps the 120 A BMS limit): WBC trot 52 A at
+0.75 m/s (default height) and 28 A at 2.0 m/s (0.85); WBC flying trot 59 A at 1.0 m/s (0.95) and 42 A at 2.25 m/s (0.85); J^T trot 71 A at 1.25 m/s;
+J^T flying trot 58 A at 2.5 m/s; bound 122 A at 0.5 m/s (an ok rung, over the 120 A limit: the bound is not acceptable on that ground alone). In the ok
+rungs of trot and flying trot the 120 A limit is not reached; it is exceeded in the WBC's failing rungs. The measured joint torque (`tau_est`) exceeded the
+22 N*m `tau_ff_max` in failing runs (up to 31.5 N*m at a hip: the PD term adds to the feed-forward); the actuator `i_limit` compliance was not audited
+separately.
+
+**Deviations (Task 10).** (1) No `--search` over the plan's GRID was run (coordinator: root-cause, no parameter sweeps); the CLI implements it
+(`--search`, untested at scale). The search that was run is the two stand-height candidates 0.95 / 0.85 at the built-in gait parameters. (2) The
+ladder starts at 0.5 m/s in 0.25 steps (plan: 1.5, 1.75, ...; the flat WBC fails there at the default height). (3) `sweep_gait` flies a short
+ladder (1.0, 1.5, 2.0, 2.5 m/s, flying trot, WBC, height 0.85, one run per rung, stop at the first failure) instead of one 10 s ramp: a ramp to
+4 m/s ends in a fall and a "speed of the last 3 s" of 0. (4) `tools/dog_sweep.py` got the `{**report, "xml": ...}` call as specified and, in addition, a
+measured-gait column and conditional wording in `write_md` (otherwise the filled column is not shown and the report would still say that no gait speed
+is measured). (5) `GAITS` values and `v_max` of the gaits are unchanged (no gait parameters were tuned; the default `choose()` therefore still switches
+to the flying trot at 2.2 m/s, which the default stand height cannot reach). (6) `dogwalk.setup` takes an optional `sim` / `inf`, the controller has
+`forced_gait`.
+
+**Sweep (SP3b slot).** `docs/dog/speed-sweep.md` / `.json` have the measured `v_top` column: 1.5-2.5 m/s for all 12 points (GIM8108-8 and the GIM6010-8
+probe alike), against a derived `v_trot_bound` of 0-1.36 m/s. The derived bound is not a bound of this controller. The sweep's chosen point (GIM8108-8
+r2.0 L200) is unchanged and the hardware is unchanged. The probe having the same rungs as the 8108 means the flat speed up to 2.5 m/s is not set by the
+hip stall torque (11 vs 22 N*m) or the no-load speed (61 vs 23 rad/s): by the controller. One seed per point, rung-limited, no ranking intended.
+
+**Options for the 1.25-1.5 m/s gap, none adopted here** (cost / evidence): speed-scheduled stand height (software; the evidence above: +1.25 m/s for the
+WBC); a swing IK that cannot flip the elbow branch (software; prevents the whip-through when a stance leg reaches full extension); find why J^T
+at the default height reaches 2.5 m/s where the WBC fails at 1.0 (J^T does not command the stance leg's tau_ff from the QP; WBC retuning only if its
+force tracking is what fails: it is not, force RMS 0.13-0.19 m g at the top rungs); a higher bus voltage within the drivers' rating (hardware: raises
+the no-load speed, but the speed was not what failed); the other sweep points (knee ratio 2.0, leg 0.25 m: the measured column does not rank them); the AK70-9
+class (actuator study: 2.8 m/s trot bound, +2.2 k USD; not measured here).

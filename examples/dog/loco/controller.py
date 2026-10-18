@@ -101,6 +101,7 @@ class Controller:
         self.mu = self.safety.mu
         self.q_fall0 = None
         self.h_frac = H_FRAC
+        self.forced_gait = None  # dogtop: a gait name bypasses Gt.choose (a moving command still leaves "stand")
         self._sf = None
         self.rough = False  # steps or a steep slope ahead (refreshed at 50 Hz)
         self._ref, self._k_ref = (
@@ -219,7 +220,9 @@ class Controller:
             self._enter("WALK")
         if self.mode == "WALK":
             self.sched.request(
-                Gt.choose(aim, self.rough and WALK_ROUGH) if moving else "stand"
+                (self.forced_gait or Gt.choose(aim, self.rough and WALK_ROUGH))
+                if moving
+                else "stand"
             )
         phases = self.sched.advance(DT, st.contact)
         if self.safety.update(st, phases, q, dq, self.legs, DT) == "slip":
