@@ -51,6 +51,9 @@ A_CMD = 1.0  # m/s^2: slew limit of the velocity command inside the controller (
 # A scheduled-stance foot without contact yet: True = leave the MPC's stance set and reach down on the swing PD (leaves the diagonal partner as
 # the only support for ~0.1 s, the trot rolls); False = stay in the stance set, the commanded force pushes the foot down to the ground.
 LATE_REACH = False
+# Speed cap on any non-flat height map (0 = off). Rubble commanded 1.8 m/s: training MC 0/10 up; the same route on a flat floor with the route follower
+# and dispersion stays up 16/16 at 0.8 and 1.2 m/s but 4/8 at 1.8; real rubble at 1.2 m/s: 5/10 (LOCO fix round 3).
+V_TERRAIN = 1.2
 LEAD = 0.0  # s: the swing reference runs this far ahead of the clock (joint PD lag)
 S_LAND = 1.0  # fraction of the swing at which the swing curve reaches its target
 POSTURE = 0.7  # lean 70 % into a slope (15 deg ramp, seed 1: 0.3 and 0.5 fall at the ramp foot with the J^T stance torque, 0.7 and 0.9 climb)
@@ -225,6 +228,9 @@ class Controller:
             raw = np.r_[raw[:2] * A_LAT / (s_cmd * abs(wz_cmd)), wz_cmd]
         else:
             raw = np.r_[raw[:2], wz_cmd]
+        s = np.linalg.norm(raw[:2])
+        if V_TERRAIN and not isinstance(self.map, Tr.FlatMap) and s > V_TERRAIN:
+            raw = np.r_[raw[:2] * V_TERRAIN / s, raw[2]]  # uneven ground: the speed cap
         if self.k % MPC_EVERY == 0 and self.mode in ("STAND", "WALK"):
             self.rough = Tr.rough_ahead(
                 self.map, st.p[:2], st.rpy[2], 0.8
