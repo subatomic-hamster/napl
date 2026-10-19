@@ -52,7 +52,8 @@ A_CMD = 1.0  # m/s^2: slew limit of the velocity command inside the controller (
 # the only support for ~0.1 s, the trot rolls); False = stay in the stance set, the commanded force pushes the foot down to the ground.
 LATE_REACH = False
 # Speed cap on any non-flat height map (0 = off). Rubble commanded 1.8 m/s: training MC 0/10 up; the same route on a flat floor with the route follower
-# and dispersion stays up 16/16 at 0.8 and 1.2 m/s but 4/8 at 1.8; real rubble at 1.2 m/s: 5/10 (LOCO fix round 3).
+# and dispersion stays up 16/16 at 0.8 and 1.2 m/s but 4/8 at 1.8. Training MC n=10 no-fall (rubble/scree/ruins): cap 1.2 4/5/3, 0.8 4/8/5, 0.5 6/9/4
+# (0.5: rubble 0 reach the goal in time). LOCO fix round 3.
 V_TERRAIN = 0.8
 LEAD = 0.0  # s: the swing reference runs this far ahead of the clock (joint PD lag)
 S_LAND = 1.0  # fraction of the swing at which the swing curve reaches its target
