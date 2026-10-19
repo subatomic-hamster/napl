@@ -25,6 +25,7 @@ import json
 import math
 import multiprocessing as mp
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -41,11 +42,28 @@ from napl.design import Library
 from napl.design import assembly as A
 
 DOG = REPO / "assemblies" / "dog"
-ACTS = {"gim8108": "steadywin-gim8108-8", "gim6010": "steadywin-gim6010-8"}
+ACTS = {
+    "gim8108": "steadywin-gim8108-8",
+    "gim6010": "steadywin-gim6010-8",
+    "ak70": "cubemars-ak70-9-v3-kv60",
+    "ak80": "cubemars-ak80-9-v3-kv100",
+    "ak10": "cubemars-ak10-9-v3-kv60",
+    "rs03": "robstride-03",
+}  # leg study (docs/dog/leg-study.md): ak70 / ak80 / ak10 / rs03 are probes like gim6010: their electrics, mass and price in the GIM8108-8 seats
+BASE_ACT, CLASSES = "gim8108", ("abad", "hip", "knee")
 PACK = "auline-21700-s70-8s1p-4500mah"
 LSFX = {0.20: "-200", 0.22: "", 0.25: "-250"}
+KSFX = {
+    1.5: "",
+    1.0: "-k10",
+    2.0: "-k20",
+}  # knee linkage ratio -> suffix of the part ids with that REAL crank / lug geometry; any other ratio is an electrical what-if (gear_ratio only)
+DEFAULT_KTAU = "conv"  # knee MIT feed-forward range: "conv" = mit_tau_ff_max x max(2.0, ratio) (leg.toml's convention), "exact" = mit_tau_ff_max x ratio
 DEFAULT_POINTS = [
-    (a, r, L) for a in ACTS for r in (1.5, 2.0) for L in (0.20, 0.22, 0.25)
+    (a, r, L)
+    for a in ("gim8108", "gim6010")
+    for r in (1.5, 2.0)
+    for L in (0.20, 0.22, 0.25)
 ]  # study candidates 1-3 + L neighbourhood
 COLUMNS = {
     "actuator": "bom", "knee_ratio": "bom", "leg_length": "bom", "mass": "bom", "cost": "bom", "cost_estimated_share": "bom",
@@ -67,40 +85,99 @@ def _replace_once(text, old, new):
     return text.replace(old, new)
 
 
-def write_variant(tmp, act, ratio, L, base="free"):
-    """dog.toml + its sub files into tmp for one point; -> the dog.toml path. base "fixed" welds the deck at the origin (swing runs)."""
+def classes_of(act):
+    """'ak70' -> that actuator in all three joint classes; 'gim8108+ak70+ak70' -> abad + hip + knee (a leg's three seats, all four legs alike)."""
+    p = act.split("+")
+    assert len(p) in (1, 3), act
+    return dict(zip(CLASSES, p * 3 if len(p) == 1 else p))
+
+
+def oracle(key):
+    """'orcT2.5S2' -> (2.5, 2.0): the ORACLE actuator = GIM8108-8 with torque x2.5 and no-load speed x2 at the same mass and price (an upper-bound probe of what
+    a stronger / faster actuator could do, not a part): KV x S (speed), i_limit x T S (torque x T), R and R_th / (T S) (the voltage drop R i and the heating stay)."""
+    m = re.fullmatch(r"orcT([\d.]+)S([\d.]+)", key)
+    return (float(m[1]), float(m[2])) if m else None
+
+
+def act_values(lib, key):
+    """{device field: [value, unit, derivation]} of the Qdd map (leg.toml device_maps.qdd) for one actuator key, plus 'mass' (kg)."""
+    o = oracle(key)
+    P = lib.get(ACTS[BASE_ACT if o else key])
+    fields = A.load(DOG / "leg.toml").raw["device_maps"]["qdd"]
+    out = {f: [P.value(pp), P.params[pp]["unit"], f"{P.id}.{pp}: sweep probe, {P.id} electrics in the GIM8108-8 seat (docs/dog/speed-sweep.md)"] for f, pp in fields.items()}  # fmt: skip
+    out["mass"] = [P.value("mass"), "kg", f"{P.id}.mass (sweep probe)"]
+    if o:
+        T, S = o
+        for f, x in {
+            "motor.kv": S,
+            "i_limit": T * S,
+            "motor.r20": 1 / (T * S),
+            "motor.r_th": 1 / (T * S),
+            "tau_ff_max": T,
+        }.items():
+            out[f][0] *= x
+            out[f][2] = (
+                f"{P.id}.{fields[f]} x {x:g}: ORACLE torque x{T:g} speed x{S:g} (docs/dog/leg-study.md), not a part"
+            )
+    return out
+
+
+def _field(v):
+    return {"value": v[0], "unit": v[1], "fidelity": "derived", "derivation": v[2]}
+
+
+def write_variant(tmp, act, ratio, L, base="free", ktau=DEFAULT_KTAU):
+    """dog.toml + its sub files into tmp for one point; -> the dog.toml path. base "fixed" welds the deck at the origin (swing runs).
+    act: see classes_of; ratio: knee linkage ratio (real geometry parts if in KSFX, else an electrical what-if); ktau: the knee feed-forward range convention."""
     tmp = Path(tmp)
     tmp.mkdir(parents=True, exist_ok=True)
-    s = LSFX[L]
+    s, k = (
+        LSFX[L],
+        KSFX.get(ratio, "") if L == 0.22 else "",
+    )  # the ratio parts exist for the 220 mm leg only
     leg = (DOG / "leg.toml").read_text()
     leg = _replace_once(
-        leg, 'part = "dog-thigh-bracket-l"', f'part = "dog-thigh-bracket-l{s}"'
+        leg, 'part = "dog-thigh-bracket-l"', f'part = "dog-thigh-bracket-l{s}{k}"'
     )
-    leg = _replace_once(leg, 'part = "dog-shank"', f'part = "dog-shank{s}"')
+    leg = _replace_once(leg, 'part = "dog-shank"', f'part = "dog-shank{s}{k}"')
     leg = _replace_once(
-        leg, 'part = "dog-knee-rod-220"', f'part = "dog-knee-rod-{round(L * 1000)}"'
+        leg, 'part = "dog-knee-rod-220"', f'part = "dog-knee-rod-{round(L * 1000)}{k}"'
     )
     (tmp / "leg.toml").write_text(leg)
-    if act != "gim8108":
+    cls = classes_of(act)
+    lib = Library(REPO / "parts")
+    vals = {key: act_values(lib, key) for key in set(cls.values())}
+    n_knee = vals[cls["knee"]]["gear_ratio"][0]
+    exact = ktau == "exact"
+    assert ktau in ("conv", "exact"), ktau
+    if any(key != BASE_ACT for key in cls.values()) or exact or ratio > 2.0:
         lasm = A.load(tmp / "leg.toml")
-        P = Library(REPO / "parts").get(ACTS[act])
-        assert P.value("gear_ratio") == 8  # drive_ratio = 8 x ratio stays right
-        fields = lasm.raw["device_maps"]["qdd"]
-        st = {f: {"value": P.value(pp), "unit": P.params[pp]["unit"], "fidelity": "derived",
-                  "derivation": f"{P.id}.{pp}: sweep probe, {P.id} electrics in the GIM8108-8 seat (docs/dog/speed-sweep.md)"}
-              for f, pp in fields.items()}  # fmt: skip
         for d in lasm.raw["devices"]:
-            if d["type"] == "qdd":
+            if d["type"] != "qdd":
+                continue
+            v = vals[cls[d["name"]]]
+            if cls[d["name"]] != BASE_ACT:
                 d.pop("map")
-                d["set"] = {**st, **d.get("set", {})}
-        for i in lasm.raw["instances"]:
-            if i["part"] == "steadywin-gim8108-8":
-                i.setdefault("params", {})["mass"] = {
-                    "value": P.value("mass"),
-                    "unit": "kg",
-                    "fidelity": "derived",
-                    "derivation": f"{P.id}.mass (sweep probe)",
+                d["set"] = {
+                    **{f: _field(x) for f, x in v.items() if f != "mass"},
+                    **d.get("set", {}),
                 }
+            if (
+                d["name"] == "knee"
+                and (cls["knee"] != BASE_ACT or exact or ratio > 2.0)
+            ):  # the joint-side MIT ranges of the knee (leg.toml: x 2.0 = the largest swept ratio)
+                r = ratio if exact else max(2.0, ratio)
+                d["set"] = {**d["set"], "tau_ff_max": _field([v["tau_ff_max"][0] * r, "N*m", f"Joint-side feed-forward range = mit_tau_ff_max {v['tau_ff_max'][0]:g} N*m x {'knee ratio' if exact else 'max(2.0, ratio)'} {r:g} (sweep, ktau={ktau})."]),
+                            "kp_max": _field([v["kp_max"][0] * r * r, "N*m/rad", f"Joint-side = mit_kp_max {v['kp_max'][0]:g} x {r:g}^2."]),
+                            "kd_max": _field([v["kd_max"][0] * r * r, "N*m*s/rad", f"Joint-side = mit_kd_max {v['kd_max'][0]:g} x {r:g}^2."])}  # fmt: skip
+        for i in lasm.raw["instances"]:
+            c = i["id"].removesuffix("_motor")
+            if (
+                i["part"] == "steadywin-gim8108-8"
+                and cls.get(c, BASE_ACT) != BASE_ACT
+                and not oracle(cls[c])
+            ):
+                i.setdefault("params", {})["mass"] = _field(vals[cls[c]]["mass"])
         (tmp / "leg.toml").write_text(A.dumps(lasm))
     for f in ("head.toml", "power.toml", "compute.toml", "dog.toml"):
         (tmp / f).write_text((DOG / f).read_text())
@@ -110,19 +187,33 @@ def write_variant(tmp, act, ratio, L, base="free"):
     for sub in dasm.raw["subassemblies"]:
         if sub["file"] == "leg.toml":
             sub.setdefault("params", {})["knee_drive_ratio"] = {
-                "value": 8 * ratio,
+                "value": n_knee * ratio,
                 "unit": "1",
                 "fidelity": "derived",
-                "derivation": f"8 x knee linkage ratio {ratio} (sweep point)",
+                "derivation": f"{n_knee:g} x knee linkage ratio {ratio} (sweep point)",
             }
     (tmp / "dog.toml").write_text(A.dumps(dasm))
     return tmp / "dog.toml"
 
 
+def variant_cost(rep, act):
+    """BOM total (USD) of a variant: the report priced 12 GIM8108-8; every probe seat swaps the actuator price (four legs; an oracle costs a GIM8108-8)."""
+    lib, cost = Library(REPO / "parts"), rep["bom"]["total"]["cost"]
+    for key in classes_of(act).values():
+        if key != BASE_ACT and not oracle(key):
+            cost += 4 * (
+                lib.get(ACTS[key]).value("price")
+                - lib.get(ACTS[BASE_ACT]).value("price")
+            )
+    return cost
+
+
 # ---- the sim side ------------------------------------------------------------------------------------------------------------------
-def _model(tmp, act, ratio, L, base):
+def _model(tmp, act, ratio, L, base, ktau=DEFAULT_KTAU):
     """-> (xml path, report). The sweep needs neither the wire tubes nor the visual meshes: compute() without them is ~100 x faster."""
-    src = write_variant(Path(tmp) / f"{act}-{ratio}-{L}-{base}", act, ratio, L, base)
+    src = write_variant(
+        Path(tmp) / f"{act}-{ratio}-{L}-{base}", act, ratio, L, base, ktau
+    )
     out = Path(tmp) / f"out-{act}-{ratio}-{L}-{base}"
     out.mkdir(parents=True, exist_ok=True)
     xml, rep = design.compute(src, D.PARTS, out, visual=False, route=False)[:2]
@@ -332,8 +423,12 @@ def measure_hold(xml, rep, quick):
 
 
 def derive(m, act, mass, h):
-    P = Library(REPO / "parts").get(ACTS[act])
-    w0 = m["v_hold"] / (P.value("ke_si") * 8.0)
+    key = classes_of(act)["hip"]
+    o = oracle(key)
+    P = Library(REPO / "parts").get(ACTS[BASE_ACT if o else key])
+    w0 = m["v_hold"] / (
+        P.value("ke_si") / (o[1] if o else 1.0) * P.value("gear_ratio")
+    )  # the hip seat's no-load speed at the pack voltage
     pack_i = Library(REPO / "parts").get(PACK).value("i_max_continuous")
     tau_hip = STUDY.DYN * STUDY.PEAK_FACTOR * mass * G / 2 * h * math.sin(STUDY.THETA)
     v_swing = h * math.sin(STUDY.THETA) / m["t_move"]
@@ -349,11 +444,12 @@ def derive(m, act, mass, h):
 
 def run_point(point, quick=False, gait=None):
     """One sweep point -> {column: value} for every COLUMNS key."""
-    act, ratio, L = point
+    act, ratio, L, *kt = point
+    kt = kt[0] if kt else DEFAULT_KTAU
     tmp = tempfile.mkdtemp(prefix="dogsweep-")
     try:
-        free, rep = _model(tmp, act, ratio, L, "free")
-        fixed, rep_f = _model(tmp, act, ratio, L, "fixed")
+        free, rep = _model(tmp, act, ratio, L, "free", kt)
+        fixed, rep_f = _model(tmp, act, ratio, L, "fixed", kt)
         m = {}
         m.update(measure_swing(fixed, rep_f))
         m.update(measure_push(free, rep, quick))
@@ -361,14 +457,8 @@ def run_point(point, quick=False, gait=None):
         m.update(measure_drop(free, rep, quick))
         m.update(measure_hold(free, rep, quick))
         mass = rep["bom"]["total"]["mass"]
-        lib = Library(REPO / "parts")
-        cost = rep["bom"]["total"]["cost"]
-        if act != "gim8108":  # probe: the BOM priced 12 GIM8108-8
-            cost -= 12 * (
-                lib.get(ACTS["gim8108"]).value("price")
-                - lib.get(ACTS[act]).value("price")
-            )
-        out = dict(actuator=ACTS[act], knee_ratio=ratio, leg_length=L, mass=mass, cost=round(cost, 2),
+        cost = variant_cost(rep, act)  # probe seats: the BOM priced 12 GIM8108-8
+        out = dict(actuator=ACTS.get(act, act), knee_ratio=ratio, leg_length=L, mass=mass, cost=round(cost, 2),
                    cost_estimated_share=rep["bom"]["total"]["estimated_share"])  # fmt: skip
         out.update({c: m[c] for c, k in COLUMNS.items() if k == "measured"})
         out.update(
@@ -492,6 +582,33 @@ def write_md(out, data, cmd):
     (Path(out) / "speed-sweep.md").write_text("\n".join(L) + "\n")
 
 
+def parse_point(s):
+    """'act:ratio:L[:ktau]' -> (act, ratio, L[, ktau]); act may be 'ak70', 'gim8108+ak70+ak70' or 'orcT2.5S2'."""
+    a, r, L, *kt = s.split(":")
+    return (a, float(r), float(L), *kt)
+
+
+def point_name(point):
+    act, ratio, L, *kt = point
+    return f"{act}-r{ratio:g}-L{round(L * 1000)}" + (
+        f"-{kt[0]}" if kt and kt[0] != DEFAULT_KTAU else ""
+    )
+
+
+def emit_point(point, root):
+    """Variant files of one point under root/<name>/ and its mass / BOM (variant.json); -> that record."""
+    act, ratio, L, *kt = point
+    kt = kt[0] if kt else DEFAULT_KTAU
+    d = Path(root) / point_name(point)
+    asm = write_variant(d, act, ratio, L, "free", kt)
+    with tempfile.TemporaryDirectory() as t:
+        rep = design.compute(asm, D.PARTS, t, visual=False, route=False)[1]
+    rec = dict(name=point_name(point), asm=str(asm.resolve()), act=act, knee_ratio=ratio, leg_length=L, ktau=kt, mass=rep["bom"]["total"]["mass"],
+               cost=round(variant_cost(rep, act), 2), cost_estimated_share=rep["bom"]["total"]["estimated_share"])  # fmt: skip
+    (d / "variant.json").write_text(json.dumps(rec, indent=1))
+    return rec
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument(
@@ -506,15 +623,18 @@ def main(argv=None):
     )
     ap.add_argument("--out", default=str(REPO / "docs" / "dog"))
     ap.add_argument("--jobs", type=int, default=0)
+    ap.add_argument(
+        "--emit",
+        help="DIR: write each point's variant files (DIR/<name>/dog.toml + variant.json with its mass and BOM) and stop; the leg study flies them (examples/dog/legdiag.py --asm)",
+    )
     a = ap.parse_args(argv)
     pts = (
-        sorted(
-            (x.split(":")[0], float(x.split(":")[1]), float(x.split(":")[2]))
-            for x in a.points
-        )
-        if a.points
-        else sorted(DEFAULT_POINTS)
+        sorted(parse_point(x) for x in a.points) if a.points else sorted(DEFAULT_POINTS)
     )
+    if a.emit:
+        for p in pts:
+            sys.stdout.write(json.dumps(emit_point(p, a.emit)) + "\n")
+        return 0
     jobs = a.jobs or int(os.environ.get("NAPL_THREADS", "1"))
     args = [(p, a.quick, a.gait) for p in pts]
     if jobs > 1:

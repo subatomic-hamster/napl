@@ -202,6 +202,7 @@ def _row(model, p, seed, fam, length):
     c, k_end, rec = fly(model, p)
     res = W.result(c, k_end, rec["wall"])
     L = limits(model)
+    dg = [r[W.COLS.index("dist_goal")] for r in c.rows]
     return dict(
         seed=int(seed),
         fam=fam,
@@ -209,6 +210,9 @@ def _row(model, p, seed, fam, length):
         route_length=length,
         **res,
         t_stop=float(rec["t"][-1]),
+        prog=float(1 - dg[-1] / dg[0])
+        if dg and dg[0] > 0
+        else 0.0,  # fraction of the route covered when the run stopped (terrain runs)
         diag=diagnose(c, k_end, rec, L),
     )
 
