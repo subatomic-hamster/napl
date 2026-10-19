@@ -202,7 +202,11 @@ def cmd_oplog(a):
             reqs += [
                 R("ui.visibility", 0.5, instances=[p], visible=True) for p in LEG_ORDER
             ]
-            reqs += [R("sub.close", 0.8, save=False)]
+            later = [x for s in STAGES[n:] for g in s[2] for x in expand(g, ids)]
+            reqs += [  # closing the leg document brings the whole dog back (seen in the first capture): hide what is not built yet
+                R("sub.close", 0.8, save=False),
+                R("ui.visibility", 0.4, instances=later, visible=False),
+            ]
         reqs += [
             R("ui.visibility", 0.6, instances=grp, visible=True),
             # no ui.frame (it selects what it frames, record_skydio finding): the dog fits the iso view of step 1, the camera only orbits
@@ -285,16 +289,16 @@ def cmd_oplog(a):
                       reqs=[R("ui.mode", 1.2, name="build"), R("ui.view", 0.5, emphasise_wires=True), R("select", 0.5, instances=[]), R("ui.camera", 1.0, preset="iso"),
                             R("camera.orbit", 8.5, yaw_deg=300, pitch_deg=12, seconds=8.0, relative=True)]))  # fmt: skip
     U = lambda wait, **kw: R("prog.ui", wait, **kw)
-    # The PROGRAM page edits the design's folder: for assemblies/dog/dog.toml that is assemblies/dog (progops.Prog.root; record_turret has no --program-root, so
-    # examples/dog/autonomy/planner.py cannot be opened). The IDE is shown on the files that folder holds; the programming story is part (b).
+    # The PROGRAM page edits `--program-root` (default: the design's folder); the programming story itself is part (b).
+    # record_turret build --program-root examples/dog (201d547) points the PROGRAM page at the robot's software; paths below are relative to that root.
     prog = [
-        ("assemblies/dog/README.md", r"^## Sub-assembly tree"),
-        ("assemblies/dog/dog.toml", r"^\[\[subassemblies\]\]"),
+        ("loco/controller.py", r"^class Controller"),
+        ("autonomy/planner.py", r"^def astar"),
     ]
     for k, (path, pat) in enumerate(prog):
         steps.append(dict(seg="PROGRAM", title="PROGRAM is an IDE: " + Path(path).name, speed=1.0, dwell=0.5,
-                          why=f"{path} in the PROGRAM page: file explorer, tabs, syntax colouring. The programming story itself is part (b) of the video.",
-                          reqs=([R("ui.mode", 1.5, name="program")] if k == 0 else []) + [U(8.0, cmd="open", path=Path(path).name, line=_line(path, pat), col=0, len=0)]))  # fmt: skip
+                          why=f"examples/dog/{path} in the PROGRAM page: file explorer, tabs, syntax colouring. The programming story itself is part (b) of the video.",
+                          reqs=([R("ui.mode", 1.5, name="program")] if k == 0 else []) + [U(8.0, cmd="open", path=path, line=_line("examples/dog/" + path, pat), col=0, len=0)]))  # fmt: skip
     total = sum(r["wait"] for s in steps for r in s["reqs"])
     assert total <= PART_A_MAX_S, (
         f"part (a) op log waits {total:.1f} s > {PART_A_MAX_S}"
@@ -1038,7 +1042,7 @@ def cmd_diagrams(a):
 
 
 # ---- part (c): the sim demo, the run replayed tick-exact with an orbit camera, the map and the path overlaid ------------------------------------
-PART_C_MAX_S = 150.0  # plan: 180; the three parts at their caps plus the cards must fit TOTAL_MAX_S = 480 (TIMELINE below)
+PART_C_MAX_S = 135.0  # plan: 180; the three parts at their caps plus the cards and the 15 s rubble short must fit TOTAL_MAX_S = 480 (TIMELINE below)
 SPEED = [
     (0.0, 25.0, 1.0),
     (25.0, None, 4.0),
@@ -1284,12 +1288,17 @@ def cmd_sim(a):
 
 # ---- encode: cards, the three parts in order, captions -------------------------------------------------------------------------------------------
 TOTAL_MAX_S = 480.0
+SHORT_MAX_S = 15.0  # the honest rubble clip after the main demo
+SIM_CLIPS = [  # (dir under ROOT holding sim/, caption title, field)
+    ("showcase", "Showcase mission in ruins (flat floor, 0.4 m/s)", "The 30 m ruins field, seed 7002"),
+    ("short_rubble", "The same dog on rubble", "The 30 m rubble field, seed 7001"),
+]  # fmt: skip
 TIMELINE = [  # (part, label, seconds): the budget of each piece; the encode prints the real one
     ("card", "title", 5.0),
     ("A", "part 1 card + construction + wiring + program (viewer capture)", 2.5 + PART_A_MAX_S - 12.0),
     ("A", "exploded view", 12.0),
     ("B", "part 2 card + seven diagrams from the run's tap", 2.5 + sum(s for *_, s in DIAGRAMS)),
-    ("C", "part 3 card + the sim demo", 2.5 + PART_C_MAX_S),
+    ("C", "part 3 card + the sim demo + the rubble short", 2.5 + PART_C_MAX_S + SHORT_MAX_S),
     ("result", "Monte Carlo and criteria", 16.0),
     ("result", "what is real and what is a stand-in", 14.0),
 ]  # fmt: skip
@@ -1402,9 +1411,20 @@ def cmd_encode(a):
         2.5,
         "PART 3",
     )
-    if sj.exists():
-        sm = json.loads(sj.read_text())
+    for (
+        sub,
+        title,
+        field,
+    ) in SIM_CLIPS:  # the main demo (walks), then the honest short (falls)
+        sjc = root / sub / "sim" / "sim.json"
+        if not sjc.exists():
+            continue
+        sm = json.loads(sjc.read_text())
         tap = TapData(sm["run"])
+        summ = json.loads((Path(sm["run"]) / "summary.json").read_text())
+        what = (
+            f"fell at {summ['t']:.0f} s" if summ.get("fell_ever") else "no fall"
+        ) + f", {100 * summ['coverage']:.0f} % of the field mapped"
         for fr in sm["frames"]:
             i = int(np.argmin(abs(tap.t - fr["t"])))
             sp = sim_time((fr["k"] + 1) / FPS) - sim_time(fr["k"] / FPS)
@@ -1413,15 +1433,15 @@ def cmd_encode(a):
                 tap,
                 i,
                 fr,
-                videnc.load_frame(root / "showcase" / "sim", f"f{fr['k']:05d}"),
+                videnc.load_frame(root / sub / "sim", f"f{fr['k']:05d}"),
                 sp * FPS,
             )
             w.emit(
                 w.bar(
                     img,
                     "simulation",
-                    "Showcase mission on rocky terrain",
-                    f"The 30 m rubble field, seed fixed before the run. Replay hash {sm['replay_hash']} (matches the run: {sm['replay_matches_run']}).",
+                    title,
+                    f"{field}; seed fixed before the run, not searched. This run: {what}. Replay hash {sm['replay_hash']} (matches the run: {sm['replay_matches_run']}).",
                     [f"sim t = {fr['t']:.1f} s"],
                 )
             )

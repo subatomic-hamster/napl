@@ -57,8 +57,13 @@ def test_seed_blocks_are_disjoint_and_heldout_needs_final_rev():  # Review Focus
     assert not tune & held
     assert not (
         (tune | held)
-        & (set(range(1, 31)) | set(range(1001, 1026)) | set(range(21000, 21101)))
-    )
+        & (
+            set(range(1, 31))
+            | set(range(1001, 1026))
+            | set(range(21000, 21101))
+            | set(range(31000, 31101))
+        )
+    )  # 31000+ is SP4's fresh terrain MC (31000-31039)
     with pytest.raises(ValueError, match="rev"):
         MC.check_heldout_rev([dict(rev="abc"), dict(rev="def")])
     MC.check_heldout_rev([dict(rev="abc"), dict(rev="abc")])
@@ -96,6 +101,17 @@ def test_nofall_row_states_a_lower_bound_under_the_target():
         ln
         for ln in MC.results_table(bad, {}).splitlines()
         if ln.startswith("| >= 90 %")
+    )
+
+
+def test_flat_top_speed_target_is_the_lowered_2_0():
+    c = next(c for c in MC.CRITERIA if c[0] == "top_speed_flat")
+    assert c[3] == 2.0 and "2.0 m/s" in c[1]
+    assert "| flat top speed >= 2.0 m/s | 2.1 | MET |" in MC.results_table(
+        {}, {"top_speed_flat": 2.1}
+    )
+    assert "| flat top speed >= 2.0 m/s | 1.9 | NOT MET |" in MC.results_table(
+        {}, {"top_speed_flat": 1.9}
     )
 
 
