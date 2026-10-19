@@ -52,7 +52,22 @@ noload_speed_check = { value = 320.0, unit = "rpm", fidelity = "derived", deriva
 kv_output = { value = 6.667, unit = "rpm/V", fidelity = "derived", derivation = "KV 60 rpm/V (motor side) / N 9 = 6.667 rpm/V at the output." }
 kt_motor = { value = 0.15948, unit = "N*m/A", fidelity = "derived", derivation = "SI identity Kt = Ke (motor side); the published KT 0.159 agrees." }
 efficiency = { value = 0.855, unit = "1", fidelity = "derived", derivation = "eta = torque_peak / (kt_motor * N * current_peak) = 29.2 / (0.15948 * 9 * 23.8) = 0.855. Effective figure: gearbox loss lumped with the DC-bus-vs-phase current definition (see kt_output_ideal)." }
-price = { value = 398.90, unit = "USD", fidelity = "datasheet", src = "S3" }  # CubeMars product page, seen 2026-10-16, USD (US storefront), ex shipping; driver board standard
+price = { value = 398.90, unit = "USD", fidelity = "datasheet", src = "S3" }  # CubeMars product page, seen 2026-10-16 and again 2026-10-18, USD (US storefront), ex shipping; driver board standard
+
+# --- Qdd device params (leg study, docs/dog/leg-study.md; same field names as steadywin-gim8108-8 so a leg's device map reads them) ---
+i_limit_phase = { value = 23.8, unit = "A", fidelity = "derived", derivation = "= current_peak 23.8 A (ADC treated as the winding current, as for the GIM8108-8): Kt N eta i_limit = 0.15948 x 9 x 0.855 x 23.8 = 29.2 N*m = torque_peak (efficiency was derived from the same current)." }
+c_th_winding = { value = 60.0, unit = "J/K", fidelity = "estimated", rationale = "Not published. Same motor class as the GIM8108-8 (21 pole pairs, 36 slots, 89 mm vs 92 mm): its 60 J/K lumped winding node taken (+-50 %)." }
+r_th_winding = { value = 2.40, unit = "K/W", fidelity = "derived", derivation = "current_rated 6.25 A must settle at 80 degC from 25 degC under the Qdd thermal law (docs/models.md 'Qdd'; same method as the GIM8108-8 file): R(80) = 0.475 x 1.236 = 0.587 ohm, P = 6.25^2 x 0.587 = 22.9 W, R_th = 55 K / 22.9 W = 2.40 K/W." }
+encoder_cpr = { value = 65536, unit = "1", fidelity = "estimated", rationale = "The MIT-mode position field is 16 bit; the 21 bit magnetic encoders (S1) are finer than the protocol reports." }
+can_cmd_hz = { value = 1000.0, unit = "Hz", fidelity = "estimated", rationale = "Driver command processing rate; MIT-mode drivers of this class process CAN frames at 1 kHz or more. The dog sends 500 Hz (spec s6)." }
+can_latency = { value = 0.001, unit = "s", fidelity = "estimated", rationale = "One CAN frame at 1 Mbit/s (~0.13 ms) + driver loop; 1 ms (one physics tick) taken." }
+mit_kp_max = { value = 500.0, unit = "N*m/rad", fidelity = "estimated", rationale = "MIT-mode protocol range convention (KP 0..500)." }
+mit_kd_max = { value = 5.0, unit = "N*m*s/rad", fidelity = "estimated", rationale = "MIT-mode protocol range convention (KD 0..5)." }
+mit_tau_ff_max = { value = 29.2, unit = "N*m", fidelity = "derived", derivation = "= torque_peak (output side): a larger feed-forward is saturated by i_limit_phase anyway." }
+can_timeout = { value = 0.1, unit = "s", fidelity = "estimated", rationale = "Command-loss watchdog of the driver; 0.1 s = 50 missed 500 Hz frames." }
+kd_timeout = { value = 1.0, unit = "N*m*s/rad", fidelity = "estimated", rationale = "Damping-mode gain on command loss (timeout_mode 0): soft enough not to slam a falling leg." }
+temp_fault = { value = 100.0, unit = "degC", fidelity = "estimated", rationale = "Driver over-temperature threshold not retrieved; 100 degC as for the GIM8108-8 file." }
+temp_derate_start = { value = 80.0, unit = "degC", fidelity = "estimated", rationale = "20 K below temp_fault (linear current derate, docs/models.md 'Qdd')." }
 
 [[ports]]
 name = "mount"

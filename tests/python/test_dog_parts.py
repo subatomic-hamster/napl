@@ -12,6 +12,11 @@ QDD = [
     "actuators/steadywin-gim6010-8",
     "actuators/cubemars-ak70-9-v3-kv60",
 ]
+LEG_STUDY_ACTS = [  # docs/dog/leg-study.md: probe actuators for the dog's leg seats (price + the full Qdd parameter set)
+    "actuators/cubemars-ak80-9-v3-kv100",
+    "actuators/cubemars-ak10-9-v3-kv60",
+    "actuators/robstride-03",
+]
 
 
 def load(rel):
@@ -76,6 +81,7 @@ PRICED = [  # purchased parts of the dog: a dated USD price (param `price`, or `
     "electronics/ublox-ann-mb-00",
     "electronics/generic-estop-22mm-nc",
     *QDD,
+    *LEG_STUDY_ACTS,
 ]
 
 
@@ -174,7 +180,11 @@ from napl.design import assembly as A
 from napl.design import auto_devices as AD
 from napl.design import subasm
 
-STEADYWIN = QDD[:2]  # steadywin-gim8108-8, steadywin-gim6010-8
+STEADYWIN = [
+    *QDD[:2],
+    QDD[2],
+    *LEG_STUDY_ACTS,
+]  # every actuator a leg seat can take: the steadywin pair + the leg study's probes (the name is historic)
 
 
 def test_subasm_prefixes_the_ground_devices():
