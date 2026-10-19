@@ -1,0 +1,76 @@
+id = "dog-thigh-al-l"
+name = "Dog thigh, left (6061 box tube 25.4 x 12.7 x 1.59 mm + CNC hip fitting and knee plug, L = 220 mm): the bio-inspired thick thigh of the '-al' leg"
+category = "frame.machined"
+vendor = "napl dog (own design: McMaster-class 6061 rectangular tube + CNC fittings, JLCCNC / PCBWay quote)"
+part_number = "thigh_al (left)"
+url = "docs/dog/leg-survey.md"
+
+# cad/dog/parts.py thigh_al(); mesh by cad/dog/build.py. Frame: origin on the hip pitch axis at the hip actuator output face; the tube lies at y in [0, 12.7] (outboard), hangs along -z.
+# Tube z from -40 to -232.7 (12.7 mm below the knee), CNC hip fitting = 5 mm disc (6 x M3 on the 50 mm circle) + boss z [-40, -10] + 25 mm plug in the bore, 25 mm knee-end plug with the 8.1 mm pin bore at z = -220.
+# The shank head sits outboard of the tube (y in [13, 33]): the knee axis is the line y = 23 mm. Same joint axes, rod port and knee range as dog-thigh-bracket-l. Twin: dog-thigh-al-r.
+
+[mirror]
+opposite = "dog-thigh-al-r"
+
+[params]
+length          = { value = 0.22, unit = "m", fidelity = "estimated", rationale = "Design value L_THIGH (cad/dog/params.py), the same as the printed thigh so the controller and kinematics stay valid." }
+section_width   = { value = 0.0254, unit = "m", fidelity = "estimated", rationale = "Design value cad/dog/params.py AL_W = 1 in; inch-series 6061 rectangular tube, availability not confirmed from a fetched vendor row (a 1 in x 1.5 in x 1/8 in and a 1 in x 2 in x 0.062 in 6061-T6 tube are listed by Online Metals)." }
+section_depth   = { value = 0.0127, unit = "m", fidelity = "estimated", rationale = "Design value AL_T = 1/2 in; set by the y stack (tube y in [0, 12.7], 0.3 mm gap, shank head from y = 13)." }
+wall            = { value = 0.0015875, unit = "m", fidelity = "estimated", rationale = "Design value AL_WALL = 1/16 in; a CNC / extrusion supplier can also supply 1.5 mm metric." }
+youngs_modulus  = { value = 68.9e9, unit = "Pa", src = "S1", fidelity = "datasheet" }
+yield_strength  = { value = 276e6, unit = "Pa", src = "S1", fidelity = "datasheet" }
+knee_range      = { value = [-1.32, 0.02], unit = "rad", fidelity = "derived", derivation = "Same linkage as dog-thigh-bracket-l (cad/dog/params.py linkage(0.22): crank R1 = 20 mm, lug R2 = 30 mm at 115 deg, rod pin length 210.0 mm): the crank, rod, lug radius and joint axes are unchanged, so the transmission-angle range [30, 150] deg is the same." }
+mass            = { value = 0.1373, unit = "kg", fidelity = "derived", derivation = "Mesh volume 50.84 cm3 x 6061 2.70 g/cm3 (parts/common/aluminium-6061.toml) = 137.3 g, solid-volume model: the hollow tube is in the mesh, the fittings and plugs are solid; cad/dog/build.py." }
+
+[params.price]
+value = 36.0
+unit = "USD"
+fidelity = "estimated"
+rationale = "Rectangular 6061 tube 200+ mm (about 6 USD cut length at a metals e-tailer; the 1 in x 1/2 in x 1/16 in size could not be priced from a fetched page) + CNC hip fitting (about 22 USD) + knee plug (about 8 USD) at a quantity of 8. CNC cost is a benchmark of 8-85 USD per small part between quantities 100 and 1 (Alibaba seller guide search result), no quote was obtained; +-50 %."
+
+[geometry]
+shape = "mesh"
+mesh = "meshes/dog/dog-thigh-al-l.stl"
+material = "aluminium-6061"
+bbox_min = [-0.028, 0.0, -0.2327]
+bbox_max = [0.028, 0.0127, 0.028]
+
+[[ports]]
+name = "origin"
+kind = "mech"
+type = "flange.steadywin-gim8108-output"
+gender = "neutral"
+pos = [0.0, 0.0, 0.0]
+axis = [0.0, -1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Hip pitch axis, inboard face of the disc on the hip actuator output (6 x M3 on a 50 mm circle); pattern is opaque (vendor drawing not retrieved)."
+
+[[ports]]
+name = "knee"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [0.0, 0.023, -0.22]
+axis = [0.0, 1.0, 0.0]
+ref = [1.0, 0.0, 0.0]
+symmetry = 1
+note = "Knee axis (8 mm shoulder bolt through the tube end), on the shank head / tube centre line y = 23 mm."
+
+[[ports]]
+name = "rod"
+kind = "mech"
+type = "frame.origin"
+gender = "neutral"
+pos = [-0.000135, 0.025, -0.088563]
+axis = [0.1194661, 0.0, 0.9928383]
+ref = [0.9928383, 0.0, -0.1194661]
+symmetry = 1
+note = "Centre of the knee push rod at the rest pose, unchanged from dog-thigh-bracket-l (the rod is at y = 25 mm, 12 mm clear of the tube). Rigid on the thigh here; the Qdd models the linkage as a constant ratio."
+
+[[sources]]
+id = "S1"
+url = "https://quickparts.com/wp-content/uploads/2024/05/Aluminum-6061.pdf"
+title = "Aluminum 6061-T6; 6061-T651 (MatWeb/ASM data sheet, printed copy hosted by Quickparts)"
+accessed = "2026-10-19"
+quote = "Tensile Yield Strength 276 MPa 40000 psi AA; Typical ... Modulus of Elasticity 68.9 GPa 10000 ksi"

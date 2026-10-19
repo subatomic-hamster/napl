@@ -19,7 +19,12 @@ TILT_DEG = float(
 # fab (same print model as cad/cuas-lite: shell + infill, assemblies/README.md "Mass properties")
 BED = (220.0, 220.0, 250.0)
 NOZZLE, WALLS, INFILL = 0.4, 3, 0.30  # [est] 3 walls / 30 % for load-bearing leg parts
-DENSITY = {"pla": 1.24e-3, "petg": 1.27e-3}  # g/mm^3
+DENSITY = {
+    "pla": 1.24e-3,
+    "petg": 1.27e-3,
+    "al6061": 2.70e-3,  # parts/common/aluminium-6061.toml (2700 kg/m3)
+    "pa12cf": 1.15e-3,  # parts/common/nylon-cf-pa12.toml (1150 kg/m3)
+}  # g/mm^3
 FLOW_MM3_S, TIME_OVERHEAD = 8.0, 1.35
 M3_CLR, M3_INSERT_D, M5_CLR = 3.4, 4.2, 5.3
 
@@ -55,6 +60,25 @@ ROD_Y = (
 CRANK_T = 7.0  # crank plate thickness
 SLAB = ROD_Y + 4.0 + 1.0 + CRANK_T  # hip output face -> knee motor output face
 KNEE_FACE = PITCH_Y + SLAB  # y (LF) of the knee motor output face
+
+# --- bio-inspired leg variant "-al" (docs/dog/leg-survey.md): 6061 box-tube thigh, CF-tube shank, PA12-CF foot core ---
+# Same joint axes, L_THIGH / L_SHANK, crank, rod and hip housing as the printed leg (SLAB and ROD_Y are NOT changed): only the thigh, shank and foot
+# core are replaced. Stack along y in the thigh frame: thigh tube [0, AL_T] | gap | shank head [KNEE_Y_AL -/+ SH_OD/2] | rod end [21, 29] | crank.
+AL_W, AL_T, AL_WALL = (
+    25.4,
+    12.7,
+    1.5875,
+)  # 6061 rectangular tube 1 in x 1/2 in x 1/16 in wall: x width, y depth, wall
+AL_TOP = 40.0  # tube top, below the hip axis (the hip fitting boss fills z [-40, -10])
+AL_KNEE_END = 12.7  # tube end below the knee axis
+SH_OD, SH_ID = 20.0, 18.0  # cf-tube-20x18 shank
+SH_GAP = 0.3  # thigh tube <-> shank head clearance in y
+KNEE_Y_AL = (
+    AL_T + SH_GAP + SH_OD / 2
+)  # knee axis y of the "-al" leg: tube / head centre line (23.0)
+KNEE_PIN_D = 8.0  # shoulder bolt through the thigh tube end and the shank head
+SH_HEAD_LEN = 40.0  # shank head length below the knee axis (the tube is bonded into its bore from z = -8)
+BOND_G = 3.0  # epoxy for the shank's two bonded joints [est]
 
 # --- body ---
 BODY_L = 420.0  # inner length between the bulkheads
