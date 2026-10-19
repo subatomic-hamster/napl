@@ -37,8 +37,8 @@ FAMILIES = {  # family: (course, commanded speed m/s)
 }
 TRAIN_BASE, TEST_BASE = (
     1000,
-    31000,
-)  # 21000-21015 were spent on the flat push tuning (dogflat) in LOCO fix round 1
+    41000,
+)  # 21000-21015 were spent on the flat push tuning (dogflat) in LOCO fix round 1; 31000-31039 were the round-1 test seeds, 41000+ are fresh for round 2
 SCRATCH = Path(
     os.environ.get("NAPL_MC_TMP", Path(tempfile.gettempdir()) / "napl-dog-mc")
 )

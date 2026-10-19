@@ -11,7 +11,7 @@ from autonomy import config, dogloco, lidar, localize, scene
 
 HAS_SP4 = (ROOT / "examples" / "dog" / "loco" / "controller.py").exists()
 CPP_WBC = bool(list((ROOT / "build" / "loco").glob("loco_wbc_cpp*")))
-GOLDEN_DOG_SMOKE = "27ffca55529022aa"  # re-recorded: LOCO fix 2/3 (WBC J^T stance torque, POSTURE 0.7, scheduled stand height); default seed, 15 s, C++ WBC, OMP_NUM_THREADS=1
+GOLDEN_DOG_SMOKE = "9eb34232ef72640e"  # re-recorded (fix round 2: tilt correction no longer paused by command changes, gyro-bias integrator; was 27ffca55529022aa):LOCO fix 2/3 (WBC J^T stance torque, POSTURE 0.7, scheduled stand height); default seed, 15 s, C++ WBC, OMP_NUM_THREADS=1
 needs_dog = pytest.mark.skipif(
     napl._napl is None or not HAS_SP4,
     reason="kernel or SP4 (examples/dog/loco) missing",

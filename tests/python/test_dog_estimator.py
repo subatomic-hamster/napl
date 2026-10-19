@@ -59,7 +59,9 @@ def test_attitude_converges_to_a_static_tilt():
     g_body = (
         np.array([0.0, math.sin(th), math.cos(th)]) * 9.81
     )  # specific force of a trunk rolled 10 deg, at rest
-    for _ in range(2500):  # 5 s at 500 Hz
+    for _ in range(
+        6000
+    ):  # 12 s at 500 Hz (the gyro-bias integrator overshoots to 11.2 deg at 5 s, then settles)
         st = est.update(FEET.ravel(), np.zeros(12), np.zeros(12), np.zeros(3), g_body)
     assert math.degrees(st.rpy[0]) == pytest.approx(10.0, abs=0.5)
 

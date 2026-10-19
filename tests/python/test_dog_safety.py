@@ -21,8 +21,8 @@ from loco import wbc as Wb
 
 needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 GOLDEN = {
-    "push": "c73b5e477107f5ba"
-}  # res["sim"]["state_hash"] of walk/push.scenario.toml with the C++ WBC (fix round 1: condensed MPC 628c2645672cfdcf, 2f3b3706cb51a5b5 before; then J^T stance torque)
+    "push": "d63fd6b4e3399485"
+}  # res["sim"]["state_hash"] of walk/push.scenario.toml with the C++ WBC (fix round 2 re-record: tilt correction no longer paused by command changes, gyro-bias integrator; c73b5e477107f5ba before; fix round 1: condensed MPC 628c2645672cfdcf, 2f3b3706cb51a5b5 before; then J^T stance torque)
 c = W.COLS.index
 
 
