@@ -30,16 +30,22 @@ def tess(shape, path):
     return m
 
 
-def record(m, material):
+def record(m, material, mixed_g=None):
+    """Printed (pla / petg / pa12cf): shell + infill mass model. Machined / bought material (al6061 solid; "mixed" = mixed_g from parts.py):
+    solid volume x density, no infill model. mass_g is the mass of the part as built."""
     V, A = float(m.volume), float(m.area)
     shell = min(V, A * P.WALLS * P.NOZZLE)
     fil = shell + P.INFILL * (V - shell)
-    rho = P.DENSITY[material]
+    printed = material in ("pla", "petg", "pa12cf")
+    rho = P.DENSITY.get(material, P.DENSITY["pla"])
     ext = m.extents
     return dict(
         volume_mm3=round(V, 1),
-        filament_g=round(fil * rho, 2),
+        filament_g=round(fil * rho, 2) if printed else 0.0,
         solid_g=round(V * rho, 2),
+        mass_g=round(
+            fil * rho if printed else (mixed_g if mixed_g is not None else V * rho), 2
+        ),
         print_time_h=round(fil / P.FLOW_MM3_S * P.TIME_OVERHEAD / 3600, 2),
         bbox_min_mm=[round(float(v), 2) for v in m.bounds[0]],
         bbox_max_mm=[round(float(v), 2) for v in m.bounds[1]],
@@ -83,10 +89,31 @@ def main():
             tmp = out / "napl" / f"{vn}.mm.stl"
             m = tess(sh, tmp)
             tmp.unlink()
-            r = record(m, mat)
+            r = record(
+                m,
+                mat,
+                getattr(
+                    K,
+                    name.replace("dog-", "").replace("-", "_") + "_mass_g",
+                    lambda: None,
+                )()
+                if mat == "mixed"
+                else None,
+            )
             r.update(count=count // 2 if handed else count, material=mat)
             m.apply_scale(1e-3)
             m.export(str(out / "napl" / f"{vn}.stl"))
+            for key, vfn in getattr(K, "VISUALS", {}).get(name, {}).items():
+                vs = (
+                    vfn()
+                    if not handed or vn.startswith(name + "-l")
+                    else vfn().mirror(Plane.XZ)
+                )
+                vtmp = out / "napl" / f"{vn}-vis-{key}.mm.stl"
+                vm = tess(vs, vtmp)
+                vtmp.unlink()
+                vm.apply_scale(1e-3)
+                vm.export(str(out / "napl" / f"{vn}-vis-{key}.stl"))
             man["parts"][vn] = r
             print(
                 f"{vn:28s} V={r['volume_mm3'] / 1e3:8.1f}cm3 fil={r['filament_g']:7.1f}g wt={r['watertight']} bed={r['fits_bed']}"

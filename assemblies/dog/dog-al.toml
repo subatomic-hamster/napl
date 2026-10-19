@@ -1,0 +1,268 @@
+# VARIANT "-al" of dog.toml: the four legs are leg-al.toml (hollow 6061 shell thigh, carbon shank; docs/dog/leg-survey.md). Not the default dog. Load:
+# design.build("assemblies/dog/dog-al.toml"). Identical to dog.toml except the four `file = "leg-al.toml"` lines (pinned by tests/python/test_dog_leg_survey.py).
+# The recon quadruped (SP3b, docs/superpowers/plans/2026-10-16-sp3b-dog-assembly.md Task 7; spec docs/superpowers/specs/2026-10-16-quadruped-design.md).
+# World frame: x forward, y left, z up. The root is the top carbon deck (a free base: the builder drops the dog so its lowest collision point, a foot ball
+# of the straight-leg build pose, rests at z = 0, so the standing height needs no number here).
+# CHASSIS: top deck + two printed bulkheads (front / rear) + two printed side plates; the bottom deck (power module) hangs from the front bulkhead.
+# LEGS: fl on the front bulkhead's left hip port, fr (the leg mirrored about the XZ plane) on the right one. The rear bulkhead is the same part turned
+# 180 deg about z by the deck's rear port, so its `hip_l` port lies at world -y: rr (unmirrored) goes on `bulk_r.hip_l`, rl (mirrored) on `bulk_r.hip_r`.
+# The leg is written for a front-left leg: front knees point backward, rear knees forward (a rear leg is the same leg turned 180 deg).
+# CAN PLAN: one bus per leg (a CANable per leg on the compute tray, a 120 ohm terminated hub per leg), 3 drives per bus at 1 kHz.
+# POWER PLAN: 2 x 8S1P packs + BMS -> 100 A contactor (e-stop on its coil) -> PDB -> one XT60 feed per leg hub; the Jetson and lidar 12 V DC-DCs hang
+# on the battery side of the contactor (the e-stop never drops the recon payload). The D24V22F12 (36 V max) sits 2.4 V above the 33.6 V full pack
+# with no margin for regenerative bus spikes: the PDB's two 470 uF capacitors absorb them; no TVS is fitted (open item).
+# Wire lengths are routed estimates (chord + slack) with a rationale each. BOM prices exclude wires and connectors (assemblies/dog/README.md).
+
+[assembly]
+name = "dog"
+description = "Recon quadruped (SP3b): 12 x GIM8108-8 QDD legs (knee by crank + push rod 1.5:1), Mid-360 + D435i head, Jetson Orin Nano + 4 CAN buses, 2 x 8S1P Li-ion with BMS, contactor + e-stop"
+base = "free"
+timestep = 0.001
+seed = 1
+
+[[instances]]
+id = "deck_top"
+part = "dog-deck-top-cf3"
+root = true
+group = "chassis"
+
+[[instances]]
+id = "bulk_f"
+part = "dog-bulkhead"
+group = "chassis"
+
+[[instances]]
+id = "bulk_r"
+part = "dog-bulkhead"
+group = "chassis"
+
+[[instances]]
+id = "side_l"
+part = "dog-side-plate-l"
+group = "chassis"
+
+[[instances]]
+id = "side_r"
+part = "dog-side-plate-r"
+group = "chassis"
+
+[[mates]]
+name = "bulk_f_fix"
+a = "deck_top.bulk_f"
+b = "bulk_f.deck_top"
+
+[[mates]]
+name = "bulk_r_fix"
+a = "deck_top.bulk_r"
+b = "bulk_r.deck_top"
+
+[[mates]]
+name = "side_l_fix"
+a = "deck_top.side_l"
+b = "side_l.top"
+
+[[mates]]
+name = "side_r_fix"
+a = "deck_top.side_r"
+b = "side_r.top"
+
+[[subassemblies]]
+id = "fl"
+file = "leg-al.toml"
+group = "legs"
+
+[[subassemblies]]
+id = "fr"
+file = "leg-al.toml"
+mirror = "xz"
+group = "legs"
+
+[[subassemblies]]
+id = "rl"
+file = "leg-al.toml"
+mirror = "xz"
+group = "legs"
+
+[[subassemblies]]
+id = "rr"
+file = "leg-al.toml"
+group = "legs"
+
+[[subassemblies]]
+id = "head"
+file = "head.toml"
+group = "head"
+params = { lidar_rays = { value = 2000, unit = "1", fidelity = "estimated", rationale = "Flat-floor bench and stand runs: 2000 rays / frame keeps the lidar on without dominating the step (docs/models.md 'Ground sim budget'); SP5 raises it." } }
+
+[[subassemblies]]
+id = "power"
+file = "power.toml"
+group = "power"
+
+[[subassemblies]]
+id = "compute"
+file = "compute.toml"
+group = "compute"
+
+[[mates]]
+name = "fl_mount"
+a = "bulk_f.hip_l"
+b = "fl:hip_mount"
+
+[[mates]]
+name = "fr_mount"
+a = "bulk_f.hip_r"
+b = "fr:hip_mount"
+
+[[mates]]
+name = "rl_mount"
+a = "bulk_r.hip_r"
+b = "rl:hip_mount"
+
+[[mates]]
+name = "rr_mount"
+a = "bulk_r.hip_l"
+b = "rr:hip_mount"
+
+[[mates]]
+name = "head_mount"
+a = "deck_top.head"
+b = "head:mount"
+
+[[mates]]
+name = "compute_mount"
+a = "deck_top.compute"
+b = "compute:mount"
+
+[[mates]]
+name = "power_mount"
+a = "bulk_f.deck_bottom"
+b = "power:chassis"
+
+# ---- CAN: one CANable per leg to that leg's hub ----
+[[wires]]
+name = "can_fl"
+from = "compute:can_fl"
+to = "fl:can"
+from_pins = ["CAN.1", "CAN.2", "CAN.3"]
+to_pins = ["CANIN.1", "CANIN.2", "CANIN.3"]
+part = "awg-24-silicone-wire"
+conductors = 3
+length = { value = 0.40, unit = "m", fidelity = "estimated", rationale = "CANable on the compute tray (top deck, centre) to the fl hub under the front-left abad cup: about 0.30 m routed plus slack." }
+
+[[wires]]
+name = "can_fr"
+from = "compute:can_fr"
+to = "fr:can"
+from_pins = ["CAN.1", "CAN.2", "CAN.3"]
+to_pins = ["CANIN.1", "CANIN.2", "CANIN.3"]
+part = "awg-24-silicone-wire"
+conductors = 3
+length = { value = 0.40, unit = "m", fidelity = "estimated", rationale = "As can_fl, to the front-right hub." }
+
+[[wires]]
+name = "can_rl"
+from = "compute:can_rl"
+to = "rl:can"
+from_pins = ["CAN.1", "CAN.2", "CAN.3"]
+to_pins = ["CANIN.1", "CANIN.2", "CANIN.3"]
+part = "awg-24-silicone-wire"
+conductors = 3
+length = { value = 0.35, unit = "m", fidelity = "estimated", rationale = "CANable to the rl hub under the rear-left abad cup: about 0.25 m routed plus slack." }
+
+[[wires]]
+name = "can_rr"
+from = "compute:can_rr"
+to = "rr:can"
+from_pins = ["CAN.1", "CAN.2", "CAN.3"]
+to_pins = ["CANIN.1", "CANIN.2", "CANIN.3"]
+part = "awg-24-silicone-wire"
+conductors = 3
+length = { value = 0.35, unit = "m", fidelity = "estimated", rationale = "As can_rl, to the rear-right hub." }
+
+# ---- motor power: PDB leg feeds to the hubs ----
+[[wires]]
+name = "pwr_fl"
+from = "power:leg_fl"
+to = "fl:power"
+from_pins = ["FL.1", "FL.2"]
+to_pins = ["PIN.1", "PIN.2"]
+part = "awg-12-silicone-wire"
+conductors = 2
+length = { value = 0.40, unit = "m", fidelity = "estimated", rationale = "PDB at the rear of the bottom deck to the fl hub under the front-left abad cup: about 0.32 m routed plus slack." }
+
+[[wires]]
+name = "pwr_fr"
+from = "power:leg_fr"
+to = "fr:power"
+from_pins = ["FR.1", "FR.2"]
+to_pins = ["PIN.1", "PIN.2"]
+part = "awg-12-silicone-wire"
+conductors = 2
+length = { value = 0.40, unit = "m", fidelity = "estimated", rationale = "As pwr_fl, to the front-right hub." }
+
+[[wires]]
+name = "pwr_rl"
+from = "power:leg_rl"
+to = "rl:power"
+from_pins = ["RL.1", "RL.2"]
+to_pins = ["PIN.1", "PIN.2"]
+part = "awg-12-silicone-wire"
+conductors = 2
+length = { value = 0.25, unit = "m", fidelity = "estimated", rationale = "PDB to the rl hub under the rear-left abad cup, about 0.12 m apart: 0.25 m with slack." }
+
+[[wires]]
+name = "pwr_rr"
+from = "power:leg_rr"
+to = "rr:power"
+from_pins = ["RR.1", "RR.2"]
+to_pins = ["PIN.1", "PIN.2"]
+part = "awg-12-silicone-wire"
+conductors = 2
+length = { value = 0.25, unit = "m", fidelity = "estimated", rationale = "As pwr_rl, to the rear-right hub." }
+
+# ---- 12 V payload feeds and sensor links ----
+[[wires]]
+name = "jetson_pwr"
+from = "power:v12_jetson"
+to = "compute:power_in"
+from_pins = ["IO.VOUT", "IO.GND2"]
+to_pins = ["J16.1", "J16.2"]
+part = "awg-18-silicone-wire"
+conductors = 2
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "DC-DC on the bottom deck centre line to the Jetson's DC jack on the compute tray: about 0.2 m routed plus slack." }
+
+[[wires]]
+name = "lidar_pwr"
+from = "head:lidar_power"
+to = "power:v12_lidar"
+from_pins = ["M12.1", "M12.2"]
+to_pins = ["IO.VOUT", "IO.GND2"]
+part = "livox-mid-360-splitter-cable"
+conductors = 2
+length = { value = 0.55, unit = "m", fidelity = "estimated", rationale = "Second DC-DC on the bottom deck to the Mid-360 on the head mount (front, top deck): about 0.45 m routed plus slack. The Livox splitter cable (M12 female to the lidar, bare power tail to the DC-DC pads); its mass rate covers the whole cable including the Ethernet leg of lidar_eth." }
+
+[[wires]]
+name = "lidar_eth"
+from = "head:lidar_eth"
+to = "compute:eth"
+from_pins = ["M12.4", "M12.5", "M12.6", "M12.7"]
+to_pins = ["J15.3", "J15.6", "J15.1", "J15.2"]
+part = "awg-26-silicone-wire"
+conductors = 4
+length = { value = 0.45, unit = "m", fidelity = "estimated", rationale = "Ethernet pairs of the Livox splitter cable (its power tail is lidar_pwr): Mid-360 on the head mount to the Jetson's RJ45 on the compute tray, about 0.3 m routed plus slack. Lidar TX+ / TX- go to the Jetson's RX pair (J15 3 / 6), lidar RX+ / RX- to its TX pair (1 / 2). Modelled as 26 AWG conductors: the cable's M12 end is typed for the power port, not the ethernet port of the lidar part." }
+
+[[wires]]
+name = "cam_usb"
+from = "head:cam_usb"
+to = "compute:usb_cam"
+from_pins = ["USB.A4", "USB.A1", "USB.A6", "USB.A7"]
+to_pins = ["J5.A4", "J5.A1", "J5.A6", "J5.A7"]
+part = "awg-24-silicone-wire"
+conductors = 4
+length = { value = 0.35, unit = "m", fidelity = "estimated", rationale = "D435i on the head plate to the Jetson's USB-C J5: about 0.25 m routed plus slack (the camera's own USB-C cable)." }
+
+[[targets]]
+name = "dog_total_mass"
+all = true
+value = { value = 12.0, unit = "kg", fidelity = "estimated", rationale = "Spec s1 design target '~12 kg' (Go2 / Mini Cheetah class), not a measurement." }

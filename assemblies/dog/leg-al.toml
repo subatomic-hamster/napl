@@ -1,0 +1,314 @@
+# VARIANT "-al" of leg.toml (docs/dog/leg-survey.md): thigh = hollow 6061 plate shell with printed PA12-CF bands that houses the knee rod (dog-thigh-al), shank = 25 x 23 carbon tube in a 6061 head (dog-shank-cf),
+# foot core = PA12-CF (dog-foot-core-cf). Everything else (joints, motors, crank, rod, hip housing, wiring, devices) is identical to leg.toml; tests/python/test_dog_leg_survey.py
+# pins that. Load with dog-al.toml.
+# One leg of the dog (SP3b, docs/superpowers/plans/2026-10-16-sp3b-dog-assembly.md Task 4). Written as the LEFT leg; dog.toml mirrors it
+# ("xz") for the right side and mounts the rear pair turned 180 deg about z on the rear bulkhead.
+# LEG FRAME = the abad mount's part frame: origin on the abduction axis at the outer face of the mount flange, x along the abduction axis
+# away from the body, y outboard, z up. Bodies:
+#   abad_mount (root, on a bulkhead; abad motor stator inside the body) -(abad_j)-> hip_housing -> {hip_motor, knee_motor, knee_crank}
+#   -(hip_j)-> thigh -> {knee_rod, rod_end_a, rod_end_b} -(knee_j)-> shank -> foot_core -> foot_ball;  abad_mount -> hub
+# The hip housing is a face-to-face sandwich: the hip motor (output y = 95 mm, outboard) and the knee motor (output y = 132 mm, inboard)
+# bolt to its two sleeves; the thigh plate, the push rod and the knee crank sit in the 37 mm slab between the two output faces.
+# KNEE DRIVE: knee_motor turns knee_crank (dog-knee-crank.crank_radius); knee_rod pushes the shank lug (dog-shank.lug_radius). The Qdd
+# "knee" acts on knee_j with gear_ratio = knee_motor.drive_ratio = 8 x lug / crank, and joint-side MIT limits scaled by the ratio.
+# NOT MODELLED (ponytail; upgrade = an angle-dependent ratio in the Qdd): the linkage ratio's change with knee angle (constant at its
+# nominal value), the hip / knee cross-coupling of a hip-mounted knee motor (real motor angle = q_hip + r q_knee), rod-end friction,
+# the linkage's own loss (efficiency = the actuator's), self-collision (vehicle geoms collide with the world only).
+# CAN: the hub joins the leg's bus (from its CANable) to the three drives on short stubs and terminates it (120 ohm).
+
+[assembly]
+name = "dog-leg"
+description = "Dog leg: 3 x SteadyWin GIM8108-8 (abduction, hip pitch, knee via crank + push rod at 1.5:1), hollow 6061 shell thigh, carbon-tube shank, rubber-ball foot, CAN/power hub"
+base = "fixed"   # standalone bench: hangs from the hip mount
+timestep = 0.001
+seed = 1
+
+[exports]
+ports = { hip_mount = "abad_mount.chassis" }
+connectors = { power = "hub.power_in", can = "hub.can_in" }
+params = { knee_drive_ratio = "knee_motor.drive_ratio" }
+
+[[instances]]
+id = "abad_mount"
+part = "dog-abad-mount"
+root = true
+group = "leg"   # the root takes no pos: base = "fixed" welds it at the origin, the leg hangs below (no floor in the bench build)
+
+[[instances]]
+id = "abad_motor"
+part = "steadywin-gim8108-8"
+group = "leg"
+
+[[instances]]
+id = "hip_housing"
+part = "dog-hip-housing-l"
+group = "leg"
+
+[[instances]]
+id = "hip_motor"
+part = "steadywin-gim8108-8"
+group = "leg"
+
+[[instances]]
+id = "knee_motor"
+part = "steadywin-gim8108-8"
+group = "leg"
+params = { drive_ratio = { value = 12.0, unit = "1", fidelity = "derived", derivation = "gear_ratio 8 (steadywin-gim8108-8) x linkage lug / crank = dog-shank.lug_radius 0.030 / dog-knee-crank.crank_radius 0.020 = 1.5 -> 12.0 motor turns per knee turn (study candidate 1)." } }
+
+[[instances]]
+id = "knee_crank"
+part = "dog-knee-crank-l"
+group = "leg"
+
+[[instances]]
+id = "thigh"
+part = "dog-thigh-al-l"
+group = "leg"
+
+[[instances]]
+id = "knee_rod"
+part = "dog-knee-rod-220"
+group = "leg"
+
+[[instances]]
+id = "rod_end_a"
+part = "generic-phs5-rod-end-m5"
+group = "leg"
+
+[[instances]]
+id = "rod_end_b"
+part = "generic-phs5-rod-end-m5"
+group = "leg"
+
+[[instances]]
+id = "shank"
+part = "dog-shank-cf-l"
+group = "leg"
+
+[[instances]]
+id = "foot_core"
+part = "dog-foot-core-cf"
+group = "leg"
+
+[[instances]]
+id = "foot_ball"
+part = "mcmaster-natural-rubber-ball-1-3-8in"
+group = "leg"
+
+[[instances]]
+id = "hub"
+part = "dog-leg-hub"
+group = "leg"
+
+[[mates]]
+name = "abad_seat"
+a = "abad_mount.motor"
+b = "abad_motor.mount"
+
+[[mates]]
+name = "abad_j"
+a = "abad_motor.output"
+b = "hip_housing.abad"
+joint = { type = "hinge", range = { value = [-0.6, 0.6], unit = "rad", fidelity = "estimated", rationale = "Abduction travel before the hip housing meets the bulkhead / the rear leg (Task 7 INTERFERENCE check at both limits)." } }
+
+[[mates]]
+name = "hip_seat"
+a = "hip_housing.pitch_seat"
+b = "hip_motor.mount"
+
+[[mates]]
+name = "knee_seat"
+a = "hip_housing.knee_seat"
+b = "knee_motor.mount"
+
+[[mates]]
+name = "crank_fix"
+a = "knee_motor.output"
+b = "knee_crank.motor"
+
+[[mates]]
+name = "hip_j"
+a = "hip_motor.output"
+b = "thigh.origin"
+joint = { type = "hinge", range = { value = [-1.6, 1.6], unit = "rad", fidelity = "estimated", rationale = "Hip pitch travel limited by the thigh meeting the hip housing arm (CAD)." } }
+
+[[mates]]
+name = "rod_fix"
+a = "thigh.rod"
+b = "knee_rod.mount"
+
+[[mates]]
+name = "rod_end_a_fix"
+a = "knee_rod.end_a"
+b = "rod_end_a.thread"
+
+[[mates]]
+name = "rod_end_b_fix"
+a = "knee_rod.end_b"
+b = "rod_end_b.thread"
+
+[[mates]]
+name = "knee_j"
+a = "thigh.knee"
+b = "shank.origin"
+joint = { type = "hinge", range = "thigh.knee_range" }
+
+[[mates]]
+name = "foot_fix"
+a = "shank.foot"
+b = "foot_core.shank"
+
+[[mates]]
+name = "ball_fix"
+a = "foot_core.ball"
+b = "foot_ball.seat"
+
+[[mates]]
+name = "hub_fix"
+a = "abad_mount.hub"
+b = "hub.base"
+
+# ---- harness: one CubeMars-style XT30(2+2) set per drive = a power pair (pins 1-2) and a CAN pair (pins 3-4) of the same cable ----
+[[wires]]
+name = "abad_pwr"
+from = "hub.out_a"
+to = "abad_motor.power"
+from_pins = ["OA.1", "OA.2"]
+to_pins = ["PWR.1", "PWR.2"]
+part = "cubemars-ak-v3-power-can-cable"
+conductors = 2
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Hub under the abad cup to the abad drive's rear connector: about 0.12 m with slack." }
+
+[[wires]]
+name = "abad_can"
+from = "hub.can_a"
+to = "abad_motor.can"
+from_pins = ["OA.2", "OA.3", "OA.4"]
+to_pins = ["PWR.2", "PWR.3", "PWR.4"]
+part = "awg-24-silicone-wire"
+conductors = 3
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "The CAN pair of the abad_pwr cable plus its ground pin (the shared reference of the bus). Modelled as 24 AWG conductors (the cable's signal gauge) because the DRC checks a connector-ended cable against the port types of both ends and the split `can` ports are not xt30pw-2+2; the cable's own mass already counts in abad_pwr." }
+
+[[wires]]
+name = "hip_pwr"
+from = "hub.out_h"
+to = "hip_motor.power"
+from_pins = ["OH.1", "OH.2"]
+to_pins = ["PWR.1", "PWR.2"]
+part = "cubemars-ak-v3-power-can-cable"
+conductors = 2
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "Hub to the hip drive across the abduction hinge: about 0.22 m routed plus a service loop." }
+
+[[wires]]
+name = "hip_can"
+from = "hub.can_h"
+to = "hip_motor.can"
+from_pins = ["OH.2", "OH.3", "OH.4"]
+to_pins = ["PWR.2", "PWR.3", "PWR.4"]
+part = "awg-24-silicone-wire"
+conductors = 3
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "The CAN pair of the hip_pwr cable (24 AWG pair, see abad_can)." }
+
+[[wires]]
+name = "knee_pwr"
+from = "hub.out_k"
+to = "knee_motor.power"
+from_pins = ["OK.1", "OK.2"]
+to_pins = ["PWR.1", "PWR.2"]
+part = "cubemars-ak-v3-power-can-cable"
+conductors = 2
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "Hub to the knee drive across the abduction hinge: about 0.24 m routed plus a service loop." }
+
+[[wires]]
+name = "knee_can"
+from = "hub.can_k"
+to = "knee_motor.can"
+from_pins = ["OK.2", "OK.3", "OK.4"]
+to_pins = ["PWR.2", "PWR.3", "PWR.4"]
+part = "awg-24-silicone-wire"
+conductors = 3
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "The CAN pair of the knee_pwr cable (24 AWG pair, see abad_can)." }
+
+[device_maps.hub_path]
+resistance = "r_path"
+
+[device_maps.qdd]
+"motor.kv" = "kv"
+"motor.r20" = "r_phase_to_phase"
+"motor.rotor_inertia" = "rotor_inertia"
+"motor.c_th" = "c_th_winding"
+"motor.r_th" = "r_th_winding"
+gear_ratio = "gear_ratio"
+efficiency = "efficiency"
+encoder_cpr = "encoder_cpr"
+cmd_hz = "can_cmd_hz"
+latency_s = "can_latency"
+i_limit = "i_limit_phase"
+kp_max = "mit_kp_max"
+kd_max = "mit_kd_max"
+tau_ff_max = "mit_tau_ff_max"
+timeout_s = "can_timeout"
+kd_timeout = "kd_timeout"
+t_max = "temp_fault"
+derate_start = "temp_derate_start"
+
+# the hub's board path (power_in -> each drive output) so the drives see the supply
+[[devices]]
+type = "wire"
+name = "hub_path_a"
+instance = "hub"
+a = "power_in"
+b = "out_a"
+map = "hub_path"
+
+[[devices]]
+type = "wire"
+name = "hub_path_h"
+instance = "hub"
+a = "power_in"
+b = "out_h"
+map = "hub_path"
+
+[[devices]]
+type = "wire"
+name = "hub_path_k"
+instance = "hub"
+a = "power_in"
+b = "out_k"
+map = "hub_path"
+
+[[devices]]
+type = "qdd"
+name = "abad"
+instance = "abad_motor"
+port = "power"
+joint = "abad_j"
+map = "qdd"
+timeout_mode = 0
+
+[[devices]]
+type = "qdd"
+name = "hip"
+instance = "hip_motor"
+port = "power"
+joint = "hip_j"
+map = "qdd"
+timeout_mode = 0
+
+[[devices]]
+type = "qdd"
+name = "knee"
+instance = "knee_motor"
+port = "power"
+joint = "knee_j"
+map = "qdd"
+timeout_mode = 0
+set = { gear_ratio = "knee_motor.drive_ratio", tau_ff_max = { value = 44.0, unit = "N*m", fidelity = "derived", derivation = "Joint-side feed-forward range = mit_tau_ff_max 22 N*m x the largest swept linkage ratio 2.0 (the current limit bounds the torque anyway)." }, kp_max = { value = 2000.0, unit = "N*m/rad", fidelity = "derived", derivation = "Joint-side = mit_kp_max 500 x 2.0^2." }, kd_max = { value = 20.0, unit = "N*m*s/rad", fidelity = "derived", derivation = "Joint-side = mit_kd_max 5 x 2.0^2." } }
+
+[[devices]]
+type = "foot_contact"
+name = "foot"
+instance = "foot_ball"
+shape = 0
+mode = 1
+set = { f_max = { value = 600.0, unit = "N", fidelity = "estimated", rationale = "VIRTUAL sensor: no foot sensor is fitted; this stands in for SP4's joint-torque contact estimate. Range above the ~250 N peak foot force of the study." }, noise_std = { value = 5.0, unit = "N", fidelity = "estimated", rationale = "Torque-based foot force estimates of QDD legs are good to a few N to ~10 N (Bledt et al., 2018, contact detection on MIT Cheetah 3); 5 N taken." }, hysteresis_on = { value = 30.0, unit = "N", fidelity = "estimated", rationale = "Touchdown above ~25 % of the static per-foot load (12 kg x g / 4 = 29 N)." }, hysteresis_off = { value = 15.0, unit = "N", fidelity = "estimated", rationale = "Half the on threshold." }, debounce_s = { value = 0.004, unit = "s", fidelity = "estimated", rationale = "Two 500 Hz control periods." }, rate_hz = { value = 500.0, unit = "Hz", fidelity = "estimated", rationale = "The estimator runs at the joint command rate (spec s6)." } }

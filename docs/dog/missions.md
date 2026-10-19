@@ -39,7 +39,7 @@ The 100 x 100 m headline missions are not run here (Task 5).
 
 ## Held-out Monte Carlo
 
-(held-out block 31001+, flown once with the final code)
+(held-out block 33001+, flown once with the final code. The plan's 31001+ was taken by SP4's fresh terrain MC, 31000-31039, so the block moved.)
 
 ## 100 m missions
 

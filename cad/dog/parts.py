@@ -151,6 +151,16 @@ def foot_core():
     return s
 
 
+from parts_al import (  # noqa: F401  mass fns and VISUALS are read by build.py
+    VISUALS,
+    foot_core_cf,
+    shank_cf,
+    shank_cf_mass_g,
+    thigh_al,
+    thigh_al_mass_g,
+)
+
+
 def head_mount():
     """Lidar + depth-camera head plate: origin at the bottom-centre of the base plate, +x forward. Mid-360 seat tilted nose-down by
     TILT_DEG; a vertical plate at the nose carries the D435i (looks forward). Symmetric about XZ."""
@@ -217,6 +227,9 @@ REGISTRY = {
     "dog-knee-crank": (knee_crank, 4, "pla", True),
     "dog-shank": (shank, 4, "pla", False),
     "dog-foot-core": (foot_core, 4, "pla", False),
+    "dog-thigh-al": (thigh_al, 4, "mixed", True),
+    "dog-shank-cf": (shank_cf, 4, "mixed", True),
+    "dog-foot-core-cf": (foot_core_cf, 4, "pa12cf", False),
     "dog-head-mount": (head_mount, 1, "pla", False),
     "dog-battery-tray": (battery_tray, 2, "pla", False),
     "dog-side-plate": (side_plate, 2, "pla", True),
