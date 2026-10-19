@@ -29,16 +29,16 @@ def res(v):
 
 
 def test_report_states_measured_top_speed_and_gap():
-    md = T.report_md(res(2.71))
-    assert "flat top speed (measured, flying_trot, wbc): 2.71 m/s" in md
-    assert "spec target 3.5 m/s: NOT met (gap 0.79 m/s)" in md
+    md = T.report_md(res(1.71))
+    assert "flat top speed (measured, flying_trot, wbc): 1.71 m/s" in md
+    assert "spec target 2.0 m/s: NOT met (gap 0.29 m/s)" in md
     assert (
-        "leg controller: wbc 2.71 m/s, jt 2.41 m/s" in md
+        "leg controller: wbc 1.71 m/s, jt 1.41 m/s" in md
     )  # the WBC is measured against the J^T baseline, not assumed better
     assert (
         "hip torque at its limit" in md and "of no-load speed" in md
     )  # the limiting factors are named, not guessed
-    assert "spec target 3.5 m/s: met" in T.report_md(res(3.6))
+    assert "spec target 2.0 m/s: met" in T.report_md(res(2.1))
     assert "no held-out seeds run" in T.report_md({**res(2.0), "validate": None})
 
 

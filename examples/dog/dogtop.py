@@ -29,7 +29,7 @@ import dogcourse
 import dogwalk as W
 from loco import controller as Ct
 
-V_TARGET = 3.5
+V_TARGET = 2.0  # user decision 2026-10-18 (was 3.5)
 ACC, HOLD_S, TRAIN_SEED, TEST_BASE = 1.0, 4.0, 1001, 21000
 GRID = {
     "trot": dict(period=(0.26, 0.30, 0.34), duty=(0.5,), apex=(0.06, 0.08), h_frac=(0.78, 0.82)),

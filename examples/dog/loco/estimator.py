@@ -192,8 +192,10 @@ class Estimator:
             on.copy(),
             fg,
         )
+        # median: a foot whose estimated xy is over a wall top or a boulder (ruins: feet within 0.3 m of a 1.8 m wall) must not read as "the body is
+        # on the floor" (mean of four: +0.45 m, h_map < 0.5 h_stand, a FALSE fall: the dog sat down on flat ground, 3 of 8 training ruins seeds)
         st.h_map = st.p[2] - float(
-            np.nanmean(self.map.height(st.feet[:, 0], st.feet[:, 1]))
+            np.nanmedian(self.map.height(st.feet[:, 0], st.feet[:, 1]))
         )
         return st
 
