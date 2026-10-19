@@ -116,6 +116,21 @@ def test_flat_top_speed_target_is_the_lowered_2_0():
     )
 
 
+def test_unscored_coverage_and_aborts_do_not_break_the_summary():
+    nan = float("nan")
+    rows = [
+        row(1, coverage=nan, phase=5, fell_ever=1),
+        row(2, coverage=nan, rms=nan, phase=5, fell_ever=0),
+    ]
+    s = MC.summarize(rows, 420.0)
+    assert (
+        s["aborted"] == 2 and s["k_nofall"] == 1 and s["fails"]["coverage"] == 2
+    )  # an abort without a ground-truth fall is no-fall, still not a success
+    assert (
+        s["medians"]["coverage"] != s["medians"]["coverage"] and s["covs"] == []
+    )  # all nan -> nan median, no crash
+
+
 def test_family_scenarios_exist_and_n_spec_parses():
     for fam in MC.FAMILIES:
         assert MC.scenario_path(fam).exists()

@@ -92,14 +92,18 @@ def summarize(rows, t_budget):
     ok = [r for r in rows if "error" not in r]
     med = (
         {
-            c: statistics.median(r[c] for r in ok)
+            c: statistics.median(
+                [v for v in (r[c] for r in ok) if v == v] or [float("nan")]
+            )  # nan (coverage not yet scored at the abort) skipped
             for c in ("coverage", "rms", "t", "distance")
         }
         if ok
         else {}
     )
+    # aborted: phase 5 (ABORT = the robot's own FALLEN detector fired); it can be higher than `fell` (ground truth), which is what the verdict uses
     return dict(n=n, k_nofall=k_nf, k_success=k_ok, wilson_nofall=wilson(k_nf, n), wilson_success=wilson(k_ok, n),
-                fails={k: sum(k in w for w in why) for k in FAIL_KEYS}, medians=med, covs=sorted(r["coverage"] for r in ok))  # fmt: skip
+                fails={k: sum(k in w for w in why) for k in FAIL_KEYS}, medians=med, aborted=sum(r.get("phase") == 5 for r in ok),
+                covs=sorted(r["coverage"] for r in ok if r["coverage"] == r["coverage"]))  # fmt: skip
 
 
 def results_table(by_family, extra):
