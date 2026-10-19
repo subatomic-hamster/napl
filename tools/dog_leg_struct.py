@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Hand-calc structural check of the dog leg (docs/dog/leg-survey.md): the printed PLA leg against the "-al" leg (6061 box-tube thigh, carbon
-tube shank). Stdlib only. Run: python3 tools/dog_leg_struct.py [--md]
+"""Hand-calc structural check of the dog leg (docs/dog/leg-survey.md): the printed PLA leg against the "-al" leg (hollow 6061 plate-shell thigh, 25 x 23
+carbon tube shank). Stdlib only. Run: python3 tools/dog_leg_struct.py [--md]
 
 Model: planar stance (the thigh and shank symmetric about the vertical, half-knee angle THETA, foot under the hip, a front leg: knee back),
 statics of the lower leg in the THIGH frame (x forward, y outboard, z up, hip axis at the origin). Loads at the foot centre:
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "cad", "dog"))
 import params as P
 
 G = 9.81
-MASS = 11.653  # kg, build report (assemblies/dog/README.md)
+MASS = 11.653  # kg, default dog.toml build report (assemblies/dog/README.md): the load cases below; each leg scales them by its own dog mass (LEGS mass_kg)
 W = MASS * G  # N, body weight
 THETA = math.radians(
     35.0
@@ -46,7 +46,7 @@ MAT = {
     "pla": dict(E=2.0e9, G=0.77e9, sig=25e6, tau=25e6 / math.sqrt(3), bear=50e6),
     # 6061-T6 (MatWeb / ASM): E 68.9 GPa, yield 276 MPa, shear 207 MPa, bearing yield 386 MPa
     "al": dict(E=68.9e9, G=26e9, sig=276e6, tau=207e6, bear=386e6),
-    # roll-wrapped CF tube 20 x 18 (Easy Composites): tensile 650 MPa, E 64 GPa; compressive / flexural strength not published -> 0.6 x 650 [est]
+    # roll-wrapped CF tube 25 x 23 (Easy Composites): tensile 650 MPa, E 64 GPa; compressive / flexural strength not published -> 0.6 x 650 [est]
     "cf": dict(E=64e9, G=5e9, sig=390e6, tau=40e6, bear=100e6),
 }
 
@@ -75,22 +75,6 @@ def rects(rs):
     )
     tmax = max(min(x1 - x0, y1 - y0) for x0, x1, y0, y1 in rs)
     return dict(A=A, Ilat=Ix, Isag=Iy, Zlat=Ix / cy, Zsag=Iy / cx, J=J, Wt=J / tmax)
-
-
-def box_tube(w, t, wall):
-    """Closed rectangular tube w (x) x t (y), wall: A, I, Z and Bredt torsion constant J = 4 A_m^2 s / perimeter, W_t = 2 A_m s."""
-    wi, ti = w - 2 * wall, t - 2 * wall
-    Am = (w - wall) * (t - wall)
-    per = 2 * ((w - wall) + (t - wall))
-    return dict(
-        A=w * t - wi * ti,
-        Ilat=(w * t**3 - wi * ti**3) / 12,
-        Isag=(t * w**3 - ti * wi**3) / 12,
-        Zlat=(w * t**3 - wi * ti**3) / 12 / (t / 2),
-        Zsag=(t * w**3 - ti * wi**3) / 12 / (w / 2),
-        J=4 * Am**2 * wall / per,
-        Wt=2 * Am * wall,
-    )
 
 
 def hollow_rect(w, t, wi, ti):
@@ -124,7 +108,24 @@ THIGH_PLA = rects(
 SHANK_PLA = hollow_rect(
     22, 10, 12, 6
 )  # 22 x 10 beam with the enclosed 12 x 6 lightening void (shank), section at the slot
-THIGH_AL = box_tube(P.AL_W, P.AL_T, P.AL_WALL)
+
+
+def plate_box(w, tp=P.AL_PLATE, Y=P.AL_Y, g_ratio=0.11):
+    """Hollow thigh shell at one station: two 6061 plates (w x tp) at y [0, tp] and [Y - tp, Y]; the printed PA12-CF bands are NOT counted in
+    A / I (conservative) and only close the torsion cell (shear modulus ratio PA12-CF / 6061 = 0.11 [est: 2.9 / 26 GPa]); Bredt: W_t = 2 A_m t_p."""
+    s = rects([(-w / 2, w / 2, 0, tp), (-w / 2, w / 2, Y - tp, Y)])
+    Am = w * (Y - tp)
+    path = 2 * w / tp + 2 * (Y - tp) / (P.AL_BAND * g_ratio)
+    s["J"] = 4 * Am**2 / path
+    s["Wt"] = 2 * Am * tp
+    return s
+
+
+# the shell at s = 60 mm (hull width 60 mm, plates + bands) and the hip station just below the lowest actuator bolt row (s = 21.6 mm): the
+# inboard plate + 3/16 in doubler only (the outboard plate starts at AL_TOP = 38), net of the two M3 holes on the bolt circle
+HIP_NET_W = 60.0 - 2 * P.M3_CLR
+THIGH_AL_SHELL = plate_box(60.0)
+THIGH_AL_HIP = rects([(-HIP_NET_W / 2, HIP_NET_W / 2, 0, P.AL_PLATE + P.AL_HIP_PAD)])
 SHANK_CF = tube(P.SH_OD, P.SH_ID)
 
 LEGS = {
@@ -132,6 +133,7 @@ LEGS = {
         thigh=THIGH_PLA,
         shank=SHANK_PLA,
         mt="pla",
+        mass_kg=11.653,  # dog.toml
         ms="pla",
         s_thigh=30.0,
         s_shank=30.0,
@@ -141,16 +143,24 @@ LEGS = {
         pin_yield=640e6,
     ),
     "'-al' leg": dict(
-        thigh=THIGH_AL,
+        thigh=THIGH_AL_SHELL,
+        thigh_secs=[
+            ("hip, s = 21.6", 21.6, THIGH_AL_HIP),
+            ("shell, s = 60", 60.0, THIGH_AL_SHELL),
+            ("shell, s = 150", 150.0, THIGH_AL_SHELL),
+        ],
         shank=SHANK_CF,
         mt="al",
+        mass_kg=12.46,  # dog-al.toml build report
         ms="cf",
-        s_thigh=P.AL_TOP,
+        s_thigh=60.0,
         s_shank=8.0,
-        span=(P.AL_T / 2, P.KNEE_Y_AL),
+        span=(-(P.AL_PAD_T - P.AL_PLATE) / 2, P.AL_Y + (P.AL_PAD_T - P.AL_PLATE) / 2),
         pin_d=P.KNEE_PIN_D,
-        pin_len=(P.AL_T, P.SH_OD),
+        pin_len=(P.AL_PLATE + P.AL_PAD_T, P.SH_BOSS_W),
+        pin_arm=P.AL_Y / 2 - P.SH_BOSS_W / 2 + (P.AL_PLATE + P.AL_PAD_T) / 2,
         pin_yield=640e6,
+        plate_local=(P.AL_PLATE + P.AL_PAD_T, 40.0, 66.0),
     ),
 }
 
@@ -287,29 +297,39 @@ def run():
         ys = (
             P.ROD_Y - 13.0 if "PLA" in name else P.ROD_Y - P.KNEE_Y_AL
         ) * 1e-3  # rod pin y offset from the knee axis
-        for case, Fw in CASES.items():
+        k = (
+            leg["mass_kg"] / MASS
+        )  # this leg's dog is heavier (dog-al.toml 12.46 kg): its loads are scaled
+        for case, Fw0 in CASES.items():
+            Fw = tuple(k * c for c in Fw0)
             st = statics(Fw, ys)
-            th = section(st, leg["s_thigh"] * 1e-3, "thigh")
+            secs = leg.get("thigh_secs") or [("beam", leg["s_thigh"], leg["thigh"])]
+            cand = []
+            for label, s_mm, prop in secs:
+                th_i = section(st, s_mm * 1e-3, "thigh")
+                cand.append((stress(th_i, prop, leg["mt"]), th_i, label))
+            vt, th, label = min(cand, key=lambda c: c[0][3])  # the worst station
             sh = section(st, leg["s_shank"] * 1e-3, "shank")
-            vt = stress(th, leg["thigh"], leg["mt"])
             vs = stress(sh, leg["shank"], leg["ms"])
             rows.append(
                 dict(
                     leg=name,
                     case=case,
                     P=st["P"],
-                    hip=th["Msag"],
+                    hip=section(st, 0.0, "thigh")["Msag"],
                     knee=abs(st["P"] * st["lever"]),
                     thigh=th,
                     shank=sh,
                     vt=vt,
                     vs=vs,
+                    station=label,
+                    stations={c[2]: c[0][3] for c in cand},
                 )
             )
         # torsion case d: the thigh torsion of case b is reported through rows[...]["thigh"]["T"]
         # knee pin: the lateral foot force's moment about the knee is a couple on the pin
-        st = statics(CASES["b lateral 1 bw"], ys)
-        M = abs(CASES["b lateral 1 bw"][1]) * LS
+        st = statics(tuple(k * c for c in CASES["b lateral 1 bw"]), ys)
+        M = k * abs(CASES["b lateral 1 bw"][1]) * LS
         arm = leg["span"][1] - leg["span"][0]
         Fb = M / (arm * 1e-3)
         thigh_len, shank_len = leg["pin_len"]
@@ -317,21 +337,30 @@ def run():
             Fb / (leg["pin_d"] * 1e-3 * thigh_len * 1e-3),
             Fb / (leg["pin_d"] * 1e-3 * shank_len * 1e-3),
         )
+        arm_pin = leg.get("pin_arm", min(thigh_len, shank_len) / 2)
         Mpin = (
-            Fb * (min(thigh_len, shank_len) / 2) * 1e-3
-        )  # pin bending: couple force acting over half the thinner engagement
+            Fb * arm_pin * 1e-3
+        )  # pin bending: couple force acting over pin_arm (default half the thinner engagement)
         sig_pin = Mpin / (math.pi * (leg["pin_d"] * 1e-3) ** 3 / 32)
-        rows.append(
-            dict(
-                leg=name,
-                case="knee pin (lateral couple)",
-                Fb=Fb,
-                bear=bear,
-                bear_allow=MAT["pla" if "PLA" in name else "al"]["bear"],
-                sig_pin=sig_pin,
-                pin_yield=leg["pin_yield"],
-            )
+        row = dict(
+            leg=name,
+            case="knee pin (lateral couple)",
+            Fb=Fb,
+            bear=bear,
+            bear_allow=MAT["pla" if "PLA" in name else "al"]["bear"],
+            sig_pin=sig_pin,
+            pin_yield=leg["pin_yield"],
         )
+        if "plate_local" in leg:
+            # plate + pad stack (t) as a strip of width b between the bands (span a), point load Fb at mid-span: sigma = 6 (Fb a / 4) / (b t^2).
+            # Needs the pad bonded / riveted to the plate (laminate); unbonded the plate alone (AL_PLATE) is t_alone.
+            t, b, a = (v * 1e-3 for v in leg["plate_local"])
+            row["plate_sig"] = 6 * (Fb * a / 4) / (b * t**2)
+            row["plate_sig_unbonded"] = (
+                6 * (Fb * a / 4) / (b * (P.AL_PLATE * 1e-3) ** 2)
+            )
+            row["plate_allow"] = MAT["al"]["sig"]
+        rows.append(row)
     return rows
 
 
@@ -342,6 +371,11 @@ def fmt_table(rows):
             out.append(
                 f"{r['leg']:16s} {r['case']:26s} couple {r['Fb']:7.0f} N  bearing {r['bear'] / 1e6:6.1f} MPa (allow {r['bear_allow'] / 1e6:.0f})"
                 f"  pin bending {r['sig_pin'] / 1e6:6.0f} MPa (pin yield {r['pin_yield'] / 1e6:.0f})"
+                + (
+                    f"  plate local bending {r['plate_sig'] / 1e6:5.0f} MPa bonded pad / {r['plate_sig_unbonded'] / 1e6:5.0f} MPa plate alone (yield {r['plate_allow'] / 1e6:.0f})"
+                    if "plate_sig" in r
+                    else ""
+                )
             )
             continue
         th, sh, vt, vs = r["thigh"], r["shank"], r["vt"], r["vs"]
@@ -359,7 +393,9 @@ if __name__ == "__main__":
     rows = run()
     print(fmt_table(rows))
     for name, leg in LEGS.items():
-        d = lateral_deflection(leg["thigh"], leg["mt"], leg["shank"], leg["ms"], W)
+        d = lateral_deflection(
+            leg["thigh"], leg["mt"], leg["shank"], leg["ms"], W * leg["mass_kg"] / MASS
+        )
         pc = euler(leg["thigh"], leg["mt"], L)
         print(
             f"{name}: lateral foot deflection at 1 bw {d[0] * 1e3:.1f} mm (thigh bending {d[1] * 1e3:.1f}, thigh torsion {d[2] * 1e3:.1f}, shank {d[3] * 1e3:.1f}); "
