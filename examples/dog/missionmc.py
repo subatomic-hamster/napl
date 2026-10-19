@@ -1,7 +1,7 @@
 """Full-stack Monte Carlo of the dog per terrain family (SP6; spec s7: '>= 90 % no-fall per terrain family (MC n per family stated, with a 95 %
 lower bound)', 'full autonomous coverage ... <= 20 min, map height RMS <= 5 cm, >= 95 % mapped'). One automission.py process per seed.
 Verdicts are ground truth: a fall is summary['fell_ever'] (max of the ground-truth `fallen` column), a crash or a timeout stays in the denominator.
-Seeds: TUNE 5001+ (any tuning, each change logged), HELD 33001+ (flown once with the final code; every row records the code revision).
+Seeds: TUNE 5001+ (any tuning, each change logged), HELD 71001+ (flown once with the final code; every row records the code revision).
 
     python examples/dog/missionmc.py --family all|rubble|slopes|scree|ruins --block tune|held --n 12 | rubble=20,slopes=12,... --jobs 4 --rev REV --out DIR
 
@@ -38,8 +38,8 @@ FAMILIES = {
 }
 TUNE_BASE, HELD_BASE = (
     5001,
-    33001,
-)  # 31001+ (this plan's first choice) was taken by SP4's fresh terrain MC (31000-31039): moved
+    71001,
+)  # SP4 / SP5 took 1-30, 1000-1025, 21000+, 31000+, 41000+, 51000+, 61000+; the plan's 31001+ and then 33001+ overlapped them: 71001+
 CRITERIA = [  # (key, text, op, target): the spec section 7 rows SP6 reports
     ("top_speed_flat", "flat top speed >= 2.0 m/s", ">=", 2.0),  # was 3.5: user decision 2026-10-18 (spec s7)
     ("rocky_speed", "rocky field mean speed >= 1.5 m/s", ">=", 1.5),

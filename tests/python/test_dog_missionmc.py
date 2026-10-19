@@ -61,9 +61,10 @@ def test_seed_blocks_are_disjoint_and_heldout_needs_final_rev():  # Review Focus
             set(range(1, 31))
             | set(range(1001, 1026))
             | set(range(21000, 21101))
-            | set(range(31000, 31101))
+            | set(range(1000, 1010))
+            | {s for b in (31000, 41000, 51000, 61000) for s in range(b, b + 1000)}
         )
-    )  # 31000+ is SP4's fresh terrain MC (31000-31039)
+    )  # SP4's terrain MC / training blocks: 31000+, 41000+, 51000+, 61000+ (n = 40 each, 1000 reserved)
     with pytest.raises(ValueError, match="rev"):
         MC.check_heldout_rev([dict(rev="abc"), dict(rev="def")])
     MC.check_heldout_rev([dict(rev="abc"), dict(rev="abc")])
