@@ -97,7 +97,9 @@ def test_the_mud_strip_is_crossed_without_a_false_slip(tmp_path):
     4 times, and cost 15 % of the speed) is a false alarm. The detection is tested on a real slide below."""
     r = W.run(
         C.scene(tmp_path, "slip", seed=1),
-        dict(W.DEFAULTS, course="slip", v_cmd=1.0, duration=30.0),
+        dict(
+            W.DEFAULTS, course="slip", v_cmd=0.8, duration=40.0
+        ),  # 0.8: the controller's terrain speed cap (V_TERRAIN, fix round 3)
         log=False,
     )
     rows = np.array(r["rows"])
