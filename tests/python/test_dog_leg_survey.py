@@ -52,6 +52,30 @@ def test_al_leg_keeps_the_kinematics():
     )
 
 
+def test_al_parts_carry_material_colours_and_the_shell_knee_port():
+    """Rev 2: parts draw in their real materials (plates / head aluminium, bands / foot core dark nylon, tube carbon), not the PLA default orange; the thigh is a
+    36 mm deep-shell whose knee axis sits on the shank tube centre line (y = 18 mm)."""
+    lib = Library(PARTS)
+    want = {
+        "dog-thigh-al-l": {"alu-brushed", "plastic-dark"},
+        "dog-thigh-al-r": {"alu-brushed", "plastic-dark"},
+        "dog-shank-cf-l": {"alu-brushed", "carbon-fibre"},
+        "dog-shank-cf-r": {"alu-brushed", "carbon-fibre"},
+        "dog-foot-core-cf": {"plastic-dark"},
+    }
+    for pid, cols in want.items():
+        els = lib.get(pid).raw["visual"]["elements"]
+        assert {e["colors"]["body"] for e in els} == cols
+        assert all((ROOT / e["mesh"]).is_file() for e in els)
+    for pid, sign in (("dog-thigh-al-l", 1), ("dog-thigh-al-r", -1)):
+        knee = [p for p in lib.get(pid).ports if p["name"] == "knee"][0]
+        assert knee["pos"][1] == pytest.approx(sign * 0.018)
+        bb = lib.get(pid).raw["geometry"]
+        assert (
+            bb["bbox_max"][0] - bb["bbox_min"][0] >= 0.07
+        )  # deep shell: 60-78 mm fore-aft against the printed thigh's 24 mm
+
+
 def test_al_dog_drc_clean_and_builds(tmp_path):
     assert [
         f

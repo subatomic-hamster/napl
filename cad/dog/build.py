@@ -103,6 +103,17 @@ def main():
             r.update(count=count // 2 if handed else count, material=mat)
             m.apply_scale(1e-3)
             m.export(str(out / "napl" / f"{vn}.stl"))
+            for key, vfn in getattr(K, "VISUALS", {}).get(name, {}).items():
+                vs = (
+                    vfn()
+                    if not handed or vn.startswith(name + "-l")
+                    else vfn().mirror(Plane.XZ)
+                )
+                vtmp = out / "napl" / f"{vn}-vis-{key}.mm.stl"
+                vm = tess(vs, vtmp)
+                vtmp.unlink()
+                vm.apply_scale(1e-3)
+                vm.export(str(out / "napl" / f"{vn}-vis-{key}.stl"))
             man["parts"][vn] = r
             print(
                 f"{vn:28s} V={r['volume_mm3'] / 1e3:8.1f}cm3 fil={r['filament_g']:7.1f}g wt={r['watertight']} bed={r['fits_bed']}"

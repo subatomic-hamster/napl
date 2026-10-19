@@ -61,24 +61,37 @@ CRANK_T = 7.0  # crank plate thickness
 SLAB = ROD_Y + 4.0 + 1.0 + CRANK_T  # hip output face -> knee motor output face
 KNEE_FACE = PITCH_Y + SLAB  # y (LF) of the knee motor output face
 
-# --- bio-inspired leg variant "-al" (docs/dog/leg-survey.md): 6061 box-tube thigh, CF-tube shank, PA12-CF foot core ---
+# --- bio-inspired leg variant "-al" (docs/dog/leg-survey.md): hollow 6061 plate-shell thigh, CF-tube shank, PA12-CF foot core ---
 # Same joint axes, L_THIGH / L_SHANK, crank, rod and hip housing as the printed leg (SLAB and ROD_Y are NOT changed): only the thigh, shank and foot
-# core are replaced. Stack along y in the thigh frame: thigh tube [0, AL_T] | gap | shank head [KNEE_Y_AL -/+ SH_OD/2] | rod end [21, 29] | crank.
-AL_W, AL_T, AL_WALL = (
-    25.4,
-    12.7,
-    1.5875,
-)  # 6061 rectangular tube 1 in x 1/2 in x 1/16 in wall: x width, y depth, wall
-AL_TOP = 40.0  # tube top, below the hip axis (the hip fitting boss fills z [-40, -10])
-AL_KNEE_END = 12.7  # tube end below the knee axis
-SH_OD, SH_ID = 20.0, 18.0  # cf-tube-20x18 shank
-SH_GAP = 0.3  # thigh tube <-> shank head clearance in y
-KNEE_Y_AL = (
-    AL_T + SH_GAP + SH_OD / 2
-)  # knee axis y of the "-al" leg: tube / head centre line (23.0)
-KNEE_PIN_D = 8.0  # shoulder bolt through the thigh tube end and the shank head
-SH_HEAD_LEN = 40.0  # shank head length below the knee axis (the tube is bonded into its bore from z = -8)
+# core are replaced. Stack along y in the thigh frame: inboard plate [0, AL_PLATE] | shank head [SH_Y -/+ SH_BOSS_W/2] | rod end [21, 29] | outboard plate | crank.
+# Revision 2 (Go2 / Mini Cheetah style): the thigh is a DEEP HOLLOW SHELL that houses the knee push rod: two 0.063 in 6061 side plates
+# (y in [0, AL_PLATE] inboard, [AL_Y - AL_PLATE, AL_Y] outboard) spaced by printed PA12-CF bands; the shank tube runs between the plates.
+AL_Y = 36.0  # thigh shell width in y: the hip output face to the knee motor output face is SLAB = 37 mm, 1 mm clearance
+AL_PLATE = 1.6002  # 6061 plate thickness, 0.063 in (SendCutSend stock)
+AL_BAND = 2.5  # printed band wall (x-z plane, between the plates)
+AL_HIP_PAD = 4.7625  # 3/16 in 6061 (SendCutSend 0.187 in stock) doubler ring on the inboard plate's inner face at the hip (carries the lateral moment)
+AL_PAD_T = 4.7625  # knee pin pad (3/16 in 6061) on the OUTER face of each plate
+AL_TOP = 38.0  # outboard plate / bands start below this depth under the hip axis (the crank disc, r = 30, is at y 30..37)
+AL_HULL = [  # (x, z, r) circles whose convex hull is the plate outline (z relative to the hip axis; knee at z = -L_THIGH)
+    (0.0, 0.0, 30.0),
+    (0.0, -220.0, 26.0),
+    (-44.0, -236.0, 4.0),  # rear-bottom corner: clears the rod end at the flexed lug
+]
+AL_BAND_END_X = (
+    -18.0
+)  # the bottom-rear band stops here (the shank head swings in front of it)
+SH_OD, SH_ID = 25.0, 23.0  # cf-tube-25x23 shank
+SH_Y = 18.0  # knee axis y of the "-al" leg = shank tube centre line (thigh frame)
+KNEE_Y_AL = SH_Y
+KNEE_PIN_D = 8.0  # shoulder bolt through both plates and the shank head
+SH_HEAD_LEN = 40.0  # shank head length below the knee axis (the tube is bonded into its socket from z = -8)
+SH_SOCKET_D = 29.0  # tube socket outer diameter
+SH_BOSS_D, SH_BOSS_W = 28.0, 20.0  # knee boss diameter, width in y
 BOND_G = 3.0  # epoxy for the shank's two bonded joints [est]
+CF_G_PER_MM = 0.1131  # parts/structure/cf-tube-25x23.toml: 113.1 g/m [Easy Composites weight table]
+BAND_FILL = (
+    0.6  # printed band effective solid fraction (walls + 30 % infill at 2.5 mm) [est]
+)
 
 # --- body ---
 BODY_L = 420.0  # inner length between the bulkheads
