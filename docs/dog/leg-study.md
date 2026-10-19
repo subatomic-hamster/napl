@@ -116,18 +116,41 @@ is **not significant**; the progress gain on rubble and scree is. Pack peak curr
 
 ## Recommendation (the default dog assembly is not changed)
 
-If the BOM target matters: switch the 12 actuators to GIM6010-8 and raise the leg to 0.25 m (**gim6010 r1.5 L250**): BOM 4,572 USD, -982 USD against 5,554 and +72 USD over the 4,500 target (4,500 is
-reachable only with another ~72 USD saved, e.g. cheaper structure / electronics; not designed here); mass 11.60 kg (-0.05). Needs: GIM6010 mounting (the probe uses the GIM8108 seats), pack current check at L250, re-validation of every controller number for
-the new leg length. Do not buy AK / RobStride actuators for stability: +370 (RS03) to +5,800 (AK10) USD and +1.1 to +6.5 kg for no gain; the two cheapest (mixed AK70, RS03) were worse on flat push.
+1. **Structure first, regardless of the sim.** Build the -al leg, not the printed one: the printed leg's lowest safety factor is 0.11 (yields at about 12 N side force), so it is not buildable whatever the sim says, while -al has 2.47. The sim cannot see this (rigid links) and
+   shows no sim penalty for it (+0.81 kg, +39 % hip inertia: no change in falls, flat push 12/16 vs 13/16 at equal actuators).
+2. **Actuators: GIM6010-8 instead of GIM8108-8 on the -al leg**: dog-al + GIM6010 is BOM 4,855 USD (-699 against the 5,554 baseline, +355 over the 4,500 target; the printed GIM6010 variants were 4,570-4,572), mass 12.36 kg, flat push 15/16, 0/80 fresh no-fall (same as the baseline within bounds), v_top 2.00 m/s (at target, not above).
+   This stays an inference-level choice: the sim shows GIM6010 is not worse, and the 11 N m peak has never been tested with the -al leg on terrain beyond the 40 training runs (2/40).
+3. **Geometry (L 0.25 or ratio 1.0)** gave the only terrain-progress gain (best: gim6010 r1.5 L250, 4/80 fresh, +0.07 progress, BOM 4,572 on the printed leg). It is **not combined with -al**: the -al parts are drawn at L 0.22 / ratio 1.5 only, so L 0.25 -al needs new thigh / shank parts and a structural re-check
+   (a longer leg raises the bending moments in `dog_leg_struct.py`). Treat it as the next design iteration, not as a result.
+4. Needs before buying: GIM6010 mounting (the probe uses the GIM8108 seats), a pack-current check, re-validation of the controller numbers for any new length. The BOM stays above 4,500 USD (-al + GIM6010: +355).
+5. Do not buy AK / RobStride actuators for stability: +370 (RS03) to +5,800 (AK10) USD and +1.1 to +6.5 kg for no gain; the two cheapest (mixed AK70, RS03) were worse on flat push.
 
 ## Sizing and wall time
 
 Runs: 57 per variant on the training set (40 terrain + 16 flat + 1 top ladder), 4 jobs, 9-13 min each; 18 variant evaluations incl. the failed ratio 2.0 and the baseline = about 3.4 h of that, plus the fresh set
-(3 x 80 terrain runs, 10 min each, 0.5 h) and the diagnosis from the baseline's own rows. Total wall about 4.5 h including tests. One more variant on the training set costs about 12 min; one on fresh seeds about 10 min (room for the structure variant).
+(3 x 80 terrain runs, 10 min each, 0.5 h) and the diagnosis from the baseline's own rows. Total wall about 4.5 h including tests. One more variant on the training set costs about 12 min; one on fresh seeds about 10 min. The two -al variants added about 45 min (2 x 57 training + 2 x 80 fresh runs).
 
-## Pending
+## Structure variant (-al leg, from the leg survey, docs/dog/leg-survey.md)
 
-The LEGSURVEY structure variant (aluminium / CF thigh, CF shank) and its combination with the best actuator option will be added to the training-seed pairing and the fresh-seed confirmation once branch p12-legsurvey is merged.
+Sim links are rigid, so the sim cannot show what the -al leg is for. Its gain is **structural**: `tools/dog_leg_struct.py` (hand calc, planar stance, loads 3 bw vertical / 1 bw lateral / 1 bw fore-aft at the foot, von Mises against the material allowable; derived, not simulated)
+gives the lowest safety factor over the cases and links:
+
+| leg                                                                                           | thigh SF (vertical / lateral / fore-aft) | shank SF           | lowest SF                             | lateral foot deflection at 1 bw | mass of the dog                          | BOM                            |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------- | ------------------ | ------------------------------------- | ------------------------------- | ---------------------------------------- | ------------------------------ |
+| printed PLA (default dog)                                                                     | 0.18 / 0.11 / 0.18                       | 0.47 / 0.37 / 1.00 | **0.11** (yields at ~12 N side force) | 1366 mm (hand calc)             | 11.65 kg                                 | 5,554                          |
+| -al (6061 deep hollow thigh shell 216.7 g, CF shank in 6061 head 76.3 g, CF foot core 19.3 g) | 6.34 / 2.47 / 8.16                       | 3.65 / 6.53 / 7.82 | **2.47**                              | 2.4 mm                          | 12.46 kg (+0.81, hip-axis inertia +39 %) | 5,839 (+285; estimated prices) |
+
+Same evaluation as every other variant (training seeds paired with the baseline, then fresh seeds 51000-51019; the GIM6010 version is the `@al` writer option, leg-al parts only, so L 0.22 and ratio 1.5):
+
+| variant                     | mass kg | BOM USD | training no-fall k/40 | progress | flat push | v_top | pack peak A | fresh no-fall k/80 (Wilson 95 %) | fresh progress | lowest SF |
+| --------------------------- | ------- | ------- | --------------------- | -------- | --------- | ----- | ----------- | -------------------------------- | -------------- | --------- |
+| baseline (printed, gim8108) | 11.65   | 5,554   | 1                     | 0.20     | 13/16     | 2.25  | 131         | 1/80 (0.2-6.7 %)                 | 0.17           | 0.11      |
+| dog-al, gim8108             | 12.46   | 5,839   | 2                     | 0.19     | 12/16     | 2.50  | 124         | 1/80 (0.2-6.7 %)                 | 0.17           | 2.47      |
+| dog-al, gim6010             | 12.36   | 4,855   | 2                     | 0.21     | 15/16     | 2.00  | 107         | 0/80 (0-4.6 %)                   | 0.19           | 2.47      |
+
+Fresh seeds per family (rubble / slopes / scree / ruins): dog-al gim8108 0 / 0 / 1 / 0 of 20, dog-al gim6010 0 / 0 / 0 / 0 of 20, baseline 0 / 0 / 1 / 0. Paired progress change on fresh seeds: dog-al gim8108 rubble 0.137 -> 0.148 (p 0.04), others within noise;
+dog-al gim6010 rubble 0.137 -> 0.187 (p 0.12), scree 0.338 -> 0.376 (1 broken, 0 fixed). The extra 0.81 kg and 39 % hip inertia cost nothing measurable in this controller: the sim shows no gain and no loss
+(all differences within the Wilson bounds, flat push 12/16 vs 13/16 for the same actuators). The GIM6010 version has v_top 2.00 m/s, at the target and 0.25 m/s below the baseline.
 
 ## Checks run
 

@@ -51,6 +51,7 @@ ACTS = {
     "rs03": "robstride-03",
 }  # leg study (docs/dog/leg-study.md): ak70 / ak80 / ak10 / rs03 are probes like gim6010: their electrics, mass and price in the GIM8108-8 seats
 BASE_ACT, CLASSES = "gim8108", ("abad", "hip", "knee")
+AL = "@al"  # act suffix: the structure variant leg-al.toml (6061 thigh, CF shank and foot core), e.g. "gim6010@al"
 PACK = "auline-21700-s70-8s1p-4500mah"
 LSFX = {0.20: "-200", 0.22: "", 0.25: "-250"}
 KSFX = {
@@ -87,7 +88,7 @@ def _replace_once(text, old, new):
 
 def classes_of(act):
     """'ak70' -> that actuator in all three joint classes; 'gim8108+ak70+ak70' -> abad + hip + knee (a leg's three seats, all four legs alike)."""
-    p = act.split("+")
+    p = act.removesuffix(AL).split("+")
     assert len(p) in (1, 3), act
     return dict(zip(CLASSES, p * 3 if len(p) == 1 else p))
 
@@ -135,14 +136,24 @@ def write_variant(tmp, act, ratio, L, base="free", ktau=DEFAULT_KTAU):
         LSFX[L],
         KSFX.get(ratio, "") if L == 0.22 else "",
     )  # the ratio parts exist for the 220 mm leg only
-    leg = (DOG / "leg.toml").read_text()
-    leg = _replace_once(
-        leg, 'part = "dog-thigh-bracket-l"', f'part = "dog-thigh-bracket-l{s}{k}"'
-    )
-    leg = _replace_once(leg, 'part = "dog-shank"', f'part = "dog-shank{s}{k}"')
-    leg = _replace_once(
-        leg, 'part = "dog-knee-rod-220"', f'part = "dog-knee-rod-{round(L * 1000)}{k}"'
-    )
+    if act.endswith(
+        AL
+    ):  # the "-al" leg (docs/dog/leg-survey.md), drawn for L 0.22 / ratio 1.5 only; written as leg.toml so dog.toml stays the default one
+        assert (L, ratio) == (0.22, 1.5), (
+            "leg-al.toml parts exist for L 0.22, ratio 1.5 only"
+        )
+        leg = (DOG / "leg-al.toml").read_text()
+    else:
+        leg = (DOG / "leg.toml").read_text()
+        leg = _replace_once(
+            leg, 'part = "dog-thigh-bracket-l"', f'part = "dog-thigh-bracket-l{s}{k}"'
+        )
+        leg = _replace_once(leg, 'part = "dog-shank"', f'part = "dog-shank{s}{k}"')
+        leg = _replace_once(
+            leg,
+            'part = "dog-knee-rod-220"',
+            f'part = "dog-knee-rod-{round(L * 1000)}{k}"',
+        )
     (tmp / "leg.toml").write_text(leg)
     cls = classes_of(act)
     lib = Library(REPO / "parts")

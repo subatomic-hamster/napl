@@ -172,6 +172,17 @@ def test_real_geometry_ratio_parts_load_with_their_own_knee_range(
     assert tuple(part.params["knee_range"]["value"]) == rng
 
 
+def test_structure_leg_combines_with_a_probe_actuator(tmp_path):
+    """The "@al" suffix = leg-al.toml's parts (6061 thigh, CF shank) with any actuator set; leg-al is drawn at L 0.22 / ratio 1.5 only."""
+    asm = A.load(S.write_variant(tmp_path, "gim6010@al", 1.5, 0.22))
+    by = {i["id"]: i for i in asm.doc["instances"]}
+    assert by["fl:thigh"]["part"] == "dog-thigh-al-l"
+    assert by["fl:hip_motor"]["params"]["mass"]["value"] == pytest.approx(0.388)
+    assert S.classes_of("gim6010@al") == S.classes_of("gim6010")
+    with pytest.raises(AssertionError):
+        S.write_variant(tmp_path / "x", "gim6010@al", 1.5, 0.25)
+
+
 def test_point_strings_round_trip():
     assert S.parse_point("gim8108+ak70+ak70:2.0:0.25:exact") == (
         "gim8108+ak70+ak70",
