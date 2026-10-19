@@ -1,4 +1,4 @@
-# VARIANT "-al" of leg.toml (docs/dog/leg-survey.md): thigh = 6061 box tube + CNC fittings (dog-thigh-al), shank = 20 x 18 carbon tube in a 6061 head (dog-shank-cf),
+# VARIANT "-al" of leg.toml (docs/dog/leg-survey.md): thigh = hollow 6061 plate shell with printed PA12-CF bands that houses the knee rod (dog-thigh-al), shank = 25 x 23 carbon tube in a 6061 head (dog-shank-cf),
 # foot core = PA12-CF (dog-foot-core-cf). Everything else (joints, motors, crank, rod, hip housing, wiring, devices) is identical to leg.toml; tests/python/test_dog_leg_survey.py
 # pins that. Load with dog-al.toml.
 # One leg of the dog (SP3b, docs/superpowers/plans/2026-10-16-sp3b-dog-assembly.md Task 4). Written as the LEFT leg; dog.toml mirrors it
@@ -18,7 +18,7 @@
 
 [assembly]
 name = "dog-leg"
-description = "Dog leg: 3 x SteadyWin GIM8108-8 (abduction, hip pitch, knee via crank + push rod at 1.5:1), 6061 box-tube thigh, carbon-tube shank, rubber-ball foot, CAN/power hub"
+description = "Dog leg: 3 x SteadyWin GIM8108-8 (abduction, hip pitch, knee via crank + push rod at 1.5:1), hollow 6061 shell thigh, carbon-tube shank, rubber-ball foot, CAN/power hub"
 base = "fixed"   # standalone bench: hangs from the hip mount
 timestep = 0.001
 seed = 1

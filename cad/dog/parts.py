@@ -151,74 +151,14 @@ def foot_core():
     return s
 
 
-def thigh_al():
-    """Bio-inspired thigh, left hand ("-al" leg, docs/dog/leg-survey.md): 6061 rectangular tube (AL_W x AL_T x AL_WALL) from z = -AL_TOP to
-    AL_KNEE_END below the knee, y in [0, AL_T] (outboard of the hip output face, the same plane as the hip disc), with a CNC hip fitting (5 mm
-    disc with the actuator bolt circle + a solid boss + a plug in the bore) and a solid plug at the knee end carrying the 8 mm pin.
-    Origin = hip pitch axis at the hip actuator output face; hangs along -z for L_THIGH."""
-    W, T, t, L = P.AL_W, P.AL_T, P.AL_WALL, P.L_THIGH
-    z0, z1 = -P.AL_TOP, -(L + P.AL_KNEE_END)
-    h = z0 - z1
-    zc = (z0 + z1) / 2
-    s = bx(W, T, h, y=T / 2, z=zc) - bx(W - 2 * t, T - 2 * t, h + 2, y=T / 2, z=zc)
-    s += cyl_y(56, 5, y=2.5)  # hip disc
-    s += bx(W, T, 30, y=T / 2, z=-25)  # boss z [-40, -10], flush with the tube
-    s += bx(
-        W - 2 * t, T - 2 * t, 25, y=T / 2, z=z0 - 12.5
-    )  # plug in the bore, below the boss
-    s += bx(W - 2 * t, T - 2 * t, 25, y=T / 2, z=z1 + 12.5)  # knee-end plug
-    s = bolt_circle_y(s, 2.5, 7)
-    s -= cyl_y(P.KNEE_PIN_D + 0.1, T + 2, y=T / 2, z=-L)  # knee pin
-    return s
-
-
-def _shank_cf_head():
-    """Shank head, left hand: 6061, origin on the knee axis, y = 0 on the shank-tube centre line (y = KNEE_Y_AL in the thigh frame). A 20 mm
-    knee boss (8 mm pin), the tube socket below it (bore = tube OD) and the rod-pin ear on the INBOARD half (y in [-SH_OD/2, -2]): the rod
-    end sits outside it at y in [21, 29] (thigh frame)."""
-    hw = P.SH_OD / 2
-    b = math.radians(P.LUG_DEG)
-    px, pz = P.KNEE_R2 * math.cos(b), P.KNEE_R2 * math.sin(b)
-    s = cyl_y(26, 2 * hw)
-    s += cyl_z(P.SH_OD + 4, P.SH_HEAD_LEN, z=-P.SH_HEAD_LEN / 2)
-    ear_t = hw - 2.0
-    s += bx(14, ear_t, pz + 7, x=px, y=-hw + ear_t / 2, z=(pz + 7) / 2)
-    s -= cyl_y(P.KNEE_PIN_D + 0.1, 2 * hw + 2)
-    s -= cyl_y(P.M5_CLR, 2 * hw + 2, x=px, z=pz)
-    s -= cyl_z(
-        P.SH_OD, P.SH_HEAD_LEN - 8, z=-8 - (P.SH_HEAD_LEN - 8) / 2
-    )  # tube bore from z = -8
-    return s
-
-
-def shank_cf():
-    """Bio-inspired shank, left hand: the 6061 head bonded to a 20 x 18 carbon tube that runs to the foot socket plane z = -L_SHANK (the
-    foot core's PA12-CF spigot goes into the tube's bore). Origin on the knee axis, tube centre line at y = 0."""
-    L = P.L_SHANK
-    n = L - 8
-    tube = cyl_z(P.SH_OD, n, z=-8 - n / 2) - cyl_z(P.SH_ID, n + 2, z=-8 - n / 2)
-    return _shank_cf_head() + tube
-
-
-def shank_cf_mass_g():
-    """Mass of shank_cf(): head (6061, solid volume) + tube at cf-tube-20x18's 86.5 g/m + bond."""
-    return (
-        _shank_cf_head().volume * P.DENSITY["al6061"]
-        + (P.L_SHANK - 8) * 0.0865
-        + P.BOND_G
-    )
-
-
-def foot_core_cf():
-    """Foot core, PA12-CF: a 40 mm cup on the 35 mm rubber ball and a spigot (bore of the shank tube, 17.8 mm) that is bonded into it. Origin at
-    the ball centre; the cup's top face (z = 25) mates the shank's foot port. Symmetric."""
-    s = cyl_z(40, 30, z=10)
-    s += cyl_z(P.SH_ID - 0.2, 20, z=35)
-    s -= Sphere(P.BALL_D / 2)
-    s -= cyl_z(
-        8.4, 18, z=15
-    )  # blind vent / glue pocket over the ball's pole (also keeps the mesh watertight, as foot_core's stud bore does)
-    return s
+from parts_al import (  # noqa: F401  mass fns and VISUALS are read by build.py
+    VISUALS,
+    foot_core_cf,
+    shank_cf,
+    shank_cf_mass_g,
+    thigh_al,
+    thigh_al_mass_g,
+)
 
 
 def head_mount():
@@ -287,7 +227,7 @@ REGISTRY = {
     "dog-knee-crank": (knee_crank, 4, "pla", True),
     "dog-shank": (shank, 4, "pla", False),
     "dog-foot-core": (foot_core, 4, "pla", False),
-    "dog-thigh-al": (thigh_al, 4, "al6061", True),
+    "dog-thigh-al": (thigh_al, 4, "mixed", True),
     "dog-shank-cf": (shank_cf, 4, "mixed", True),
     "dog-foot-core-cf": (foot_core_cf, 4, "pa12cf", False),
     "dog-head-mount": (head_mount, 1, "pla", False),
