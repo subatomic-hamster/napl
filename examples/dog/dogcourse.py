@@ -22,11 +22,18 @@ CACHE = Path(
 )
 
 
+ASM_ENV = "NAPL_DOG_ASM"  # hook (leg study): path of a variant dog.toml (tools/dog_sweep.py write_variant) built instead of assemblies/dog
+
+
+def _asm():
+    return Path(os.environ[ASM_ENV]) if os.environ.get(ASM_ENV) else D.ASM
+
+
 def _key():
     h = hashlib.sha256()
     for f in sorted(
         [
-            *(REPO / "assemblies" / "dog").glob("*.toml"),
+            *_asm().parent.glob("*.toml"),
             *(REPO / "parts").rglob("*.toml"),
         ]
     ):
@@ -42,7 +49,7 @@ def base_model():
     if not xml.exists():
         CACHE.mkdir(parents=True, exist_ok=True)
         tmp = Path(tempfile.mkdtemp(dir=CACHE))
-        x, rep = D.build(tmp)
+        x, rep = D.build(tmp, _asm())
         (tmp / "dog.report.json").write_text(json.dumps(rep))
         tree = ET.parse(x)
         for e in tree.getroot().iter():  # the builder writes mesh paths relative to its own xml: absolute, so scenes anywhere can use them
