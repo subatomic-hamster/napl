@@ -43,6 +43,10 @@ LEG_CTLS = (
 T_WARM = 0.64  # s: two trot periods of stepping in place before the velocity command is released
 T_STANDUP = 1.2  # s
 TD_PEN = 0.02  # m: swing curves end this far below the ground
+A_HOLD, TAU_ACC = (
+    0.3,
+    0.2,
+)  # m/s^2, s: the commanded acceleration (low-passed) above which the tilt correction pauses
 A_CMD = 1.0  # m/s^2: slew limit of the velocity command inside the controller (2.0 fell in 1 of 8 launches at 1 m/s, 1.0 in 0 of 8)
 # A scheduled-stance foot without contact yet: True = leave the MPC's stance set and reach down on the swing PD (leaves the diagonal partner as
 # the only support for ~0.1 s, the trot rolls); False = stay in the stance set, the commanded force pushes the foot down to the ground.
@@ -54,6 +58,11 @@ Z_RATE, ANG_RATE = (
     0.25,
     0.5,
 )  # m/s, rad/s: fastest the terrain-derived height and posture references may move
+A_LAT, WZ_MAX = (
+    0.6,
+    1.2,
+)  # m/s^2, rad/s: the turn envelope. Flat ground, yaw command a sinusoid of this peak, 8 seeds: v wz = 0.6 8/8 up (1.2 m/s x 0.5, 0.6 x 1.2), 0.81 6/8, 0.96 4/8, 1.44 0/8;
+# 0.3 m/s x 1.2 rad/s 8/8, x 2.0 rad/s 1/8. The speed command is scaled down so that |v| |wz| <= A_LAT, wz is clipped to WZ_MAX
 WALK_ROUGH = False  # the walk gait for steps / steep ground: it falls on FLAT ground with both leg controllers (docs/dog/locomotion.md), so rough ground trots
 REACH_LO, REACH_HI = (
     0.6,
@@ -132,7 +141,8 @@ class Controller:
         self.t_late = np.zeros(4)
         self.cmd_f = np.zeros(3)
         self.t_gait = 0.0  # s since the gait left "stand"
-        self.t_acc = 0.0  # s left of the estimator's tilt-correction pause after the velocity command last changed
+        self.t_acc = 0.0  # s left of the estimator's tilt-correction pause after the velocity command last accelerated
+        self.a_cmd = 0.0  # m/s^2: low-passed acceleration of the slewed command
         self.stats = dict(n_slip=0, mpc_fail=0, wbc_fail=0, sat_hip=0.0, sat_knee=0.0)
         self.started = False
         self._sset = (True,) * 4
@@ -208,6 +218,13 @@ class Controller:
         raw = np.r_[
             raw[:2] * self.safety.speed_scale, raw[2]
         ]  # a slip slows the command for T_SLOW s
+        s_cmd, wz_cmd = np.linalg.norm(raw[:2]), float(np.clip(raw[2], -WZ_MAX, WZ_MAX))
+        if (
+            s_cmd * abs(wz_cmd) > A_LAT
+        ):  # the turn envelope: slow down in a turn, never a fast tight arc
+            raw = np.r_[raw[:2] * A_LAT / (s_cmd * abs(wz_cmd)), wz_cmd]
+        else:
+            raw = np.r_[raw[:2], wz_cmd]
         if self.k % MPC_EVERY == 0 and self.mode in ("STAND", "WALK"):
             self.rough = Tr.rough_ahead(
                 self.map, st.p[:2], st.rpy[2], 0.8
@@ -317,15 +334,19 @@ class Controller:
     def _slew(self, cmd):
         d = cmd - self.cmd_f
         n = np.linalg.norm(d[:2])
-        if (
-            n > 1e-9
-        ):  # accelerating: the accelerometer low-pass takes ~2 time constants to forget it
-            self.t_acc = 0.8
         lim = A_CMD * DT
         if n > lim:
             d[:2] *= lim / n
         d[2] = np.clip(d[2], -4.0 * DT, 4.0 * DT)
         self.cmd_f = self.cmd_f + d
+        # The commanded acceleration (low-passed): only a REAL acceleration pauses the estimator's tilt correction. A route follower changes the
+        # command every tick by a hair; pausing on any change (the first version) left the gyro bias uncorrected for the whole run and a bias of
+        # 0.005 rad/s (0.3 deg/s) walked the pitch estimate 3 deg off in 6 s, the MPC leaned and the dog fell (LOCO fix round 2).
+        self.a_cmd += (np.linalg.norm(d[:2]) / DT - self.a_cmd) * (DT / TAU_ACC)
+        if (
+            self.a_cmd > A_HOLD
+        ):  # accelerating: the accelerometer low-pass takes ~2 time constants to forget it
+            self.t_acc = 0.8
         return self.cmd_f
 
     def _terrain_ref(self, roll, pitch, z):

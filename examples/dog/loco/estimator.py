@@ -21,6 +21,10 @@ H_ON, H_OFF = (
     0.05,
 )  # m: a foot higher than this above the map cannot have touched down / has lifted off
 KP_ACC = 1.0  # rad/s per rad: Mahony k_P, ~1 s tilt correction
+KI_ACC, B_MAX = (
+    0.2,
+    0.05,
+)  # rad/s^2 per rad: Mahony k_I (critically damped with k_P 1); rad/s: bias clip (the MC draws N(0, 0.005))
 V_GATE = 0.6  # m/s: a stance foot's velocity innovation above this is an outlier (clean trot: < 0.2)
 TAU_G = 0.3  # s: averaging of the accelerometer / predicted gravity before the tilt correction (~ one trot period)
 SIG_A, SIG_FOOT_ST, SIG_FOOT_SW = (
@@ -69,18 +73,23 @@ class Estimator:
         self.contact = np.ones(4, bool)
         self.hist, self.k = np.zeros((HIST, 3)), 0  # (x, y, yaw) per tick
         self.dq_prev, self.qdd_f = np.zeros(12), np.zeros(12)
+        self.bias = np.zeros(3)  # rad/s: estimated gyro bias
 
     def reset(self, q, p_xy=(0.0, 0.0), yaw=0.0):
         """Start on level feet at world (p_xy, yaw): the SP5 stand-in's first fix (the harness knows where the dog was put)."""
+        self.R = rot(np.array([0.0, 0.0, 1.0]), yaw)
+        self._settle(q, p_xy)
+
+    def _settle(self, q, p_xy):
+        """Trunk height (feet on the map under them at the current attitude), foot states and covariance for the current R."""
         r = np.array(
             [L.fk_jac(q[3 * i : 3 * i + 3])[0] for i, L in enumerate(self.legs)]
         )
-        rf = self.legs[0].r_foot
-        self.R = rot(np.array([0.0, 0.0, 1.0]), yaw)
         px, py = float(p_xy[0]), float(p_xy[1])
-        zs = self.map.height(px + (self.R @ r.T)[0], py + (self.R @ r.T)[1])
+        fw = self.R @ r.T  # feet in the world frame, relative to the trunk origin
+        zs = self.map.height(px + fw[0], py + fw[1])
         z = (
-            float(np.nanmean(zs)) + rf - r[:, 2].mean()
+            float(np.nanmean(zs)) + self.legs[0].r_foot - float(fw[2].mean())
         )  # feet (ball centres) on the map
         self.x[:] = 0.0
         self.x[0:3] = (px, py, z)
@@ -102,6 +111,9 @@ class Estimator:
             if abs(na - G) < 0.15 * G and not hold
             else np.zeros(3)
         )
+        # Mahony PI: the integral of the (valid) gravity error is the gyro bias (roll / pitch axes; yaw has no gravity reference)
+        self.bias = np.clip(self.bias - KI_ACC * err * dt, -B_MAX, B_MAX)
+        w = w - self.bias
         self.R = R = R @ rot(w + KP_ACC * err, dt)
         if self.k % 100 == 0:
             u, _, vt = np.linalg.svd(R)
@@ -192,8 +204,10 @@ class Estimator:
             on.copy(),
             fg,
         )
+        # median: a foot whose estimated xy is over a wall top or a boulder (ruins: feet within 0.3 m of a 1.8 m wall) must not read as "the body is
+        # on the floor" (mean of four: +0.45 m, h_map < 0.5 h_stand, a FALSE fall: the dog sat down on flat ground, 3 of 8 training ruins seeds)
         st.h_map = st.p[2] - float(
-            np.nanmean(self.map.height(st.feet[:, 0], st.feet[:, 1]))
+            np.nanmedian(self.map.height(st.feet[:, 0], st.feet[:, 1]))
         )
         return st
 

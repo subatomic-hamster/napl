@@ -420,22 +420,80 @@ golden re-recorded (`27ffca55529022aa`): the J^T stance torque, POSTURE 0.7 and 
 either a higher-voltage / second-class actuator pack or a lower spec (about 2 m/s is what is demonstrated). (3) Decide whether slope starts are
 in scope; a standing start on 10-30 deg ground is a different task from walking up it.
 
+## LOCO fix round 2 (terrain)
+
+Branch `p12-loco`. Training seeds 1000-1009 (n = 10 per family, WBC, full dispersion) for every lever, then one fresh test run, seeds 41000-41039.
+
+**Result (n = 40 per family, seeds 41000+, WBC, Wilson 95 %; round 1 on 31000-31039 in brackets).** No-fall: rubble 0/40 (0-9 %) [0], slopes 0/40
+(0-9 %) [0], scree 10/40 (14-40 %) [2], ruins 15/39 (25-54 %, one seed had no route) [1], criterion 0/40 (0-9 %) [0]. Scree and ruins improved
+(real, intervals no longer overlap round 1); rubble, slopes and the criterion course did not move. The 90 % target is not met in any family.
+
+**Lever 0 (the one that worked): the tilt correction was paused forever.** `controller._slew` paused the Mahony tilt correction (`t_acc`) whenever the
+commanded velocity changed. A route follower changes the command every tick, so the correction never ran, and a 0.005 rad/s gyro bias walked the
+pitch estimate 3 deg off in 6 s: the dog fell on FLAT ground (flat floor + rubble route follower + MC dispersion, 0.8 m/s, seeds 1000-1009: 5/10 up at
+25 s; nogyro / nobias runs passed, so the bias and payload, not pushes, were the killer). Now the pause applies only while the low-passed commanded
+acceleration exceeds `A_HOLD` = 0.3 m/s^2 (`TAU_ACC` 0.2 s): 10/10 up. Lever 0b: a Mahony integral term (`KI_ACC` 0.2, `B_MAX` 0.05 rad/s) estimates the
+gyro bias (flat 1.8 m/s route following with bias: 3/8 -> 4/8 up). It overshoots a static 10 deg tilt to 11.2 deg at 5 s and settles, so
+`test_attitude_converges_to_a_static_tilt` runs 12 s. Also in this commit, from the predecessor's diagnosis: `K_YAW` 0 (a yaw sinusoid of 0.5 rad/s
+on flat ground: K_YAW 0.5 0/8 up, 0.2 2/8, 0 8/8), the turn envelope `A_LAT` 0.6 m/s^2 / `WZ_MAX` 1.2 rad/s (v x wz: 0.6 8/8 up, 0.81 6/8, 0.96 4/8,
+1.44 0/8), a median instead of a minimum for `h_map` (false FALLEN on ruins), and the dogtop target of 2.0 m/s.
+
+Training counts (rubble / slopes / scree / ruins / criterion, no-fall of 10): inherited tree 0/0/2/1/0; lever 0 0/0/3/4/0; lever 0b 0/0/5/3/0.
+
+**Levers tried that did NOT move the counts (kept out of the tree).**
+
+- Slope starts (lever 3): dog set down on the fitted plane with the trunk along the normal, estimator attitude initialised from the static
+  accelerometer, STANDUP of 0.4-0.8 s: slopes still 0/10 (standing start on 17-31 deg slopes slides or rolls during STANDUP; with T_STANDUP 0.4 one
+  seed stayed up 6 s, three others fell). Slope starts look out of reach of this controller; the criterion ramp (25 deg) also fails at the ramp foot
+  (t = 7.9 s).
+- `LATE_REACH` = True (keep reaching down when a stance is scheduled without contact), 8 rubble seeds: all fall at 4-5 s as before.
+- Friction override mu 1.5: no gain. Flat or zero controller height map on the real terrain: no gain, so the controller's own terrain code is not
+  the cause. Ablating foothold, apex, normal, reach and roughness code (predecessor): no gain.
+- Stand height down earlier (`H_V0` 0.3) on the 5 scree seeds that fall: 0/5 up (baseline 1/5, all within noise).
+- Swing reach fraction 0.97 -> 0.92 / 0.88 (`REACH_FRAC` experiment): single runs 1/4 and 1/4 vs 0/4, and the training MC at 0.92 gave exactly the
+  lever-0b counts (0/0/5/3/0): no gain, reverted.
+- Terrain code of Task 8 (`Tr.foothold`, `apex_over`, `plane`, `normal`, `rough_ahead`, `steep_ahead`) already does basic foothold selection and
+  map-based swing apex; the round-1 statement that "none exists" is out of date. The proposed better apex (terrain envelope over a swath along the
+  swing path, `apex_over` samples only 12 points on a line and one value at s = 0.5) was designed but not built: with the ablation above showing
+  that removing the existing terrain code changes nothing, the limit is elsewhere.
+- Step-up (lever 4): not built. The knee stop limits the lift under the hip to 7.4 cm at `H_FRAC` 0.95, so a 15 cm step needs the body raised first
+  (`Z_RATE` 0.25 m/s). Rocks up to 17 cm exist in the rubble routes (the route allows 20 cm steps).
+- Walk-gait flat fall (lever 5, `WALK_ROUGH` False): not investigated, no time left after levers 0-3.
+
+**Remaining failure mechanism (observed, not fixed).** Rubble commanded 1.8 m/s: even on a FLAT floor with the route follower and dispersion 3-5 of 8
+fall (4/8 up with the bias integrator); on the real rubble all 10 training seeds fall at 3-5 s, at 0.8 m/s 2/10 stay up (no rocks: 5/10). On scree the
+5 failing seeds all stay up on a flat floor with the same route, so terrain matters there, and the falls are at near-flat spots (range 1-5 cm).
+The traces (rubble 1007 rl at 3.1 s, scree 1003 rr at 2.5-2.8 s): a swing leg does not follow its reference (hip stalls, knee torque saturates), the
+stance is scheduled with the foot still ~9 cm in the air, the MPC pushes 100-266 N through an airborne leg, then the leg re-enters swing with a huge
+IK step (hip reference -0.9 ... -2 rad, velocity pegged at V_MAX = 40 rad/s, torque feed-forward saturated, knee near straight at the 0.95 stand
+height). The listed option "a swing IK that cannot flip the elbow branch" and a swing target rate limit are the next things to try.
+
+**Regressions checked.** Flat dispersion MC `dogflat.py` seeds 21000-21015, WBC: 13/16 up (unchanged). Flat top speed 2.0 m/s: `test_dog_topspeed` passes.
+Goldens re-recorded (one reason: the tilt correction no longer stops, plus the bias integrator, change every trajectory): push `d63fd6b4e3399485`,
+trot `3956925a79494e9d`, dog_smoke `9eb34232ef72640e`.
+
+**SP5 on the dog** (`coverage_smoke_dog` rubble seeds 1-8, C++ WBC, 120 s cap, `[dog]` limits overridden in-process, `autonomy.toml` untouched). 0.4 m/s / 0.3
+rad/s: 2/8 reach 120 s (seeds 2, 3: coverage 0.92 / 0.95), the others end at 30 / 40 / 9 / 23 (truth fall) / 76 (truth fall) / 21 s (before: 1/8 up, the
+others at 4-69 s). Four of the six early ends (seeds 1, 4, 5, 8) are the controller's own FALLEN latch with the
+truth never falling, which aborts the mission (seeds 4, 5, 8 re-run with a probe: estimated tilt 25-26 deg while rolling at 4-6 rad/s; seed 1 not probed). 0.8 m/s / 0.5 rad/s: 0/8 up, aborts at 18 / 4 / 14 / 24 / 7 / 38 / 15 / 31 s (6 truth falls; round 1: 3-29 s).
+The safe `[dog]` limits stay v_max 0.4 m/s, wz_max 0.3 rad/s (still only 2/8 on rubble); 0.8 / 0.5 is not safe.
+
 ## Spec criteria (quadruped design s7)
 
-| criterion                                            | measured                                                                                                          | verdict                         |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| flat top speed >= 3.5 m/s                            | WBC (J^T stance torque, h 0.85) 2.0 m/s held-out median and minimum, 2.25 on the training seed; LOCO fix round 1  | **NOT met** (gap 1.25-1.5 m/s)  |
-| rocky field mean speed >= 1.5 m/s                    | no rubble run succeeded (0/20), so there is no mean speed; the only successful MC runs (scree) averaged 1.0 m/s   | **NOT met**                     |
-| 25-degree slopes and 15 cm steps traversed           | criterion course 0/20 (WBC), 0/10 (J^T); the 15 deg ramp is climbed (Task 8 test); 25 deg and 15 cm steps are not | **NOT met**                     |
-| >= 90 % no-fall per terrain family, 95 % lower bound | no-fall lower bounds (WBC, n = 40, 31000-31039): rubble 0 %, slopes 0 %, scree 1 %, ruins 0 %, crit. 0 %          | **NOT met** in every family     |
-| BOM ~ 3-4.5 k USD                                    | 5,554 USD (SP3b, unchanged)                                                                                       | outside the plan's range (SP3b) |
+| criterion                                            | measured                                                                                                            | verdict                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| flat top speed >= 3.5 m/s                            | WBC (J^T stance torque, h 0.85) 2.0 m/s held-out median and minimum, 2.25 on the training seed; LOCO fix round 1    | **NOT met** (gap 1.25-1.5 m/s)  |
+| rocky field mean speed >= 1.5 m/s                    | no rubble run succeeded (0/20), so there is no mean speed; the only successful MC runs (scree) averaged 1.0 m/s     | **NOT met**                     |
+| 25-degree slopes and 15 cm steps traversed           | criterion course 0/20 (WBC), 0/10 (J^T); the 15 deg ramp is climbed (Task 8 test); 25 deg and 15 cm steps are not   | **NOT met**                     |
+| >= 90 % no-fall per terrain family, 95 % lower bound | no-fall lower bounds (WBC, n = 40, 41000-41039, round 2): rubble 0 %, slopes 0 %, scree 14 %, ruins 25 %, crit. 0 % | **NOT met** in every family     |
+| BOM ~ 3-4.5 k USD                                    | 5,554 USD (SP3b, unchanged)                                                                                         | outside the plan's range (SP3b) |
 
 (The coverage criterion is SP5's.)
 
 ## Known gaps
 
 - **No self-righting**: a dog that falls stays down (Task 9); the MC counts the fall as the failure.
-- **Terrain**: the 25 deg ramp, 15 cm steps, rubble, slopes, scree and ruins families are not traversed (0-10 % success); the walk gait falls on flat
+- **Terrain** (round 2, n = 40: rubble 0, slopes 0, scree 10, ruins 15 of 39, criterion 0 no-fall; "LOCO fix round 2"): the 25 deg ramp, 15 cm steps, rubble, slopes, scree and ruins families are not reliably traversed; the walk gait falls on flat
   ground and is disabled (`WALK_ROUGH = False`), so rough ground is trotted with a 0.5 m/s cap; causes in the "Terrain (Task 8)" section.
 - **Disturbance rejection**: after the J^T stance torque fix the flat dispersion MC stays up 13/16 (was 9/16); double pushes of 0.4-0.5 m/s still topple it. The slip handling is validated on a synthetic statistic and a mud strip, not on a slide the dog recovers from.
 - **Stand height**: now scheduled (`H_SCHED`, see "LOCO fix round 1"); swing clearance is 2.8 cm at speed; terrain regression of the schedule was

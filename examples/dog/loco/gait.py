@@ -10,6 +10,8 @@ import numpy as np
 
 G = 9.81
 K_CAP = 0.15  # x sqrt(h/g): capture-point feedback gain (1.0 moved the touchdown target 5-20 cm within one swing on the velocity noise and the trot fell; MIT's 0.03 s is 0.14 here)
+K_YAW = 0.0  # x sqrt(h/g): the Raibert/Di Carlo (v x wz) turning term of the touchdown target (Di Carlo 2018: 0.5). Flat ground, 1.2 m/s, yaw command
+# sinusoid 0.5 rad/s, 8 seeds up: 0.5 -> 0/8, 0.2 -> 2/8, 0 -> 8/8, -0.25 -> 7/8, -0.5 -> 2/8 (docs/dog/locomotion.md, LOCO fix round 2)
 TD_TICKS = 3  # control ticks (6 ms) of continuous contact that make an early touchdown
 D_MAX = 0.18  # (dogtop experiments override it) m: farthest touchdown from the hip (leg workspace at the stand height, ~0.4 of the leg length)
 
@@ -151,6 +153,6 @@ def nominal_foothold(hip_w, v, v_cmd_w, wz, t_stance, h):
     d = np.asarray(v[:2]) * t_stance / 2 + K_CAP * k * (
         np.asarray(v[:2]) - np.asarray(v_cmd_w[:2])
     )
-    d = d + 0.5 * k * np.cross(v, [0.0, 0.0, wz])[:2]
+    d = d + K_YAW * k * np.cross(v, [0.0, 0.0, wz])[:2]
     n = np.linalg.norm(d)
     return np.asarray(hip_w[:2]) + (d if n <= D_MAX else d * D_MAX / n)
