@@ -57,8 +57,41 @@ Under the plan's ground-truth rule they count as no-fall, but an aborted run is 
 
 ## Held-out Monte Carlo
 
-(held-out block 71001+, flown once with the final code.)
+Held-out seeds 71001+, flown once on rev `a884aa3` (the committed final code; every row records the revision), body = **dog** (legged, full stack). Raw output: `mc.md` / `mc.json` of that run;
+the numbers below are copied into `docs/dog/missions.json`.
+
+| family | N   | no-fall k/n | rate | Wilson 95 %  | mission success k/n | aborted (of which no truth fall) | failures (crashed fell coverage rms not_home late) | median coverage / RMS / time / distance |
+| ------ | --- | ----------- | ---- | ------------ | ------------------- | -------------------------------- | -------------------------------------------------- | --------------------------------------- |
+| rubble | 20  | 6/20        | 0.30 | [0.15, 0.52] | 0/20                | 20 (6)                           | 0 14 20 7 20 0                                     | 13.2 % / 4.3 cm / 15 s / 4 m            |
+| slopes | 12  | 2/12        | 0.17 | [0.05, 0.45] | 0/12                | 12 (2)                           | 0 10 12 11 12 0                                    | 6.3 % / 21.7 cm / 2 s / 2 m             |
+| scree  | 28  | 11/28       | 0.39 | [0.24, 0.58] | 6/28                | 21 (4)                           | 0 17 19 5 22 1                                     | 66.3 % / 2.9 cm / 162 s / 59 m          |
+| ruins  | 34  | 4/34        | 0.12 | [0.05, 0.27] | 0/34                | 34 (4)                           | 0 30 34 6 34 0                                     | 17.1 % / 3.4 cm / 72 s / 21 m           |
+
+No run crashed or timed out; the longest took 1569 s wall of the 3600 s (slopes 5400) limit.
+
+- **No-fall** is ground truth (`fell_ever`). **Mission success** needs coverage >= 95 %, map RMS <= 5 cm, home in the budget and no ABORT; an aborted run never counts. They are separate columns on purpose:
+  scree is the only family with any success (6/28, Wilson [0.10, 0.40]); its 11 no-fall runs include 4 that the controller itself aborted with no truth fall.
+- **Aborts without a truth fall** in the mission setting: rubble 6, slopes 2, scree 4, ruins 4 (16 of 94 runs). Every ruins no-fall run (4/4) ended in such an abort. LOCO round 3 measured 0 latch false positives on 200 plain locomotion runs;
+  these aborts appear only with the mission stack. They were not tuned away, and whether they are real near-falls the ground truth did not catch (a stumble recovered by the sim) or the mission map/commands provoking the detector is **not
+  diagnosed**; open item.
+- The **95 % no-fall target is missed in every family**: the best point rate is 0.39 (scree). With these N a clean run could not have shown a lower bound of 0.90 either (largest N = 34, 0.8985).
+- Against SP4's locomotion-only MC on seeds 61000+ (n = 40: rubble 12/40, slopes 0/40, scree 26/40, ruins 17/40) the full-stack no-fall rates are lower on rubble (6/20 vs 12/40, within bounds) and ruins (4/34 vs 17/40); scree 11/28 vs 26/40 and slopes 2/12 vs 0/40. Different seeds and different
+  mission lengths (ruins 700 s here), same controller; the cause of the ruins gap is not diagnosed (inference: a longer, planner-driven walk gives falls more time).
 
 ## 100 m missions
 
-(rubble `coverage_rubble_dog`, ruins `dog_ruins`)
+100 x 100 m, 20 min budget, seeds 71001+, run with `examples/dog/automc.py` (one process per seed). **The body is named in every line**: _carrier_ = the kinematic carrier (no legs, SP5's validated pipeline), _dog_ = the legged robot.
+No dog run reached 1200 s of mission (all ended by 300 s), so the 3 h wall cap was never reached; no cap was needed.
+
+| mission                       | body        | seeds       | success (cov >= 95 %, RMS <= 5 cm, home <= 1200 s) | fell (ground truth)                | median coverage | per seed (coverage; ended at)                                                                         |
+| ----------------------------- | ----------- | ----------- | -------------------------------------------------- | ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------- |
+| rubble, `coverage_rubble_dog` | **dog**     | 71001-71006 | 0/6                                                | 6/6                                | 3.8 %           | 2.4 % at 40 s; 8.5 % at 139 s; 1.5 % at 22 s; 5.2 % at 97 s; 5.7 % at 108 s; 0.7 % at 6 s (all ABORT) |
+| ruins, `dog_ruins`            | **dog**     | 71001-71004 | 0/4                                                | 2/4 (+2 aborts with no truth fall) | 2.7 %           | 4.1 % at 181 s (fell); 4.7 % at 297 s (abort); 1.3 % at 80 s (abort); 1.2 % at 68 s (fell)            |
+| rubble, `coverage_rubble`     | **carrier** | 71001-71006 | 5/6 (71002 got home at 1217.9 s, 18 s late)        | 0/6                                | 96.5 %          | 96.4, 96.8, 96.6, 96.0, 95.9, 97.1 %; RMS 2.9-3.0 cm                                                  |
+| ruins, `coverage_ruins`       | **carrier** | 71001-71004 | 0/4                                                | 0/4                                | 27.6 %          | 37.3 %, 34.9 % (RMS 5.8 cm, not home), 20.3 %, 2.5 % (RMS 6.4 cm, not home)                           |
+
+- The dog does not complete either 100 m mission: it falls or aborts within 6-300 s having mapped under 9 %. The carrier shows what the autonomy stack does without legs: rubble meets the targets in 5 of 6 held-out runs;
+  ruins does not (the user decision stands: the 95 % target is kept and the miss documented; the carrier maps 2-37 % of the maze in 20 min).
+- The carrier rubble numbers differ from `docs/dog/autonomy.md` "Monte Carlo" (held-out median 93.7 %, target missed on every seed there): different seeds (71001+ vs 1001-1025), n = 6, current code; the two sets are not reconciled here.
+- The spec row "100 x 100 m coverage" is **NOT MET on the dog** (0/6 and 0/4) and NOT MET on the carrier for ruins.
+- Seeds: `automc.py` takes `lo:hi` with an exclusive upper bound, so the first call covered fewer seeds than intended; 71006 (rubble dog) and 71004 (ruins dog) were run as separate calls (same code, same scenario files). All seeds are 71001+ and none was rerun.

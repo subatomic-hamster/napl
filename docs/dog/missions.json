@@ -1,0 +1,333 @@
+{
+  "rev": "a884aa3",
+  "note": "Held-out seeds 71001+ flown once on rev a884aa3 (missionmc.py --block held); 100 m missions flown on seeds 71001+ with automc.py (rows below). Wilson 95 % bounds, medians rounded to 4 decimals. aborted = phase 5 (the controller's FALLEN detector); abort_nofall = aborted with no ground-truth fall; k_nofall counts ground truth only; k_success needs the goal and home with no abort.",
+  "families": {
+    "rubble": {
+      "n": 20,
+      "k_nofall": 6,
+      "k_success": 0,
+      "wilson_nofall": [0.1455, 0.519],
+      "wilson_success": [0.0, 0.1611],
+      "fails": {
+        "crashed": 0,
+        "fell": 14,
+        "coverage": 20,
+        "rms": 7,
+        "not_home": 20,
+        "late": 0
+      },
+      "medians": {
+        "coverage": 0.1321,
+        "rms": 0.0429,
+        "t": 15.0,
+        "distance": 4.145
+      },
+      "aborted": 20,
+      "abort_nofall": 6
+    },
+    "slopes": {
+      "n": 12,
+      "k_nofall": 2,
+      "k_success": 0,
+      "wilson_nofall": [0.047, 0.448],
+      "wilson_success": [0.0, 0.2425],
+      "fails": {
+        "crashed": 0,
+        "fell": 10,
+        "coverage": 12,
+        "rms": 11,
+        "not_home": 12,
+        "late": 0
+      },
+      "medians": {
+        "coverage": 0.0625,
+        "rms": 0.2166,
+        "t": 2.0,
+        "distance": 1.97
+      },
+      "aborted": 12,
+      "abort_nofall": 2
+    },
+    "scree": {
+      "n": 28,
+      "k_nofall": 11,
+      "k_success": 6,
+      "wilson_nofall": [0.2357, 0.5759],
+      "wilson_success": [0.1021, 0.3954],
+      "fails": {
+        "crashed": 0,
+        "fell": 17,
+        "coverage": 19,
+        "rms": 5,
+        "not_home": 22,
+        "late": 1
+      },
+      "medians": {
+        "coverage": 0.6627,
+        "rms": 0.0289,
+        "t": 162.0,
+        "distance": 58.54
+      },
+      "aborted": 21,
+      "abort_nofall": 4
+    },
+    "ruins": {
+      "n": 34,
+      "k_nofall": 4,
+      "k_success": 0,
+      "wilson_nofall": [0.0467, 0.2662],
+      "wilson_success": [0.0, 0.1015],
+      "fails": {
+        "crashed": 0,
+        "fell": 30,
+        "coverage": 34,
+        "rms": 6,
+        "not_home": 34,
+        "late": 0
+      },
+      "medians": {
+        "coverage": 0.1708,
+        "rms": 0.0344,
+        "t": 71.5,
+        "distance": 21.3
+      },
+      "aborted": 34,
+      "abort_nofall": 4
+    }
+  },
+  "criteria": [
+    {
+      "key": "top_speed_flat",
+      "text": "flat top speed >= 2.0 m/s",
+      "measured": "2",
+      "verdict": "MET"
+    },
+    {
+      "key": "rocky_speed",
+      "text": "rocky field mean speed >= 1.5 m/s",
+      "measured": "0.75",
+      "verdict": "NOT MET"
+    },
+    {
+      "key": "slope_step",
+      "text": "25 deg slopes and 15 cm steps traversed",
+      "measured": "False",
+      "verdict": "NOT MET"
+    },
+    {
+      "key": "nofall",
+      "text": ">= 90 % no-fall per terrain family (Wilson 95 % lower bound shown)",
+      "measured": "rubble 6/20 = 0.30, lower bound 0.15; slopes 2/12 = 0.17, lower bound 0.05; scree 11/28 = 0.39, lower bound 0.24; ruins 4/34 = 0.12, lower bound 0.05",
+      "verdict": "NOT MET"
+    },
+    {
+      "key": "coverage_mission",
+      "text": "100 x 100 m rocky coverage <= 20 min, RMS <= 5 cm, >= 95 % mapped",
+      "measured": "False",
+      "verdict": "NOT MET"
+    },
+    {
+      "key": "bom_usd",
+      "text": "BOM about 3-4.5 k USD",
+      "measured": "5554",
+      "verdict": "NOT MET"
+    }
+  ],
+  "extra": {
+    "top_speed_flat": 2.0,
+    "rocky_speed": 0.75,
+    "slope_step": false,
+    "coverage_mission": false,
+    "bom_usd": 5554.0
+  },
+  "missions": {
+    "rubble dog": [
+      {
+        "seed": 71001,
+        "fell_ever": 1,
+        "coverage": 0.0237,
+        "rms": 0.0434,
+        "phase": 5,
+        "t": 40.0,
+        "distance": 14.9
+      },
+      {
+        "seed": 71002,
+        "fell_ever": 1,
+        "coverage": 0.0845,
+        "rms": 0.0482,
+        "phase": 5,
+        "t": 139.0,
+        "distance": 51.4
+      },
+      {
+        "seed": 71003,
+        "fell_ever": 1,
+        "coverage": 0.0152,
+        "rms": 0.0443,
+        "phase": 5,
+        "t": 22.0,
+        "distance": 8.0
+      },
+      {
+        "seed": 71004,
+        "fell_ever": 1,
+        "coverage": 0.0517,
+        "rms": 0.0286,
+        "phase": 5,
+        "t": 97.0,
+        "distance": 37.9
+      },
+      {
+        "seed": 71005,
+        "fell_ever": 1,
+        "coverage": 0.0574,
+        "rms": 0.0269,
+        "phase": 5,
+        "t": 108.0,
+        "distance": 42.2
+      },
+      {
+        "seed": 71006,
+        "fell_ever": 1,
+        "coverage": 0.0073,
+        "rms": 0.0342,
+        "phase": 5,
+        "t": 6.0,
+        "distance": 1.4
+      }
+    ],
+    "ruins dog": [
+      {
+        "seed": 71001,
+        "fell_ever": 1,
+        "coverage": 0.0412,
+        "rms": 0.0262,
+        "phase": 5,
+        "t": 181.0,
+        "distance": 58.0
+      },
+      {
+        "seed": 71002,
+        "fell_ever": 0,
+        "coverage": 0.0465,
+        "rms": 0.0261,
+        "phase": 5,
+        "t": 297.0,
+        "distance": 88.5
+      },
+      {
+        "seed": 71003,
+        "fell_ever": 0,
+        "coverage": 0.0129,
+        "rms": 0.0329,
+        "phase": 5,
+        "t": 80.0,
+        "distance": 22.1
+      },
+      {
+        "seed": 71004,
+        "fell_ever": 1,
+        "coverage": 0.0118,
+        "rms": 0.0443,
+        "phase": 5,
+        "t": 68.0,
+        "distance": 16.3
+      }
+    ],
+    "rubble carrier": [
+      {
+        "seed": 71001,
+        "fell_ever": 0,
+        "coverage": 0.9641,
+        "rms": 0.03,
+        "phase": 4,
+        "t": 1181.0,
+        "distance": 1447.5
+      },
+      {
+        "seed": 71002,
+        "fell_ever": 0,
+        "coverage": 0.9676,
+        "rms": 0.0292,
+        "phase": 3,
+        "t": 1217.9,
+        "distance": 1418.7
+      },
+      {
+        "seed": 71003,
+        "fell_ever": 0,
+        "coverage": 0.966,
+        "rms": 0.0297,
+        "phase": 4,
+        "t": 1188.0,
+        "distance": 1479.7
+      },
+      {
+        "seed": 71004,
+        "fell_ever": 0,
+        "coverage": 0.9603,
+        "rms": 0.0301,
+        "phase": 4,
+        "t": 1176.0,
+        "distance": 1440.9
+      },
+      {
+        "seed": 71005,
+        "fell_ever": 0,
+        "coverage": 0.959,
+        "rms": 0.0297,
+        "phase": 4,
+        "t": 1170.0,
+        "distance": 1439.2
+      },
+      {
+        "seed": 71006,
+        "fell_ever": 0,
+        "coverage": 0.9706,
+        "rms": 0.029,
+        "phase": 4,
+        "t": 1189.0,
+        "distance": 1480.1
+      }
+    ],
+    "ruins carrier": [
+      {
+        "seed": 71001,
+        "fell_ever": 0,
+        "coverage": 0.3725,
+        "rms": 0.0263,
+        "phase": 4,
+        "t": 1143.0,
+        "distance": 1011.8
+      },
+      {
+        "seed": 71002,
+        "fell_ever": 0,
+        "coverage": 0.349,
+        "rms": 0.0583,
+        "phase": 3,
+        "t": 1319.9,
+        "distance": 811.8
+      },
+      {
+        "seed": 71003,
+        "fell_ever": 0,
+        "coverage": 0.2027,
+        "rms": 0.0244,
+        "phase": 4,
+        "t": 1105.0,
+        "distance": 598.0
+      },
+      {
+        "seed": 71004,
+        "fell_ever": 0,
+        "coverage": 0.0246,
+        "rms": 0.0635,
+        "phase": 3,
+        "t": 1319.9,
+        "distance": 64.3
+      }
+    ]
+  }
+}
