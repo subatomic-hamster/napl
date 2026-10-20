@@ -1325,6 +1325,11 @@ def mc_card_lines(missions_json):
     d = json.loads(Path(missions_json).read_text())
     L = [
         f"{fam:8s} no-fall {s['k_nofall']}/{s['n']}   Wilson 95 % [{s['wilson_nofall'][0]:.2f}, {s['wilson_nofall'][1]:.2f}]"
+        + (
+            f"   mission success {s['k_success']}/{s['n']}, aborted {s['aborted']} ({s['abort_nofall']} with no truth fall)"
+            if "aborted" in s
+            else ""
+        )
         for fam, s in d["families"].items()
     ]
     for name, ms in d.get("missions", {}).items():
@@ -1332,7 +1337,13 @@ def mc_card_lines(missions_json):
             f"{name:8s} 100 x 100 m: "
             + "; ".join(
                 f"seed {m['seed']}: "
-                + ("fell" if m.get("fell_ever") else "no fall")
+                + (
+                    "fell"
+                    if m.get("fell_ever")
+                    else "aborted, no fall"
+                    if m.get("phase") == 5
+                    else "no fall"
+                )
                 + f", coverage {100 * m['coverage']:.0f} %"
                 for m in ms
             )
@@ -1422,9 +1433,16 @@ def cmd_encode(a):
         sm = json.loads(sjc.read_text())
         tap = TapData(sm["run"])
         summ = json.loads((Path(sm["run"]) / "summary.json").read_text())
-        what = (
-            f"fell at {summ['t']:.0f} s" if summ.get("fell_ever") else "no fall"
-        ) + f", {100 * summ['coverage']:.0f} % of the field mapped"
+        end = (
+            f"fell at {summ['t']:.0f} s"
+            if summ.get("fell_ever")
+            else (
+                f"aborted at {summ['t']:.0f} s by the controller's fall detector (no ground-truth fall)"
+                if summ.get("phase") == 5
+                else "no fall"
+            )
+        )
+        what = end + f", {100 * summ['coverage']:.0f} % of the field mapped"
         for fr in sm["frames"]:
             i = int(np.argmin(abs(tap.t - fr["t"])))
             sp = sim_time((fr["k"] + 1) / FPS) - sim_time(fr["k"] / FPS)
