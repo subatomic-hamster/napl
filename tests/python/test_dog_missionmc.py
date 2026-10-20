@@ -126,6 +126,7 @@ def test_unscored_coverage_and_aborts_do_not_break_the_summary():
     assert (
         s["aborted"] == 2 and s["k_nofall"] == 1 and s["fails"]["coverage"] == 2
     )  # an abort without a ground-truth fall is no-fall, still not a success
+    assert s["abort_nofall"] == 1 and "| 2 (1) |" in MC.results_table({"x": s}, {})
     assert (
         s["medians"]["coverage"] != s["medians"]["coverage"] and s["covs"] == []
     )  # all nan -> nan median, no crash
