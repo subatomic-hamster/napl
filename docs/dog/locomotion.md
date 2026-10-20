@@ -528,13 +528,13 @@ the 0.4 m/s dog_smoke are below the cap). Targeted loco tests: 62 passed, 1 skip
 
 ## Spec criteria (quadruped design s7)
 
-| criterion                                            | measured                                                                                                              | verdict                         |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| flat top speed >= 3.5 m/s                            | WBC (J^T stance torque, h 0.85) 2.0 m/s held-out median and minimum, 2.25 on the training seed; LOCO fix round 1      | **NOT met** (gap 1.25-1.5 m/s)  |
-| rocky field mean speed >= 1.5 m/s                    | round 3, terrain speed cap 0.8 m/s: rubble 12/40 reach the goal, mean 0.74 m/s (command 1.8 is beyond the controller) | **NOT met**                     |
-| 25-degree slopes and 15 cm steps traversed           | criterion course 0/20 (WBC), 0/10 (J^T); the 15 deg ramp is climbed (Task 8 test); 25 deg and 15 cm steps are not     | **NOT met**                     |
-| >= 90 % no-fall per terrain family, 95 % lower bound | no-fall lower bounds (WBC, n = 40, 61000-61039, round 3): rubble 18 %, slopes 0 %, scree 50 %, ruins 29 %, crit. 0 %  | **NOT met** in every family     |
-| BOM ~ 3-4.5 k USD                                    | 5,554 USD (SP3b, unchanged)                                                                                           | outside the plan's range (SP3b) |
+| criterion                                            | measured                                                                                                              | verdict                                    |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| flat top speed >= 2.0 m/s (was 3.5; user 2026-10-18) | WBC (J^T stance torque, h 0.85) 2.0 m/s held-out median and minimum, 2.25 on the training seed; LOCO fix round 1      | **met**, no margin (3.5: gap 1.25-1.5 m/s) |
+| rocky field mean speed >= 1.5 m/s                    | round 3, terrain speed cap 0.8 m/s: rubble 12/40 reach the goal, mean 0.74 m/s (command 1.8 is beyond the controller) | **NOT met**                                |
+| 25-degree slopes and 15 cm steps traversed           | criterion course 0/20 (WBC), 0/10 (J^T); the 15 deg ramp is climbed (Task 8 test); 25 deg and 15 cm steps are not     | **NOT met**                                |
+| >= 90 % no-fall per terrain family, 95 % lower bound | no-fall lower bounds (WBC, n = 40, 61000-61039, round 3): rubble 18 %, slopes 0 %, scree 50 %, ruins 29 %, crit. 0 %  | **NOT met** in every family                |
+| BOM ~ 3-4.5 k USD                                    | 5,554 USD (SP3b, unchanged)                                                                                           | outside the plan's range (SP3b)            |
 
 (The coverage criterion is SP5's.)
 

@@ -206,15 +206,16 @@ Also fix the known bug: the status-bar DRC message stays stale while the DRC chi
 
 ## 7. Success criteria (MC over seeds; reported honestly if missed)
 
-- flat top speed >= 2.0 m/s (user decision 2026-10-18; was 3.5 m/s. LOCO fix round 1 measured 2.0-2.25 m/s with the pack
-  at 114-142 A against its 120 A limit, so 3.5 m/s needs a higher-voltage pack the BOM cannot carry; see risk 3);
+- flat top speed >= 2.0 m/s (user decision 2026-10-18; was 3.5 m/s. LOCO fix round 1 measured 2.0-2.25 m/s; the faster rungs
+  draw 114-142 A against the 120 A limit, so 3.5 m/s needs a higher-voltage pack the BOM cannot carry; see risk 3);
 - rocky field mean speed >= 1.5 m/s;
 - 25-degree slopes and 15 cm steps traversed;
 - > = 90% no-fall per terrain family (MC n per family stated, with a 95% lower bound);
 - full autonomous coverage of a 100 x 100 m rocky field in <= 20 min with map height RMS <= 5 cm and >= 95% of the
   traversable area mapped;
 - ruins: the same criteria (<= 20 min, RMS <= 5 cm, >= 95% mapped) on a 50 x 50 m ruins site (~100 rooms). User decision
-  2026-10-17: 100 x 100 m ruins (400 rooms) needs >= 1995 m of path (~1330 s at 1.5 m/s), so 95% in 20 min is unreachable;
+  2026-10-17: 100 x 100 m ruins (400 rooms) needs >= 1995 m of path (~1330 s at 1.5 m/s), so 95% in 20 min is unreachable there, and the criterion moves to the
+  50 x 50 m site. User decision 2026-10-18: the 95% target stays on the 50 m site and its miss is documented (SP5 round 5);
 - BOM ~$3-4.5k with the estimated share stated.
 
 ## 8. Video (SP6)
