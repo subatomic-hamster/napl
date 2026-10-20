@@ -171,3 +171,22 @@ def test_heldout_refuses_without_rev_and_does_not_rerun(tmp_path):
                 str(tmp_path),
             ]
         )
+
+
+def test_readme_numbers_match_the_results_json():
+    import json
+    import re
+
+    readme = (ROOT / "docs" / "dog" / "README.md").read_text()
+    data = json.loads((ROOT / "docs" / "dog" / "missions.json").read_text())
+    for fam, s in data["families"].items():
+        assert f"{s['k_nofall']}/{s['n']}" in readme, fam  # the rate as k/n
+        assert f"{s['wilson_nofall'][0]:.2f}" in readme, fam  # and its lower bound
+        assert f"{s['k_success']}/{s['n']}" in readme, (
+            fam
+        )  # mission success is its own number
+    for c in MC.CRITERIA:
+        # (the plan compares c, a tuple, with a line; c[1] is the criterion's text)
+        line = next(ln for ln in readme.splitlines() if c[1].split(" (")[0] in ln)
+        assert re.search(r"\b(NOT MET|MET|not measured)\b", line), c[0]
+    assert "tuning" in readme.lower() and "held-out" in readme.lower()

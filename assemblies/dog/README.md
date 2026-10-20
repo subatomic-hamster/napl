@@ -94,6 +94,10 @@ Held-out terrain-family Monte Carlo (`examples/dog/dogmc.py`; 30 x 30 m fields, 
 no-fall 0-2 of 20 per family (Wilson 95 % lower bounds 0-3 %), 2 of 100 runs reached the route end. The >= 90 % no-fall, rocky 1.5 m/s and 25 deg / 15 cm criteria are NOT met; flat-ground
 diagnostics show that random-phase pushes and a 1 kg payload also topple the dog. Details, spec-criteria table and known gaps are in the doc.
 
+## Results, missions and the video
+
+Full-stack Monte Carlo per terrain family, the 100 x 100 m missions (dog and carrier labelled), every spec criterion as MET / NOT MET, the hardware recommendation and the video: `docs/dog/README.md`.
+
 ## Open items
 
 - Inrush precharge for the 100 A contactor and the PDB's 940 uF bus capacitance (not modelled).
