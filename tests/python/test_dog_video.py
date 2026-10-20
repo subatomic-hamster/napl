@@ -278,6 +278,24 @@ def test_results_json_round_trips_into_the_card(tmp_path):
     mj = tmp_path / "missions.json"
     mj.write_text(json.dumps(MC.results_json(by, {"bom_usd": 5554.0}, "abc")))
     lines = RD.mc_card_lines(mj)
+    assert any(
+        "mission success 0/2" in ln and "aborted 0 (0 with no truth fall)" in ln
+        for ln in lines
+    )
     assert any("1/2" in ln and "rubble" in ln for ln in lines) and any(
         ln.startswith("NOT MET") and "BOM" in ln for ln in lines
     )
+    ab = tmp_path / "ab.json"
+    ab.write_text(
+        json.dumps(
+            MC.results_json(
+                by,
+                {},
+                "abc",
+                {"dog": [dict(seed=7, fell_ever=0, phase=5, coverage=0.1)]},
+            )
+        )
+    )
+    assert any(
+        "seed 7: aborted, no fall" in ln for ln in RD.mc_card_lines(ab)
+    )  # an abort is never shown as a plain "no fall"

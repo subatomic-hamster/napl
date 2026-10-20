@@ -1,7 +1,8 @@
 # The dog video (SP6): construction, programming overview, simulation
 
-DRAFT recording of 2026-10-19. The video, its frames and its taps live on hfbox under `/workspace/wt/napl-skydio/out/dog/` and are never committed. The simulation
-part is a draft: it is re-recorded after the locomotion terrain round. Recorder: `tools/record_dog.py`; tests: `tests/python/test_dog_video.py`.
+FINAL recording of 2026-10-20 (the simulation part re-recorded on the final controller, LOCO round 3, rev `a884aa3`). The video (`out/dog/dog_e2e.webm` on hfbox, a copy in the laptop's gitignored
+`remote-out/videos/dog_e2e.webm`) and the two showcase run dirs live under `/workspace/wt/napl-skydio/out/dog/` and are never committed; the frame directories were deleted after the encode.
+Recorder: `tools/record_dog.py`; tests: `tests/python/test_dog_video.py`. Parts 1 (build, wiring, program, exploded view) are the 2026-10-19 captures, which do not depend on the controller.
 
 ## What is on screen and what is real
 
@@ -14,16 +15,17 @@ part is a draft: it is re-recorded after the locomotion terrain round. Recorder:
 | 1 Exploded view (12 s)    | the built MJCF with each sub-assembly's topmost body displaced, orbit camera                                                                                                                                                  | the built model                                                                                                                                                               | a render of a displaced copy of the MJCF; the wires are not drawn (the viewer has no explode op)                 |
 | 2 Programming (130-237 s) | seven block diagrams: estimator, MPC + WBC, gait and footholds, elevation map, localization, planner, executive                                                                                                               | every number is read from the tap of the ruins run shown in part 3 (`videotap.py`), the rates from `loco.controller` and `autonomy.toml`, the file names are the repository's | the diagrams are schematic drawings                                                                              |
 | 3 Simulation (237-325 s)  | the ruins showcase run replayed tick-exact (orbit camera, real time for 25 s then 4x, map shots with the mapped cells, planned path, trail and the estimated against the true pose), then the rubble short                    | `replay.naplog` applied to a fresh World; the replay hash is checked against the run's (exit code 1 otherwise)                                                                | lidar scan pattern is the published field of view and rosette; footfall contact is virtual; terrain is generated |
-| results cards (325-355 s) | Monte Carlo and criteria, then "what is real and what is a stand-in"                                                                                                                                                          | `docs/dog/missions.json` (pending: the draft says so on the card)                                                                                                             | none                                                                                                             |
+| results cards (325-355 s) | Monte Carlo and criteria, then "what is real and what is a stand-in"                                                                                                                                                          | `docs/dog/missions.json` (held-out MC and 100 m missions; dog and carrier rows labelled; a run that aborted without a ground-truth fall is shown as "aborted, no fall")       | none                                                                                                             |
 
 Showcase runs (seeds fixed before the runs, no search): `fam_ruins` seed 7002, `fam_rubble` seed 7001, both with the `[dog]` limits 0.4 m/s / 0.3 rad/s.
 
-| run                           | outcome                                                                                                                               | replay                                             |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| ruins 7002 (30 m, flat floor) | walked 207 s, then fell (`never_falls` FAIL); coverage 35.7 %, map RMS 1.98 cm, localization error at most 13 cm, did not return home | tick 207100, hash a95f02b26e1b9330, replay MATCHES |
-| rubble 7001 (30 m)            | fell at 15.1 s; coverage 13.5 %, map RMS 3.2 cm                                                                                       | tick 15100, hash 4146133955fc0207, replay MATCHES  |
+| run                           | outcome                                                                                                                                      | replay                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| ruins 7002 (30 m, flat floor) | walked 303 s, then fell (`fell_ever` 1, phase 5); coverage 64.0 %, map RMS 2.4 cm, 99 m walked, did not return home                          | hash b9d40ccb192c4900, 1890 frames, replay MATCHES |
+| rubble 7001 (30 m)            | ABORT at 16 s by the controller's fall detector with **no ground-truth fall** (`fell_ever` 0); coverage 13.8 %, map RMS 5.7 cm, 4.6 m walked | hash 33d2c53be09dc0e9, 322 frames, replay MATCHES  |
 
-The video shows both runs as they are; the captions state the outcome ("fell at 207 s", "fell at 15 s").
+The seeds 7001 and 7002 were chosen before any run (outside every MC block), the same seeds as the draft recording, and not searched. The earlier draft run of ruins 7002 (old controller) walked 207 s and fell at 35.7 %;
+the final controller walks 303 s and maps 64 %. The video shows both runs as they are; the captions state the outcome ("fell at 303 s, 64 % of the field mapped", "aborted at 16 s by the controller's fall detector (no ground-truth fall), 14 %").
 
 ## Commands (hfbox, from the worktree; `export NAPL_REMOTE_DIR=/workspace/wt/napl-skydio`, `O=$NAPL_REMOTE_DIR/out/dog`)
 
@@ -45,11 +47,24 @@ tools/remote.sh run --gpu '.venv/bin/python tools/record_dog.py explode $O/explo
 tools/remote.sh run --gpu '.venv/bin/python tools/record_dog.py sim $O/showcase_ruins/dog-fam-ruins-* $O/showcase/sim'
 tools/remote.sh run --gpu '.venv/bin/python tools/record_dog.py sim $O/showcase_rubble/dog-fam-rubble-* $O/short_rubble/sim'
 # encode (video venv; GStreamer VA AV1 .webm, LGPL; ffmpeg / libx264 only with --gpl)
-tools/remote.sh run --gpu '../vidvenv/bin/python tools/record_dog.py encode $O $O/dog_e2e_draft.webm --speedup 1.5'
+tools/remote.sh run --gpu '../vidvenv/bin/python tools/record_dog.py encode $O $O/dog_e2e.webm --speedup 1.5 --results docs/dog/missions.json'
 ../vidvenv/bin/python tools/record_dog.py png $O/build $O/png 200 500 900      # frames as PNG, to look at (a sim dir gets its HUD)
 ```
 
-## Measured (draft)
+## Measured (final, 2026-10-20)
+
+| item         | value                                                                                                                                                                                     |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| output       | `dog_e2e.webm`, 1280 x 828 (720 picture + 108 caption strip), 20 fps, 379.9 s (7598 frames), 67.0 MB, encoder gst-va (AV1); under the 480 s cap                                           |
+| timeline (s) | title 0, part 1 5, build 9, wiring 53, program 101, part 2 130, part 3 237, results 350, stand-ins 366                                                                                    |
+| frames       | build 2179 and explode 40 (from the 2026-10-19 capture), diagrams 2080 (104 s), ruins sim 1890, rubble sim 322; all deleted after the encode                                              |
+| GTT          | 181088256 bytes before and after the encode job (limit 4 GB); one GPU job at a time                                                                                                       |
+| checked      | the encoded file was decoded (GStreamer, 1 frame per 10 s) and sample frames viewed: the ruins orbit and map shots, the rubble short, a diagram, the Monte Carlo card, the stand-ins card |
+| mission runs | ruins 7002: about 24 min wall for 303 s of sim; rubble 7001: aborted at 16 s                                                                                                              |
+
+The table below is the earlier draft's measurement, kept for the part-1 capture times.
+
+## Measured (draft, 2026-10-19)
 
 | item         | value                                                                                                                                                                       |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -63,7 +78,8 @@ tools/remote.sh run --gpu '../vidvenv/bin/python tools/record_dog.py encode $O $
 ## Known limits
 
 - The exploded view has no wires (a displaced part would drag straight wire chords through other parts).
-- The sim part shows two runs that fall. It is a draft: the ruins clip is replaced after the locomotion terrain round, and the Monte Carlo card is empty until `docs/dog/missions.json` exists.
+- The sim part shows two runs that end early: the ruins showcase falls at 303 s (64 % mapped), the rubble short is aborted at 16 s by the controller's detector. The video does not hide this; the captions and the Monte Carlo card say so.
+- The Monte Carlo card is the plain text of `docs/dog/missions.json` (bool criteria print as True / False).
 - The slopes family is not shown; the diagrams are schematic and read their numbers from one run.
 - The leg document's `sub.open` / `sub.close` brings the whole dog back on close (seen in the first capture), so the op log hides the not-yet-built groups again.
 - `tools/record_turret.py build` needed its `--program-root` forwarding (commit 201d547) so the PROGRAM workspace opens `examples/dog` instead of the assembly's folder.

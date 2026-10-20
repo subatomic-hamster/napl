@@ -61,9 +61,10 @@ def test_seed_blocks_are_disjoint_and_heldout_needs_final_rev():  # Review Focus
             set(range(1, 31))
             | set(range(1001, 1026))
             | set(range(21000, 21101))
-            | set(range(31000, 31101))
+            | set(range(1000, 1010))
+            | {s for b in (31000, 41000, 51000, 61000) for s in range(b, b + 1000)}
         )
-    )  # 31000+ is SP4's fresh terrain MC (31000-31039)
+    )  # SP4's terrain MC / training blocks: 31000+, 41000+, 51000+, 61000+ (n = 40 each, 1000 reserved)
     with pytest.raises(ValueError, match="rev"):
         MC.check_heldout_rev([dict(rev="abc"), dict(rev="def")])
     MC.check_heldout_rev([dict(rev="abc"), dict(rev="abc")])
@@ -115,6 +116,22 @@ def test_flat_top_speed_target_is_the_lowered_2_0():
     )
 
 
+def test_unscored_coverage_and_aborts_do_not_break_the_summary():
+    nan = float("nan")
+    rows = [
+        row(1, coverage=nan, phase=5, fell_ever=1),
+        row(2, coverage=nan, rms=nan, phase=5, fell_ever=0),
+    ]
+    s = MC.summarize(rows, 420.0)
+    assert (
+        s["aborted"] == 2 and s["k_nofall"] == 1 and s["fails"]["coverage"] == 2
+    )  # an abort without a ground-truth fall is no-fall, still not a success
+    assert s["abort_nofall"] == 1 and "| 2 (1) |" in MC.results_table({"x": s}, {})
+    assert (
+        s["medians"]["coverage"] != s["medians"]["coverage"] and s["covs"] == []
+    )  # all nan -> nan median, no crash
+
+
 def test_family_scenarios_exist_and_n_spec_parses():
     for fam in MC.FAMILIES:
         assert MC.scenario_path(fam).exists()
@@ -154,3 +171,22 @@ def test_heldout_refuses_without_rev_and_does_not_rerun(tmp_path):
                 str(tmp_path),
             ]
         )
+
+
+def test_readme_numbers_match_the_results_json():
+    import json
+    import re
+
+    readme = (ROOT / "docs" / "dog" / "README.md").read_text()
+    data = json.loads((ROOT / "docs" / "dog" / "missions.json").read_text())
+    for fam, s in data["families"].items():
+        assert f"{s['k_nofall']}/{s['n']}" in readme, fam  # the rate as k/n
+        assert f"{s['wilson_nofall'][0]:.2f}" in readme, fam  # and its lower bound
+        assert f"{s['k_success']}/{s['n']}" in readme, (
+            fam
+        )  # mission success is its own number
+    for c in MC.CRITERIA:
+        # (the plan compares c, a tuple, with a line; c[1] is the criterion's text)
+        line = next(ln for ln in readme.splitlines() if c[1].split(" (")[0] in ln)
+        assert re.search(r"\b(NOT MET|MET|not measured)\b", line), c[0]
+    assert "tuning" in readme.lower() and "held-out" in readme.lower()

@@ -1,7 +1,7 @@
 """Full-stack Monte Carlo of the dog per terrain family (SP6; spec s7: '>= 90 % no-fall per terrain family (MC n per family stated, with a 95 %
 lower bound)', 'full autonomous coverage ... <= 20 min, map height RMS <= 5 cm, >= 95 % mapped'). One automission.py process per seed.
 Verdicts are ground truth: a fall is summary['fell_ever'] (max of the ground-truth `fallen` column), a crash or a timeout stays in the denominator.
-Seeds: TUNE 5001+ (any tuning, each change logged), HELD 33001+ (flown once with the final code; every row records the code revision).
+Seeds: TUNE 5001+ (any tuning, each change logged), HELD 71001+ (flown once with the final code; every row records the code revision).
 
     python examples/dog/missionmc.py --family all|rubble|slopes|scree|ruins --block tune|held --n 12 | rubble=20,slopes=12,... --jobs 4 --rev REV --out DIR
 
@@ -38,8 +38,8 @@ FAMILIES = {
 }
 TUNE_BASE, HELD_BASE = (
     5001,
-    33001,
-)  # 31001+ (this plan's first choice) was taken by SP4's fresh terrain MC (31000-31039): moved
+    71001,
+)  # SP4 / SP5 took 1-30, 1000-1025, 21000+, 31000+, 41000+, 51000+, 61000+; the plan's 31001+ and then 33001+ overlapped them: 71001+
 CRITERIA = [  # (key, text, op, target): the spec section 7 rows SP6 reports
     ("top_speed_flat", "flat top speed >= 2.0 m/s", ">=", 2.0),  # was 3.5: user decision 2026-10-18 (spec s7)
     ("rocky_speed", "rocky field mean speed >= 1.5 m/s", ">=", 1.5),
@@ -92,21 +92,26 @@ def summarize(rows, t_budget):
     ok = [r for r in rows if "error" not in r]
     med = (
         {
-            c: statistics.median(r[c] for r in ok)
+            c: statistics.median(
+                [v for v in (r[c] for r in ok) if v == v] or [float("nan")]
+            )  # nan (coverage not yet scored at the abort) skipped
             for c in ("coverage", "rms", "t", "distance")
         }
         if ok
         else {}
     )
+    # aborted: phase 5 (ABORT = the robot's own FALLEN detector fired); it can be higher than `fell` (ground truth), which is what the verdict uses
     return dict(n=n, k_nofall=k_nf, k_success=k_ok, wilson_nofall=wilson(k_nf, n), wilson_success=wilson(k_ok, n),
-                fails={k: sum(k in w for w in why) for k in FAIL_KEYS}, medians=med, covs=sorted(r["coverage"] for r in ok))  # fmt: skip
+                fails={k: sum(k in w for w in why) for k in FAIL_KEYS}, medians=med, aborted=sum(r.get("phase") == 5 for r in ok),
+                abort_nofall=sum(r.get("phase") == 5 and not r.get("fell_ever", r.get("fallen", 0)) for r in ok),
+                covs=sorted(r["coverage"] for r in ok if r["coverage"] == r["coverage"]))  # fmt: skip
 
 
 def results_table(by_family, extra):
     """Markdown: one row per family (k/n, rate, Wilson interval, failure causes, medians), then one row per spec criterion with its measured value and
     MET / NOT MET / not measured. The no-fall row is MET only if the POINT rate is >= 0.90 for every family measured; a lower bound under 0.90 is stated."""
-    L = ["| family | no-fall k/n | rate | Wilson 95 % | mission success k/n | failures (crashed fell coverage rms not_home late) | median coverage / RMS / time / distance |",
-         "|---|---|---|---|---|---|---|"]  # fmt: skip
+    L = ["| family | no-fall k/n | rate | Wilson 95 % | mission success k/n | aborted (of which no truth fall) | failures (crashed fell coverage rms not_home late) | median coverage / RMS / time / distance |",
+         "|---|---|---|---|---|---|---|---|"]  # fmt: skip
     for fam, s in by_family.items():
         lo, hi = s["wilson_nofall"]
         m = s["medians"]
@@ -115,8 +120,8 @@ def results_table(by_family, extra):
             if m
             else "no completed run"
         )
-        L.append(f"| {fam} | {s['k_nofall']}/{s['n']} | {s['k_nofall'] / s['n']:.2f} | [{lo:.2f}, {hi:.2f}] | {s['k_success']}/{s['n']} | "
-                 + " ".join(str(s["fails"][k]) for k in FAIL_KEYS) + f" | {med} |")  # fmt: skip
+        L.append(f"| {fam} | {s['k_nofall']}/{s['n']} | {s['k_nofall'] / s['n']:.2f} | [{lo:.2f}, {hi:.2f}] | {s['k_success']}/{s['n']} | {s['aborted']} ({s['abort_nofall']}) | "
+                 +" ".join(str(s["fails"][k]) for k in FAIL_KEYS) + f" | {med} |")  # fmt: skip
     L += ["", "| spec criterion | measured | verdict |", "|---|---|---|"]
     L += [
         f"| {r['text']} | {r['measured']} | {r['verdict']} |"
