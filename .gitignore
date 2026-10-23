@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 .ruff_cache/
 remote-out/
+Unified Robotics & Defense Simulator — Landscape Research.md
 
 # Rendered media (screenshots, footage) are regenerated on the host, never committed; test goldens live in tests/data/.
 docs/**/*.png
