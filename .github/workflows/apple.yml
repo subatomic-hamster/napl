@@ -18,9 +18,12 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: '2'
       NAPL_PROFILE: background
       PYTHON_VERSION: ${{ inputs.python_version }}
-      ROOT: ${{ runner.temp }}/napl-apple-${{ github.run_id }}
-      CACHE: ${{ runner.tool_cache }}/napl-apple/${{ github.repository }}
     steps:
+      # runner.* is not available in job-level env; export the per-run paths for later steps.
+      - name: Set build paths
+        run: |
+          echo "ROOT=$RUNNER_TEMP/napl-apple-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+          echo "CACHE=$RUNNER_TOOL_CACHE/napl-apple/$GITHUB_REPOSITORY" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - name: Check prerequisites and fingerprint toolchain
         id: toolchain
