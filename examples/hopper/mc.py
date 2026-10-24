@@ -14,7 +14,7 @@ Run it under the CPU lock with an outer timeout: flock /workspace/wt/napl/.cpu.l
 
 import argparse
 import json
-import multiprocessing as mp
+from napl.runtime import BatchPool
 import os
 import shutil
 import sys
@@ -53,6 +53,7 @@ def one(args):
     res, rows = r["res"], r["rows"]
     hover = max((row[13] for row in rows), default=0.0)
     return dict(
+        tick=int(r["sim"].tick), state_hash=f'{r["sim"].state_hash():016x}',
         seed=int(seed), landed=int(res["landed"]), aborted=int(bool(res["abort"]) or res["state"] == "FAULT"), td_speed=float(res["td_speed"]), td_tilt=float(res["td_tilt"]),
         td_dist=float(res["td_dist"]), final_tilt=float(res["final_tilt"]), sat=float(res["sat_frac"]), sat_yaw=float(res["sat_yaw_frac"]),v_min=float(res["v_min"]), soc_min=float(res["soc_min"]),
         hover_err=float(hover), diverged=int(res["diverged"]), wind=float(np.hypot(h["wind"][0], h["wind"][1])), state=res["state"], abort=res["abort"],
@@ -187,7 +188,7 @@ def main(argv=None):
         "over": base,
         "criteria": dict(speed=MAX_SPEED, tilt=MAX_TILT, dist=MAX_DIST),
     }
-    with mp.get_context("spawn").Pool(a.workers) as pool:
+    with BatchPool(a.workers) as pool:
         train = {}
         cands = json.loads(a.cands)
         if a.pick is None:

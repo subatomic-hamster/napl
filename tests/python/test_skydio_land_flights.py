@@ -92,26 +92,26 @@ def test_short_flight_replays_bit_identically(tmp_path):
 @needs_kernel
 @pytest.mark.parametrize("name", sorted(GOLDEN))
 def test_scenario_passes_replays_and_matches_its_golden_hash(
-    tmp_path, monkeypatch, name
+    tmp_path, monkeypatch, name, unsandboxed_scenario
 ):
     monkeypatch.setenv("SKYDIO_CAL", str(tmp_path / "cal"))
     monkeypatch.setenv(
         "NAPL_ROUTE_CACHE", str(tmp_path / "route-cache")
     )  # (the ship scenes route hundreds of wires)
-    res, _ = program.run(EX / f"{name}.scenario.toml", tmp_path / "runs")
+    res, _ = program.run(unsandboxed_scenario(EX / f"{name}.scenario.toml"), tmp_path / "runs")
     assert res["replay"]["available"] and res["replay"]["match"]
     assert res["pass"], res["fail_reasons"]
-    assert GOLDEN[name] is None or res["sim"]["state_hash"] == GOLDEN[name], res["sim"][
-        "state_hash"
-    ]
+    if sys.platform != "darwin":
+        assert res["sim"]["state_hash"] == GOLDEN[name], res["sim"]["state_hash"]
 
 
 @needs_kernel
-def test_run_slot_runs_a_landing_scenario_live(tmp_path, monkeypatch):
+def test_run_slot_runs_a_landing_scenario_live(tmp_path, monkeypatch, unsandboxed_scenario):
     """The viewer's Run button on examples/skydio-land: the forest landing runs LIVE, passes, and ends on the same bits as `napl program`."""
     monkeypatch.setenv("SKYDIO_CAL", str(tmp_path / "cal"))
     d = Design.open(REPO / "assemblies" / "skydio-land.toml")
-    b = Backend(lambda: d, tmp_path / "out", program_root=EX)
+    scenario = unsandboxed_scenario(EX / "forest/clearing.scenario.toml")
+    b = Backend(lambda: d, tmp_path / "out", program_root=scenario.parents[1])
     b.sim = napl.Sim.load(b.state(d)["xml"], root=b.out, host=True)
     b.run_rate = 0.0
     rid = ask(
@@ -128,7 +128,5 @@ def test_run_slot_runs_a_landing_scenario_live(tmp_path, monkeypatch):
     res = r["result"]
     assert r["state"] == "done" and res["pass"], (res.get("fail_reasons"), out[-1500:])
     assert res["replay"]["match"]
-    assert (
-        GOLDEN["forest/clearing"] is None
-        or res["sim"]["state_hash"] == GOLDEN["forest/clearing"]
-    )
+    if sys.platform != "darwin":
+        assert res["sim"]["state_hash"] == GOLDEN["forest/clearing"], res["sim"]["state_hash"]

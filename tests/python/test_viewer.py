@@ -19,7 +19,7 @@ DATA = Path(__file__).resolve().parents[2] / "tests" / "data"
 PENDULUM = DATA / "pendulum.xml"
 HINGE = "/world/pole/hinge"
 needs_display = pytest.mark.skipif(
-    not os.environ.get("DISPLAY"), reason="needs a display: run under xvfb-run"
+    sys.platform != "darwin" and not os.environ.get("DISPLAY"), reason="needs a display: run under xvfb-run"
 )
 
 
@@ -86,6 +86,7 @@ def test_mcp_play_pause_tools_only_when_host_backed(tmp_path):
     assert paused > 0 and after == paused + 3  # frozen while paused, exact step
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Cocoa does not use DISPLAY")
 def test_show_without_display_is_a_runtime_error_and_the_sim_survives(monkeypatch):
     monkeypatch.delenv("DISPLAY", raising=False)
     s = napl.Sim.load(PENDULUM)
@@ -93,6 +94,19 @@ def test_show_without_display_is_a_runtime_error_and_the_sim_survives(monkeypatc
     with pytest.raises(RuntimeError, match="DISPLAY"):
         s.show(frames=1)
     assert s.tick == 4  # the World was handed back
+    assert s.step(1) == 5
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Cocoa main-thread contract")
+def test_off_main_thread_show_rejects_and_returns_the_world():
+    from concurrent.futures import ThreadPoolExecutor
+
+    s = napl.Sim.load(PENDULUM)
+    s.step(4)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with pytest.raises(RuntimeError, match="main thread"):
+            pool.submit(s.show, frames=1).result()
+    assert s.tick == 4
     assert s.step(1) == 5
 
 

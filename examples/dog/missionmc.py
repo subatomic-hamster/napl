@@ -22,7 +22,6 @@ import sys
 import threading
 import time
 import tomllib
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -185,7 +184,8 @@ def one(family, seed, out, rev):
     sc = scenario_path(family)
     d = Path(out) / f"seed{seed}"
     d.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "NAPL_PARAMS": json.dumps({"seed": seed})}
+    from napl.runtime import child_environment
+    env = child_environment({"NAPL_PARAMS": json.dumps({"seed": seed})})
     wall = tomllib.loads(sc.read_text())["limits"]["wall_s"]
     t0 = time.perf_counter()
     try:
@@ -232,7 +232,7 @@ def main(argv=None):
     ap.add_argument("--family", default="all")
     ap.add_argument("--block", choices=("tune", "held"), required=True)
     ap.add_argument("--n", required=True)
-    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--jobs", type=int, default=None, help="upper bound; default follows the execution policy")
     ap.add_argument(
         "--rev",
         help="code revision (git rev-parse --short HEAD); required for --block held",
@@ -267,7 +267,8 @@ def main(argv=None):
                     f.write(json.dumps(row) + "\n")
             return row
 
-        with ThreadPoolExecutor(a.jobs) as ex:
+        from napl.runtime import BatchPool
+        with BatchPool(a.jobs, threads=True) as ex:
             list(ex.map(run, seeds(a.block, ns[fam])))
         if a.block == "held":
             check_heldout_rev(rows)

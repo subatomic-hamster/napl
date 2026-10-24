@@ -18,7 +18,6 @@ import os
 import shutil
 import sys
 import tempfile
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -158,7 +157,7 @@ def main(argv=None):
         help="safety-stress episodes (a person walks through, person misses up to 15 %%)",
     )
     ap.add_argument(
-        "--workers", type=int, default=int(os.environ.get("NAPL_THREADS", 4))
+        "--workers", type=int, default=None, help="upper bound; default follows the execution policy"
     )
     ap.add_argument("--seed0", type=int, default=0)
     ap.add_argument("--out", default="build/mc")
@@ -193,12 +192,10 @@ def main(argv=None):
         name, kw, seed = draw_person(i, a.seed0)
         kw["fire_cfg"] = fire_cfg
         jobs.append(("person", name, kw, seed, str(out), base))
-    import multiprocessing as mp
 
-    with ProcessPoolExecutor(
-        max_workers=a.workers, mp_context=mp.get_context("spawn")
-    ) as ex:
-        res = list(ex.map(episode, jobs, chunksize=1))
+    from napl.runtime import BatchPool
+    with BatchPool(a.workers) as ex:
+        res = ex.map(episode, jobs)
     (out / "mc.json").write_text(json.dumps(res, indent=1, default=float))
     cells = {}
     for r in res:

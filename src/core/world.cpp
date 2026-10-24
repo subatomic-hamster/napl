@@ -1,7 +1,24 @@
 #include "core/world.h"
+#include "core/exec_policy.h"
 
 #include <cstring>
 #include <stdexcept>
+
+void World::step(int n) {
+  execution::initialize();
+  execution::QosScope qos;
+  thread_local execution::Governor governor;
+  std::uint64_t advanced = 0;
+  for (int i = 0; i < n; ++i) {
+    governor.starting_step(qos);
+    const int done = solver_->step(1);
+    advanced += static_cast<std::uint64_t>(done);
+    governor.completed_step(qos);
+    if (done == 0) break;
+  }
+  tick_ += advanced;
+  if (log_) log_->set_final_tick(tick_);
+}
 
 std::vector<std::byte> World::save() const {
   std::vector<std::byte> s = solver_->save();

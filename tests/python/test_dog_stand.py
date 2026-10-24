@@ -18,10 +18,6 @@ needs_kernel = pytest.mark.skipif(napl._napl is None, reason="kernel not built")
 GOLDEN = "be1847a2fba03440"  # stand.scenario.toml: res["sim"]["state_hash"] (hfbox, 5000 ticks)
 
 
-def test_golden_is_recorded():
-    assert GOLDEN, "record the stand scenario's state hash (Task 8 Step 5)"
-
-
 def test_ik_round_trip():
     l1, l2 = 0.22, 0.245
     for d in (0.30, 0.38, l1 + l2):
@@ -76,6 +72,6 @@ def test_stand_scenario_passes_replays_and_matches_golden(tmp_path):
     res, _ = program.run(EX / "stand.scenario.toml", tmp_path / "runs")
     assert res["pass"], res["fail_reasons"]
     assert res["replay"]["available"] and res["replay"]["match"]
-    assert GOLDEN is None or res["sim"]["state_hash"] == GOLDEN, res["sim"][
-        "state_hash"
-    ]
+    # hfbox's Linux golden is not an arm64/macOS bitwise oracle; exact local replay above is.
+    if sys.platform != "darwin":
+        assert res["sim"]["state_hash"] == GOLDEN, res["sim"]["state_hash"]

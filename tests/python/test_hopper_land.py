@@ -12,6 +12,7 @@ import napl
 import numpy as np
 import pytest
 from napl import params as nparams
+from napl import program
 
 # the vessel's ~40 wires take minutes to route cold; wireroute caches them on disk (the same cache as test_ship / test_asv)
 os.environ.setdefault(
@@ -256,6 +257,15 @@ GOLDEN = {
 }
 
 
+def _assert_scenario_replay(sim, key, tmp):
+    log = tmp / "replay.naplog"
+    log.write_bytes(sim.log())
+    # Replay must execute on every platform, including those without a compatible hfbox golden.
+    assert program.replay_hash(log, tmp / "m") == (sim.tick, f"{sim.state_hash():016x}")
+    if sys.platform != "darwin":
+        assert f"{sim.state_hash():016x}" == GOLDEN[key]
+
+
 @needs_kernel
 @pytest.mark.parametrize("key", [k for k in GOLDEN if k != "osv/underway"])
 def test_the_scenarios_replay_to_their_golden_state_hash_and_pass_their_limits(
@@ -267,7 +277,7 @@ def test_the_scenarios_replay_to_their_golden_state_hash_and_pass_their_limits(
         "events"
     ]
     assert res["td_speed"] < 0.5 and res["td_tilt"] < 5.0 and res["td_dist"] < 0.5
-    assert f"{r['sim'].state_hash():016x}" == GOLDEN[key]
+    _assert_scenario_replay(r["sim"], key, tmp_path)
 
 
 @needs_kernel
@@ -282,7 +292,7 @@ def test_a_hop_off_and_back_onto_the_underway_vessels_helipad(tmp_path):
     assert max(z) > 11.0
     x = [row[lh.COLS.index("x_m")] for row in r["rows"]]
     assert max(x) > 20.0  # the vessel was underway: the hopper flew along with it
-    assert f"{r['sim'].state_hash():016x}" == GOLDEN["osv/underway"]
+    _assert_scenario_replay(r["sim"], "osv/underway", tmp_path)
 
 
 # ------------------------------------------------------------------------------------------------------------------------------- MC helpers

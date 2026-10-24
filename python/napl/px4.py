@@ -25,12 +25,12 @@ import threading
 import time
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
+from ._resources import repo_root as _repo_root, data_dir as _data_dir, bin_dir as _bin_dir, replay_exe as _replay_exe
+REPO = _repo_root() or _data_dir()
 PX4_DIR = Path(os.environ.get("NAPL_PX4_DIR", "/workspace/wt/napl/px4/src"))
 BUILD = PX4_DIR / "build" / "px4_sitl_default"
 PX4_BIN = BUILD / "bin" / "px4"
-BRIDGE = Path(os.environ.get("NAPL_BRIDGE_EXE", REPO / "build" / "napl-px4-bridge"))
-REPLAY = Path(os.environ.get("NAPL_REPLAY_EXE", REPO / "build" / "napl-replay"))
+BRIDGE = Path(os.environ.get("NAPL_BRIDGE_EXE", _bin_dir() / "napl-px4-bridge"))
 PARAMS = REPO / "px4" / "params" / "napl_sitl.params"
 FORBIDDEN = set(range(5177, 5195)) | {8000, 8010, 8093}
 
@@ -44,10 +44,13 @@ def skip_reason():
     for what, p in (
         ("PX4 binary", PX4_BIN),
         ("bridge exe", BRIDGE),
-        ("napl-replay", REPLAY),
     ):
         if not p.exists():
             return f"{what} missing: {p}"
+    try:
+        _replay_exe()
+    except FileNotFoundError as error:
+        return str(error)
     return None
 
 

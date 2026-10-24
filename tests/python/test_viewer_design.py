@@ -4,6 +4,7 @@ run under `xvfb-run -a`) must end in the design and DRC state the API reaches.""
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import napl
@@ -15,7 +16,7 @@ REPO = Path(__file__).resolve().parents[2]
 X500 = REPO / "assemblies" / "x500v2.toml"
 GPS = "holybro-m8n-gps"
 needs_display = pytest.mark.skipif(
-    not os.environ.get("DISPLAY"), reason="needs a display: run under xvfb-run"
+    sys.platform != "darwin" and not os.environ.get("DISPLAY"), reason="needs a display: run under xvfb-run"
 )
 
 

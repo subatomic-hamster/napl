@@ -1,0 +1,132 @@
+name: napple (Apple Silicon) wheel
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: Installed native CPython version
+        required: false
+        default: '3.12'
+
+jobs:
+  build-wheel:
+    if: github.ref == 'refs/heads/napple' || startsWith(github.ref, 'refs/tags/napple-') || startsWith(github.ref, 'refs/heads/experiment/apple-silicon')
+    runs-on: [self-hosted, apple-silicon]
+    timeout-minutes: 60
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      NAPL_PROFILE: background
+      PYTHON_VERSION: ${{ inputs.python_version }}
+      ROOT: ${{ runner.temp }}/napl-apple-${{ github.run_id }}
+      CACHE: ${{ runner.tool_cache }}/napl-apple/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check prerequisites and fingerprint toolchain
+        id: toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          command -v uv
+          command -v cmake
+          command -v ninja
+          command -v "python$PYTHON_VERSION"
+          mkdir -p "$ROOT/dist" "$CACHE"
+          uv venv -p "python$PYTHON_VERSION" "$ROOT/build-venv"
+          uv pip install --python "$ROOT/build-venv/bin/python" build scikit-build-core==1.1.1
+          "$ROOT/build-venv/bin/python" - <<'PY'
+          import hashlib, json, os, pathlib, platform, subprocess, sys
+          def cmd(*args):
+              return subprocess.check_output(args, text=True).strip()
+          toolchain = dict(compiler=cmd('clang','--version'), sdk=cmd('xcrun','--sdk','macosx','--show-sdk-version'),
+                           sdk_path=cmd('xcrun','--sdk','macosx','--show-sdk-path'), cmake=cmd('cmake','--version'),
+                           architecture=platform.machine(), python=sys.version, configuration='RelWithDebInfo',
+                           deployment_target='14.0', viewer=True, testing=False)
+          fingerprint = hashlib.sha256(json.dumps(toolchain,sort_keys=True).encode()).hexdigest()[:24]
+          metadata = dict(source_sha=os.environ['GITHUB_SHA'], source_dirty=False, toolchain=toolchain,
+                          dependency_manifest_sha256=hashlib.sha256(pathlib.Path('cmake/deps.cmake').read_bytes()).hexdigest(),
+                          hardware=dict(chip=cmd('sysctl','-n','machdep.cpu.brand_string'),
+                                        physical_cores=int(cmd('sysctl','-n','hw.physicalcpu')),
+                                        memory_bytes=int(cmd('sysctl','-n','hw.memsize')), os=platform.platform()))
+          pathlib.Path(os.environ['ROOT'],'build-metadata.json').write_text(json.dumps(metadata,indent=2)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f'fingerprint={fingerprint}\n')
+          PY
+      - name: Cache pinned source trees and downloaded archives
+        id: sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.CACHE }}/deps/*-src
+            ${{ env.CACHE }}/deps/*-subbuild/*-populate-prefix/src
+          key: apple-arm64-sources-${{ hashFiles('cmake/deps.cmake') }}
+      - name: Cache matching native configuration
+        id: native
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.CACHE }}/build
+            ${{ env.CACHE }}/deps/*-build
+          key: apple-arm64-native-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'src/**', 'include/**', 'schema/**', 'shaders/**') }}
+          restore-keys: apple-arm64-native-${{ steps.toolchain.outputs.fingerprint }}-
+      - name: Configure dependencies separately from native compilation
+        run: |
+          SECONDS=0
+          taskpolicy -b cmake -S "$GITHUB_WORKSPACE" -B "$CACHE/build" -G Ninja \
+            -DFETCHCONTENT_BASE_DIR="$CACHE/deps" -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DPython_EXECUTABLE="$ROOT/build-venv/bin/python" \
+            -DNAPL_PYTHON=ON -DNAPL_VIEWER=ON -DBUILD_TESTING=OFF
+          printf '%s\n' "$SECONDS" > "$ROOT/configure-dependency-seconds"
+      - name: Build private experimental wheel
+        env:
+          SOURCE_CACHE_HIT: ${{ steps.sources.outputs.cache-hit }}
+          NATIVE_CACHE_HIT: ${{ steps.native.outputs.cache-hit }}
+        run: |
+          SECONDS=0
+          taskpolicy -b "$ROOT/build-venv/bin/python" -m build --wheel --no-isolation \
+            --config-setting=build-dir="$CACHE/build" \
+            --config-setting=wheel.build-tag="1napple${GITHUB_SHA:0:12}" \
+            --config-setting=cmake.define.FETCHCONTENT_BASE_DIR="$CACHE/deps" \
+            --config-setting=cmake.define.CMAKE_OSX_ARCHITECTURES=arm64 \
+            --config-setting=cmake.define.CMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            --config-setting=cmake.define.NAPL_PYTHON=ON \
+            --config-setting=cmake.define.NAPL_VIEWER=ON \
+            --config-setting=cmake.define.BUILD_TESTING=OFF -o "$ROOT/dist"
+          export BUILD_SECONDS="$SECONDS"
+          "$ROOT/build-venv/bin/python" - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ['ROOT'],'build-metadata.json')
+          meta = json.loads(p.read_text())
+          meta['timing'] = dict(configure_dependency_seconds=int(p.with_name('configure-dependency-seconds').read_text()),
+                                native_wheel_seconds=int(os.environ['BUILD_SECONDS']),
+                                source_cache_hit=os.environ['SOURCE_CACHE_HIT']=='true',
+                                exact_native_cache_hit=os.environ['NATIVE_CACHE_HIT']=='true')
+          p.write_text(json.dumps(meta,indent=2)+'\n')
+          PY
+          cp cmake/deps.cmake "$ROOT/dist/dependency-pins.cmake"
+          cp "$ROOT/build-metadata.json" "$ROOT/dist/build-metadata.json"
+      - name: Qualify installed wheel with checkout inaccessible and package read-only
+        run: |
+          uv venv -p "python$PYTHON_VERSION" "$ROOT/smoke"
+          uv pip install --python "$ROOT/smoke/bin/python" "$ROOT"/dist/*.whl
+          # -ffp-contract=off: the smoke's Python reference evaluates shm_ctrl_at without arm64 FMA contraction.
+          xcrun clang++ -std=c++20 -ffp-contract=off -arch arm64 -mmacosx-version-min=14.0 -I include -I tests/cpp tests/cpp/shm_test_client.cpp -o "$ROOT/shm-smoke-client"
+          cp tools/apple_wheel_smoke.py "$ROOT/apple_wheel_smoke.py"
+          export PACKAGE="$("$ROOT/smoke/bin/python" -c 'import pathlib,napl; print(pathlib.Path(napl.__file__).parent)')"
+          "$ROOT/build-venv/bin/python" - <<'PY'
+          import json, os, pathlib
+          profile = '(version 1)(allow default)(deny file-read* (subpath '+json.dumps(os.environ['GITHUB_WORKSPACE'])+'))'
+          profile += '(deny file-write* (subpath '+json.dumps(os.environ['PACKAGE'])+'))'
+          pathlib.Path(os.environ['ROOT'],'qualification.sb').write_text(profile)
+          PY
+          cd "$ROOT"
+          # Unset the build-time profile so the smoke exercises the wheel's own Apple default.
+          env -u NAPL_PROFILE /usr/bin/sandbox-exec -f "$ROOT/qualification.sb" "$ROOT/smoke/bin/python" \
+            "$ROOT/apple_wheel_smoke.py" "$ROOT"/dist/*.whl --output "$ROOT/dist/qualification" \
+            --metadata "$ROOT/build-metadata.json" --shm-client "$ROOT/shm-smoke-client" --visible
+          "$ROOT/smoke/bin/napl" --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: napple-${{ github.sha }}
+          path: ${{ env.ROOT }}/dist/**
+          retention-days: 30

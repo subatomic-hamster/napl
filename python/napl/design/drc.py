@@ -243,8 +243,8 @@ def _n(x):
 
 
 def _default_parts() -> Path:
-    repo = Path(__file__).resolve().parents[3] / "parts"
-    return repo if repo.is_dir() else Path("parts")
+    from .._resources import parts_dir
+    return parts_dir()
 
 
 def _ids(xs, k=3) -> str:

@@ -7,6 +7,7 @@ import os
 import re
 import select
 import subprocess
+import sys
 import time
 import tty
 from math import pi
@@ -869,7 +870,8 @@ def sdk(port):
     pytest.importorskip("serial")
     ph = sdk.PortHandler(port.device_path)
     pk = sdk.PacketHandler(2.0)
-    assert ph.openPort() and ph.setBaudRate(1_000_000)
+    # Host PTY termios speed is independent of the simulated wire's 1 Mbaud.
+    assert ph.setBaudRate(115200 if sys.platform == "darwin" else 1_000_000)
     yield sdk, ph, pk
     ph.closePort()
 
@@ -970,7 +972,7 @@ def live(sim):
     sdk = pytest.importorskip("dynamixel_sdk")
     with DynamixelPort(sim, SERVOS, models=MODELS, realtime=True) as p:
         ph = sdk.PortHandler(p.device_path)
-        assert ph.openPort() and ph.setBaudRate(1_000_000)
+        assert ph.setBaudRate(115200 if sys.platform == "darwin" else 1_000_000)
         assert sim.call({"cmd_type": "Run", "cmd": {"rate": 1.0}})["ok"]
         yield sdk, ph, sdk.PacketHandler(2.0), sim, p
         sim.call({"cmd_type": "Pause", "cmd": {}})

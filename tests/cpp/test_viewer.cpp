@@ -17,6 +17,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <thread>
 
 #include "core/host.h"
 #include "mujoco/mujoco_solver.h"
@@ -45,7 +46,13 @@ Session session() {
 }
 World pendulum() { return World(load_mujoco, kModel); }
 
-bool have_display() { return std::getenv("DISPLAY") && *std::getenv("DISPLAY"); }
+bool have_display() {
+#ifdef __APPLE__
+  return true;  // Cocoa has no DISPLAY variable: exercise the actual logged-in session.
+#else
+  return std::getenv("DISPLAY") && *std::getenv("DISPLAY");
+#endif
+}
 #define NEED_DISPLAY() \
   if (!have_display()) GTEST_SKIP() << "needs a display: run under xvfb-run"
 
@@ -190,6 +197,7 @@ TEST(viewer_smoke, napl_view_cli_log_replays_with_napl_replay) {
 }
 
 // Not window tests: they must hold with or without a display, so they never skip.
+#ifndef __APPLE__
 TEST(viewer_smoke, no_display_is_a_clear_error_not_a_crash) {
   const Out o = shell(std::string("env -u DISPLAY -u WAYLAND_DISPLAY ") + NAPL_VIEW_EXE + " " + kModel + " --frames 3");
   std::cout << "[ viewer ] no DISPLAY: exit " << o.code << ": " << o.text;
@@ -197,6 +205,24 @@ TEST(viewer_smoke, no_display_is_a_clear_error_not_a_crash) {
   EXPECT_NE(o.text.find("napl-view: error: cannot open a window"), std::string::npos) << o.text;
   EXPECT_NE(o.text.find("DISPLAY"), std::string::npos) << o.text;
 }
+#else
+TEST(viewer_smoke, off_main_thread_start_is_rejected) {
+  Host h(pendulum(), session());
+  std::string error;
+  std::thread worker([&] {
+    try {
+      ViewerOptions options;
+      options.frames = 3;
+      run_viewer(h, options);
+    } catch (const std::runtime_error& e) {
+      error = e.what();
+    }
+  });
+  worker.join();
+  h.stop();
+  EXPECT_NE(error.find("main thread"), std::string::npos) << error;
+}
+#endif
 
 // Off-screen viewer: no display needed (run with DISPLAY unset to prove it); needs a Vulkan device.
 TEST(viewer_offscreen, frames_are_read_back_and_the_sim_hash_matches_a_viewerless_run) {

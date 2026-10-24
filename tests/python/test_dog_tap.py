@@ -60,12 +60,13 @@ def test_tap_stores_nan_for_missing_gait_and_keeps_the_path(tmp_path):
 
 
 @needs_kernel
-def test_tap_does_not_change_the_run(tmp_path, monkeypatch):  # Review Focus 3
+def test_tap_does_not_change_the_run(tmp_path, monkeypatch, unsandboxed_scenario):  # Review Focus 3
     from napl import program
 
-    base, _ = program.run(SMOKE, tmp_path / "a")
+    scenario = unsandboxed_scenario(SMOKE)
+    base, _ = program.run(scenario, tmp_path / "a")
     monkeypatch.setenv("DOG_TAP_DIR", str(tmp_path / "tap"))
-    tapped, _ = program.run(SMOKE, tmp_path / "b")
+    tapped, _ = program.run(scenario, tmp_path / "b")
     assert base["sim"]["state_hash"] == tapped["sim"]["state_hash"]
     assert (tmp_path / "tap" / "tap.npz").exists()
     assert (

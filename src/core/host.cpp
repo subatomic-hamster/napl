@@ -1,4 +1,5 @@
 #include "core/host.h"
+#include "core/exec_policy.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -23,8 +24,10 @@ std::future<flatbuffers::DetachedBuffer> Host::enqueue(Job j) {
     std::lock_guard lk(m_);
     if (stop_) throw std::runtime_error("Host is stopped");
     q_.push_back(std::move(j));
+    has_work_.store(true, std::memory_order_release);
   }
   cv_.notify_one();
+  execution::wake_rests();  // a governed step resting under coalesced QoS timers must not delay the command
   return f;
 }
 
@@ -52,7 +55,7 @@ bool Host::take_frame(Frame& out) {
     }
     want_frame_ = true;
   }
-  cv_.notify_one();
+  cv_.notify_one();  // no wake_rests: frame requests must not cancel the profile duty; the frame follows the rest
   return got;
 }
 
@@ -60,8 +63,10 @@ void Host::stop() {
   {
     std::lock_guard lk(m_);
     stop_ = true;
+    has_work_.store(true, std::memory_order_release);
   }
   cv_.notify_all();
+  execution::wake_rests();
   if (thread_.joinable()) thread_.join();
 }
 
@@ -92,6 +97,9 @@ Frame Host::snapshot(bool running, double rate) {
 }
 
 void Host::loop() {
+  execution::initialize();
+  execution::thread_entry();
+  const execution::RestWakeScope wake_on_work(&has_work_);
   using clock = std::chrono::steady_clock;
   bool running = false;
   double rate = 0;
@@ -109,6 +117,8 @@ void Host::loop() {
       Job j = std::move(q_.front());
       q_.pop_front();
       lk.unlock();
+      // Commands queued behind this job cannot run before it returns: they must not end its governed rests.
+      const execution::RestWakeScope in_job(nullptr);
       const std::uint64_t tick0 = world_.tick();
       if (j.fn) {
         try {
@@ -138,6 +148,7 @@ void Host::loop() {
       if (world_.tick() != tick0) anchor();  // Step/Restore/LoadModel moved the clock: no catch-up burst
       lk.lock();
     }
+    has_work_.store(stop_, std::memory_order_release);  // drained (under m_)
     if (want_frame_) {  // viewer asked: snapshot at this tick boundary
       lk.unlock();
       Frame f = snapshot(running, rate);

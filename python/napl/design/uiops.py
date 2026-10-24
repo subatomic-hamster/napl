@@ -46,6 +46,7 @@ import numpy as np
 from . import uilib
 from .library import DesignError
 from .snap import port_frame, rpy_matrix
+from .._resources import repo_root as _repo_root, data_dir as _data_dir
 
 UI_TOOLS = {
     "ui.mode",
@@ -85,7 +86,7 @@ UI_TOOLS = {
     "distribute",
 }
 DROP_EXTRA = ("id", "group", "offboard", "joint", "mate", "k", "fasteners")
-REPO = Path(__file__).resolve().parents[3]
+REPO = _repo_root() or _data_dir()
 MODES = ("build", "library", "wiring", "simulate", "program")
 PRESETS = {  # yaw, pitch (rad): the orbit camera looks from +x at yaw 0
     "front": (-math.pi / 2, 0.0),

@@ -14,6 +14,9 @@
 #include "mujoco/mujoco_solver.h"
 #include "napl_generated.h"
 #include "render/renderer.h"
+#ifdef __APPLE__
+#include "render/loader.h"
+#endif
 
 namespace {
 const std::string kScene = NAPL_TEST_DATA_DIR "/render_scene.xml";
@@ -136,6 +139,7 @@ TEST(render, error_bad_size) {
 // The default device is a real GPU: it draws the scene within a tolerance of llvmpipe (a different rasteriser: edge / MSAA /
 // shadow differences), and a CPU renderer is refused without NAPL_RENDER_ALLOW_CPU=1. Compared with llvmpipe in the same
 // process. (ctest runs these two without the CPU environment the render.* tests get, see CMakeLists.txt.)
+#ifndef __APPLE__
 TEST(render_gpu, smoke_default_device_is_not_cpu_and_matches_llvmpipe_loosely) {
   const auto s = scene();
   std::string n;
@@ -169,6 +173,7 @@ TEST(render_gpu, cpu_device_is_refused_unless_allowed) {
   Renderer r;
   EXPECT_NE(r.device_name().find("llvmpipe"), std::string::npos) << r.device_name();
 }
+#endif
 
 // Weather look: rain=0 is the clear look bit for bit (and so is the default with no rain device); rain=50 changes the image (overcast sky,
 // dim sun, haze, streaks) and darkens it, but not the linear depth.
@@ -191,7 +196,11 @@ TEST(render, rain_look_changes_with_the_rate_and_clear_is_unchanged) {
 }
 
 TEST(render, error_no_vulkan_device) {
-  ASSERT_EQ(setenv("VK_DRIVER_FILES", "/nonexistent/none_icd.json", 1), 0);  // own process: ctest runs one test each
+#ifdef __APPLE__
+  ASSERT_EQ(setenv("NAPL_VK_DEVICE", "napl-nonexistent-device", 1), 0);
+#else
+  ASSERT_EQ(setenv("VK_DRIVER_FILES", "/nonexistent/none_icd.json", 1), 0);  // own process
+#endif
   try {
     Renderer r;
     FAIL() << "Renderer constructed without a driver";
@@ -209,3 +218,26 @@ TEST(render, error_no_vulkan_device) {
   EXPECT_NE(reply.find("solver_error"), std::string::npos) << reply;
   EXPECT_NE(reply.find("Vulkan"), std::string::npos) << reply;
 }
+
+#ifdef __APPLE__
+// Exercise the real dlopen/dlsym path, including its error propagation through a Render command.
+class AppleLoaderFailure : public ::testing::TestWithParam<const char*> {};
+TEST_P(AppleLoaderFailure, direct_and_bus_errors) {
+  const char* path = GetParam();
+  EXPECT_THROW(initialize_vulkan(path), std::runtime_error);
+  World w(load_mujoco, kScene);
+  w.set_render_hook([path](const Solver& solver, const Camera& camera, int width, int height) {
+    initialize_vulkan(path);
+    Renderer r;
+    return r.render(solver, camera, width, height);
+  });
+  Session session;
+  session.caps = {"read"};
+  const std::string reply = execute_json(
+      w, R"({"cmd_type":"Render","cmd":{"pos":[-3,0,1],"lookat":[0,0,0.25],"width":32,"height":32}})", session);
+  EXPECT_NE(reply.find("solver_error"), std::string::npos) << reply;
+  EXPECT_NE(reply.find(path), std::string::npos) << reply;
+}
+INSTANTIATE_TEST_SUITE_P(render_apple, AppleLoaderFailure,
+                        ::testing::Values("/nonexistent/napl-MoltenVK.dylib", "/usr/lib/libSystem.B.dylib"));
+#endif

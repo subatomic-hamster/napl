@@ -1,6 +1,6 @@
 #pragma once
 // napl shared-memory lockstep: the block layout, the futex helpers and a header-only client. No dependencies beyond
-// the C++20 standard library and POSIX/Linux, so third-party code (a C++ controller, ...) can include just this file.
+// the C++20 standard library and POSIX (Linux or macOS), so third-party code can include just this file.
 // The server side is src/core/shm.{h,cpp}; it includes this header, so the layout has one definition.
 //
 // Segment (POSIX shm_open name like "/napl-xyz", mode 0600, same user only):
@@ -14,18 +14,21 @@
 // Every wait has a timeout; the segment is a trust boundary and attach() validates it before use.
 // status: 0 ok; 1..5 = napl.Err of the failing command (invalid_argument, not_found, permission_denied, limit_exceeded,
 // solver_error: the world diverged); kBadRequest = n_steps above the server's limit or unknown cmd.
-// Single client at a time. Linux only (futex); macOS/Windows need another wait primitive (follow-up).
-#ifndef __linux__
-#error "napl shm lockstep is Linux-only for now"
+// Single client at a time. Linux uses shared futexes; Darwin polls at most every 1 ms.
+#if !defined(__linux__) && !defined(__APPLE__)
+#error "napl shm lockstep requires Linux or macOS"
 #endif
 #include <fcntl.h>
+#ifdef __linux__
 #include <linux/futex.h>
+#include <sys/syscall.h>
+#endif
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 
 #include <atomic>
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
@@ -65,19 +68,27 @@ inline Clock::time_point after(double seconds) {
   return Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(seconds));
 }
 
-// Sleeps while a == old; true once it differs, false at the deadline. Shared (non-private) futex.
+// Sleeps while a == old; true once it differs, false at the steady-clock deadline.
 inline bool wait_ne(std::atomic<std::uint32_t>& a, std::uint32_t old, Clock::time_point deadline) {
   for (;;) {
     if (a.load(std::memory_order_acquire) != old) return true;
     const auto left = deadline - Clock::now();
     if (left <= Clock::duration::zero()) return false;
+#ifdef __linux__
     const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(left).count();
     const timespec ts{static_cast<time_t>(ns / 1000000000), static_cast<long>(ns % 1000000000)};
     syscall(SYS_futex, reinterpret_cast<std::uint32_t*>(&a), FUTEX_WAIT, old, &ts, nullptr, 0);  // EAGAIN/EINTR: re-check
+#else
+    std::this_thread::sleep_for(std::min(left, std::chrono::duration_cast<Clock::duration>(std::chrono::milliseconds(1))));
+#endif
   }
 }
 inline void wake(std::atomic<std::uint32_t>& a) {
+#ifdef __linux__
   syscall(SYS_futex, reinterpret_cast<std::uint32_t*>(&a), FUTEX_WAKE, 1, nullptr, nullptr, 0);
+#else
+  (void)a;  // Darwin observes the release-published sequence on the next bounded poll.
+#endif
 }
 inline std::byte* ctrl_base(Header* h) { return reinterpret_cast<std::byte*>(h) + sizeof(Header); }
 
@@ -121,8 +132,15 @@ class Client {
       if (h_->version != kVersion)
         throw fail("layout version " + std::to_string(h_->version) + ", client speaks " + std::to_string(kVersion));
       const std::uint64_t nu = h_->nu, nobs = h_->nobs;
+      const std::uint64_t logical_size = sizeof(Header) + 8 * (nu + nobs);
+      std::uint64_t backing_size = logical_size;
+#ifdef __APPLE__
+      // Darwin fstat reports page-rounded shm storage, not the ftruncate length.
+      const auto page = static_cast<std::uint64_t>(getpagesize());
+      backing_size = ((logical_size + page - 1) / page) * page;
+#endif
       if (h_->header_size != sizeof(Header) || nu > (kMaxSegment >> 3) || nobs > (kMaxSegment >> 3) ||
-          h_->total_size != size_ || size_ != sizeof(Header) + 8 * (nu + nobs))
+          logical_size > kMaxSegment || h_->total_size != logical_size || backing_size != size_)
         throw fail("inconsistent header sizes");
       if ((expect_nu != kAny && expect_nu != nu) || (expect_nobs != kAny && expect_nobs != nobs))
         throw fail("layout mismatch: server nu=" + std::to_string(nu) + " nobs=" + std::to_string(nobs) +
@@ -164,7 +182,12 @@ class Client {
     for (;;) {
       const std::uint32_t r = h_->resp_seq.load(std::memory_order_acquire);
       if (r == seq_) break;
-      if (h_->closed.load(std::memory_order_acquire) != 0) throw std::runtime_error("napl shm: server closed");
+      if (h_->closed.load(std::memory_order_acquire) != 0) {
+        // Quit is answered and then the server's destructor bumps resp_seq again; a polling client (Darwin) can miss
+        // the echo window, so an orderly close is the acknowledgement of a quit request.
+        if (cmd == kQuit) return {h_->status, h_->tick, h_->state_hash};
+        throw std::runtime_error("napl shm: server closed");
+      }
       if (!wait_ne(h_->resp_seq, r, deadline)) throw std::runtime_error("napl shm: timeout waiting for the server");
     }
     return {h_->status, h_->tick, h_->state_hash};

@@ -37,10 +37,7 @@ class World {
 
   World(const Loader& load, const std::string& path) : load_(load), solver_(load(path)) {}
 
-  void step(int n = 1) {
-    tick_ += static_cast<std::uint64_t>(solver_->step(n));
-    if (log_) log_->set_final_tick(tick_);  // ticks advanced outside commands (Host Run) still reach the log footer
-  }
+  void step(int n = 1);
   std::uint64_t tick() const { return tick_; }
   bool diverged() const { return solver_->diverged(); }
   Solver& solver() { return *solver_; }

@@ -167,11 +167,16 @@ def fly(seed, p, model, h, run_dir=None, log=True, telemetry=True, max_s=None):
             rng = q(sim, "/devices/lidar", "range")
             vb = q(sim, "/devices/battery", "voltage")
             c = fl.step(t, gyro, accel, baro, fix, rng, vb)
+            # compute play for all four servos, then write in one set_many (same logical order as before)
             for i in range(4):
                 play[i] = _play(
                     play[i], float(np.clip(c.goals[i], -LIM, LIM)), h["backlash"]
                 )
-                sim.set(f"/devices/servo{i + 1}", "goal_position", [play[i]])
+            sim.set_many(
+                [f"/devices/servo{i + 1}" for i in range(4)],
+                ["goal_position"] * 4,
+                play,
+            )
             sim.set("/devices/esc", "throttle", [float(np.clip(c.duty, 0.0, 1.0))])
             # faults of the scenario
             if p["fault_servo"] > 0.5 and not fault_done["servo"] and t >= p["t_fault"]:
@@ -193,7 +198,7 @@ def fly(seed, p, model, h, run_dir=None, log=True, telemetry=True, max_s=None):
                 sim.set("/devices/battery", "ocv_offset", [-abs(p["fault_batt_v"])])
                 fault_done["batt"] = True
             # truth
-            fx, fy, fz = (q(sim, "/world/frame", "pos", i) for i in range(3))
+            fx, fy, fz = sim.query("/world/frame", "pos")[0]
             zt = fz - fz0
             vz = (zt - z_prev) / CTRL_DT
             z_prev = zt

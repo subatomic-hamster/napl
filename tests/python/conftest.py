@@ -3,6 +3,9 @@
 
 import fcntl
 import os
+import re
+import sys
+import tomllib
 import time
 from pathlib import Path
 
@@ -23,6 +26,47 @@ def _no_device_reason():
                 raise
             _probe.append(str(e))
     return _probe[0]
+
+
+@pytest.fixture
+def unsandboxed_scenario(tmp_path):
+    """Explicit test-only Darwin variant; first prove the original hard-sandbox request is rejected.
+
+    Mirror ancestor directories with symlinks so every source-relative model/program input stays identical.
+    No source scenario or runner behavior is changed.
+    """
+    from napl import program
+
+    repo = Path(__file__).resolve().parents[2]
+    variants = {}
+
+    def variant(path):
+        path = Path(path).resolve()
+        if sys.platform != "darwin" or "address_space_mb" not in tomllib.loads(path.read_text()).get("limits", {}):
+            return path
+        if path in variants:
+            return variants[path]
+        with pytest.raises(program.ScenarioError, match="unsupported on macOS"):
+            program.load_scenario(path)
+        root = repo if path.is_relative_to(repo) else path.parent
+        relative = path.relative_to(root)
+        target = tmp_path / "explicit-unsandboxed" / str(len(variants))
+        source = root
+        for part in relative.parts:
+            target.mkdir(parents=True, exist_ok=True)
+            for child in source.iterdir():
+                if child.name != part and not (target / child.name).is_symlink() and not (target / child.name).exists():
+                    (target / child.name).symlink_to(child, target_is_directory=child.is_dir())
+            source, target = source / part, target / part
+        text = path.read_text()
+        # Only the [limits] table is edited, not parameters or any scientific input.
+        text, count = re.subn(r"(?m)^[ \t]*address_space_mb[ \t]*=.*$", "", text)
+        assert count == 1
+        target.write_text("# Explicit unsandboxed Darwin test variant.\n" + text)
+        variants[path] = target
+        return target
+
+    return variant
 
 
 @pytest.fixture(autouse=True)

@@ -59,8 +59,10 @@ class Bus:
 
     def __init__(self, path):
         self.ph, self.pk = PortHandler(path), PacketHandler(2.0)
-        if not (self.ph.openPort() and self.ph.setBaudRate(1_000_000)):
-            sys.exit(f"cannot open {path} at 1 Mbaud")
+        baud = int(os.environ.get("NAPL_SERIAL_BAUD", "1000000"))
+        # setBaudRate opens the port; openPort first would open at the SDK's 1 Mbaud default.
+        if not self.ph.setBaudRate(baud):
+            sys.exit(f"cannot open {path} at {baud} baud")
         self.gw = GroupSyncWrite(self.ph, self.pk, GOAL_POS, 4)
         self.gr = GroupSyncRead(self.ph, self.pk, PRESENT_POS, 4)
         for i in IDS:
@@ -94,8 +96,9 @@ class Bus:
 
     def read_q(self):
         """Present Position of all six servos -> radians (the zero pose is count 0, no homing offset)."""
-        if self.gr.txRxPacket() != COMM_SUCCESS:
-            raise RuntimeError("sync read failed")
+        result = self.gr.txRxPacket()
+        if result != COMM_SUCCESS:
+            raise RuntimeError(f"sync read failed: {self.pk.getTxRxResult(result)}")
         return (
             np.array([self.s32(self.gr.getData(i, PRESENT_POS, 4)) for i in IDS])
             * 2

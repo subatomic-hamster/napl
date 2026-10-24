@@ -32,7 +32,8 @@ pytestmark = pytest.mark.px4
 # The PX4 + bridge launch (ports, env, params, process groups, shutdown) lives in python/napl/px4.py (Stack), shared with
 # `napl program`; this test only adds the MAVSDK flight and the checks.
 REPO = px4.REPO
-PX4_BIN, BRIDGE, REPLAY, PARAMS = px4.PX4_BIN, px4.BRIDGE, px4.REPLAY, px4.PARAMS
+PX4_BIN, BRIDGE, PARAMS = px4.PX4_BIN, px4.BRIDGE, px4.PARAMS
+from napl._resources import replay_exe
 
 
 def _n():  # the instance conftest._px4_instance claimed for this test (ports 4560+n, 14540+n, ...)
@@ -318,7 +319,7 @@ def check(tmp, trace, rlog, final, ev):
     m = re.fullmatch(r"final tick=(\d+) state_hash=([0-9a-f]+)", final)
     assert m, final
     r = subprocess.run(
-        [str(REPLAY), str(rlog)], capture_output=True, text=True, timeout=300
+        [str(replay_exe()), str(rlog)], capture_output=True, text=True, timeout=300
     )
     assert r.returncode == 0, r.stderr
     m2 = re.search(r"tick=(\d+) state_hash=([0-9a-f]+)", r.stdout)

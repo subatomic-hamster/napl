@@ -82,7 +82,8 @@ def test_pick_scenario_passes_and_replays(tmp_path):
     }
     assert "done:" in (d / "program.log").read_text()
     # replay: the log of the run reproduces the final state hash (napl-replay, the C++ replayer, over the saved log)
-    assert program.REPLAY.exists(), f"build the C++ exe first: {program.REPLAY}"
+    from napl._resources import replay_exe as _replay_exe
+    assert _replay_exe().is_file()
     tick, h = program.replay_hash(
         d / "replay.naplog", next((d / "model").glob("scene_*.xml")).parent
     )
@@ -172,6 +173,9 @@ pick.main()
 
 
 def _marker_pids(marker):
+    if sys.platform == "darwin":
+        rows = subprocess.check_output(["ps", "-axo", "pid=,command="], text=True).splitlines()
+        return [int(row.split(None, 1)[0]) for row in rows if marker in row]
     out = []
     for p in Path("/proc").iterdir():
         if p.name.isdigit():
@@ -207,6 +211,44 @@ def test_wall_timeout_kills_the_whole_process_group(tmp_path):
         pass
 
 
+def test_timeout_escalates_for_sigterm_resistant_pool_descendants(tmp_path):
+    body = """import multiprocessing as mp
+import os
+import signal
+import time
+
+def ignore_term():
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+def block(_):
+    print('POOL_CHILD', os.getpid(), flush=True)
+    time.sleep(300)
+
+if __name__ == '__main__':
+    ignore_term()
+    with mp.get_context('spawn').Pool(2, initializer=ignore_term) as pool:
+        pool.map(block, [0, 1], chunksize=1)
+"""
+    start = time.monotonic()
+    result, run_dir = program.run(scen(tmp_path, body, "wall_s = 3"), tmp_path)
+    elapsed = time.monotonic() - start
+    children = [
+        int(line.split()[1])
+        for line in (run_dir / "program.log").read_text().splitlines()
+        if line.startswith("POOL_CHILD ")
+    ]
+    assert len(set(children)) == 2, "both pool workers must be running before timeout"
+    assert not result["pass"] and result["program"]["timeout"] == "wall"
+    assert result["program"]["signal"] == "SIGKILL"
+    # Existing policy: 3 s wall + 2 s TERM + up to 5 s KILL cleanup, with OS/polling slack.
+    assert elapsed < 13
+    for pid in [result["program"]["pgid"], *children]:
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+    with pytest.raises(ProcessLookupError):
+        os.killpg(result["program"]["pgid"], 0)
+
+
 def test_program_that_exits_leaves_no_background_children(tmp_path):
     marker = f"napl-bg-{os.getpid()}"
     body = f"import subprocess\nsubprocess.Popen(['bash', '-c', 'exec -a {marker} sleep 300'])\n"
@@ -236,6 +278,10 @@ def test_program_that_exits_leaves_no_background_children(tmp_path):
     ids=["address_space", "cpu", "open_files"],
 )
 def test_resource_limits_are_enforced(tmp_path, limits, body, sig, needle):
+    if sys.platform == "darwin" and limits.startswith("address_space_mb"):
+        with pytest.raises(program.ScenarioError, match="unsupported on macOS"):
+            program.run(scen(tmp_path, body, limits), tmp_path)
+        return
     res, d = program.run(scen(tmp_path, body, limits + "\nwall_s = 60"), tmp_path)
     print(f"\n[rlimit {limits}] {res['program']}")
     assert (

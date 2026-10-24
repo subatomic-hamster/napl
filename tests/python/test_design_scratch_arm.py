@@ -599,7 +599,11 @@ def test_scenario_takes_servo_ids_from_the_design(arm, tmp_path):
 
 @needs_kernel
 def test_pick_scenario_passes_on_the_scratch_built_arm_and_replays(arm, tmp_path):
-    assert program.REPLAY.exists(), f"build the C++ exe first: {program.REPLAY}"
+    from napl._resources import replay_exe as _replay_exe
+    try:
+        _replay_exe()
+    except FileNotFoundError as _e:
+        pytest.skip(f"napl-replay not found: {_e}")
     saved = arm.save(tmp_path / "scratch-so101.toml")
     res, d = program.run(pick_on(tmp_path, saved), tmp_path)
     print(

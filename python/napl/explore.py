@@ -7,12 +7,11 @@ wind   hover with horizontal position hold under steady wind and Dryden turbulen
 mc     endurance distribution under part tolerances (N runs, seeded).
 
 Everything runs through `napl.design.Design` on copies of the assembly (the .toml is never written) and the built-in
-hover controller of `napl.design.simulate`. Needs the C++ kernel. Parallel runs use forked processes (cap 6: house rule).
+hover controller of `napl.design.simulate`. Needs the C++ kernel. Parallel runs use policy-admitted spawned workers.
 """
 
 import copy
 import json
-import multiprocessing as mp
 import os
 import re
 import struct
@@ -24,7 +23,6 @@ import numpy as np
 
 from .design import Design, DesignError
 
-MAX_WORKERS = 6
 HOLYBRO_FLIGHT_MIN = 18.0  # Holybro X500 V2 page: "~18 minutes hover with no additional payload" (5000 mAh battery)
 KT = 0.514444  # m/s per knot
 # MIL-F-8785C (3.7.3.1) / MIL-HDBK-1797 low-altitude Dryden model: sigma_w = 0.1 W20, W20 = wind speed at 20 ft. The
@@ -49,20 +47,22 @@ def _prov(v, unit, why):
     return {"value": v, "unit": unit, "fidelity": "estimated", "rationale": why}
 
 
-def _workers(n):
-    return max(1, min(MAX_WORKERS, n if n else os.cpu_count() or 1))
-
-
 def _map(fn, tasks, workers):
-    """fork pool, ordered results; workers = 1 runs in this process."""
-    w = _workers(workers)
-    if w == 1 or len(tasks) <= 1:
-        return [fn(t) for t in tasks]
-    with mp.get_context("fork").Pool(min(w, len(tasks))) as p:
-        return p.map(fn, tasks, chunksize=1)
+    from .runtime import bounded_map
+    d = _CTX["d"]
+    context = {key: value for key, value in _CTX.items() if key != "d"}
+    jobs = ((fn.__name__, str(d.path), str(d.lib.dir), context, task) for task in tasks)
+    return bounded_map(_explore_job, jobs, workers=workers)
 
 
-_CTX = {}  # filled before forking: {"d": Design, "base": doc, ...}
+def _explore_job(job):
+    name, assembly, parts, context, task = job
+    _CTX.clear()
+    _CTX.update(context, d=Design.open(assembly, parts))
+    return globals()[name](task)
+
+
+_CTX = {}  # Per-job scientific context, serialized explicitly into spawned workers.
 
 
 def _reset(d, doc):
@@ -226,7 +226,7 @@ def sweep(
     parts=None,
     only=None,
     limit=500,
-    workers=6,
+    workers=None,
     hover=None,
 ):
     """-> {"baseline", "rows", "rejected"}. `only` = candidate part ids to try (default: every suggest() candidate)."""
@@ -393,7 +393,7 @@ def wind(
     parts=None,
     speeds=(0.0, 5.0, 10.0),
     seeds=5,
-    workers=6,
+    workers=None,
     hold_s=20.0,
     cda=CDA_DEFAULT,
     vmax=40.0,
@@ -566,7 +566,7 @@ def montecarlo(
     parts=None,
     n=50,
     seed=1,
-    workers=6,
+    workers=None,
     cap_tol=BATTERY_ASSUMED_CAP_TOL,
     hover=None,
 ):
@@ -717,7 +717,7 @@ def add_parser(sub):
         q.add_argument("asm", nargs="?", default="assemblies/x500v2.toml")
         q.add_argument("--parts", default=None)
         q.add_argument("--out", default="build/explore")
-        q.add_argument("--workers", type=int, default=MAX_WORKERS)
+        q.add_argument("--workers", type=int, default=None, help="upper bound; default follows the execution policy")
         if name == "sweep":
             q.add_argument(
                 "--inst",

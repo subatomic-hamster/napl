@@ -33,7 +33,9 @@ from typing import NamedTuple
 import napl
 from napl import design
 
-ROOT = Path(__file__).resolve().parents[2]
+from ._resources import data_dir
+
+ROOT = data_dir()
 ASM = ROOT / "assemblies" / "so101.toml"
 PART_ID = "feetech-sts3215-c001"
 

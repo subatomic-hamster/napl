@@ -14,7 +14,7 @@ terrain whenever away from the pads, full-throttle thrust / weight >= 1.15 at th
 
 import argparse
 import json
-import multiprocessing as mp
+from napl.runtime import BatchPool
 import os
 import shutil
 import sys
@@ -186,7 +186,7 @@ def main(argv=None):
     t0 = time.time()
     out = {"protocol": __doc__.split("\n\n")[1], "family": a.family, "over": base,
            "criteria": dict(speed=MAX_SPEED, tilt=MAX_TILT, dist=MAX_DIST, clearance=MIN_CLR)}  # fmt: skip
-    with mp.get_context("spawn").Pool(a.workers) as pool:
+    with BatchPool(a.workers) as pool:
         train, cands = {}, json.loads(a.cands)
         if a.pick is None and len(cands) > 1:
             tr = range(TRAIN_BASE, TRAIN_BASE + a.train)

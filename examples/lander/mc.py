@@ -16,7 +16,6 @@ Run it under the CPU lock with an outer timeout (workers <= 6): flock /workspace
 
 import argparse
 import json
-import multiprocessing as mp
 import os
 import shutil
 import sys
@@ -179,7 +178,8 @@ def main(argv=None):
         "max_speed_ms": MAX_SPEED,
         "wind_max_ms": WIND_MAX,
     }
-    with mp.get_context("spawn").Pool(a.workers) as pool:
+    from napl.runtime import BatchPool
+    with BatchPool(a.workers) as pool:
         train = {}
         if a.pick is None:
             tr_seeds = range(TRAIN_BASE, TRAIN_BASE + a.train)

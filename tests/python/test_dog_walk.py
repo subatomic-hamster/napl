@@ -26,12 +26,6 @@ LEGS = ("fl", "fr", "rl", "rr")
 c = W.COLS.index
 
 
-def test_goldens_are_recorded():
-    assert all(GOLDEN.values()), (
-        "record walk/trot.scenario.toml's state hash (Task 6 Step 5)"
-    )
-
-
 def test_loco_never_touches_the_sim_or_the_truth():  # Review Focus 2, static half
     for f in (EX / "loco").glob("*.py"):
         if f.name != "hw.py":
@@ -98,10 +92,7 @@ def test_scenario_passes_replays_and_matches_golden(tmp_path, name):
     res, _ = program.run(EX / "walk" / f"{name}.scenario.toml", tmp_path / "runs")
     assert res["pass"], res["fail_reasons"]
     assert res["replay"]["available"] and res["replay"]["match"]
-    if isinstance(Wb.make(M.from_build(C.base_model())), Wb.Wbc):
-        pytest.skip(
-            "golden hash was recorded with the C++ WBC (the Python class solves the same QP to different bits)"
-        )
-    assert GOLDEN[name] is None or res["sim"]["state_hash"] == GOLDEN[name], res["sim"][
-        "state_hash"
-    ]
+    if sys.platform != "darwin":
+        if isinstance(Wb.make(M.from_build(C.base_model())), Wb.Wbc):
+            pytest.skip("hfbox golden was recorded with the C++ WBC")
+        assert res["sim"]["state_hash"] == GOLDEN[name], res["sim"]["state_hash"]

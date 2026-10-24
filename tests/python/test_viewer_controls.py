@@ -4,6 +4,7 @@ status-bar DRC message that must follow the DRC chip. The window reports what it
 
 import json
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -16,7 +17,7 @@ from napl.design.viewer import Backend
 REPO = Path(__file__).resolve().parents[2]
 X500 = REPO / "assemblies" / "x500v2.toml"
 needs_display = pytest.mark.skipif(
-    not os.environ.get("DISPLAY"), reason="needs a display: run under xvfb-run"
+    sys.platform != "darwin" and not os.environ.get("DISPLAY"), reason="needs a display: run under xvfb-run"
 )
 # the first row of each page's popover (viewer.cpp key_rows): a popover that shows another page's first row is stale
 FIRST_ROW = {

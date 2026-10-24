@@ -13,7 +13,6 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import argparse
 import json
-import multiprocessing as mp
 import sys
 import tempfile
 from pathlib import Path
@@ -163,7 +162,7 @@ def main():
     ap.add_argument(
         "--test", type=int, default=0, help="N runs on the held-out seeds (21000...)"
     )
-    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--jobs", type=int, default=None, help="upper bound; default follows the execution policy")
     ap.add_argument("--over", default="{}", help="JSON overrides: v_cmd, duration")
     ap.add_argument("--rev", default="unknown")
     ap.add_argument("--out", default="build/dog-mc")
@@ -186,7 +185,8 @@ def main():
         )
         done = {(r["fam"], r["seed"]) for r in rows}
         todo = [t for t in todo if (t[1], t[0]) not in done]
-        with mp.Pool(a.jobs) as pool, part.open("a") as fh:
+        from napl.runtime import BatchPool
+        with BatchPool(a.jobs) as pool, part.open("a") as fh:
             for r in pool.imap_unordered(one, todo, chunksize=1):
                 rows.append(r)
                 fh.write(json.dumps(r) + "\n")

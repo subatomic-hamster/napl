@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <climits>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -21,6 +22,7 @@
 #include <tuple>
 
 #include "core/host.h"
+#include "core/exec_policy.h"
 #include "core/world.h"
 #include "lodepng.h"
 #include "mujoco/mujoco_solver.h"
@@ -328,6 +330,27 @@ void view(Host& host, int frames, const std::string& script, int width, int heig
 
 NB_MODULE(_napl, m) {
   install_mujoco_handlers();  // before any thread exists
+  execution::initialize();
+  if (std::getenv("NAPL_SIMULATION_WORKER")) execution::thread_entry();  // NAPL_WORKER_CEILING alone: admission only
+  m.def("runtime_configure", &execution::configure, "profile"_a);
+  m.def("runtime_status", [](double gb_per_worker) {
+    const auto s = execution::status(gb_per_worker);
+    nb::dict d;
+    d["requested_profile"] = s.requested;
+    d["effective_profile"] = s.effective;
+    d["profile"] = s.effective;
+    d["logical_cores"] = s.cores;
+    d["physical_memory"] = s.physical_bytes;
+    d["available_memory"] = s.available_bytes;
+    d["ram_gb"] = static_cast<double>(s.physical_bytes) / 1073741824.;
+    d["workers"] = s.workers;
+    d["duty_target"] = s.duty;
+    d["thermal"] = s.thermal;
+    d["low_power"] = s.low_power;
+    d["pressure"] = s.pressure;
+    d["reason"] = s.reason;
+    return d;
+  }, "gb_per_worker"_a = 1.);
 
   m.def("command_cap", [](const std::string& command) { return command_cap(command); }, "command"_a);
   // Process-wide look of Sim.render / the viewer: "studio,edges,noshadows,nowires" (words add to the current style); returns it.

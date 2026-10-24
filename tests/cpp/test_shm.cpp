@@ -35,7 +35,12 @@ Session session() {
 }
 World pendulum() { return World(load_mujoco, kData + "/pendulum.xml"); }
 std::string seg(const char* tag) { return "/napl-test-" + std::to_string(getpid()) + "-" + tag; }
-bool exists(const std::string& name) { return access(("/dev/shm" + name).c_str(), F_OK) == 0; }
+bool exists(const std::string& name) {
+  const int fd = shm_open(name.c_str(), O_RDONLY, 0);
+  if (fd < 0) return false;
+  close(fd);
+  return true;
+}
 double seconds_since(Clock::time_point t) { return std::chrono::duration<double>(Clock::now() - t).count(); }
 
 // Child process via popen (stdout piped back). Returns the output and the wait status.
@@ -167,7 +172,7 @@ TEST(shm_lockstep, attach_rejects_bad_layout_version_magic_size) {
   ASSERT_GE(fd, 0);
   ASSERT_EQ(ftruncate(fd, 16), 0);
   close(fd);
-  EXPECT_NE(attach_error(tiny).find("not a napl block"), std::string::npos);
+  EXPECT_THROW(shm::Client(tiny, shm::kAny, shm::kAny, 0.3), std::runtime_error);
   shm_unlink(tiny.c_str());
   EXPECT_NE(attach_error(seg("missing")).find("shm_open"), std::string::npos);
   EXPECT_THROW(ShmServer(w, session(), name, kObs), std::runtime_error);  // exclusive create

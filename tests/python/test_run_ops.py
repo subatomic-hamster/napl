@@ -5,6 +5,7 @@ stopping mid-run kills the program's process group. Needs the built kernel + bui
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -239,10 +240,10 @@ def test_paths_are_confined(skydio):
     assert not r["ok"] and "outside" in r["error"]
 
 
-def live_backend(tmp_path, monkeypatch):
+def live_backend(tmp_path, monkeypatch, scenario):
     monkeypatch.setenv("SKYDIO_CAL", str(tmp_path / "cal"))
     d = Design.open(REPO / "assemblies" / "skydio.toml")
-    b = Backend(lambda: d, tmp_path / "out")
+    b = Backend(lambda: d, tmp_path / "out", program_root=Path(scenario).parent)
     b.sim = napl.Sim.load(
         b.state(d)["xml"], root=b.out, host=True
     )  # what napl.design.viewer.view() hands to Sim.show
@@ -252,8 +253,9 @@ def live_backend(tmp_path, monkeypatch):
 
 @needs_kernel
 @pytest.mark.parametrize("mission", ["goal", "follow"])
-def test_full_run_live_matches_napl_program_hash(tmp_path, monkeypatch, mission):
-    b = live_backend(tmp_path, monkeypatch)
+def test_full_run_live_matches_napl_program_hash(tmp_path, monkeypatch, mission, unsandboxed_scenario):
+    scenario = unsandboxed_scenario(EX / f"{mission}.scenario.toml")
+    b = live_backend(tmp_path, monkeypatch, scenario)
     rid = ask(
         b,
         "run.start",
@@ -261,10 +263,14 @@ def test_full_run_live_matches_napl_program_hash(tmp_path, monkeypatch, mission)
     )["run_id"]
     r, out = finish(b, rid, timeout=900)
     res = r["result"]
+    from napl import program
+    reference, _ = program.run(scenario, tmp_path / "standalone")
+    assert res["sim"]["state_hash"] == reference["sim"]["state_hash"]
+    assert res["sim"]["tick"] == reference["sim"]["tick"]
     assert r["state"] == "done" and res["pass"], (res.get("fail_reasons"), out[-1500:])
-    assert (
-        res["replay"]["match"] and res["sim"]["state_hash"] == HASH[mission]
-    )  # same bits as `napl program`
+    assert res["replay"]["match"]  # independently reproduces this live session
+    if sys.platform != "darwin":  # hfbox Linux reference; Darwin builds produce different but locally-reproducible bits
+        assert res["sim"]["state_hash"] == HASH[mission]  # same bits as `napl program` on hfbox
     assert "PASS" in out and (Path(res["run_dir"]) / "replay.naplog").exists()
     assert (
         b.sim.tick > 0 and b.runs.held
@@ -276,10 +282,10 @@ def test_full_run_live_matches_napl_program_hash(tmp_path, monkeypatch, mission)
 
 
 @needs_kernel
-def test_live_replay_check_covers_the_windows_own_design_load(tmp_path, monkeypatch):
+def test_live_replay_check_covers_the_windows_own_design_load(tmp_path, monkeypatch, unsandboxed_scenario):
     """The viewer's World logs the design's own LoadModel (the window reloading the design) before the run's: the replay
     check must replay those under the Sim's root, not the run's model folder (it said 'replay diverged ... permission_denied')."""
-    b = live_backend(tmp_path, monkeypatch)
+    b = live_backend(tmp_path, monkeypatch, unsandboxed_scenario(EX / "goal.scenario.toml"))
     xml = b.state(b.get_design())["xml"]
     assert b.sim.call({"cmd_type": "LoadModel", "cmd": {"path": str(xml)}})["ok"]
     rid = ask(b, "run.start", {"mode": "full", "scenario": "goal.scenario.toml"})[
@@ -291,8 +297,8 @@ def test_live_replay_check_covers_the_windows_own_design_load(tmp_path, monkeypa
 
 
 @needs_kernel
-def test_stop_mid_run_kills_the_program_group(tmp_path, monkeypatch):
-    b = live_backend(tmp_path, monkeypatch)
+def test_stop_mid_run_kills_the_program_group(tmp_path, monkeypatch, unsandboxed_scenario):
+    b = live_backend(tmp_path, monkeypatch, unsandboxed_scenario(EX / "follow.scenario.toml"))
     rid = ask(
         b,
         "run.start",

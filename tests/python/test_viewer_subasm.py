@@ -3,6 +3,7 @@ block, mass / cost). Backend-only tests run anywhere; the window tests (`gpu`) r
 window's own `ui.report` (see test_viewer_controls.py)."""
 
 import os
+import sys
 import threading
 import time
 
@@ -15,7 +16,7 @@ from test_subasm import LEG, make_parts, prm, write
 from test_subasm_ops import PORTS, call, raw_call
 
 needs_display = pytest.mark.skipif(
-    not os.environ.get("DISPLAY"), reason="needs a display: run under xvfb-run"
+    sys.platform != "darwin" and not os.environ.get("DISPLAY"), reason="needs a display: run under xvfb-run"
 )
 
 

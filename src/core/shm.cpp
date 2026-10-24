@@ -36,7 +36,7 @@ ShmServer::ShmServer(World& w, const Session& session, const std::string& name, 
   const int fd = shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
   if (fd < 0)
     throw std::runtime_error("napl shm '" + name + "': shm_open: " + std::strerror(errno) +
-                             (errno == EEXIST ? " (leftover segment? remove /dev/shm" + name + ")" : ""));
+                             (errno == EEXIST ? " (segment already exists; remove it with shm_unlink)" : ""));
   void* p = MAP_FAILED;
   if (ftruncate(fd, static_cast<off_t>(total)) == 0) p = mmap(nullptr, total, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   const int err = errno;

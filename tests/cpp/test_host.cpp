@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 
+#include "core/exec_policy.h"
 #include "core/host.h"
 #include "mujoco/mujoco_solver.h"
 #include "napl_generated.h"
@@ -94,7 +95,16 @@ std::uint64_t footer_count(const std::vector<std::byte>& log) {
 }
 }  // namespace
 
+// Pacing logic at full responsiveness. Under background QoS the pacing wakes coalesce (Apple default profile): the
+// overall rate stays ~0.99 but 0.4 s windows measured medians up to 1.07, outside this band by design of that profile.
 TEST(host, realtime_rate1_tracks_wall_time) {
+  struct Restore {
+    std::string previous = execution::status().requested;
+    ~Restore() { execution::configure(previous); }
+  } restore;
+  execution::configure("maximum");
+  if (execution::status().effective != "maximum")
+    GTEST_SKIP() << "live telemetry restricts the maximum profile (" << execution::status().reason << ")";
   Host h(pendulum(), all_caps());
   ASSERT_EQ(call(h, run(1.0)).err, napl::Err::none);
   std::vector<Sample> s{sample(h)};
@@ -121,6 +131,54 @@ TEST(host, rate0_runs_far_faster_than_realtime) {
   const double x = sim_per_wall(a, b);
   std::cout << "[ rate=0 ] " << x << "x real time (" << b.tick - a.tick << " ticks)\n";
   EXPECT_GE(x, 50.0);
+}
+
+// Background QoS coalesces timers: a governor rest that is a plain 20 ms sleep lasted ~180 ms, so Pause during a
+// rate-0 Run took ~180 ms (p95). Host work ends the rest at once; its unpaid debt is paid after the next step.
+TEST(host, background_profile_pause_is_observed_promptly) {
+  struct Restore {
+    std::string previous = execution::status().requested;
+    ~Restore() { execution::configure(previous); }
+  } restore;
+  execution::configure("background");
+  std::vector<double> ms;
+  {
+    Host h(pendulum(), all_caps());
+    for (int i = 0; i < 60; ++i) {
+      ASSERT_EQ(call(h, run(0)).err, napl::Err::none);
+      std::this_thread::sleep_for(30ms);
+      const auto t0 = Clock::now();
+      ASSERT_EQ(call(h, pause_cmd()).err, napl::Err::none);
+      ms.push_back(std::chrono::duration<double, std::milli>(Clock::now() - t0).count());
+    }
+  }
+  std::sort(ms.begin(), ms.end());
+  std::cout << "[ background pause ] p50=" << ms[ms.size() / 2] << " ms max=" << ms.back() << " ms\n";
+  EXPECT_LT(ms[(ms.size() * 95 + 99) / 100 - 1], 100.0);  // nearest-rank p95
+}
+
+// A job's own enqueue left the Host's pending-work flag set while the job ran, so every rest inside a Step command
+// (Sim.step on a HostSim, the viewer STEP button) ended at once: Host-run steps ignored the profile duty.
+TEST(host, background_profile_governs_steps_inside_host_jobs) {
+  struct Restore {
+    std::string previous = execution::status().requested;
+    ~Restore() { execution::configure(previous); }
+  } restore;
+  execution::configure("background");
+  if (execution::status().duty != .5)
+    GTEST_SKIP() << "live telemetry changed the background duty (" << execution::status().reason << ")";
+  constexpr int kSteps = 400000;
+  const auto seconds = [](auto&& fn) {
+    const auto t0 = Clock::now();
+    fn();
+    return std::chrono::duration<double>(Clock::now() - t0).count();
+  };
+  World bare = pendulum();
+  const double direct = seconds([&] { bare.step(kSteps); });  // governed on this thread at the same QoS
+  Host h(pendulum(), all_caps());
+  const double in_job = seconds([&] { h.exec([](World& w) { w.step(kSteps); }); });
+  std::cout << "[ background step ] direct=" << direct << " s in Host job=" << in_job << " s\n";
+  EXPECT_GT(in_job / direct, .7);
 }
 
 TEST(host, paused_freezes_tick_and_step_advances_exactly) {

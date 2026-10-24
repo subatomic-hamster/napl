@@ -139,8 +139,24 @@ int bind_listen(int port) {
   return fd;
 }
 
+// Darwin has neither SOCK_NONBLOCK nor accept4. Set the same flag before publishing the descriptor.
+int nonblocking(int fd) {
+  if (fd < 0) return fd;
+  const int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    const std::string e = std::strerror(errno);
+    close(fd);
+    fail("cannot set socket nonblocking: " + e);
+  }
+  return fd;
+}
+
 int bind_udp(int port) {
+#ifdef __APPLE__
+  const int fd = nonblocking(socket(AF_INET, SOCK_DGRAM, 0));
+#else
   const int fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+#endif
   sockaddr_in a{};
   a.sin_family = AF_INET;
   a.sin_port = htons(static_cast<std::uint16_t>(port));
@@ -159,7 +175,11 @@ int bind_unix(const std::string& path) {  // --ctl: a unix stream socket a secon
   a.sun_family = AF_UNIX;
   if (path.size() >= sizeof a.sun_path) fail("--ctl path too long: " + path);
   std::strncpy(a.sun_path, path.c_str(), sizeof a.sun_path - 1);
+#ifdef __APPLE__
+  const int fd = nonblocking(socket(AF_UNIX, SOCK_STREAM, 0));
+#else
   const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
+#endif
   ::unlink(path.c_str());
   // ttsr-ignore: cpp/no-reinterpret-const-cast (the BSD sockets API takes sockaddr*)
   if (bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0 || listen(fd, 1) != 0) {
@@ -423,7 +443,11 @@ struct Bridge {
     }
     if (!stdin_eof && p[2].revents) pump_stdin();
     if (p[3].revents) {  // a new client replaces the old one
+#ifdef __APPLE__
+      const int fd = nonblocking(::accept(ctl_listen, nullptr, nullptr));
+#else
       const int fd = ::accept4(ctl_listen, nullptr, nullptr, SOCK_NONBLOCK);
+#endif
       if (fd >= 0) { close_ctl(); ctl_fd = fd; }
     }
     if (p[4].revents && ctl_fd == p[4].fd) pump_ctl();

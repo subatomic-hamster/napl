@@ -7,12 +7,14 @@
 #include <filesystem>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <stdexcept>
 #include <thread>
 
 #include "core/monitor.h"
+#include "core/exec_policy.h"
 #include "core/world.h"
 #include "flatbuffers/idl.h"
 #include "flatbuffers/reflection.h"
@@ -244,6 +246,9 @@ Out run_sweep(const World& live, const std::vector<std::byte>* snap, const napl:
   if (!sw.params() || sw.params()->size() == 0) return fail(napl::Err::invalid_argument, "Sweep needs at least one param");
   const bool grid = sw.mode() == napl::SweepMode::grid;
   const auto& ps = *sw.params();
+  const auto admission = execution::status();
+  if (admission.workers == 0)
+    return fail(napl::Err::limit_exceeded, "sweep admission rejected: " + admission.reason);
   World base = live.clone();
   if (snap) base.restore(*snap);
 
@@ -273,8 +278,33 @@ Out run_sweep(const World& live, const std::vector<std::byte>* snap, const napl:
   const Clock::time_point deadline = deadline_of(session);
   std::atomic<std::size_t> next{0};
   std::atomic<bool> timed_out{false};
-  auto work = [&] {
-    for (std::size_t i = next.fetch_add(1); i < runs && !timed_out; i = next.fetch_add(1)) {
+  std::atomic<bool> pressure_rejected{false};
+  std::mutex admission_mutex;
+  std::size_t active = 0;
+  struct Reservation {
+    std::mutex& mutex;
+    std::size_t& active;
+    ~Reservation() { std::lock_guard lock(mutex); --active; }
+  };
+  auto work = [&](std::size_t rank) {
+    if (rank) execution::thread_entry();
+    execution::QosScope qos;
+    while (!timed_out && !pressure_rejected) {
+      std::size_t i;
+      {
+        std::lock_guard lock(admission_mutex);
+        const auto current = execution::status();
+        if (!current.workers) {
+          pressure_rejected = true;
+          break;
+        }
+        // Reserve before claiming an index or cloning. Current runs drain on downshift.
+        if (active >= current.workers) break;
+        i = next.fetch_add(1);
+        if (i >= runs) break;
+        ++active;
+      }
+      Reservation reservation{admission_mutex, active};
       SweepRowOut& row = out.rows[i];
       std::vector<Override> over;
       std::mt19937_64 rng(sw.seed() + i);  // random mode: stream depends on the run index alone
@@ -317,13 +347,14 @@ Out run_sweep(const World& live, const std::vector<std::byte>* snap, const napl:
       }
     }
   };
-  // sw.threads() and the run count are the limits; the host's core count is the ceiling (hfbox is dedicated: the old "<= 6" house rule is lifted).
-  const std::size_t nthreads = std::min<std::size_t>({static_cast<std::size_t>(std::max(1, sw.threads())),
-                                                      std::max<std::size_t>(1, std::thread::hardware_concurrency()), runs});
+  const std::size_t nthreads = std::min<std::size_t>({
+      static_cast<std::size_t>(std::max(1, sw.threads())), admission.workers, runs});
   std::vector<std::thread> pool;
-  for (std::size_t t = 1; t < nthreads; ++t) pool.emplace_back(work);
-  work();
+  for (std::size_t t = 1; t < nthreads; ++t) pool.emplace_back(work, t);
+  work(0);
   for (std::thread& t : pool) t.join();
+  if (pressure_rejected)
+    return fail(napl::Err::limit_exceeded, "sweep interrupted: resource-pressure admission closed; no partial rows");
   if (timed_out)
     return fail(napl::Err::limit_exceeded, "sweep exceeded max_wall_s=" + std::to_string(session.max_wall_s));
   Out o;

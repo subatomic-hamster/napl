@@ -12,7 +12,7 @@ import statistics as st
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from napl.runtime import BatchPool, child_environment
 from pathlib import Path
 
 import numpy as np
@@ -28,7 +28,7 @@ def one(args):
         [sys.executable, str(HERE / "fly.py"), str(out), mission, str(seed)],
         capture_output=True,
         text=True,
-        env={**os.environ, "SKYDIO_CAL": str(cal)},
+        env=child_environment({"SKYDIO_CAL": str(cal)}),
     )
     if r.returncode:
         return dict(
@@ -140,14 +140,13 @@ def main():
     root, cal = Path(str(out) + "_runs"), Path(str(out) + "_cal")
     cal.mkdir(parents=True, exist_ok=True)
     missions = ["goal", "follow"] if a.mission == "both" else [a.mission]
-    one(
-        (missions[0], a.first - 1, root, cal)
-    )  # one run first so the workers only read the thrust-curve cache
+    with BatchPool(1, threads=True, gb_per_worker=1.5) as calibration:
+        calibration.map(one, [(missions[0], a.first - 1, root, cal)])
     jobs = [
         (m, s, root, cal) for m in missions for s in range(a.first, a.first + a.seeds)
     ]
     t0 = time.time()
-    with ThreadPoolExecutor(a.workers) as ex:
+    with BatchPool(a.workers, threads=True, gb_per_worker=1.5) as ex:
         rows = list(ex.map(one, jobs))
     res = {m: [r for r in rows if r["mission"] == m] for m in missions}
     md = [

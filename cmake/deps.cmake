@@ -98,18 +98,50 @@ FetchContent_Declare(osqp
   GIT_TAG v1.0.0  # 236713ce9a56c182ac3230d52108f952afce1523
   GIT_SHALLOW TRUE)
 
-FetchContent_MakeAvailable(mujoco flatbuffers googletest vulkan_headers volk vma mavlink tomlplusplus)
+# GoogleTest only when tests are built (BUILD_TESTING, CMakeLists.txt): a wheel build never fetches it.
+set(_napl_test_deps)
+if(BUILD_TESTING)
+  set(_napl_test_deps googletest)
+endif()
+FetchContent_MakeAvailable(mujoco flatbuffers ${_napl_test_deps} vulkan_headers volk vma mavlink tomlplusplus)
 
-# Viewer deps (M10, Linux/X11 only for now: the Windows/macOS GLFW source lists are not written or tested). Sources only,
-# like the renderer deps: our own targets are in CMakeLists.txt.
+# Public MoltenVK runtime, directly loaded rather than relying on an installed Vulkan SDK/ICD.
+if(APPLE)
+  FetchContent_Declare(moltenvk
+    URL https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+    URL_HASH SHA256=f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
+    SOURCE_SUBDIR napl_sources_only)
+  FetchContent_MakeAvailable(moltenvk)
+  set(NAPL_MOLTENVK_DYLIB "${CMAKE_BINARY_DIR}/libMoltenVK.dylib")
+  execute_process(
+    COMMAND /usr/bin/lipo "${moltenvk_SOURCE_DIR}/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
+      -thin arm64 -output "${NAPL_MOLTENVK_DYLIB}"
+    COMMAND_ERROR_IS_FATAL ANY)
+endif()
+
+# Viewer deps (M10). Linux: X11 (GLFW built from our own source list). macOS: Cocoa (GLFW's own CMake target). Windows: not
+# written or tested. Sources only on Linux, like the renderer deps: our own targets are in CMakeLists.txt.
 if(NAPL_VIEWER)
   # GLFW 3.4 (zlib). Wayland is not built. GLFW dlopen()s libX11 (required) and libXrandr/libXi/libXext/libXrender/
   # libXxf86vm/libXinerama/libXcursor/libX11-xcb (each optional, checked at run time), so the build needs X11 HEADERS only.
-  FetchContent_Declare(glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG 3.4  # 7b6aead9fb88b3623e3b3725ebb42670cbe4c579 (annotated tag; tag object a74efa0d)
-    GIT_SHALLOW TRUE
-    SOURCE_SUBDIR napl_sources_only)
+  # On Apple GLFW's upstream CMake builds its Cocoa backend (Objective-C sources, framework links): no second source list.
+  if(APPLE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    set(GLFW_LIBRARY_TYPE STATIC CACHE STRING "" FORCE)
+    FetchContent_Declare(glfw
+      GIT_REPOSITORY https://github.com/glfw/glfw.git
+      GIT_TAG 3.4  # 7b6aead9fb88b3623e3b3725ebb42670cbe4c579 (annotated tag; tag object a74efa0d)
+      GIT_SHALLOW TRUE)
+  else()
+    FetchContent_Declare(glfw
+      GIT_REPOSITORY https://github.com/glfw/glfw.git
+      GIT_TAG 3.4  # 7b6aead9fb88b3623e3b3725ebb42670cbe4c579 (annotated tag; tag object a74efa0d)
+      GIT_SHALLOW TRUE
+      SOURCE_SUBDIR napl_sources_only)
+  endif()
   # Dear ImGui v1.92.9b (MIT): core + the GLFW and Vulkan backends (volk, dynamic rendering).
   FetchContent_Declare(imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -124,6 +156,7 @@ if(NAPL_VIEWER)
   #   libXfixes 6.0.1 (Xfixes.h, pulled in by XInput2.h)
   # Odd historical notice: libX11's src/xlibi18n/lcUniConv/COPYRIGHT says those (never compiled here) files derive from
   # LGPL libiconv and were relicensed MIT-style by the FSF; check_licenses.py reports it as a NOTE, not a failure.
+  if(NOT APPLE)
   foreach(_x IN ITEMS
       "xorgproto|proto/xorgproto|xorgproto-2024.1|67469711055522b8adb2d795b01e7ba98cb8816c"
       "libx11|lib/libx11|libX11-1.8.12|59917d28a3c41ad22d6fc52e323cafe2cdd596d5"
@@ -145,6 +178,7 @@ if(NAPL_VIEWER)
       SOURCE_SUBDIR napl_sources_only)
     list(APPEND _x11_repos ${_name})
   endforeach()
+  endif()
   # stb_image v2.30 (public domain / MIT, dual-licensed in the header), ONE header: decodes the PNG part thumbnails of the
   # library page. nothings/stb has no tags, so pinned by commit + SHA256 of the file (verified 2026-10-07).
   FetchContent_Declare(stb_image
@@ -182,6 +216,14 @@ if(NOT NAPL_SLANGC OR NOT EXISTS "${NAPL_SLANGC}")
     set(_slang_sha256 f49229eb9606b47b122e1d8789be46a7bcd6bb2ffa94b06fae6d544a4e6df637)
     set(_slang_exe bin/slangc)
     set(_slang_keep bin/slangc "lib/libslang-compiler.so*" LICENSE "LICENSES/*")
+  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    # Entries are "./bin/slangc" etc. slangc's rpath is @loader_path/../lib; it links only libslang-compiler.0.<ver>.dylib.
+    # This slangc is built for macOS 26 (LC_BUILD_VERSION minos 26.0): the BUILD host needs macOS 26, the product does not
+    # (it ships SPIR-V, never slangc). Older build hosts: -DNAPL_SLANGC=/path/to/slangc.
+    set(_slang_archive slang-${_slang_ver}-macos-aarch64.tar.gz)
+    set(_slang_sha256 fa46822c92d81404a7951de3746093985c1e6f520f4b533e2aa3bea576f0f2f0)
+    set(_slang_exe bin/slangc)
+    set(_slang_keep ./bin/slangc "./lib/libslang-compiler.*" ./LICENSE "./LICENSES/*")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
     set(_slang_archive slang-${_slang_ver}-windows-x86_64.zip)
     set(_slang_sha256 fc922f214b5d115f663932e59e80e0f6b6cc6fae140979cf307da6459b6f8f33)

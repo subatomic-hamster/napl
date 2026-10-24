@@ -15,7 +15,7 @@ Run it under the CPU lock with an outer timeout (workers <= 6): flock /workspace
 import argparse
 import json
 import math
-import multiprocessing as mp
+from napl.runtime import BatchPool
 import os
 import shutil
 import sys
@@ -172,7 +172,7 @@ def main(argv=None):
     ap.add_argument("--seeds", type=int, default=30, help="runs per kind")
     ap.add_argument("--kinds", nargs="*", default=list(enc.KINDS))
     ap.add_argument(
-        "--workers", type=int, default=5, help="processes (<= 16, one core each)"
+        "--workers", type=int, default=None, help="upper bound; default follows the execution policy"
     )
     ap.add_argument(
         "--no-ais", action="store_true", help="traffic carries no AIS: lidar only"
@@ -195,8 +195,7 @@ def main(argv=None):
         help="the traffic does not give way / turn (Rule 17(a)(ii) / (b) test of the stand-on vessel)",
     )
     a = ap.parse_args(argv)
-    if a.workers > 16:
-        raise SystemExit("hfbox has 16 cores")
+    # Explicit workers are capped by native CPU/memory/thermal admission.
     jobs = [
         (k, a.seed_base + i, not a.no_ais, a.fast, not a.noncomplying)
         for k in a.kinds
@@ -204,7 +203,7 @@ def main(argv=None):
     ]
     t0 = time.time()
     SCRATCH.mkdir(parents=True, exist_ok=True)
-    with mp.get_context("spawn").Pool(a.workers) as pool:
+    with BatchPool(a.workers) as pool:
         results = pool.map(one, jobs, chunksize=1)
     summary = {}
     for k in a.kinds:

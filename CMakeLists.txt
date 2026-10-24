@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(napl LANGUAGES C CXX)
+if(APPLE)
+  enable_language(OBJC)
+  enable_language(OBJCXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -29,17 +33,20 @@ if(NOT MSVC)
   add_compile_options(-ffp-contract=off)
 endif()
 
-# napl-view / Sim.show(): GLFW + Dear ImGui. Linux (X11) only until the Windows/macOS GLFW build is written and tested.
+# napl-view / Sim.show(): GLFW + Dear ImGui. Default ON for Linux (X11); macOS (Cocoa + bundled MoltenVK) builds it with
+# -DNAPL_VIEWER=ON, as the Apple workflow and wheel do; Windows is not built.
 if(UNIX AND NOT APPLE)
   option(NAPL_VIEWER "Build the Vulkan viewer (napl-view)" ON)
 else()
   option(NAPL_VIEWER "Build the Vulkan viewer (napl-view)" OFF)
 endif()
 
+include(CTest)  # BUILD_TESTING defaults ON; wheels explicitly disable it.
 include(cmake/deps.cmake)
 
-enable_testing()
-include(GoogleTest)
+if(BUILD_TESTING)
+  include(GoogleTest)
+endif()
 
 # napl_schema: napl.fbs -> C++ header, embedded .bfbs header (runtime reflection/JSON), JSON Schema (MCP, M8).
 # Re-runs whenever schema/napl.fbs or flatc changes.
@@ -64,9 +71,13 @@ target_link_libraries(napl_schema INTERFACE flatbuffers)
 # Seam enforced by the build graph: napl_core gets no mujoco include dirs, so including mujoco.h fails.
 find_package(Threads REQUIRED)
 add_library(napl_core STATIC src/core/world.cpp src/core/bus.cpp src/core/replay.cpp src/core/host.cpp
-  src/core/monitor.cpp src/core/shm.cpp)
+  src/core/monitor.cpp src/core/shm.cpp src/core/exec_policy.cpp)
 target_include_directories(napl_core PUBLIC src include)  # include/: napl/shm_client.hpp, the dependency-free shm client
 target_link_libraries(napl_core PUBLIC napl_schema Threads::Threads)
+if(APPLE)
+  target_sources(napl_core PRIVATE src/core/exec_policy_apple.mm)
+  target_link_libraries(napl_core PUBLIC "-framework Foundation")
+endif()
 
 add_library(napl_mujoco STATIC src/mujoco/mujoco_solver.cpp src/mujoco/devices/devices.cpp
   src/mujoco/devices/electrical.cpp src/mujoco/devices/aero.cpp src/mujoco/devices/servo.cpp
@@ -87,7 +98,7 @@ target_include_directories(napl_volk PUBLIC ${volk_SOURCE_DIR} ${vulkan_headers_
 target_compile_definitions(napl_volk PUBLIC VK_NO_PROTOTYPES)
 target_link_libraries(napl_volk PUBLIC ${CMAKE_DL_LIBS})
 napl_embed_shader(geom)
-add_library(napl_render STATIC src/render/renderer.cpp ${NAPL_GEN_DIR}/shaders/geom_spv.h)
+add_library(napl_render STATIC src/render/renderer.cpp src/render/loader.cpp ${NAPL_GEN_DIR}/shaders/geom_spv.h)
 target_include_directories(napl_render PUBLIC src PRIVATE ${vma_SOURCE_DIR}/include ${NAPL_GEN_DIR}/shaders)
 target_link_libraries(napl_render PUBLIC napl_core PRIVATE napl_volk)
 set_target_properties(napl_render napl_volk PROPERTIES POSITION_INDEPENDENT_CODE ON)  # linked into _napl.so
@@ -96,6 +107,12 @@ set_target_properties(napl_render napl_volk PROPERTIES POSITION_INDEPENDENT_CODE
 # for Sim.show(). GLFW and ImGui are built from fetched sources (no find_package): GLFW dlopen()s libX11 & co, so only the
 # X11 headers (fetched, cmake/deps.cmake) are needed to compile it.
 if(NAPL_VIEWER)
+  if(APPLE)
+    add_library(napl_glfw INTERFACE)
+    target_link_libraries(napl_glfw INTERFACE glfw)
+    target_compile_definitions(napl_glfw INTERFACE GLFW_INCLUDE_NONE)
+    set_target_properties(glfw PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  else()
   set(_x11_gen ${CMAKE_BINARY_DIR}/x11-gen)  # the one generated X11 header: Xcursor.h from its (unsubstituted) .in
   configure_file(${libxcursor_SOURCE_DIR}/include/X11/Xcursor/Xcursor.h.in ${_x11_gen}/X11/Xcursor/Xcursor.h COPYONLY)
   set(_glfw_src ${glfw_SOURCE_DIR}/src)
@@ -113,6 +130,7 @@ if(NAPL_VIEWER)
     ${libxrender_SOURCE_DIR}/include ${libxi_SOURCE_DIR}/include ${libxinerama_SOURCE_DIR}/include
     ${libxext_SOURCE_DIR}/include ${libxfixes_SOURCE_DIR}/include)
   target_link_libraries(napl_glfw PUBLIC ${CMAKE_DL_LIBS} Threads::Threads m)
+  endif()
 
   set(_imgui_src ${imgui_SOURCE_DIR})
   add_library(napl_imgui STATIC ${_imgui_src}/imgui.cpp ${_imgui_src}/imgui_draw.cpp ${_imgui_src}/imgui_tables.cpp
@@ -124,7 +142,7 @@ if(NAPL_VIEWER)
   # UI font: Roboto-Medium.ttf (Apache-2.0, from the pinned imgui checkout) as a byte array, rewritten only when it changes.
   file(READ ${_imgui_src}/misc/fonts/Roboto-Medium.ttf _font_hex HEX)
   string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _font_hex "${_font_hex}")
-  file(READ ${_imgui_src}/misc/fonts/Cousine-Regular.ttf _mono_hex HEX)  # Cousine (Apache-2.0): the log / code view
+  file(READ ${_imgui_src}/misc/fonts/Cousine-Regular.ttf _mono_hex HEX)  # Cousine (SIL OFL-1.1, verified in font metadata): log / code view
   string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _mono_hex "${_mono_hex}")
   file(CONFIGURE OUTPUT ${NAPL_GEN_DIR}/ui_font.cpp @ONLY CONTENT
     "#include <cstddef>\nextern unsigned char kUiFont[] = {@_font_hex@};\nextern const std::size_t kUiFontSize = sizeof kUiFont;\nextern unsigned char kUiMono[] = {@_mono_hex@};\nextern const std::size_t kUiMonoSize = sizeof kUiMono;\n")
@@ -156,6 +174,7 @@ add_executable(napl_px4_bridge src/px4/main.cpp)
 set_target_properties(napl_px4_bridge PROPERTIES OUTPUT_NAME napl-px4-bridge)
 target_link_libraries(napl_px4_bridge PRIVATE napl_core napl_mujoco mujoco napl_px4_deps)
 
+if(BUILD_TESTING)
 # The shm test's child process: header-only client only, so it links nothing of napl (proves the header stands alone).
 add_executable(napl_shm_test_client tests/cpp/shm_test_client.cpp)
 target_include_directories(napl_shm_test_client PRIVATE include tests/cpp)
@@ -164,7 +183,7 @@ add_executable(napl_tests tests/cpp/test_smoke.cpp tests/cpp/test_determinism.cp
   tests/cpp/test_replay.cpp tests/cpp/test_host.cpp tests/cpp/test_shm.cpp tests/cpp/test_devices.cpp
   tests/cpp/test_launcher.cpp tests/cpp/test_rocket.cpp tests/cpp/test_vessel.cpp tests/cpp/test_rangefinder.cpp
   tests/cpp/test_jetvane.cpp tests/cpp/test_px4.cpp tests/cpp/test_terrain.cpp tests/cpp/test_rain.cpp
-  tests/cpp/test_qdd.cpp tests/cpp/test_foot_contact.cpp tests/cpp/test_rosette.cpp)
+  tests/cpp/test_qdd.cpp tests/cpp/test_foot_contact.cpp tests/cpp/test_rosette.cpp tests/cpp/test_exec_policy.cpp)
 add_dependencies(napl_tests napl_cli napl_shm_test_client napl_px4_bridge)  # test_replay / test_shm / test_px4 run these executables
 target_include_directories(napl_tests PRIVATE tests/cpp)
 target_link_libraries(napl_tests PRIVATE napl_core napl_mujoco mujoco napl_px4_deps GTest::gtest_main)
@@ -185,16 +204,20 @@ gtest_discover_tests(napl_tests PROPERTIES LABELS cpu)
 # GPU tests: their own executable and ctest label, so `ctest --preset dev` (cpu) never touches a GPU.
 # Run them with `ctest --preset gpu` (see CMakePresets.json); pick the driver with VK_DRIVER_FILES.
 add_executable(napl_render_tests tests/cpp/test_render.cpp)
-target_link_libraries(napl_render_tests PRIVATE napl_render napl_mujoco mujoco GTest::gtest_main)
+target_link_libraries(napl_render_tests PRIVATE napl_render napl_volk napl_mujoco mujoco GTest::gtest_main)
 target_compile_definitions(napl_render_tests PRIVATE NAPL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 if(WIN32)
   add_custom_command(TARGET napl_render_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:mujoco> $<TARGET_FILE_DIR:napl_render_tests>)
 endif()
 # render.* run on llvmpipe (deterministic; a CPU renderer is otherwise refused); render_gpu.* run on the default device (the GPU) with a tolerance.
-gtest_discover_tests(napl_render_tests TEST_FILTER render.* PROPERTIES LABELS gpu
-  ENVIRONMENT "NAPL_RENDER_ALLOW_CPU=1;NAPL_VK_DEVICE=llvmpipe")
-gtest_discover_tests(napl_render_tests TEST_FILTER render_gpu.* PROPERTIES LABELS gpu)
+if(APPLE)
+  gtest_discover_tests(napl_render_tests PROPERTIES LABELS gpu)
+else()
+  gtest_discover_tests(napl_render_tests TEST_FILTER render.* PROPERTIES LABELS gpu
+    ENVIRONMENT "NAPL_RENDER_ALLOW_CPU=1;NAPL_VK_DEVICE=llvmpipe")
+  gtest_discover_tests(napl_render_tests TEST_FILTER render_gpu.* PROPERTIES LABELS gpu)
+endif()
 
 if(NAPL_VIEWER)  # needs a window system too: run under a display or `xvfb-run -a ctest --preset gpu`
   add_executable(napl_viewer_tests tests/cpp/test_viewer.cpp)
@@ -205,8 +228,11 @@ if(NAPL_VIEWER)  # needs a window system too: run under a display or `xvfb-run -
     NAPL_CLI_EXE="$<TARGET_FILE:napl_cli>"
     NAPL_VIEWER_OUT_DIR="${CMAKE_BINARY_DIR}/viewer-out"
     NAPL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
-  gtest_discover_tests(napl_viewer_tests PROPERTIES LABELS gpu)
+  # Scripted viewer tests time UI events by wall-clock ui_poll counts and assume uncapped presentation; the Apple
+  # default background profile caps windows at 15 fps, which halves design-request throughput per poll.
+  gtest_discover_tests(napl_viewer_tests PROPERTIES LABELS gpu ENVIRONMENT "NAPL_PROFILE=maximum")
 endif()
+endif()  # BUILD_TESTING
 
 # _napl: nanobind extension (CPython >= 3.12 stable ABI). Off by default; scikit-build-core turns it on
 # (pyproject.toml) and shares this build tree, so the dependency sources/objects exist exactly once.
@@ -232,9 +258,111 @@ if(NAPL_PYTHON)
     target_link_libraries(_napl PRIVATE napl_viewer)
     target_compile_definitions(_napl PRIVATE NAPL_HAS_VIEWER)
   endif()
-  set_target_properties(_napl PROPERTIES INSTALL_RPATH "$ORIGIN")  # libmujoco.so is installed next to it
-  install(TARGETS _napl mujoco LIBRARY DESTINATION napl COMPONENT napl_python)
-endif()
+  if(APPLE)
+    set_target_properties(_napl PROPERTIES INSTALL_RPATH "@loader_path")
+    install(FILES "${NAPL_MOLTENVK_DYLIB}" DESTINATION napl COMPONENT napl_python)
+
+    # ── Apple wheel: executables into napl/bin/ ───────────────────────────────
+    # RPATH "@loader_path/../" lets napl-replay / napl-view resolve napl/*.dylib.
+    foreach(_exe napl_cli napl_shm_serve)
+      set_target_properties(${_exe} PROPERTIES
+        INSTALL_RPATH "@loader_path/../"
+        BUILD_WITH_INSTALL_RPATH OFF)
+    endforeach()
+    install(TARGETS napl_cli napl_shm_serve
+            RUNTIME DESTINATION napl/bin COMPONENT napl_python)
+    if(NAPL_VIEWER)
+      set_target_properties(napl_view PROPERTIES
+        INSTALL_RPATH "@loader_path/../"
+        BUILD_WITH_INSTALL_RPATH OFF)
+      install(TARGETS napl_view
+              RUNTIME DESTINATION napl/bin COMPONENT napl_python)
+    endif()
+
+    # Preserve source-relative runtime asset paths, excluding outputs and build trees.
+    execute_process(
+      COMMAND "${Python_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/wheel_assets.py"
+              "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/wheel-assets"
+      COMMAND_ERROR_IS_FATAL ANY)
+    include("${CMAKE_BINARY_DIR}/wheel-assets/wheel-assets.cmake")
+    install(FILES "${CMAKE_BINARY_DIR}/wheel-assets/asset-inventory.json"
+            DESTINATION napl/data COMPONENT napl_python)
+    set(_notice_deps mujoco flatbuffers nanobind volk vulkan_headers vma
+                     lodepng tinyobjloader tinyxml2 qhull ccd tomlplusplus moltenvk)
+    if(NAPL_VIEWER)
+      list(APPEND _notice_deps glfw imgui imguicolortextedit)
+    endif()
+    foreach(_dep IN LISTS _notice_deps)
+      FetchContent_GetProperties(${_dep} SOURCE_DIR _notice_source)
+      file(GLOB _notices "${_notice_source}/*LICENSE*" "${_notice_source}/*COPYING*")
+      if(NOT _notices)
+        message(FATAL_ERROR "Missing redistribution notice for ${_dep}")
+      endif()
+      foreach(_notice IN LISTS _notices)
+        if(IS_DIRECTORY "${_notice}")
+          install(DIRECTORY "${_notice}" DESTINATION "napl/data/notices/${_dep}" COMPONENT napl_python)
+        else()
+          install(FILES "${_notice}" DESTINATION "napl/data/notices/${_dep}" COMPONENT napl_python)
+        endif()
+      endforeach()
+    endforeach()
+    install(FILES "${CMAKE_SOURCE_DIR}/licenses/MoltenVK-THIRD-PARTY-NOTICE.txt"
+                  "${CMAKE_SOURCE_DIR}/licenses/SPIRV-Cross-LICENSE"
+                  "${CMAKE_SOURCE_DIR}/licenses/cereal-LICENSE"
+                  "${CMAKE_SOURCE_DIR}/licenses/SPIRV-Tools-LICENSE"
+                  "${CMAKE_SOURCE_DIR}/licenses/SPIRV-Headers-LICENSE"
+            DESTINATION napl/data/notices/moltenvk COMPONENT napl_python)
+    install(FILES "${CMAKE_SOURCE_DIR}/licenses/MAVLink-COPYING"
+            DESTINATION napl/data/notices/mavlink COMPONENT napl_python)
+    install(FILES "${nanobind_SOURCE_DIR}/ext/robin_map/LICENSE"
+            DESTINATION napl/data/notices/robin_map COMPONENT napl_python)
+    FetchContent_GetProperties(marchingcubecpp SOURCE_DIR _marching_source)
+    install(FILES "${_marching_source}/README.md" "${_marching_source}/MC.h"
+            DESTINATION napl/data/notices/marchingcubecpp COMPONENT napl_python)
+    if(NAPL_VIEWER)
+      # The stb distribution places its complete MIT/public-domain terms in the header.
+      install(FILES "${stb_image_SOURCE_DIR}/stb_image.h"
+              DESTINATION napl/data/notices/stb_image COMPONENT napl_python)
+      install(FILES "${CMAKE_SOURCE_DIR}/licenses/Cousine-OFL.txt"
+              DESTINATION napl/data/notices/fonts COMPONENT napl_python)
+      file(WRITE "${CMAKE_BINARY_DIR}/wheel-assets/Roboto-NOTICE.txt" [=[Roboto-Medium.ttf: Copyright 2011 Google Inc. All Rights Reserved.
+Licensed under the Apache License, Version 2.0.
+]=])
+      install(FILES "${CMAKE_BINARY_DIR}/wheel-assets/Roboto-NOTICE.txt"
+              DESTINATION napl/data/notices/fonts COMPONENT napl_python)
+    endif()
+
+    # ── Apple wheel: napl-px4-bridge (needed by napl.px4) ─────────────────────
+    set_target_properties(napl_px4_bridge PROPERTIES
+      INSTALL_RPATH "@loader_path/../"
+      BUILD_WITH_INSTALL_RPATH OFF)
+    install(TARGETS napl_px4_bridge
+            RUNTIME DESTINATION napl/bin COMPONENT napl_python)
+    install(TARGETS _napl mujoco LIBRARY DESTINATION napl COMPONENT napl_python)
+
+    # ── Apple wheel: ad-hoc codesign — runs AFTER all targets are installed ───
+    # Must follow all install(TARGETS …) and install(FILES …) blocks above.
+    # Failures are fatal to surface packaging problems early.
+    install(CODE "
+      file(GLOB _dylibs \"\${CMAKE_INSTALL_PREFIX}/napl/*.dylib\")
+      file(GLOB _objects \"\${CMAKE_INSTALL_PREFIX}/napl/*.so\"
+                         \"\${CMAKE_INSTALL_PREFIX}/napl/bin/*\")
+      set(_macho_files \${_dylibs} \${_objects})
+      foreach(_f \${_macho_files})
+        if(NOT IS_SYMLINK \"\${_f}\")
+          execute_process(COMMAND codesign --force -s - \"\${_f}\"
+                          RESULT_VARIABLE _cs_result)
+          if(NOT _cs_result EQUAL 0)
+            message(FATAL_ERROR \"codesign failed for \${_f} (exit \${_cs_result})\")
+          endif()
+        endif()
+      endforeach()
+    " COMPONENT napl_python)
+  else()
+    set_target_properties(_napl PROPERTIES INSTALL_RPATH "$ORIGIN")
+    install(TARGETS _napl mujoco LIBRARY DESTINATION napl COMPONENT napl_python)
+  endif()
+endif()  # NAPL_PYTHON
 
 # loco_wbc_cpp: the dog's whole-body controller in C++ (SP4 Task 7 Step 6), a small nanobind module for examples/dog/loco/wbc.py to load.
 # Off by default; not part of the installed napl package. Output: build/loco/.

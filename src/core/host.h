@@ -8,6 +8,7 @@
 //
 // Viewers read through take_frame(): the sim thread copies the render state (poses, plus the visuals when the scene
 // changed) into a back buffer when a frame was requested, the viewer swaps it out. The viewer never touches the World.
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -78,6 +79,7 @@ class Host {
   std::condition_variable cv_;
   std::deque<Job> q_;
   bool stop_ = false;
+  std::atomic<bool> has_work_{false};  // set with q_/stop_ under m_: ends a governed rest on the sim thread
   bool want_frame_ = false, have_frame_ = false;  // under m_
   Frame back_;                                    // under m_: written by the sim thread, swapped out by take_frame
   std::uint64_t scene_ = 1;                       // sim thread only

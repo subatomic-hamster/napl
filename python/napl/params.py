@@ -35,17 +35,9 @@ CHANNEL_KINDS = ("number", "string", "bool")
 
 
 def default_workers(gb_per_worker: float = 1.0) -> int:
-    """Default worker count for a Monte Carlo driver: NAPL_THREADS (the job's CPU slots, tools/remote.sh) or every core,
-    bounded by MemAvailable / gb_per_worker."""
-    cpus = int(os.environ.get("NAPL_THREADS") or os.cpu_count() or 1)
-    try:
-        with open("/proc/meminfo") as f:
-            kb = next(
-                int(line.split()[1]) for line in f if line.startswith("MemAvailable:")
-            )
-        return max(1, min(cpus, int(kb / 2**20 / gb_per_worker)))
-    except (OSError, StopIteration):
-        return cpus
+    """Shared native policy ceiling, bounded by the per-worker memory estimate."""
+    from .runtime import worker_limit
+    return worker_limit(gb_per_worker=gb_per_worker)
 
 
 class ParamError(ValueError):

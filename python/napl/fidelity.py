@@ -17,7 +17,9 @@ import re
 import tomllib
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from ._resources import data_dir
+
+ROOT = data_dir()
 FIDS = ("datasheet", "literature", "measured", "derived", "estimated")
 SOURCED = ("datasheet", "literature", "measured")
 

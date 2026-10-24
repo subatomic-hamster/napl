@@ -70,21 +70,16 @@ def test_dog_scene_keeps_the_lidar_and_does_not_see_itself(tmp_path):
 
 
 @needs_dog
-def test_dog_smoke_passes_and_replays(tmp_path):
+def test_dog_smoke_passes_and_replays(tmp_path, unsandboxed_scenario):
     from napl import program
 
     res, _ = program.run(
-        ROOT
-        / "examples"
-        / "dog"
-        / "missions"
-        / "dog_smoke"
-        / "dog_smoke.scenario.toml",
+        unsandboxed_scenario(ROOT / "examples" / "dog" / "missions" / "dog_smoke" / "dog_smoke.scenario.toml"),
         tmp_path / "runs",
     )
     assert res["replay"]["available"] and res["replay"]["match"]
     assert res["pass"], res["fail_reasons"]
     if (
-        CPP_WBC
+        CPP_WBC and sys.platform != "darwin"
     ):  # the golden is the C++ WBC's (the Python class differs in the last bits)
         assert res["sim"]["state_hash"] == GOLDEN_DOG_SMOKE, res["sim"]["state_hash"]

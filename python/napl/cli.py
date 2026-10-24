@@ -134,10 +134,9 @@ def program(args) -> int:
 def _parts_dir(arg) -> Path:
     if arg:
         return Path(arg)
-    repo = (
-        Path(__file__).resolve().parents[2] / "parts"
-    )  # source / editable install: <repo>/python/napl/cli.py
-    return repo if repo.is_dir() else Path("parts")
+    from ._resources import parts_dir
+    p = parts_dir()
+    return p if p.is_dir() else Path("parts")
 
 
 def design(args) -> int:

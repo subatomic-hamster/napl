@@ -25,10 +25,12 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
+from ._resources import data_dir
+
+ROOT = data_dir()
 PARTS = ROOT / "parts"
-OUT = ROOT / "build" / "bench"
-DOCS = ROOT / "docs" / "validation" / "thrust-stands.md"
+OUT = Path.cwd() / "build" / "bench"
+DOCS = Path.cwd() / "docs" / "validation" / "thrust-stands.md"
 RHO0 = 1.2250  # ISA sea level, matches the C++ ISA model
 R_SERIES = 0.001  # PSU series resistance (ohm): regulated bench supply
 WS = 5.0  # friction smoothing speed, rad/s (device default)
@@ -1067,7 +1069,7 @@ _X500_BOM = {  # part id -> qty
 
 
 ASM = ROOT / "assemblies" / "x500v2.toml"
-ASM_OUT = ROOT / "build" / "assemblies"
+ASM_OUT = Path.cwd() / "build" / "assemblies"
 
 
 def built_assembly() -> tuple[dict, dict]:

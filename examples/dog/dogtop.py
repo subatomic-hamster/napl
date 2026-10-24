@@ -14,7 +14,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 import argparse
 import json
 import math
-import multiprocessing as mp
+from napl.runtime import BatchPool
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
@@ -133,8 +133,10 @@ def _disp(seed):
 
 
 def _job(a):
-    """(leg_ctl, gait, params, seed, kind) -> ladder result (kind "train": nominal scene; "test": dispersion of the seed)."""
-    leg, gait, params, seed, kind = a
+    """(leg_ctl, gait, params, seed, kind, overrides) -> seeded ladder result."""
+    leg, gait, params, seed, kind, overrides = a
+    for mod, attr, value in overrides:
+        setattr(__import__(f"loco.{mod}", fromlist=[attr]), attr, value)
     d = _disp(seed) if kind == "test" else dict(payload=None, imu_bias=None)
     model = dogcourse.scene(
         tempfile.mkdtemp(prefix="dogtop-"), "flat", seed, payload=d["payload"]
@@ -224,26 +226,27 @@ def main():
         help="JSON: params of every non-search run, e.g. '{\"h_frac\": 0.85}'",
     )
     ap.add_argument("--validate", type=int, default=0)
-    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--jobs", type=int, default=None, help="upper bound; default follows the execution policy")
     ap.add_argument("--out", default="build/dog-top")
     ap.add_argument(
         "--set",
         default="",
-        help="module constants for experiments, e.g. gait.D_MAX:0.22 (inherited by the pool workers)",
+        help="module constants for experiments, e.g. gait.D_MAX:0.22 (passed explicitly to each worker)",
     )
     a = ap.parse_args()
+    overrides = []
     for s in filter(None, a.set.split(",")):
         name, val = s.split(":")
         mod, attr = name.split(".")
-        setattr(__import__(f"loco.{mod}", fromlist=[attr]), attr, float(val))
+        overrides.append((mod, attr, float(val)))
     gaits, legs = a.gaits.split(","), a.leg.split(",")
     todo = [
-        (leg, g, prm, TRAIN_SEED, "train")
+        (leg, g, prm, TRAIN_SEED, "train", overrides)
         for leg in legs
         for g in gaits
         for prm in (_grid(g) if a.search else _cands(a.params))
     ]
-    with mp.Pool(a.jobs) as pool:
+    with BatchPool(a.jobs) as pool:
         rows = pool.map(_job, todo, chunksize=1)
         best = {
             (leg, g): _best([r for r in rows if r["leg_ctl"] == leg and r["gait"] == g])
@@ -253,7 +256,7 @@ def main():
         val = {}
         if a.validate:
             vt = [
-                (leg, g, b["params"], TEST_BASE + i, "test")
+                (leg, g, b["params"], TEST_BASE + i, "test", overrides)
                 for (leg, g), b in best.items()
                 for i in range(a.validate)
             ]

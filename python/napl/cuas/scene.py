@@ -24,7 +24,8 @@ import numpy as np
 from .. import design
 from ..terrain import GEOM_NAME, add_terrain
 
-REPO = Path(__file__).resolve().parents[3]
+from .._resources import repo_root as _repo_root, data_dir as _data_dir
+REPO = _repo_root() or _data_dir()
 N_PELLETS = 16  # kMaxPellets of the kernel
 TRACER_RADIUS = 0.015  # m: VISUAL sphere of a flying pellet (the physical pellet is 4.5 mm; enlarged so the viewer shows it, still < 1 px beyond 15 m)
 NAME_TAGS = ("body", "geom", "joint", "freejoint", "site", "mesh")

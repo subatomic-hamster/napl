@@ -24,8 +24,13 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#ifdef __APPLE__
+#include <pthread.h>
+#endif
 
 #include "napl_generated.h"
+#include "core/exec_policy.h"
+#include "render/loader.h"
 #include "render/window_renderer.h"
 #include "viewer/build3d.h"
 #include "viewer/design.h"
@@ -105,6 +110,11 @@ double to_double(const std::string& s, const std::string& what) {
 std::string g_glfw_error;
 struct GlfwInit {
   GlfwInit() {
+#ifdef __APPLE__
+    if (!pthread_main_np())
+      throw std::runtime_error("macOS viewer must start on the main thread; call Sim.show() from Python's main thread");
+    glfwInitVulkanLoader(initialize_vulkan());
+#endif
     glfwSetErrorCallback([](int, const char* d) { g_glfw_error = d ? d : ""; });
 #if defined(__linux__)
     glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);  // the only backend built here; gives the specific "no DISPLAY" message
@@ -299,6 +309,9 @@ class Viewer {
     for (int n_frame = 0; !(window && glfwWindowShouldClose(window->w)) && !(opts_.frames > 0 && n_frame >= opts_.frames) &&
                           !(opts_.stop && opts_.stop->load());
          ++n_frame) {
+#ifdef __APPLE__
+      const auto frame_start = Clock::now();
+#endif
       if (window) glfwPollEvents();
       for (const ScriptCmd& c : script_) {
         if (c.frame != n_frame) continue;
@@ -311,6 +324,11 @@ class Viewer {
       Frame f;
       if (host_.take_frame(f)) adopt(f, renderer);
       poll();
+      if (window && opts_.frames == 0 && script_.empty() &&
+          (glfwGetWindowAttrib(window->w, GLFW_ICONIFIED) || !glfwGetWindowAttrib(window->w, GLFW_VISIBLE))) {
+        glfwWaitEventsTimeout(.1);
+        continue;
+      }
 
       ImGui_ImplVulkan_NewFrame();
       if (window) {
@@ -348,6 +366,18 @@ class Viewer {
         std::this_thread::sleep_until(last + std::chrono::microseconds(16667));
       } else if (!drawn) {
         glfwWaitEventsTimeout(0.05);  // minimised or swapchain rebuilding: do not spin
+#ifdef __APPLE__
+      } else {
+        const auto fps = execution::presentation_fps();
+        if (fps) {
+          const auto due = frame_start + std::chrono::duration<double>(1. / fps);
+          for (;;) {
+            const double remaining = std::chrono::duration<double>(due - Clock::now()).count();
+            if (remaining <= 0 || glfwWindowShouldClose(window->w)) break;
+            glfwWaitEventsTimeout(remaining);
+          }
+        }
+#endif
       }
     }
     prog_.shutdown();  // the PROGRAM page's shells die with the window

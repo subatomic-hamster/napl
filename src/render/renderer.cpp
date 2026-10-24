@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "geom_spv.h"
+#include "render/loader.h"
 #include "render/window_renderer.h"
 
 namespace {
@@ -455,7 +456,7 @@ struct Renderer::Impl {
   bool sc = false;  // swapchain mode (a window that presents); a window with Surface::offscreen renders into tgt and reads back instead
 
   explicit Impl(const WindowRenderer::Surface* window = nullptr) : win(window), sc(window && !window->offscreen) {
-    if (volkInitialize() != VK_SUCCESS) throw std::runtime_error("no Vulkan loader (libvulkan) found on this machine");
+    initialize_vulkan();
     try {
       init();
     } catch (...) {
@@ -471,10 +472,25 @@ struct Renderer::Impl {
     app.apiVersion = VK_API_VERSION_1_3;
     VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ici.pApplicationInfo = &app;
-    if (sc) {
-      ici.enabledExtensionCount = static_cast<std::uint32_t>(win->instance_extensions.size());
-      ici.ppEnabledExtensionNames = win->instance_extensions.data();
+    std::uint32_t extension_count = 0;
+    check(vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr), "vkEnumerateInstanceExtensionProperties");
+    std::vector<VkExtensionProperties> supported(extension_count);
+    check(vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, supported.data()), "vkEnumerateInstanceExtensionProperties");
+    std::vector<const char*> extensions;
+    const auto add_extension = [&](const char* name) {
+      if (std::none_of(extensions.begin(), extensions.end(), [&](const char* e) { return std::strcmp(e, name) == 0; }))
+        extensions.push_back(name);
+    };
+    if (sc)
+      for (const char* name : win->instance_extensions) add_extension(name);
+    for (const auto& e : supported) {
+      if (std::strcmp(e.extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0) {
+        add_extension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+        ici.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+      }
     }
+    ici.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
+    ici.ppEnabledExtensionNames = extensions.data();
     const VkResult ir = vkCreateInstance(&ici, nullptr, &inst);
     if (ir == VK_ERROR_INCOMPATIBLE_DRIVER)
       throw std::runtime_error("no Vulkan device: no usable Vulkan driver (ICD) found (check VK_DRIVER_FILES)");
@@ -566,11 +582,17 @@ struct Renderer::Impl {
     VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &f13};
     dci.queueCreateInfoCount = 1;
     dci.pQueueCreateInfos = &qci;
-    const char* swapchain_ext = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-    if (sc) {
-      dci.enabledExtensionCount = 1;
-      dci.ppEnabledExtensionNames = &swapchain_ext;
-    }
+    std::vector<const char*> device_extensions;
+    if (sc) device_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    std::uint32_t device_extension_count = 0;
+    check(vkEnumerateDeviceExtensionProperties(pd, nullptr, &device_extension_count, nullptr), "vkEnumerateDeviceExtensionProperties");
+    std::vector<VkExtensionProperties> device_supported(device_extension_count);
+    check(vkEnumerateDeviceExtensionProperties(pd, nullptr, &device_extension_count, device_supported.data()), "vkEnumerateDeviceExtensionProperties");
+    for (const auto& e : device_supported)
+      if (std::strcmp(e.extensionName, "VK_KHR_portability_subset") == 0)
+        device_extensions.push_back("VK_KHR_portability_subset");
+    dci.enabledExtensionCount = static_cast<std::uint32_t>(device_extensions.size());
+    dci.ppEnabledExtensionNames = device_extensions.data();
     check(vkCreateDevice(pd, &dci, nullptr, &dev), "vkCreateDevice");
     volkLoadDevice(dev);
     vkGetDeviceQueue(dev, qfam, 0, &queue);

@@ -259,9 +259,9 @@ def test_short_flight_is_collision_free_and_replays_bit_identically(tmp_path):
 
 @needs_kernel
 @pytest.mark.parametrize("mission", ["goal", "follow"])
-def test_scenario_passes_with_replay_match(tmp_path, monkeypatch, mission):
+def test_scenario_passes_with_replay_match(tmp_path, monkeypatch, mission, unsandboxed_scenario):
     monkeypatch.setenv("SKYDIO_CAL", str(tmp_path / "cal"))
-    res, _ = program.run(EX / f"{mission}.scenario.toml", tmp_path / "runs")
+    res, _ = program.run(unsandboxed_scenario(EX / f"{mission}.scenario.toml"), tmp_path / "runs")
     assert res["replay"]["available"] and res["replay"]["match"]
     assert res["pass"], res[
         "fail_reasons"

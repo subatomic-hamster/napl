@@ -228,7 +228,8 @@ TEST(vessel, surge_speed_matches_the_damping_model_and_added_mass_is_exact) {
         u += dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
       }
       t = stop;
-      ASSERT_EQ(s->step(static_cast<int>(std::lround(stop * 1000)) - static_cast<int>(ms(*s).data().time * 1000 + 0.5)), static_cast<int>(std::lround(stop * 1000)) - static_cast<int>(ms(*s).data().time * 1000 + 0.5));
+      const int remaining = static_cast<int>(std::lround(stop * 1000)) - static_cast<int>(ms(*s).data().time * 1000 + 0.5);
+      ASSERT_EQ(s->step(remaining), remaining);
       const double got = ms(*s).data().qvel[0];  // world x = body x (no yaw)
       EXPECT_NEAR(got, u, 0.01 * std::max(u, 0.01)) << "added mass " << au << " at t = " << stop;
     }

@@ -12,7 +12,7 @@ import math
 import os
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from napl.runtime import BatchPool, child_environment
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -33,13 +33,7 @@ def fly(scenario, seed, out, overrides, cal):
     """One flight in a subprocess -> its summary dict (a failed process counts as a failure with the tail of its stderr)."""
     run = Path(out) / f"seed{seed}"
     run.mkdir(parents=True, exist_ok=True)
-    env = dict(
-        os.environ,
-        NAPL_PARAMS=json.dumps({**overrides, "seed": seed}),
-        OMP_NUM_THREADS="1",
-        OPENBLAS_NUM_THREADS="1",
-        MKL_NUM_THREADS="1",
-    )
+    env = child_environment({"NAPL_PARAMS": json.dumps({**overrides, "seed": seed})})
     env.pop("NAPL_MODEL", None)
     if cal:
         env["SKYDIO_CAL"] = str(cal)
@@ -106,10 +100,10 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     cal = Path(a.cal) if a.cal else out / "cal"
-    rows = [
-        fly(a.scenario, seeds[0], out, ov, cal)
-    ]  # the first flight alone: it fills the calibration cache the others share
-    with ThreadPoolExecutor(a.jobs) as ex:
+    # Calibrate through the same admission and child-environment path.
+    with BatchPool(1, threads=True) as calibration:
+        rows = calibration.map(lambda s: fly(a.scenario, s, out, ov, cal), seeds[:1])
+    with BatchPool(a.jobs, threads=True) as ex:
         rows += list(ex.map(lambda s: fly(a.scenario, s, out, ov, cal), seeds[1:]))
     res = summarize(rows)
     res.update(scenario=str(a.scenario), overrides=ov, seeds=seeds, rows=rows)

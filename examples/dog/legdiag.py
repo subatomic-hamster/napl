@@ -26,7 +26,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 import argparse
 import json
 import math
-import multiprocessing as mp
+from napl.runtime import BatchPool
 import sys
 import tempfile
 import time
@@ -220,7 +220,7 @@ def _row(model, p, seed, fam, length):
 def top(h_frac=dogtop.SWEEP_H_FRAC):
     """dogtop's training-seed ladder of the forced flying trot (the SWEEP_GAIT of tools/dog_sweep.py), WBC, stand height 0.85."""
     r = dogtop._job(
-        ("wbc", dogtop.SWEEP_GAIT, {"h_frac": h_frac}, dogtop.TRAIN_SEED, "train")
+        ("wbc", dogtop.SWEEP_GAIT, {"h_frac": h_frac}, dogtop.TRAIN_SEED, "train", [])
     )
     return dict(fam="top", seed=dogtop.TRAIN_SEED, v_top=r["v_top"], runs=r["runs"])
 
@@ -259,7 +259,7 @@ def run_all(name, asm, tasks, jobs, out):
     )
     have = {(r["fam"], r["seed"]) for r in rows if "error" not in r}
     todo = [a for a in tasks if ident(a) not in have]
-    with mp.Pool(jobs) as pool, part.open("a") as fh:
+    with BatchPool(jobs) as pool, part.open("a") as fh:
         for r in pool.imap_unordered(task, todo, chunksize=1):
             rows.append(r)
             fh.write(json.dumps(r) + "\n")
@@ -294,7 +294,7 @@ def main():
         "--flat", type=int, default=0, help="flat push runs, seeds 21000..."
     )
     ap.add_argument("--top", action="store_true")
-    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--jobs", type=int, default=None, help="upper bound; default follows the execution policy")
     ap.add_argument("--out", default="build/leg-study")
     a = ap.parse_args()
     tasks = [("top",)] if a.top else []

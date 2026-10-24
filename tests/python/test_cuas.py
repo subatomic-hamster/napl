@@ -278,7 +278,7 @@ def test_finish_writes_artefacts_and_hash(world, tmp_path):
 
 
 # ---- `napl program` with [interfaces.native] ----------------------------------------------------------------------------------
-def test_native_scenario_judges_trace_monitors_and_replay(tmp_path):
+def test_native_scenario_judges_trace_monitors_and_replay(tmp_path, unsandboxed_scenario):
     (tmp_path / "scene.py").write_text(
         "from napl.cuas.scene import Environment, Vehicle, compose\n"
         "def build(out):\n"
@@ -304,7 +304,7 @@ def test_native_scenario_judges_trace_monitors_and_replay(tmp_path):
         'name = "n"\n[model]\nscript = "scene.py"\n[interfaces.native]\n[program]\ncmd = ["python", "{dir}/prog.py"]\n'
         f"[limits]\nwall_s = 300\ncpu_s = 300\naddress_space_mb = 65536\n{mon}"
     )
-    res, _ = program.run(sc, tmp_path / "runs")
+    res, _ = program.run(unsandboxed_scenario(sc), tmp_path / "runs")
     assert res["kind"] == "native" and res["program"]["returncode"] == 0
     ok = {m["name"]: m["pass"] for m in res["monitors"]}
     assert ok == {

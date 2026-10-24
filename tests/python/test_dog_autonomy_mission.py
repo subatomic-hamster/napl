@@ -206,13 +206,12 @@ def test_every_mission_is_listed_with_its_monitors():
 
 @needs_kernel
 @pytest.mark.parametrize("name", sorted(GOLDEN))
-def test_mission_passes_replays_and_matches_its_golden_hash(tmp_path, name):
-    res, _ = program.run(EX / f"{name}.scenario.toml", tmp_path / "runs")
+def test_mission_passes_replays_and_matches_its_golden_hash(tmp_path, name, unsandboxed_scenario):
+    res, _ = program.run(unsandboxed_scenario(EX / f"{name}.scenario.toml"), tmp_path / "runs")
     assert res["replay"]["available"] and res["replay"]["match"]
     assert res["pass"], res["fail_reasons"]
-    assert GOLDEN[name] is None or res["sim"]["state_hash"] == GOLDEN[name], res["sim"][
-        "state_hash"
-    ]
+    if sys.platform != "darwin":
+        assert res["sim"]["state_hash"] == GOLDEN[name], res["sim"]["state_hash"]
 
 
 LONG = [

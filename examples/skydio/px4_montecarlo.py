@@ -15,7 +15,7 @@ import statistics as st
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from napl.runtime import BatchPool, child_environment, worker_limit
 from pathlib import Path
 from queue import Queue
 
@@ -41,14 +41,11 @@ def one(job):
     inst = instances.get()
     try:
         runs = Path(root) / f"{mission}-{seed}"
-        env = {
-            **os.environ,
+        env = child_environment({
             **EXTRA_ENV,
             "NAPL_PARAMS": json.dumps({"seed": seed}),
             "NAPL_PX4_INSTANCE": str(inst),
-            "OMP_NUM_THREADS": "1",
-            "OPENBLAS_NUM_THREADS": "1",
-        }
+        })
         t0 = time.time()
         r = subprocess.run([str(Path(sys.executable).parent / "napl"), "program", str(HERE / f"{mission}.px4.scenario.toml"), "--runs-dir", str(runs)],
                            capture_output=True, text=True, env=env, timeout=1500)  # fmt: skip
@@ -135,7 +132,7 @@ def main():
     ap.add_argument("--mission", default="both")
     ap.add_argument("--seeds", type=int, default=12)
     ap.add_argument("--first", type=int, default=100)
-    ap.add_argument("--workers", type=int, default=2)
+    ap.add_argument("--workers", type=int, default=None, help="upper bound; default follows the execution policy")
     ap.add_argument("--out", default="build/skydio_px4_mc")
     ap.add_argument(
         "--param",
@@ -162,17 +159,20 @@ def main():
     root = Path(str(out) + "_runs")
     missions = ["goal", "follow"] if a.mission == "both" else [a.mission]
     instances = Queue()
+    first_instance = int(os.environ.get("NAPL_PX4_INSTANCE", 5))
+    if not 0 <= first_instance <= 9:
+        raise ValueError("NAPL_PX4_INSTANCE must be between 0 and 9")
+    # PX4 maps every instance above 9 to the same offboard UDP port.
+    a.workers = min(worker_limit(a.workers), 10 - first_instance)
     for i in range(a.workers):
-        instances.put(
-            int(os.environ.get("NAPL_PX4_INSTANCE", 5)) + i
-        )  # first instance NAPL_PX4_INSTANCE (default 5); instances 0-9 only: PX4's rcS points the offboard link of every instance above 9 at udp 14549 (not 14540 + n)
+        instances.put(first_instance + i)
     jobs = [
         (m, s, root, instances)
         for m in missions
         for s in range(a.first, a.first + a.seeds)
     ]
     t0 = time.time()
-    with ThreadPoolExecutor(a.workers) as ex:
+    with BatchPool(a.workers, threads=True) as ex:
         rows = list(ex.map(one, jobs))
     res = {m: [r for r in rows if r["mission"] == m] for m in missions}
     md = [

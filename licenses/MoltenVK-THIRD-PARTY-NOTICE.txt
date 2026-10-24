@@ -1,0 +1,45 @@
+MoltenVK v1.4.2 binary redistribution
+
+Archive: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+Archive SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
+MoltenVK tag commit: db66022459ffb663aa2b50f6b018bc2e124f5edf
+
+The following components are compiled into the distributed MoltenVK dylib.
+Their original license files accompany this notice. Only runtime code is
+redistributed; SPIRV-Headers documentation/tools are not bundled.
+
+SPIRV-Cross, revision 6c09849fe88c48eaed08413aa022aaa136a3a057
+Copyright 2015-2021 Arm Limited.
+Copyright 2016-2021 The Brenwill Workshop Ltd.
+Apache-2.0 OR MIT; distributed here under Apache-2.0.
+https://github.com/KhronosGroup/SPIRV-Cross/tree/6c09849fe88c48eaed08413aa022aaa136a3a057
+See SPIRV-Cross-LICENSE.
+
+cereal, revision a56bad8bbb770ee266e930c95d37fff2a5be7fea
+Copyright (c) 2013-2022, Randolph Voorhies, Shane Grant.
+BSD 3-Clause.
+https://github.com/USCiLab/cereal/tree/a56bad8bbb770ee266e930c95d37fff2a5be7fea
+See cereal-LICENSE.
+
+SPIRV-Tools, revision 0d6fd73ca73830ccab5fa1f00ed5ed40124e2c55
+Copyright (c) 2015-2020 The Khronos Group Inc.
+Apache-2.0.
+https://github.com/KhronosGroup/SPIRV-Tools/tree/0d6fd73ca73830ccab5fa1f00ed5ed40124e2c55
+See SPIRV-Tools-LICENSE.
+
+SPIRV-Headers, revision 29981f65241605e08b0ede4cfeb999fe3b723c6a
+Copyright (c) 2015-2024 The Khronos Group Inc.
+Khronos permissive license (runtime headers).
+https://github.com/KhronosGroup/SPIRV-Headers/tree/29981f65241605e08b0ede4cfeb999fe3b723c6a
+See SPIRV-Headers-LICENSE, preserved verbatim including its per-file licensing explanation.
+
+Other preserved notices:
+MAVLink-COPYING: https://raw.githubusercontent.com/mavlink/mavlink/master/COPYING
+SHA256 81133ba4d3343a0e627dd0d9582134f956bc9dc82322d369c561249cc2910224
+The bridge embeds generated protocol headers, not the LGPL generator.
+
+Cousine-OFL.txt: copyright and SIL OFL-1.1 license identified in the pinned
+ImGui Cousine-Regular.ttf name table; official terms from
+https://openfontlicense.org/documents/OFL.txt
+Roboto-Medium.ttf: Copyright 2011 Google Inc. All Rights Reserved.
+Apache-2.0, identified in its font name table. Fonts are embedded unmodified.

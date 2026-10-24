@@ -11,7 +11,7 @@ import os
 import statistics
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from napl.runtime import child_environment
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -24,7 +24,7 @@ from land_mc import wilson
 def one(scenario, seed, out):
     d = out / f"seed{seed}"
     d.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "NAPL_PARAMS": json.dumps({"seed": seed})}
+    env = child_environment({"NAPL_PARAMS": json.dumps({"seed": seed})})
     r = subprocess.run(
         [sys.executable, str(HERE / "automission.py"), str(scenario), str(d)],
         capture_output=True,
@@ -55,14 +55,15 @@ def main():
     a = argparse.ArgumentParser()
     a.add_argument("scenario")
     a.add_argument("--seeds", default="1001:1025")
-    a.add_argument("--jobs", type=int, default=8)
+    a.add_argument("--jobs", type=int, default=None, help="upper bound; default follows the execution policy")
     a.add_argument("--out", required=True)
     a = a.parse_args()
     scenario, out = Path(a.scenario).resolve(), Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     lo, hi = (int(v) for v in a.seeds.split(":"))
     auto, _, _ = scene.scenario(scenario)
-    with ThreadPoolExecutor(a.jobs) as ex:
+    from napl.runtime import BatchPool
+    with BatchPool(a.jobs, threads=True) as ex:
         runs = list(ex.map(lambda s: one(scenario, s, out), range(lo, hi)))
     with open(out / "runs.jsonl", "w") as f:
         f.writelines(json.dumps(s) + "\n" for s in runs)

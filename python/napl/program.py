@@ -107,9 +107,14 @@ from pathlib import Path
 
 import numpy as np
 
-REPO = Path(__file__).resolve().parents[2]
-REPLAY = Path(os.environ.get("NAPL_REPLAY_EXE", REPO / "build" / "napl-replay"))
-LIMITS = dict(wall_s=120.0, cpu_s=300, address_space_mb=4096, open_files=256, rate=1.0)
+from ._resources import repo_root as _repo_root, data_dir as _data_dir, replay_exe as _replay_exe
+# In a source checkout _repo_root() is the repo root; in a wheel it is None and
+# REPO falls back to data_dir() which resolves napl/data/ inside site-packages.
+REPO = _repo_root() or _data_dir()
+# REPLAY resolved lazily in replay_hash() to honour late NAPL_REPLAY_EXE changes.
+# Darwin cannot reliably enforce RLIMIT_AS; never advertise an implicit hard memory sandbox.
+LIMITS = dict(wall_s=120.0, cpu_s=300, address_space_mb=None if sys.platform == "darwin" else 4096,
+              open_files=256, rate=1.0)
 # Runs in the child before exec: apply the rlimits, then become the program (no preexec_fn: this process has threads).
 LAUNCH = (
     "import os,sys,json,resource;"
@@ -122,6 +127,7 @@ class ScenarioError(Exception):
     pass
 
 
+
 def load_scenario(path) -> dict:
     path = Path(path).resolve()
     try:
@@ -131,6 +137,8 @@ def load_scenario(path) -> dict:
     sc["dir"] = path.parent
     sc.setdefault("name", path.stem.removesuffix(".scenario"))
     sc["limits"] = {**LIMITS, **sc.get("limits", {})}
+    if sys.platform == "darwin" and sc["limits"]["address_space_mb"] is not None:
+        raise ScenarioError("hard address_space_mb limits are unsupported on macOS; omit this limit to run without a hard memory sandbox")
     ifs = sc.get("interfaces", {})
     if not (set(ifs) <= {"feetech", "dynamixel", "roboclaw", "px4", "native"} and ifs):
         raise ScenarioError(
@@ -544,11 +552,15 @@ def _expand(monitors, kind):
 
 
 def replay_hash(log, root=None):
-    """napl-replay on a replay log -> (tick, hash hex) or None if the exe is missing."""
-    if not REPLAY.exists():
-        return None
-    argv = [str(REPLAY), str(log)] + (["--root", str(root)] if root else [])
-    r = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+    """Run the required replay executable; missing or failed verification is an error."""
+    replay = _replay_exe()
+    argv = [str(replay), str(log)] + (["--root", str(root)] if root else [])
+    from . import runtime
+
+    # A hang guard, not a budget. The replay inherits the profile: skydio-land deck/osv (114 620 ticks) replayed in
+    # 117 s maximum, 169 s balanced and 748 s background (E-cores at 50% duty) on an M5.
+    limit = 600 if runtime.status()["effective_profile"] == "maximum" else 3600
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=limit)
     m = re.search(r"tick=(\d+) state_hash=([0-9a-f]+)", r.stdout)
     if r.returncode or not m:
         raise RuntimeError(f"napl-replay failed: {r.stderr or r.stdout}")
@@ -567,10 +579,12 @@ def _group_alive(pgid):
         return True
     except ProcessLookupError:
         return False
+    except PermissionError:
+        return True  # EPERM proves existence, not that our descendants have exited.
 
 
 def kill_group(proc, grace=2.0):
-    """SIGTERM then SIGKILL proc's whole process group; returns once no member is left (or after a few seconds)."""
+    """TERM the whole group, then KILL; raise if members survive the cleanup grace."""
     pgid = proc.pid
     for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 5.0)):
         try:
@@ -583,14 +597,19 @@ def kill_group(proc, grace=2.0):
             if not _group_alive(pgid):
                 return
             time.sleep(0.02)
+    if _group_alive(pgid):
+        raise RuntimeError(f"process group {pgid} survived SIGKILL cleanup (TERM grace {grace:g}s, KILL grace 5s)")
 
 
 def run_child(argv, env, cwd, log, limits, stop_if=None):
     """Start the program in its own session / process group with rlimits; wait up to wall_s (or until stop_if() is a reason
     string). -> dict(returncode, signal, wall_s, timeout: None|"wall"|<stop_if reason>). The group is always killed at the end."""
     lim = {"RLIMIT_CPU": [int(limits["cpu_s"]), int(limits["cpu_s"]) + 2],
-           "RLIMIT_AS": [int(limits["address_space_mb"]) << 20] * 2,
-           "RLIMIT_NOFILE": [int(limits["open_files"])] * 2}  # fmt: skip
+           "RLIMIT_NOFILE": [int(limits["open_files"])] * 2}
+    if limits["address_space_mb"] is not None:
+        if sys.platform == "darwin":
+            raise ScenarioError("hard address_space_mb limits are unsupported on macOS")
+        lim["RLIMIT_AS"] = [int(limits["address_space_mb"]) << 20] * 2
     t0 = time.monotonic()
     with open(log, "wb") as lf:
         p = subprocess.Popen([sys.executable, "-c", LAUNCH, json.dumps(lim), *argv], cwd=cwd, env=env,
@@ -607,7 +626,8 @@ def run_child(argv, env, cwd, log, limits, stop_if=None):
         kill_group(p)  # also reaps background children a finished program left behind
         rc = p.wait()
     return dict(returncode=rc, signal=signal.Signals(-rc).name if rc < 0 else None,
-                wall_s=time.monotonic() - t0, timeout=timeout, pgid=p.pid)  # fmt: skip
+                wall_s=time.monotonic() - t0, timeout=timeout, pgid=p.pid,
+                hard_address_space_limit_mb=limits["address_space_mb"])  # fmt: skip
 
 
 def _build_model(sc, out: Path):
@@ -711,6 +731,14 @@ def run(scenario, runs_dir="runs", live=None) -> tuple:
         "NAPL_SCENARIO_DIR": str(sc["dir"]),
         **sc.get("program", {}).get("env", {}),
     }
+    from . import runtime
+    env = runtime.child_environment(env)
+    # Native programs own and step the World. Port/PX4 programs are wall-clock controllers: a background main thread
+    # coalesced their 50 Hz cycles (so101 comms drop), so they never get the marker, even under a batch parent.
+    if kind == "native":
+        env["NAPL_SIMULATION_WORKER"] = "1"
+    else:
+        env.pop("NAPL_SIMULATION_WORKER", None)
     mons = _expand(sc.get("monitors", []), kind)
     res = dict(
         name=sc["name"],
@@ -815,6 +843,9 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
             sample()
 
     env["NAPL_SERIAL"] = port.device_path
+    # A PTY has no physical baud. Darwin rejects custom-rate IOSSIOSPEED on PTYs;
+    # keep the simulated wire's configured baud, but offer a supported host termios rate.
+    env["NAPL_SERIAL_BAUD"] = str(115200 if sys.platform == "darwin" else fc.get("baud", 38400 if rc else 1_000_000))
     for n, p in enumerate(more, 2):
         env[f"NAPL_SERIAL_{n}"] = p.device_path
     th = threading.Thread(target=sampler, daemon=True)
@@ -856,12 +887,8 @@ def _sim(sc, mons, run_dir, cwd, argv, env, log, res):
         w.writerow(["wall_s", "tick", "t", *[m["name"] for m in mons]])
         w.writerows(rows)
     rp = replay_hash(run_dir / "replay.naplog", _replay_root(sc, model))
-    res["replay"] = (
-        {"available": False}
-        if rp is None
-        else dict(
-            available=True, tick=rp[0], state_hash=rp[1], match=rp == (sim.tick, h)
-        )
+    res["replay"] = dict(
+        available=True, tick=rp[0], state_hash=rp[1], match=rp == (sim.tick, h)
     )
     if res["sim"]["diverged"]:
         res["monitors"].append({"name": "solver_diverged", "pass": False})
@@ -916,8 +943,8 @@ def _native(sc, mons, run_dir, cwd, argv, env, log, res):
     if fin.get("diverged"):
         res["monitors"].append({"name": "solver_diverged", "pass": False})
     rp = replay_hash(run_dir / "replay.naplog", _replay_root(sc, model))
-    res["replay"] = {"available": False} if rp is None else dict(
-        available=True, tick=rp[0], state_hash=rp[1], match=rp == (fin["tick"], fin["state_hash"]))  # fmt: skip
+    res["replay"] = dict(
+        available=True, tick=rp[0], state_hash=rp[1], match=rp == (fin["tick"], fin["state_hash"]))
 
 
 def _bridge_cfg(sc, run_dir, model):
@@ -1011,8 +1038,8 @@ def _px4(sc, mons, run_dir, cwd, argv, env, log, res):
     )
     res["faults"] = F.log
     rp = replay_hash(st.log)
-    res["replay"] = {"available": False} if rp is None else dict(
-        available=True, tick=rp[0], state_hash=rp[1], match=bool(final) and rp == (final["tick"], final["state_hash"]))  # fmt: skip
+    res["replay"] = dict(
+        available=True, tick=rp[0], state_hash=rp[1], match=bool(final) and rp == (final["tick"], final["state_hash"]))
 
 
 def _combo(sc, mons, run_dir, cwd, argvs, env, log, res):
@@ -1150,5 +1177,5 @@ def _combo(sc, mons, run_dir, cwd, argvs, env, log, res):
     )
     res["faults"] = F.log
     rp = replay_hash(st.log, Path(model).parent)
-    res["replay"] = {"available": False} if rp is None else dict(
-        available=True, tick=rp[0], state_hash=rp[1], match=bool(final) and rp == (final["tick"], final["state_hash"]))  # fmt: skip
+    res["replay"] = dict(
+        available=True, tick=rp[0], state_hash=rp[1], match=bool(final) and rp == (final["tick"], final["state_hash"]))
