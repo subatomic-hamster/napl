@@ -111,8 +111,6 @@ def main():
     parser.add_argument('--shm-client', required=True, type=Path)
     parser.add_argument('--metadata', required=True, type=Path, help='source/build/hardware record prepared before isolating the checkout')
     parser.add_argument('--visible', action='store_true', help='also open and exercise a real Cocoa window')
-    parser.add_argument('--no-render', metavar='REASON',
-                        help='skip offscreen/Cocoa rendering (e.g. a VM GPU MoltenVK cannot drive); recorded in the manifest')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     import napl
@@ -153,32 +151,28 @@ def main():
     clone.step(263)
     assert sim.tick == clone.tick == 300 and sim.state_hash() == clone.state_hash() == expected
     shm = transport_smoke(package, model, args.output, args.shm_client, napl)
-    if args.no_render:
-        assert not args.visible, '--visible needs rendering'
-    else:
-        os.environ['NAPL_OFFSCREEN'] = '1'
+    os.environ['NAPL_OFFSCREEN'] = '1'
+    shown = napl.Sim.load(model)
+    shown.show(frames=12, script='3 step 5; 10 setattr /world/pole/hinge qpos 0.4', width=480, height=320)
+    seq, image = napl._napl.viewer_frame()
+    assert seq >= 12 and image.shape == (320,480,4) and (image[...,3] == 255).all()
+    assert len(set(map(bytes, image.reshape(-1,4)[::97]))) > 8
+    reference = napl.Sim.load(model)
+    reference.step(5)
+    reference.set('/world/pole/hinge','qpos',[0.4])
+    assert shown.state_hash() == reference.state_hash()
+    write_png(args.output/'offscreen.png', image)
+    os.environ.pop('NAPL_OFFSCREEN')
+    if args.visible:
         shown = napl.Sim.load(model)
         shown.show(frames=12, script='3 step 5; 10 setattr /world/pole/hinge qpos 0.4', width=480, height=320)
-        seq, image = napl._napl.viewer_frame()
-        assert seq >= 12 and image.shape == (320,480,4) and (image[...,3] == 255).all()
-        assert len(set(map(bytes, image.reshape(-1,4)[::97]))) > 8
-        reference = napl.Sim.load(model)
-        reference.step(5)
-        reference.set('/world/pole/hinge','qpos',[0.4])
         assert shown.state_hash() == reference.state_hash()
-        write_png(args.output/'offscreen.png', image)
-        os.environ.pop('NAPL_OFFSCREEN')
-        if args.visible:
-            shown = napl.Sim.load(model)
-            shown.show(frames=12, script='3 step 5; 10 setattr /world/pole/hinge qpos 0.4', width=480, height=320)
-            assert shown.state_hash() == reference.state_hash()
     notices = {str(p.relative_to(package)):hashlib.sha256(p.read_bytes()).hexdigest()
                for p in (data_dir()/'notices').rglob('*') if p.is_file()}
     manifest = dict(wheel=args.wheel.name, sha256=hashlib.sha256(args.wheel.read_bytes()).hexdigest(),
                     python=sys.version, machine=platform.machine(), os=platform.platform(), policy=runtime.status(),
                     macho=audits, asset_count=len(inventory['assets']), notices=notices, hopper=result,
-                    snapshot_hash=f'{expected:016x}', shm=shm, offscreen=not args.no_render, cocoa=args.visible,
-                    render_skipped=args.no_render,
+                    snapshot_hash=f'{expected:016x}', shm=shm, offscreen=True, cocoa=args.visible,
                     build=json.loads(args.metadata.read_text()))
     (args.output/'qualification.json').write_text(json.dumps(manifest, indent=2, default=str)+'\n')
     (args.output/'SHA256SUMS').write_text(f"{manifest['sha256']}  {args.wheel.name}\n")

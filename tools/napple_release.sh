@@ -4,15 +4,15 @@
 #   tools/napple_release.sh all [REF] [OUT]        build REF (default HEAD), then qualify on Python 3.12 (with a
 #                                                  Cocoa window) and 3.13
 #   tools/napple_release.sh build REF OUT          export REF to OUT/src and build OUT/dist/<wheel> + metadata
-#   tools/napple_release.sh qualify OUT PY [--visible | --no-render REASON]
+#   tools/napple_release.sh qualify OUT PY [--visible]
 #                                                  install the wheel in a fresh PY venv and run the sandboxed smoke
 #   tools/napple_release.sh publish OUT TAG NOTES  tag the wheel's source commit and create a GitHub pre-release
 #
 # OUT defaults to ~/Library/Caches/napl/napple/<sha>. Fetched dependency sources are shared across builds in
 # NAPL_DEPS_CACHE (default ~/Library/Caches/napl/napple/deps). Local builds run at background QoS with 2 jobs so the
 # machine stays usable; override with NAPL_RELEASE_QOS=default and NAPL_RELEASE_JOBS=N (CI sets both).
-# Needs uv, cmake, git and Xcode command line tools on an arm64 macOS 26 host (the pinned slangc requires it);
-# qualify alone runs on any arm64 macOS >= 14. publish also needs gh. Nothing is published automatically.
+# Needs uv, cmake, git and Xcode command line tools on an arm64 macOS 26 host (the pinned slangc requires it).
+# Supported: macOS 26 or newer. publish also needs gh. Nothing is published automatically.
 set -euo pipefail
 
 die() { echo "napple_release: $*" >&2; exit 1; }
@@ -130,7 +130,7 @@ case "${1:-}" in
     echo "release candidate: $out/dist"
     ;;
   build) [ $# -eq 3 ] || die "usage: build REF OUT"; build "$2" "$3" ;;
-  qualify) [ $# -ge 3 ] || die "usage: qualify OUT PY [--visible | --no-render REASON]"; shift; qualify "$@" ;;
+  qualify) [ $# -ge 3 ] || die "usage: qualify OUT PY [--visible]"; shift; qualify "$@" ;;
   publish) [ $# -eq 4 ] || die "usage: publish OUT TAG NOTES"; publish "$2" "$3" "$4" ;;
   *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

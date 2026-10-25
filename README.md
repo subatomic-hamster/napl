@@ -103,9 +103,9 @@ tools/install_dev.sh                            # re-run after any C++ change
 ### napple: Apple Silicon build
 
 The `napple` branch builds the native arm64 kernel and Cocoa/Vulkan viewer through
-bundled public MoltenVK and ships a relocatable wheel. Verified on an M5 MacBook Pro (10 cores, 24 GB) running macOS
-26.6.2 / SDK 26.5, Python 3.12.14 and 3.13.15. Older chips, fanless machines, and the macOS 14 minimum-deployment
-target floor have not been run; they are not yet qualified. PX4 SITL stays remote; the local
+bundled public MoltenVK and ships a relocatable wheel. **Supported: macOS 26 (Tahoe) or newer on Apple Silicon.**
+Verified on an M5 MacBook Pro (10 cores, 24 GB) running macOS 26.6.2 / SDK 26.5, Python 3.12.14 and 3.13.15, and on
+GitHub's hosted `macos-26` runners. Older chips and fanless machines have not been run. PX4 SITL stays remote; the local
 `napl-px4-bridge` binary is not a bundled SITL environment. The pinned Slang compiler requires a
 macOS 26 build host (or a compatible `NAPL_SLANGC` override).
 
@@ -119,8 +119,9 @@ napl-0.1.0-1napple<commit12>-cp312-abi3-macosx_14_0_arm64.whl
 ```
 
 Every Mach-O object is arm64, ad-hoc codesigned, and links only system dylibs plus the bundled
-`napl/libmujoco.*.dylib` and `napl/libMoltenVK.dylib` via `@loader_path`. napl's own binaries carry minos 14.0;
-the prebuilt MuJoCo (11.0) and MoltenVK (12.0) dylibs are lower, which macOS 14 accepts. The wheel contains:
+`napl/libmujoco.*.dylib` and `napl/libMoltenVK.dylib` via `@loader_path`. The wheel is tagged `macosx_14_0` (napl's
+binaries carry minos 14.0), so pip installs it on macOS 14+, but anything older than macOS 26 is unsupported: on GitHub's
+virtual macOS 14 runner the physics and replay hashes matched while the renderer failed in MoltenVK. The wheel contains:
 
 | path | contents |
 |------|----------|
@@ -153,13 +154,10 @@ OUT TAG NOTES` refuses to run unless `SHA256SUMS` verifies and both qualificatio
 commit and creates a GitHub pre-release. Local builds run at background QoS with 2 jobs; set `NAPL_RELEASE_QOS=default`
 and `NAPL_RELEASE_JOBS=N` for a faster build.
 
-`.github/workflows/apple.yml` runs the same script on every push to `napple` or a `napple-*` tag. It builds on a
-GitHub-hosted `macos-26` runner and qualifies the artifact on `macos-14`, the deployment floor and an M1-class
-runner, and on `macos-26`, with Python 3.12 and 3.13 on each. Standard hosted runners are free for public repositories.
-On `macos-14` the smoke runs with `--no-render`: that runner's virtual GPU (`AppleParavirtDevice`) does not implement
-the Metal argument-encoder call MoltenVK makes in `vkCreateInstance`. There napl's viewer and renderer fail with
-`SystemError: ... exception could not be translated`. Rendering on macOS 14 is therefore unverified until it runs on
-real hardware. The workflow does not publish; releases still go through `publish`.
+`.github/workflows/apple.yml` runs the same script on every push to `napple` or a `napple-*` tag: it builds on a
+GitHub-hosted `macos-26` runner and qualifies the artifact on fresh `macos-26` runners with Python 3.12 and 3.13.
+Standard hosted runners are free for public repositories. The workflow does not publish; releases still go through
+`publish`.
 
 #### Focused verification (M5, build sha 8f173e6)
 

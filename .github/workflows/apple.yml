@@ -1,9 +1,8 @@
 name: napple (Apple Silicon) wheel
 
 # Builds the arm64 wheel with tools/napple_release.sh on a GitHub-hosted macOS 26 runner (the pinned slangc needs a
-# macOS 26 build host), then installs and qualifies it on macOS 14 (the wheel's deployment floor, M1-class runner) and
-# macOS 26. Standard GitHub-hosted runners are free for public repositories. The macOS 14 runner's paravirtual GPU
-# lacks Metal argument encoders MoltenVK needs, so rendering is only qualified on macOS 26 (and on real hardware).
+# macOS 26 build host), then installs and qualifies it on fresh macOS 26 runners. Supported: macOS 26 or newer.
+# Standard GitHub-hosted runners are free for public repositories.
 # Publishing stays manual: download the artifacts and run `tools/napple_release.sh publish`.
 on:
   workflow_dispatch:
@@ -55,9 +54,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-26]
         python: ['3.12', '3.13']
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -70,19 +68,14 @@ jobs:
       - name: Qualify installed wheel with the checkout unreadable and the package read-only
         run: |
           chmod +x "$OUT/shm-smoke-client"
-          if [ "${{ matrix.os }}" = macos-14 ]; then
-            mode=(--no-render "macos-14 runner: AppleParavirtDevice lacks newArgumentEncoderWithLayout (MoltenVK vkCreateInstance)")
-          elif [ "${{ matrix.python }}" = 3.12 ]; then
-            mode=(--visible)
-          else
-            mode=()
-          fi
-          tools/napple_release.sh qualify "$OUT" "${{ matrix.python }}" ${mode[@]+"${mode[@]}"}
+          visible=()
+          if [ "${{ matrix.python }}" = 3.12 ]; then visible=(--visible); fi
+          tools/napple_release.sh qualify "$OUT" "${{ matrix.python }}" ${visible[@]+"${visible[@]}"}
       - name: Upload qualification log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: napple-qual-${{ matrix.os }}-py${{ matrix.python }}-${{ github.sha }}
+          name: napple-qual-py${{ matrix.python }}-${{ github.sha }}
           path: |
             ${{ env.OUT }}/dist/qualification-*.json
             ${{ env.OUT }}/qual${{ matrix.python }}.log
