@@ -156,7 +156,10 @@ and `NAPL_RELEASE_JOBS=N` for a faster build.
 `.github/workflows/apple.yml` runs the same script on every push to `napple` or a `napple-*` tag. It builds on a
 GitHub-hosted `macos-26` runner and qualifies the artifact on `macos-14`, the deployment floor and an M1-class
 runner, and on `macos-26`, with Python 3.12 and 3.13 on each. Standard hosted runners are free for public repositories.
-The workflow does not publish; releases still go through `publish`.
+On `macos-14` the smoke runs with `--no-render`: that runner's virtual GPU (`AppleParavirtDevice`) does not implement
+the Metal argument-encoder call MoltenVK makes in `vkCreateInstance`. There napl's viewer and renderer fail with
+`SystemError: ... exception could not be translated`. Rendering on macOS 14 is therefore unverified until it runs on
+real hardware. The workflow does not publish; releases still go through `publish`.
 
 #### Focused verification (M5, build sha 8f173e6)
 

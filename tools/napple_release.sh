@@ -4,7 +4,7 @@
 #   tools/napple_release.sh all [REF] [OUT]        build REF (default HEAD), then qualify on Python 3.12 (with a
 #                                                  Cocoa window) and 3.13
 #   tools/napple_release.sh build REF OUT          export REF to OUT/src and build OUT/dist/<wheel> + metadata
-#   tools/napple_release.sh qualify OUT PY [--visible]
+#   tools/napple_release.sh qualify OUT PY [--visible | --no-render REASON]
 #                                                  install the wheel in a fresh PY venv and run the sandboxed smoke
 #   tools/napple_release.sh publish OUT TAG NOTES  tag the wheel's source commit and create a GitHub pre-release
 #
@@ -77,7 +77,9 @@ PY
 sums() { (cd "$1/dist" && shasum -a 256 *.whl > SHA256SUMS && cat SHA256SUMS); }
 
 qualify() {
-  local out=$1 py=$2 visible=${3:-} venv pkg macos wheel
+  local out=$1 py=$2 venv pkg macos wheel
+  shift 2
+  local extra=("$@")
   out=$(cd "$out" && pwd -P)  # resolved, e.g. /tmp -> /private/tmp, so venv and package paths agree
   wheel=$(ls "$out"/dist/*.whl) || die "no wheel in $out/dist"
   venv="$out/smoke$py"
@@ -95,12 +97,13 @@ qualify() {
   } > "$out/qual$py.sb"
   (cd "$out" && env -u NAPL_PROFILE -u PYTHONPATH -u NAPL_REPLAY_EXE /usr/bin/sandbox-exec -f "$out/qual$py.sb" \
     "$venv/bin/python" "$out/apple_wheel_smoke.py" "$wheel" --output "$out/qual$py" \
-    --metadata "$out/build-metadata.json" --shm-client "$out/shm-smoke-client" $visible > "$out/qual$py.log" 2>&1) \
+    --metadata "$out/build-metadata.json" --shm-client "$out/shm-smoke-client" ${extra[@]+"${extra[@]}"} \
+    > "$out/qual$py.log" 2>&1) \
     || { tail -40 "$out/qual$py.log" >&2; die "qualification failed on Python $py"; }
   (cd /tmp && /usr/bin/sandbox-exec -f "$out/qual$py.sb" "$venv/bin/napl" --help > /dev/null) || die "napl --help failed"
   macos=$(sw_vers -productVersion)
   cp "$out/qual$py/qualification.json" "$out/dist/qualification-py$py-macos$macos.json"
-  echo "qualified: Python $py, macOS $macos, $(sysctl -n machdep.cpu.brand_string)${visible:+, Cocoa window}"
+  echo "qualified: Python $py, macOS $macos, $(sysctl -n machdep.cpu.brand_string) ${extra[*]:-}"
 }
 
 publish() {
@@ -127,7 +130,7 @@ case "${1:-}" in
     echo "release candidate: $out/dist"
     ;;
   build) [ $# -eq 3 ] || die "usage: build REF OUT"; build "$2" "$3" ;;
-  qualify) [ $# -ge 3 ] || die "usage: qualify OUT PY [--visible]"; qualify "$2" "$3" "${4:-}" ;;
+  qualify) [ $# -ge 3 ] || die "usage: qualify OUT PY [--visible | --no-render REASON]"; shift; qualify "$@" ;;
   publish) [ $# -eq 4 ] || die "usage: publish OUT TAG NOTES"; publish "$2" "$3" "$4" ;;
   *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
