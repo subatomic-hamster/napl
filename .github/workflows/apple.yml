@@ -26,18 +26,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      # No dependency cache: FetchContent re-applies MuJoCo's qhull patch to a restored, already patched tree and fails.
+      # A cold build takes ~4 min.
       - name: Set paths
         run: |
           echo "OUT=$RUNNER_TEMP/napple" >> "$GITHUB_ENV"
           echo "NAPL_DEPS_CACHE=$RUNNER_TEMP/napple-deps" >> "$GITHUB_ENV"
-      - name: Cache pinned dependency sources
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.NAPL_DEPS_CACHE }}/*-src
-            ${{ env.NAPL_DEPS_CACHE }}/*-subbuild/*-populate-prefix/src
-            ${{ env.NAPL_DEPS_CACHE }}/slang-bin
-          key: napple-arm64-sources-${{ hashFiles('cmake/deps.cmake') }}
       - name: Build wheel from the exported commit
         run: tools/napple_release.sh build "$GITHUB_SHA" "$OUT"
       - name: Upload build log
