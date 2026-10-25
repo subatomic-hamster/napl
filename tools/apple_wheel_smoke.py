@@ -131,7 +131,7 @@ def main():
             data = wheel.read('napl/data/' + rel)
             assert len(data) == record['bytes'] and hashlib.sha256(data).hexdigest() == record['sha256'], rel
     audits = macho_audit(package)
-    assert replay_exe().parent == package/'bin'
+    assert replay_exe().parent == package/'bin', (replay_exe(), package)
     result, run_dir = program.run(data_dir()/'examples/hopper/divert25.scenario.toml', args.output/'runs')
     assert result['pass'] and result['replay']['match'], result
     # No checkout fixture: the model is created wholly in the external qualification directory.

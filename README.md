@@ -135,7 +135,7 @@ the prebuilt MuJoCo (11.0) and MoltenVK (12.0) dylibs are lower, which macOS 14 
 
 Install from a clean venv (Python ≥ 3.12, arm64): `shasum -a 256 -c SHA256SUMS && pip install napl-0.1.0-1napple*.whl`
 
-`tools/apple_wheel_smoke.py` (run by `.github/workflows/apple.yml`) qualified this wheel in a clean venv under
+`tools/apple_wheel_smoke.py` qualified this wheel in a clean venv under
 `sandbox-exec` denying reads of the checkout, with `NAPL_PROFILE` unset (effective profile `background`):
 import, CLI help, the packaged hopper `divert25` program with replay (tick 48 049, hash `5a78d3454c04717f`,
 identical to the control build), save/restore/fork, SHM lockstep with server/client/`napl-replay` agreement
@@ -143,6 +143,20 @@ identical to the control build), save/restore/fork, SHM lockstep with server/cli
 packaged assets, every third-party notice present. The smoke's SHM client is compiled with
 `-ffp-contract=off`: its Python reference evaluates the shared control sequence without arm64 FMA contraction,
 so a contracted client feeds bit-different controls (both are deterministic; neither is wrong).
+
+#### Building a release
+
+`tools/napple_release.sh all [REF]` exports REF (default `HEAD`) with `git archive`, builds the wheel from that clean
+tree, records build metadata, then installs it into fresh Python 3.12 and 3.13 venvs and runs the smoke above (3.12
+also opens a Cocoa window). Output goes to `~/Library/Caches/napl/napple/<sha>/dist`. `tools/napple_release.sh publish
+OUT TAG NOTES` refuses to run unless `SHA256SUMS` verifies and both qualification JSONs exist, then tags the source
+commit and creates a GitHub pre-release. Local builds run at background QoS with 2 jobs; set `NAPL_RELEASE_QOS=default`
+and `NAPL_RELEASE_JOBS=N` for a faster build.
+
+`.github/workflows/apple.yml` runs the same script on every push to `napple` or a `napple-*` tag. It builds on a
+GitHub-hosted `macos-26` runner and qualifies the artifact on `macos-14`, the deployment floor and an M1-class
+runner, and on `macos-26`, with Python 3.12 and 3.13 on each. Standard hosted runners are free for public repositories.
+The workflow does not publish; releases still go through `publish`.
 
 #### Focused verification (M5, build sha 8f173e6)
 
