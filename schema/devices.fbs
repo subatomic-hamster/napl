@@ -310,6 +310,9 @@ table Launcher {
   ray_groups: uint = 63;
   visual_bodies: [string];
   seed: uint64;
+  // cuas2 tail (default 0 = off; both 0 -> bit-identical to before, no extra state):
+  cl_k: double;             // Magnus lift slope C_L = cl_k * S, S = omega r / |v_rel|, saturated at 0.25; > 0 adds the per-shot input attrs
+  spin_tau: double;         // s, spin decay exp(-t / tau); 0 = none; > 0 also adds the per-shot input attrs
 }
 
 // Camera (no physics): a pose output for the Python frame API. Looks along the site +z axis, image up = site +x. fov_v: vertical

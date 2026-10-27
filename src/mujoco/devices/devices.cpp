@@ -474,6 +474,13 @@ Devices parse(const std::string& json) {
       if (l->visual_bodies())
         for (const flatbuffers::String* b : *l->visual_bodies()) c.visual.push_back(b->str());
       need(c.visual.size() <= static_cast<std::size_t>(kMaxPellets), n, "at most 16 visual_bodies (the pellet pool)");
+      c.cl_k = l->cl_k(); c.spin_tau = l->spin_tau();
+      need(c.cl_k >= 0 && c.cl_k <= 10 && std::isfinite(c.cl_k), n, "cl_k must be in [0, 10]");
+      need(c.spin_tau >= 0 && std::isfinite(c.spin_tau), n, "spin_tau must be >= 0");
+      if (c.cl_k > 0 || c.spin_tau > 0) {  // cuas2: own state group, so a launcher without these keeps its state layout and hash
+        c.lx = static_cast<int>(dv.lx.cfg.size());
+        dv.lx.cfg.push_back({static_cast<int>(dv.launcher.cfg.size())});
+      }
       slot(Devices::Slot::launcher, static_cast<int>(dv.launcher.cfg.size()));
       dv.launcher.cfg.push_back(std::move(c));
     }
@@ -960,6 +967,7 @@ Devices parse(const std::string& json) {
     s.rng.seed(seed_of(c.seed, top, k++));
     dv.foot.st.push_back(s);
   }
+  dv.lx.st.assign(dv.lx.cfg.size(), LauncherXState{});
   if (!dv.sea.cfg.empty()) dv.sea.st[0].eta0 = sea_eta(dv, 0.0, 0.0);
   return dv;
 }
@@ -1271,6 +1279,7 @@ template <class D, class F> void for_groups(D& dv, F&& f) {
   f(dv.rain);
   f(dv.qdd);
   f(dv.foot);
+  f(dv.lx);
 }
 template <class G> constexpr bool pod_ok = std::is_trivially_copyable_v<typename G::State> && sizeof(typename G::State) % 8 == 0;
 }  // namespace
@@ -1389,6 +1398,12 @@ constexpr Attr<LauncherState> kLauncher[] = {
     {"dropped", "1", &LauncherState::dropped}, {"hit_n", "1", &LauncherState::hit_n}, {"time", "s", &LauncherState::time}};
 constexpr Attr3<LauncherState> kLauncher3[] = {{"muzzle_pos", "m", &LauncherState::muzzle_pos},
                                               {"muzzle_dir", "1", &LauncherState::muzzle_dir}};
+// Launcher per-shot inputs (cuas2; only on launchers with cl_k / spin_tau): see LauncherXState.
+constexpr Attr<LauncherXState> kLauncherX[] = {
+    {"muzzle_velocity", "m/s", &LauncherXState::muzzle_velocity, true, false, 0, 200},
+    {"spin_rps", "1/s", &LauncherXState::spin_rps, true, false, -2000, 2000},
+    {"dir_offset_x", "rad", &LauncherXState::dir_offset_x, true, false, -0.5, 0.5},
+    {"dir_offset_y", "rad", &LauncherXState::dir_offset_y, true, false, -0.5, 0.5}};
 constexpr Attr3<CameraState> kCamera3[] = {{"pos", "m", &CameraState::pos}, {"fwd", "1", &CameraState::fwd},
                                           {"up", "1", &CameraState::up}};
 
@@ -1464,6 +1479,9 @@ template <class D> auto locate(D& dv, int slot, const std::string& attr) {
       pick(kLauncher, dv.launcher.st);
       pick3(kLauncher3, dv.launcher.st);
       auto& st = dv.launcher.st[static_cast<std::size_t>(s.i)];
+      if (const int lx = dv.launcher.cfg[static_cast<std::size_t>(s.i)].lx; lx >= 0)
+        for (const auto& a : kLauncherX)
+          if (attr == a.name) f = {&(dv.lx.st[static_cast<std::size_t>(lx)].*(a.f)), a.unit, a.rw, a.bin, a.lo, a.hi};
       auto arr = [&](const char* name, const char* unit, auto& a) {
         if (attr == name) f = {a, unit, false, false, 0, 0, std::size(a)};
       };
