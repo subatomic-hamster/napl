@@ -30,9 +30,10 @@ def run_episode(
     cfg.fire.vmax, cfg.fire.amax = (100.0, 70.0), (600.0, 500.0)
     for k, v in over.items():
         setattr(cfg.fire, k, v)
-    ph, seen = [], [None]
+    ph, seen, last = [], [None], [None]
 
     def hook(s):
+        last[0] = s
         d = s.app.dec
         if d is not seen[0]:
             seen[0] = d
@@ -52,6 +53,19 @@ def run_episode(
     finally:
         lrun.Lockstep = orig
     out["ph_fired"], out["cfg"] = ph, over
+    s = last[
+        0
+    ]  # [Ph of the decision, 1 if that ball hit a target]: ball i is kernel round i + 1
+    hit_rounds = (
+        {r for _, name, _, r in s.hit_log if s.targets[name].klass != "person"}
+        if s
+        else set()
+    )
+    out["ph_shot_hit"] = (
+        [[x, int(i + 1 in hit_rounds)] for i, x in enumerate(s.app.fc.ph_shots)]
+        if s
+        else []
+    )
     return out
 
 
@@ -67,6 +81,7 @@ def main(argv=None):
         help="ablation: lite's pointing tolerance instead of the Ph gate",
     )
     ap.add_argument("--ph-tau", type=float, default=None)
+    ap.add_argument("--brief", action="store_true", help="print the verdict keys only")
     ap.add_argument("--out", default=None, help="run directory (default: a temp dir)")
     a = ap.parse_args(argv)
     from napl.lite.sim_io import build_scene
@@ -91,6 +106,20 @@ def main(argv=None):
         base=sc.cached_base(),
     )
     res = run_episode(man["model"], work, sp, a.seed, fire_cfg=fc)
+    if a.brief:
+        keys = (
+            "ok",
+            "shots",
+            "hits_on_targets",
+            "n_violations",
+            "checks",
+            "app_failed",
+        )
+        res = {
+            "scenario": res["scenario"],
+            **{k: res[k] for k in keys},
+            "popped": f"{len(res['popped'])}/{res['n_targets']}",
+        }
     sys.stdout.write(json.dumps(res, default=float) + "\n")
     sys.exit(0 if res["ok"] else 1)
 

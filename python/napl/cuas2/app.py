@@ -62,6 +62,8 @@ class FireCfg2(FireCfg):
         5  # scans before a confirmed track is engageable (lite: 5 consecutive replies)
     )
     seed: int = 0
+    sigma_px: float = 2.0  # tracker measurement model: pixel noise ...
+    range_rel: float = 0.15  # ... and size-range noise (real boxes: 10-25 %, spec 0; the sim detector jitters the box 4 %)
 
 
 @dataclass
@@ -277,14 +279,20 @@ class FireControl2(FireControl):
         self.rng = np.random.default_rng(cfg.seed + 77)
         self.next_ok = {}  # track id -> earliest time of the next FIRE at it (shoot-look-shoot)
         self.last_tf = 0.4
-        self.last_ph = None
+        self.last_ph = self._ph_sent = None
+        self.ph_shots = []  # Ph of the decision behind every ball fed (calibration against the referee's hits)
 
     def arm(self, now):
         super().arm(now)
         self.next_ok = {}
 
+    def fire_sent(self, now, n=None):
+        self._ph_sent = self.last_ph
+        super().fire_sent(now, n)
+
     def on_shot(self, now):
         tid = self.pending[1] if self.pending else None
+        self.ph_shots.append(self._ph_sent)
         super().on_shot(now)
         if tid is not None:
             self.next_ok[tid] = now + T_EXIT + self.last_tf + self.cfg.t_obs
@@ -422,9 +430,9 @@ class FireControl2(FireControl):
             ):
                 d.reasons.append("pointing")
         d.ph = None
-        if c.ph_gate and not [
+        if not [
             x for x in d.reasons if x != "no_target"
-        ]:  # the Monte Carlo only for a shot that is otherwise allowed
+        ]:  # the Monte Carlo only for a shot that is otherwise allowed (also computed, not gated, with ph_gate off: calibration)
             t_imp = now + c.t_actuator + c.t_fire + sol["t_flight"]
             rad = R_TARGET.get(tgt.cls, 0.15) + self.model.c.ball.d_mm / 2000.0
             d.ph, _ = hit_probability(
@@ -441,7 +449,7 @@ class FireControl2(FireControl):
                 v.wind,
             )
             self.last_ph = d.ph
-            if d.ph < c.ph_tau:
+            if c.ph_gate and d.ph < c.ph_tau:
                 d.reasons.append("ph")
         blocking = [x for x in d.reasons if x != "no_target"]
         d.fire = 0 if blocking else c.burst
@@ -466,8 +474,9 @@ class App2(App):
         cfg = cfg or AppCfg2()
         super().__init__(camera, detector, gimbal, clock, cfg, geom, sector)
         k = camera.intrinsics
+        f = cfg.fire
         self.front = TrackFront(
-            k, cfg.fire.tracker, cfg.fire.seed, confirm_age=cfg.fire.confirm_age
+            k, f.tracker, f.seed, f.sigma_px, f.range_rel, confirm_age=f.confirm_age
         )
         self.fc = FireControl2(cfg.fire, self.geom, sector, f_px=k.fy, model=model)
 
