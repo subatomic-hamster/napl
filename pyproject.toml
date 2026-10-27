@@ -49,7 +49,7 @@ install.components = ["napl_python"]  # only _napl + libmujoco.so, not MuJoCo's 
 editable.mode = "redirect"
 
 [tool.pytest.ini_options]
-testpaths = ["tests/python", "tests/lite"]
+testpaths = ["tests/python", "tests/lite", "tests/cuas2"]
 markers = [
   "gpu: needs a Vulkan 1.3 device (skipped when there is none; set VK_DRIVER_FILES to pick the driver)",
   "px4: flies real PX4 SITL through napl-px4-bridge (needs the PX4 build, the bridge exe and mavsdk; skipped otherwise)",

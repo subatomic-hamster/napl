@@ -1,0 +1,26 @@
+# Safety-FSM functions of firmware/cuas2-rp2040/src/fsm.c that must stay byte-identical to firmware/cuas-lite-rp2040/src/fsm.c
+# (tools/cuas2_fsm_drift.sh): state transitions, the power cut, HELLO / heartbeat / watchdog / dead-man, ARM, E-stop and key edge handling, homing, the
+# command dispatcher and framing, config readback and save, the stepper-limit check. Weapon functions (FLYWHEEL, FIRE, CFG_SET ranges, CLEAR, STATUS,
+# outputs, feeder stage) are expected to differ and are not listed.
+armed_state
+rail_on
+hb_ok
+deadman_ok
+inhibit
+steppers
+cut
+to_state
+cmd_hello
+cmd_heartbeat
+cmd_aim
+cmd_home
+cmd_arm
+cmd_cfg_get
+cmd_cfg_save
+cmd_bootsel
+handle
+rx_drain
+inputs
+watchdog
+timers
+at_limit
