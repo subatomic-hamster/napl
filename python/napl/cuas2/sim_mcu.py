@@ -585,6 +585,16 @@ class Sim2RP2040(_lite.SimRP2040):
         if self.state == p2.ARMED:
             self._to(p2.ENGAGING, p2.R_NONE)
 
+    def _in_sector(self):
+        """fsm.c in_sector(): the fire sector shrunk on both ends by |axis speed| * t_exit (v deg/s * 8 ms = v * 8 mdeg)."""
+        c, (pa, ti) = self.cfg, self.ax
+        pan, tilt = pa.pos * 1000.0, ti.pos * 1000.0
+        mp, mt = abs(pa.v) * _F.SECTOR_T_EXIT_MS, abs(ti.v) * _F.SECTOR_T_EXIT_MS
+        return (
+            c[p2.CFG_FIRE_PAN_MIN] + mp <= pan <= c[p2.CFG_FIRE_PAN_MAX] - mp
+            and c[p2.CFG_FIRE_TILT_MIN] + mt <= tilt <= c[p2.CFG_FIRE_TILT_MAX] - mt
+        )
+
     def _precheck(self, m):
         """fire_precheck(): the gates owned by the safety FSM, in the firmware's order; the feeder's follow."""
         if self.state == p2.FIRING or self.fire_pending:

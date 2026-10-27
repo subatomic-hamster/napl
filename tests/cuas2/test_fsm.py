@@ -136,7 +136,7 @@ def shoot(r, n, fid0=1):
 
 
 def trip(r):
-    """The counter's clamp (wiring.md 3.4): weapon power goes, key / E-stop / relay stay closed, GP10 sees nothing."""
+    """The counter's clamp (wiring.md 3.4): weapon power goes, the key / E-stop switches stay closed (the relay drops out via the MOSFET), GP10 sees nothing."""
     r.plant.f["weapon_lost_t"] = r.t + 1
 
 
@@ -664,6 +664,7 @@ PRECHECK_GATES = {
     "latched_fault": (lambda r: r.poke(2, p.FAULT_USB_OVERFLOW), p.JAMMED),
     "rail": (lambda r: r.poke(3, 1), p.INTERLOCK),
     "inhibit": (lambda r: (setattr(r, "inhibit", True), r.run(60)), p.INHIBIT),
+    "deadman": (lambda r: (setattr(r, "deadman", False), r.run(55)), p.INHIBIT),
     "out_of_sector": (lambda r: (r.send(p.Aim(0, -10000)), r.run(1500)), p.RANGE),
 }
 
@@ -674,6 +675,94 @@ def test_fire_precheck_gate(gate):
     r, res = fire_ack(setup)
     assert res == want, (gate, res)
     assert r.feed_rises == [] and r.plant.exits == []
+
+
+# Spec 5.5: the ACK a FIRE gets when several gates fail at once is the first of this list (fire_precheck() order). One test per adjacent pair: both
+# conditions are made true together and the earlier gate must answer, so removing (or reordering) either one is seen even though the feeder repeats
+# some of the gates (the feeder alone answers the same code only when the FSM layer let the FIRE through).
+PRECHECK_ORDER = [
+    "latched_fault",
+    "rail",
+    "inhibit",
+    "not_homed",
+    "no_sector",
+    "out_of_sector",
+    "shot_cap",
+]
+PRECHECK_PAIRS = [(a, b) for a, b in zip(PRECHECK_ORDER, PRECHECK_ORDER[1:])] + [
+    ("rail", "deadman"),
+    ("deadman", "not_homed"),
+]
+_RUNS = {
+    "inhibit",
+    "deadman",
+    "out_of_sector",
+}  # setups that advance time go first; the pokes after them
+
+
+def precedence_ack(a, b, lib_file=None):
+    r = H.CoreRig(lib_file=lib_file).up().engage()
+    for g in sorted((a, b), key=lambda g: g not in _RUNS):
+        PRECHECK_GATES[g][0](r)
+    r.fire(7)
+    r.run(10)
+    return r, r.last_ack(p.FIRE).result
+
+
+@pytest.mark.parametrize("pair", PRECHECK_PAIRS, ids="{0[0]}>{0[1]}".format)
+def test_fire_ack_precedence_adjacent_pair(pair):
+    r, res = precedence_ack(*pair)
+    assert res == PRECHECK_GATES[pair[0]][1], (pair, res)
+    assert r.feed_rises == []
+
+
+def slew_fire(axis, stop_mdeg=None, lib_file=None):
+    """Spec 5.4 sector shrink: the fire sector ends at 100 deg (pan, 240 deg/s -> 1.92 deg shrink) or 40 deg (tilt, 150 deg/s -> 1.2 deg); the barrel slews
+    toward the end and a FIRE comes `stop_mdeg` into the planner position (None: the barrel is parked 1.5 deg inside the end, speed 0) -> (ack, FEED_REQ edges)."""
+    r = H.CoreRig(lib_file=lib_file).up()
+    r.send(p.CfgSet(p.SECTOR_KEYS[3 if axis else 2], 40000 if axis else 100000))
+    r.run(10)
+    r.engage()
+    if stop_mdeg is None:
+        r.send(p.Aim(0, 38500) if axis else p.Aim(98500, 5000))
+        r.run(1500)
+    else:
+        r.send(p.Aim(0, 60000) if axis else p.Aim(150000, 5000))
+        while H._SNAP_D[3 if axis else 2] * 1000 <= stop_mdeg:
+            r.run(1)
+    r.fire(7)
+    r.run(10)
+    return r.last_ack(p.FIRE).result, r.feed_rises
+
+
+@pytest.mark.parametrize("axis", [0, 1], ids=["pan", "tilt"])
+def test_fire_while_slewing_out_of_the_sector_is_refused_but_a_parked_barrel_may_fire(
+    axis,
+):
+    stop = (98500, 38900)[axis]  # inside the raw sector, inside the shrink band
+    ack, rises = slew_fire(axis, stop)
+    assert ack == p.RANGE and rises == []
+    ack, rises = slew_fire(
+        axis, (97000, 38000)[axis]
+    )  # still outside the band: accepted (and aborted by the recheck when the band reaches it)
+    assert ack == p.OK
+    ack, rises = slew_fire(
+        axis, None
+    )  # parked at the same 1.5 deg from the end: no shrink at speed 0
+    assert ack == p.OK and len(rises) == 1
+
+
+def test_fire_ack_precedence_bad_arg_and_state():
+    r = H.CoreRig().up().engage()
+    r.poke(2, p.FAULT_USB_OVERFLOW)
+    r.send(p.Fire(7, 2))  # n = 2 and a latched fault: BAD_ARG comes first
+    r.run(10)
+    assert r.last_ack(p.FIRE).result == p.BAD_ARG
+    r = H.CoreRig().up()
+    r.arm()  # ARMED, not ENGAGING, and n = 2: BAD_STATE comes first
+    r.send(p.Fire(8, 2))
+    r.run(10)
+    assert r.last_ack(p.FIRE).result == p.BAD_STATE
 
 
 def test_fire_in_a_state_other_than_engaging_is_bad_state():

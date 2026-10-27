@@ -143,6 +143,12 @@ vec("ad_wheels_leave_window_late", "(F2) the speed request drops 50 ms into the 
 vec("ae_retract_without_push_home", "(F4) the pusher never reads home after the stroke: the gate must not move -> FAULT pusher_stuck at 330 ms", 1500, sc((800, {FIRE: 1})),
     plant=dict(push_home_stuck=0, stuck_t=860),
     acks=[0], codes=[14, 2, 15, 10, 14, 4, 13], rises=1, faults=0x1000, confirmed=1, gate=10, kick_low_within=0)  # fmt: skip
+vec("af_gate_precedence", "ACK precedence of the feeder layer (spec 5.5), one FIRE each: E-stop + inhibit + out of sector -> INTERLOCK; dead-man + out of sector -> INHIBIT; heartbeat lost alone -> INHIBIT; dead-man alone -> INHIBIT", 1500,
+    sc((800, {FIRE: 1, "estop_open": True, "inhibit": True, "in_sector": False}), (820, {"estop_open": False, "inhibit": False, "in_sector": True}),
+       (900, {FIRE: 2, "deadman": False, "in_sector": False}), (920, {"deadman": True, "in_sector": True}),
+       (1000, {FIRE: 3, "hb_ok": False}), (1020, {"hb_ok": True}),
+       (1100, {FIRE: 4, "deadman": False}), (1120, {"deadman": True})),
+    acks=[2, 3, 3, 3], codes=[14, 14], rises=0, faults=0, confirmed=0)  # fmt: skip
 
 
 def refill_hook(script, plant):

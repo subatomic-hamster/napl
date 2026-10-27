@@ -302,8 +302,50 @@ def hw_trip(n_balls):
     return f
 
 
+def arm_gates(r):
+    """ARM refused with the dead-man low (INHIBIT), then accepted with a cap above the hard cap (clamped), then DISARM."""
+    r.send(p.Arm(0, 0, 0))
+    r.run(30)
+    r.deadman = False
+    r.run(55)
+    r.send(p.Arm(1, 3, 60))  # INHIBIT
+    r.run(20)
+    r.deadman = True
+    r.run(55)
+    r.send(p.Arm(1, 250, 60))  # OK, the cap is the hard cap
+    r.run(150)
+    r.send(p.Arm(0, 0, 0))
+    r.run(30)
+
+
+def sector_slew(r):
+    """A FIRE while the barrel slews into the last 1.9 deg (pan, 240 deg/s) / 1.2 deg (tilt, 150 deg/s) of the fire sector: refused (spec 5.4 shrink)."""
+    r.send(p.Arm(0, 0, 0))
+    r.run(30)
+    r.send(p.CfgSet(p.SECTOR_KEYS[2], 100000))
+    r.send(p.CfgSet(p.SECTOR_KEYS[3], 40000))
+    r.run(10)
+    r.engage()
+    r.send(p.Aim(150000, 5000))
+    r.run(470)
+    r.fire(1)  # pan 98.5 deg at 240 deg/s: RANGE
+    r.run(100)
+    r.send(p.Aim(0, 5000))
+    r.run(2500)
+    r.send(p.Aim(0, 60000))
+    r.run(276)
+    r.fire(2)  # tilt 38.9 deg at 150 deg/s: RANGE
+    r.run(100)
+    r.send(p.Aim(98500, 5000))
+    r.run(2500)
+    r.fire(3)  # parked 1.5 deg inside the end: accepted
+    r.run(700)
+
+
 SCENARIOS = {
     "nominal": (nominal, {}),
+    "arm_gates": (arm_gates, {}),
+    "sector_slew": (sector_slew, {}),
     "gates": (gates, {}),
     "cap": (cap, {}),
     "deadman_stroke": (deadman_stroke, {}),
@@ -384,11 +426,76 @@ def test_real_fsm_python_twin_is_what_sim2_runs():
     assert type(s.sim.fdr).__module__ == "napl.cuas2.fsm"
 
 
-@pytest.mark.parametrize("breakage", ["n_check", "debounce", "ring_dedupe", "hw_label"])
+@pytest.mark.parametrize(
+    "breakage",
+    [
+        "n_check",
+        "debounce",
+        "ring_dedupe",
+        "hw_label",
+        "arm_dead_man",
+        "arm_hard_cap",
+        "heartbeat_watchdog",
+        "shot_cap",
+        "sector_shrink",
+    ],
+)
 def test_compare_fails_when_the_twin_is_broken(monkeypatch, breakage):
     """Negative control of the cross-check: a twin with one rule changed no longer matches the C core on the scenario that exercises it."""
     import napl.cuas2.sim_mcu as S
+    from napl.lite.sim_mcu import SimRP2040
 
+    scenario = gates
+    if breakage == "arm_dead_man":  # ARM no longer looks at the dead-man bit
+        orig_arm = Sim2RP2040._arm
+
+        def arm(self, f, m):
+            self.hb_flags |= p.HB_DEADMAN_OK
+            return orig_arm(self, f, m)
+
+        monkeypatch.setattr(Sim2RP2040, "_arm", arm)
+        scenario = arm_gates
+    elif (
+        breakage == "arm_hard_cap"
+    ):  # ARM takes the requested cap, not min(cap, hard cap)
+        orig_arm = Sim2RP2040._arm
+
+        def arm(self, f, m):
+            orig_arm(self, f, m)
+            if self.state == p.ARMED:
+                self.shot_cap = m.shot_cap
+
+        monkeypatch.setattr(Sim2RP2040, "_arm", arm)
+        scenario = arm_gates
+    elif (
+        breakage == "heartbeat_watchdog"
+    ):  # the watchdog waits 100 ms longer than cfg 18
+        orig_wd = Sim2RP2040._watchdog
+
+        def wd(self):
+            self.cfg[p.CFG_WD_MS] += 100
+            try:
+                orig_wd(self)
+            finally:
+                self.cfg[p.CFG_WD_MS] -= 100
+
+        monkeypatch.setattr(Sim2RP2040, "_watchdog", wd)
+        scenario = hb_loss
+    elif breakage == "shot_cap":  # the twin allows one ball more than the ARM's cap
+        orig_arm = Sim2RP2040._arm
+
+        def arm(self, f, m):
+            orig_arm(self, f, m)
+            if self.state == p.ARMED:
+                self.shot_cap += 1
+
+        monkeypatch.setattr(Sim2RP2040, "_arm", arm)
+        scenario = cap
+    elif (
+        breakage == "sector_shrink"
+    ):  # lite's raw-position sector, no |v| * t_exit shrink
+        monkeypatch.setattr(Sim2RP2040, "_in_sector", SimRP2040._in_sector)
+        scenario = sector_slew
     if breakage == "n_check":  # a FIRE with n = 2 is treated as n = 1
         orig = Sim2RP2040._precheck
         monkeypatch.setattr(
@@ -407,6 +514,6 @@ def test_compare_fails_when_the_twin_is_broken(monkeypatch, breakage):
         if breakage == "ring_dedupe":  # the fire_id ring forgets everything
             s.sim.fire_ids = deque(maxlen=0)
         t0 = c.t
-        both((c, s), gates)
+        both((c, s), scenario)
     with pytest.raises(AssertionError):
         compare(c, s, since=t0)

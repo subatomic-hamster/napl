@@ -26,7 +26,7 @@ python tests/cuas2/gen_vectors.py {protocol|fsm} > tests/cuas2/{protocol_vectors
 
 The Pico has no spare GPIO (GP0-22 and GP26-28 are used, GP23/24/25/29 are wired inside the board), so the counter has no pin of its own.
 **Wiring (MECH, `docs/cuas2/wiring.md` 3.4 / 3.2):** two 74HCT4017 count the muzzle-beam pulses (the GP16 node; N = 10 by default, the tens trip wire is jumperable to
-20/30). The Nth pulse trips a 2N3904 clamp on the gate of the supervisor's weapon MOSFET (IRLB8721). The relay coil, the key and the E-stop stay **closed**, so
+20/30). The Nth pulse trips a 2N3904 clamp on the gate of the supervisor's weapon MOSFET (IRLB8721). The key and E-stop switches stay **closed** (the relay coil is de-energised because the clamp holds the MOSFET gate low), so
 GP10 sees **nothing**: the counter is not upstream of any sensed line. Only a key power cycle resets it (POR from the key-fed 5 V logic).
 
 **What the firmware does about it.** The trip is _not sensed_; it is inferred. A trip looks like weapon power lost while the key is on and the E-stop is closed:
@@ -54,7 +54,7 @@ beam sits 9 mm behind the plug axis, so it clears after ~2.5 mm of ball travel a
 
 `python/napl/cuas2/sim_mcu.py` has `Sim2RP2040`: lite's `SimRP2040` safety FSM with the cuas2 feeder (`fsm.py`) wired in as `fsm.c` wires the C one, and `RealFsm`, the
 real feeder FSM behind MODEL's `Plant2`. `tests/cuas2/test_sim2.py` drives the C core and the twin with the same host script and the same plant and compares every
-ACK, EVENT and STATUS word tick by tick (21 scenarios, the hardware-counter branches, a fuzz sample). Not modelled: the receive-queue overflow, flash write failures,
+ACK, EVENT and STATUS word tick by tick (23 scenarios, the hardware-counter branches, a fuzz sample; 9 deliberate breakages of the twin must each make the comparison fail). Not modelled: the receive-queue overflow, flash write failures,
 the boot DEBUG note, LEDs and buzzer.
 
 ## Not done / needs the bench

@@ -92,11 +92,30 @@ M = [
     ("drop_precheck_homed", "src/fsm.c", "    if (!f->ax[0].homed || !f->ax[1].homed) return RES_NOT_HOMED;\n", "", "gate:not_homed"),
     ("drop_precheck_sector_set", "src/fsm.c", "    if (f->sector_set != SECTOR_ALL) return RES_NO_SECTOR;\n", "", "gate:no_sector"),
     ("drop_precheck_shot_cap", "src/fsm.c", "    if (f->shots_arm + 1 > f->shot_cap) return RES_CAP;\n", "", "gate:shot_cap"),
-    # gates that exist in BOTH layers (fire_precheck and the feeder): removing one layer alone is an equivalent mutant (the other answers the same), so both go
+    # gates that exist in BOTH layers (fire_precheck and the feeder): the rows below remove both ("the gate is gone": the single-gate checks catch it). One layer alone
+    # is NOT equivalent: it changes the ACK when two gates fail at once (spec 5.5 order), which the adjacent-pair checks catch: the FSM layer with the "prec" detector
+    # (test_fsm PRECHECK_PAIRS), the feeder layer with the feeder vector af_gate_precedence.
     ("drop_rail_gate_both_layers", [("src/fsm.c", "    if (!rail_on(f)) return RES_INTERLOCK;\n", ""), ("src/feeder.c", "    if (!rail) return RES_INTERLOCK;\n", "")], "gate:rail"),
     ("drop_hb_deadman_inhibit_gate_both_layers", [("src/fsm.c", "    if (!hb_ok(f) || !deadman_ok(f) || inhibit(f)) return RES_INHIBIT;\n", ""), ("src/feeder.c", "    if (!in->hb_ok || !in->deadman || in->inhibit) return RES_INHIBIT;\n", "")], "gate:inhibit"),
     ("drop_range_gate_both_layers", [("src/fsm.c", "    if (!in_sector(f)) return RES_RANGE;\n", ""), ("src/feeder.c", "    if (!in->in_sector) return RES_RANGE;\n", "")], "gate:out_of_sector"),
     ("drop_latched_fault_gate_both_layers", [("src/fsm.c", "    if (f->fault_bits) return RES_JAMMED;  /* any latched fault (also one set by fw_rx earlier in this very tick, e.g. USB overflow) */\n", ""), ("src/fsm.c", "if (f->fire_cmd_pending && f->fault_bits) {", "if (0) {")], "core_usb"),
+    ("drop_deadman_gate_both_layers", [("src/fsm.c", "if (!hb_ok(f) || !deadman_ok(f) || inhibit(f)) return RES_INHIBIT;", "if (!hb_ok(f) || inhibit(f)) return RES_INHIBIT;"), ("src/feeder.c", "if (!in->hb_ok || !in->deadman || in->inhibit) return RES_INHIBIT;", "if (!in->hb_ok || in->inhibit) return RES_INHIBIT;")], "gate:deadman"),
+    # one layer alone, caught by the ACK precedence pairs (see the comment above)
+    ("fsm_layer_only_rail_gate", "src/fsm.c", "    if (!rail_on(f)) return RES_INTERLOCK;\n", "", "prec"),
+    ("fsm_layer_only_inhibit_gate", "src/fsm.c", "    if (!hb_ok(f) || !deadman_ok(f) || inhibit(f)) return RES_INHIBIT;\n", "", "prec"),
+    ("fsm_layer_only_deadman_term", "src/fsm.c", "if (!hb_ok(f) || !deadman_ok(f) || inhibit(f)) return RES_INHIBIT;", "if (!hb_ok(f) || inhibit(f)) return RES_INHIBIT;", "prec"),
+    ("fsm_layer_only_range_gate", "src/fsm.c", "    if (!in_sector(f)) return RES_RANGE;\n", "", "prec"),
+    ("fsm_layer_only_latched_fault_gate", "src/fsm.c", "    if (f->fault_bits) return RES_JAMMED;  /* any latched fault (also one set by fw_rx earlier in this very tick, e.g. USB overflow) */\n", "", "prec"),
+    ("feeder_layer_only_rail_gate", "src/feeder.c", "    if (!rail) return RES_INTERLOCK;\n", "", "vectors"),
+    ("feeder_layer_only_deadman_term", "src/feeder.c", "if (!in->hb_ok || !in->deadman || in->inhibit) return RES_INHIBIT;", "if (!in->hb_ok || in->inhibit) return RES_INHIBIT;", "vectors"),
+    ("feeder_layer_only_hb_term", "src/feeder.c", "if (!in->hb_ok || !in->deadman || in->inhibit) return RES_INHIBIT;", "if (!in->deadman || in->inhibit) return RES_INHIBIT;", "vectors"),
+    ("feeder_layer_only_inhibit_term", "src/feeder.c", "if (!in->hb_ok || !in->deadman || in->inhibit) return RES_INHIBIT;", "if (!in->hb_ok || !in->deadman) return RES_INHIBIT;", "vectors"),
+    ("feeder_layer_only_range_gate", "src/feeder.c", "    if (!in->in_sector) return RES_RANGE;\n", "", "vectors"),
+    # the fire sector is shrunk by |axis speed| * t_exit (spec 5.4, fsm.c in_sector())
+    ("sector_shrink_removed", "src/fsm.c", "const double mp = fabs(f->ax[0].v) * FDR_SECTOR_T_EXIT_MS, mt = fabs(f->ax[1].v) * FDR_SECTOR_T_EXIT_MS;", "const double mp = 0.0, mt = 0.0;", "core_sector"),
+    ("sector_shrink_pan_axis_only", "src/fsm.c", "const double mp = fabs(f->ax[0].v) * FDR_SECTOR_T_EXIT_MS, mt = fabs(f->ax[1].v) * FDR_SECTOR_T_EXIT_MS;", "const double mp = fabs(f->ax[0].v) * FDR_SECTOR_T_EXIT_MS, mt = 0.0;", "core_sector"),
+    ("sector_shrink_tilt_axis_only", "src/fsm.c", "const double mp = fabs(f->ax[0].v) * FDR_SECTOR_T_EXIT_MS, mt = fabs(f->ax[1].v) * FDR_SECTOR_T_EXIT_MS;", "const double mp = 0.0, mt = fabs(f->ax[1].v) * FDR_SECTOR_T_EXIT_MS;", "core_sector"),
+    ("sector_shrink_fixed_not_speed_scaled", "src/fsm.c", "const double mp = fabs(f->ax[0].v) * FDR_SECTOR_T_EXIT_MS, mt = fabs(f->ax[1].v) * FDR_SECTOR_T_EXIT_MS;", "const double mp = 240.0 * FDR_SECTOR_T_EXIT_MS, mt = 150.0 * FDR_SECTOR_T_EXIT_MS;", "core_sector"),
     # F1-F5 of the cold verification
     ("abort_still_possible_after_breech_clear", [("src/feeder.c", "if (tf < FDR_COMMIT_MS && !left) {", "if (tf < FDR_COMMIT_MS) {"), ("src/feeder.c", "} else if (tf >= FDR_COMMIT_MS || left) {", "} else if (tf >= FDR_COMMIT_MS) {")], "core_f3"),
     ("retract_to_load_without_push_home", "src/feeder.c", "else if (tf >= dwell + FDR_RETRACT_CLEAR_MS && in->push_home) {", "else if (tf >= dwell + FDR_RETRACT_CLEAR_MS) {", "vectors"),
@@ -229,6 +248,23 @@ def core_behaviour_fails(lib, kind):
         r.fire(7)
         r.run(10)
         return r.last_ack(p.FIRE).result != want or bool(r.feed_rises)
+    if (
+        kind == "prec"
+    ):  # FIRE with two gates failing at once: the earlier gate of the spec 5.5 order must answer
+        return any(
+            TF.precedence_ack(a, b, str(lib))[1] != TF.PRECHECK_GATES[a][1]
+            for a, b in TF.PRECHECK_PAIRS
+        )
+    if (
+        kind == "core_sector"
+    ):  # a FIRE while slewing into the shrink band is refused, a parked barrel at the same place may fire
+        for axis in (0, 1):
+            if TF.slew_fire(axis, (98500, 38900)[axis], str(lib))[0] != p.RANGE:
+                return True
+            ack, rises = TF.slew_fire(axis, None, str(lib))
+            if ack != p.OK or len(rises) != 1:
+                return True
+        return False
     if kind == "core_state":
         r = H.CoreRig(lib_file=str(lib)).up()
         r.arm()

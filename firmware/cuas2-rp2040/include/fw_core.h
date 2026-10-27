@@ -98,7 +98,9 @@ enum { BM_BREECH = 1, BM_MUZZLE = 2, BM_GATE_HOME = 4, BM_PUSH_HOME = 8, BM_WHEE
 #define FDR_PUSH_LEAVE_MS 40              /* push_home must have dropped by now, else pusher_stuck */
 #define FDR_BREECH_EARLY_MS 40            /* the staged ball must not vanish from the breech before this (FEED_ABORT beam) */
 #define FDR_BREECH_EXP_MS 75              /* expected breech clear time; > 1.3x -> breech_double */
-#define FDR_BREECH_CLEAR_MAX_MS 160       /* breech must be clear by now, else no_exit */
+#define FDR_BREECH_CLEAR_MAX_MS 150       /* breech must be clear by now, else no_exit (spec I11: 150 ms = the 118 ms out-stroke + 32 ms; a late clear is already breech_double at 98 ms, this
+                                           * catches a ball that never leaves the breech) */
+#define FDR_SECTOR_T_EXIT_MS 8            /* fire sector shrunk by |axis speed| * this (spec 5.4: the ball is in the barrel for t_exit after the commit) */
 #define FDR_RETRACT_CLEAR_MS 118          /* added to cfg 14 (dwell = extended time, default 120): the gate may only turn after this (full retract stroke); the rod must also read home.
                                            * dwell + 118 must stay inside the limiter's 254 ms power window, hence cfg 14 <= 130 */
 #define FDR_RETRACT_TIMEOUT_MS 330        /* push_home must be back by now, else pusher_stuck (just short of the limiter's 338 ms lockout) */

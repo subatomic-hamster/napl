@@ -198,10 +198,12 @@ static void cmd_flywheel(fw_t *f, const fw_frame_t *fr) {
     if (f->state == ST_ARMED) to_state(f, ST_ENGAGING, R_NONE, 0);
 }
 
-/* The planner position (no encoder) inside the fire sector (cfg 20, 21 pan; 17, 22 tilt, mdeg). Checked at FIRE and on every tick of the pusher stroke. */
+/* The planner position (no encoder) inside the fire sector (cfg 20, 21 pan; 17, 22 tilt, mdeg), shrunk on both ends by |axis speed| * t_exit (spec 5.4: v in deg/s
+ * times 8 ms is v * 8 mdeg), so a ball is not fed while the barrel is slewing out of the sector. Checked at FIRE and on every tick of the pusher stroke. */
 static int in_sector(const fw_t *f) {
     const double pan = f->ax[0].pos * 1000.0, tilt = f->ax[1].pos * 1000.0;
-    return pan >= f->cfg[CFG_FIRE_PAN_MIN] && pan <= f->cfg[CFG_FIRE_PAN_MAX] && tilt >= f->cfg[CFG_FIRE_TILT_MIN] && tilt <= f->cfg[CFG_FIRE_TILT_MAX];
+    const double mp = fabs(f->ax[0].v) * FDR_SECTOR_T_EXIT_MS, mt = fabs(f->ax[1].v) * FDR_SECTOR_T_EXIT_MS;
+    return pan >= f->cfg[CFG_FIRE_PAN_MIN] + mp && pan <= f->cfg[CFG_FIRE_PAN_MAX] - mp && tilt >= f->cfg[CFG_FIRE_TILT_MIN] + mt && tilt <= f->cfg[CFG_FIRE_TILT_MAX] - mt;
 }
 
 /* FIRE gates owned by the safety FSM, in v1's order; the launcher/feeder gates (JAMMED, BUSY, NOT_CLEAR, TOO_SOON, NOT_SPUN, NO_BALL) follow in fdr_step(). */
@@ -485,7 +487,7 @@ static void timers(fw_t *f) {
 
 /* ---- cuas2: hardware shot counter, launcher + feeder ----------------------------------------------------------------------------------- */
 /* Hardware shot counter (two 74HCT4017, DIP-set N, reset only by the key's power cycle): the Nth muzzle-beam pulse trips a clamp on the gate of the supervisor's
- * weapon MOSFET. Relay coil, key and E-stop stay closed, so GP10 sees NOTHING (docs/cuas2/wiring.md 3.2/3.4): firmware sees weapon power lost with the key on and
+ * weapon MOSFET. The key and E-stop switches stay closed (the relay coil is de-energised because the clamp holds the MOSFET gate low), so GP10 sees NOTHING (docs/cuas2/wiring.md 3.2/3.4): firmware sees weapon power lost with the key on and
  * the E-stop closed (both ESC telemetry streams drop together). The trip is not sensed, only inferred: when the launcher raises TELEMETRY_LOST with both streams
  * lost within FDR_HWC_SKEW_MS of each other, key on, E-stop closed, and the per-key-session beam pulse count has reached cfg 41, label it EVENT 16 + fault bit b15
  * (feeder_stage). Anything else is an ordinary telemetry_lost fault. Both stop the weapon (the launcher drops its target on any feeder fault). This function only

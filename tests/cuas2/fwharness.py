@@ -161,7 +161,7 @@ class Plant:
     accepted FEED_REQ edge, further edges ignored for 338 ms: wiring.md), the pusher rod (47.2 mm at 0.4 mm/ms = 118 ms stroke; it meets the staged ball at rod
     0.55, the breech beam 9 mm behind the plug axis clears at rod 0.6, the ball reaches the nip at rod 0.86 and leaves the barrel 15 ms later), the plug-valve
     gate (100 ms swing, blocked while the rod is out), the pocket / hopper, the breech and muzzle beams, and fault injection. weapon_lost_t: the hardware shot
-    counter clamps the weapon MOSFET from this tick: wheels, pusher and gate lose power, both rpm replies stop, while key / E-stop / relay stay closed.
+    counter clamps the weapon MOSFET from this tick: wheels, pusher and gate lose power, both rpm replies stop, while the key / E-stop switches stay closed (the relay drops out via the MOSFET).
 
     faults (kwargs): breech_stuck, muzzle_stuck (None | 0 | 1, from t >= stuck_t); pusher ('ok' | 'dead' | 'stuck_ext' | 'stuck_home'); gate ('ok' |
     'stuck_load' | 'stuck_bore'); esc_dead [bool, bool]; esc_runaway [bool, bool]; telemetry_dead_t (rpm replies stop from this tick); feed_req_stuck
