@@ -1,0 +1,99 @@
+"""Lockstep harness of the cuas2 scenarios: the cuas-lite harness (examples/cuas-lite/run.py: arm script, dead-man, Referee = ground-truth safety verdict of every ball,
+s7 faults, hit statistics) with napl.cuas2.sim_lock.Lockstep2 (App2 + Sim2RP2040 + the cuas2 weapon) in place of the lite one.
+
+    python examples/cuas2/run.py s6b_person_beside_balloon --seed 3 [--tracker imm3-gnn] [--no-ph] [--ph-tau 0.3] [--sim-s 30]
+
+run_episode() is what mc.py calls. The result is the lite result dict (shots, hits_on_targets, popped, violations, checks, ...) plus `ph_fired` (the Ph of every FIRE
+the app sent) and `cfg` (the FireCfg2 overrides). Exit status 1 on a violation, a failed check or an app failure."""
+
+import argparse
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+import scene as sc
+from napl.cuas2.app import AppCfg2
+from napl.cuas2.sim_lock import Lockstep2
+
+lrun = sc.load("cuas_lite_run", "cuas-lite/run.py")
+
+
+def run_episode(
+    model, run_dir, sp, seed, early_stop=True, write=True, fire_cfg=None, app_calib=None
+):
+    """One lockstep episode of Spec `sp` (scene.make) on the built scene `model`. fire_cfg: FireCfg2 overrides (tracker, ph_gate, ph_tau, t_actuator ...)."""
+    over = {**sp.fire_cfg, **(fire_cfg or {})}
+    cfg = AppCfg2()
+    cfg.fire.vmax, cfg.fire.amax = (100.0, 70.0), (600.0, 500.0)
+    for k, v in over.items():
+        setattr(cfg.fire, k, v)
+    ph, seen = [], [None]
+
+    def hook(s):
+        d = s.app.dec
+        if d is not seen[0]:
+            seen[0] = d
+            if d.fire:
+                ph.append(
+                    None if getattr(d, "ph", None) is None else round(float(d.ph), 3)
+                )
+
+    orig = lrun.Lockstep
+    lrun.Lockstep = lambda *a, **k: Lockstep2(
+        *a, app_cfg=cfg, true_calib=sp.true_calib, app_calib=app_calib, **k
+    )
+    try:
+        out = lrun.run_episode(
+            model, run_dir, sp, seed, early_stop=early_stop, write=write, hook=hook
+        )
+    finally:
+        lrun.Lockstep = orig
+    out["ph_fired"], out["cfg"] = ph, over
+    return out
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("scenario", choices=sc.SCENARIOS + ["smoke"])
+    ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--sim-s", type=float, default=None)
+    ap.add_argument("--tracker", default=None)
+    ap.add_argument(
+        "--no-ph",
+        action="store_true",
+        help="ablation: lite's pointing tolerance instead of the Ph gate",
+    )
+    ap.add_argument("--ph-tau", type=float, default=None)
+    ap.add_argument("--out", default=None, help="run directory (default: a temp dir)")
+    a = ap.parse_args(argv)
+    from napl.lite.sim_io import build_scene
+
+    sp = sc.make(a.scenario, a.seed)
+    if a.sim_s:
+        sp.sim_s = a.sim_s
+    fc = {
+        k: v
+        for k, v in dict(
+            tracker=a.tracker, ph_gate=False if a.no_ph else None, ph_tau=a.ph_tau
+        ).items()
+        if v is not None
+    }
+    work = Path(a.out or tempfile.mkdtemp(prefix="cuas2run"))
+    man = build_scene(
+        work / "scene",
+        sp.targets,
+        env=sp.env,
+        seed=a.seed,
+        launcher=sp.launcher,
+        base=sc.cached_base(),
+    )
+    res = run_episode(man["model"], work, sp, a.seed, fire_cfg=fc)
+    sys.stdout.write(json.dumps(res, default=float) + "\n")
+    sys.exit(0 if res["ok"] else 1)
+
+
+if __name__ == "__main__":
+    main()
