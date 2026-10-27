@@ -16,11 +16,18 @@ ball; once the rod passes the commit stroke (t_commit_ms x speed) the ball is in
 FSM sees at each 1 ms tick is latched high if any pulse overlapped that tick (the RP2040 timestamps the edges with a 1 us IRQ).
 """
 
+import dataclasses
+import math
 from collections import deque
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 import numpy as np
 
+from napl.lite import sim_mcu as _lite
+
+from . import fsm as _F
+from . import protocol as p2
 from .calib import Calib
 from .launcher import LauncherModel, dshot_to_u  # noqa: F401
 
@@ -359,3 +366,562 @@ class Plant2:
 
     def run(self, ms, **inputs):
         return [self.tick(**inputs) for _ in range(int(ms))]
+
+
+# ---- the real feeder FSM behind Plant2 -------------------------------------------------------------------------------------------------
+class RealFsm:
+    """napl.cuas2.fsm.FeederFsm (the python twin of the C feeder, checked against it vector by vector) behind Plant2's FeederIn / FeederOut: string acks, named
+    events, the servo pulses mapped to the plant's 1000/2000 us and 1150/1700 us conventions. `Plant2(fsm=RealFsm())` replaces StubFsm."""
+
+    EVENTS = {
+        p2.EV_SHOT: "SHOT",
+        p2.EV_FEED_ABORT: "FEED_ABORT",
+        p2.EV_MUZZLE: "MUZZLE",
+        p2.EV_JAM: "JAM",
+    }
+
+    def __init__(self, cfg=None):
+        self.f = _F.FeederFsm()
+        self.fid = 0
+        self.cfg = dict(cfg or {})  # config overrides under whatever Plant2 passes
+
+    def step(self, i: FeederIn) -> FeederOut:
+        c = dict(p2.CFG_DEFAULTS2)
+        c.update(self.cfg)
+        c.update(i.cfg or {})
+        if i.cmd == "FIRE":
+            self.fid += 1
+        rpm = lambda v: None if v is None else int(round(v))
+        r = self.f.step(
+            _F.FeederIn(
+                t_ms=i.t_ms, rpm_top=rpm(i.rpm_top), rpm_bot=rpm(i.rpm_bot), beam_breech=i.beam_breech, beam_muzzle=i.beam_muzzle, gate_home=i.gate_home,
+                push_home=i.push_home, estop_open=i.estop_open, key_on=i.key_on, hb_ok=i.hb_ok, deadman=i.deadman, inhibit=i.inhibit, in_sector=i.in_sector,
+                cmd=i.cmd, speed_req_pm=i.speed_req_pm, diff_pm=i.diff_pm, cfg=c, fire_id=self.fid,
+            )
+        )  # fmt: skip
+        sf = r.status_fields
+        return FeederOut(
+            dshot_top=r.dshot_top, dshot_bot=r.dshot_bot,
+            gate_us=GATE_BORE_US if r.gate_us == c[p2.CFG_GATE_BORE_US] else GATE_LOAD_US,
+            push_us=PUSH_EXT_US if r.push_us == c[p2.CFG_PUSHER_EXT_US] else PUSH_RET_US,
+            feed_req=r.feed_req, kick=r.kick,
+            status_fields={**sf, "state": sf["gate_state"], "ready": bool(sf["ready_flags"] & p2.RDY_READY), "wheels_ready": bool(sf["wheels_ready"])},
+            events=[(self.EVENTS[code], self.fid) for code, _ in r.events if code in self.EVENTS],
+            ack=None if r.ack is None else p2.RESULT_NAMES[r.ack],
+        )  # fmt: skip
+
+
+# ---- the whole-MCU twin: lite's SimRP2040 safety FSM + the cuas2 feeder ------------------------------------------------------------------
+class _NoWeapon:
+    def inputs(self, t):
+        return dict(
+            rpm_top=None,
+            rpm_bot=None,
+            beam_breech=False,
+            beam_muzzle=False,
+            gate_home=True,
+            push_home=True,
+            muzzle_dt_us=0,
+        )
+
+    def step(self, out, t, rail=True):
+        pass
+
+
+DEBOUNCE_MS = 10  # E-stop released / key on must be stable this long; open / off acts at once (as the firmware)
+HWC_SKEW_MS = 5  # FDR_HWC_SKEW_MS: both telemetry streams lost within this of each other = weapon power lost
+
+
+class Sim2RP2040(_lite.SimRP2040):
+    """The simulated cuas2 Pico: lite's SimRP2040 (ARM, 300 ms heartbeat watchdog, fire_id ring, shot cap, fire sector, E-stop / key, axes, config, STATUS
+    pacing) with its pusher and flywheel replaced by napl.cuas2.fsm.FeederFsm exactly as firmware/cuas2-rp2040/src/fsm.c wires the C feeder in (FIRE gates in
+    the same order, provisional BUSY in the ring, FIRE answered by the feeder, 45-byte STATUS, FLYWHEEL tail, cuas2 config keys and ranges, hardware-counter
+    label, KICK supervisor).
+
+        twin = Sim2RP2040(KinematicPlant(), link, weapon=plant)    # plant: .inputs(t_ms) -> rpm/beam dict, .step(out, t_ms, rail) (tests' fwharness.Plant)
+        twin.step(now)
+
+    tests/cuas2/test_sim2.py replays scripted scenarios and a fuzz sample against the C core and compares the acks, events and STATUS words tick by tick.
+    Known gaps (not modelled): the 16 KiB receive queue (USB overflow fault), flash write failures, the DEBUG boot note, the Pico-only LEDs / buzzer."""
+
+    def __init__(self, plant, link, *args, weapon=None, **kw):
+        self.last_hb_ms = self.arm_deadline_ms = self.deadman_low_ms = None
+        self.hb_run_ms0 = self.fw_refresh_ms = self.next_status_ms = 0
+        super().__init__(plant, link, *args, **kw)
+        home = {k: self.cfg[k] for k in (p2.CFG_PAN_HOME_OFF, p2.CFG_TILT_HOME_OFF)}
+        self.cfg = dict(p2.CFG_DEFAULTS2)
+        self.cfg.update(home)
+        self.flash = dict(self.cfg)
+        self.weapon = weapon if weapon is not None else _NoWeapon()
+        self.dec = p2.Decoder2()
+        self.fdr = _F.FeederFsm()
+        self.fo = None
+        self.wi = None
+        self.fire_pending = None  # (fire_id, seq, ring entry)
+        self.clear_pending = False
+        self.diff_ovr = None
+        self.muz_key = 0
+        self.muz_prev = 0
+        self.conf_arm = 0
+        self._in_init = False
+        self.est_closed_ms = self.key_on_ms = 0
+        self.kick_level = self.kick_ok = 0
+        self.last_toggle = 0
+        self._prev_kick = None
+        self.rail_hw = True
+
+    def reboot(self):
+        w = self.weapon
+        super().reboot()
+        self.weapon = w
+
+    # ---- config ------------------------------------------------------------------------------------------------------------------------
+    def _image_crc(self):
+        import struct
+        import zlib
+
+        body = struct.pack(
+            "<II41i", _lite.CFG_IMAGE_MAGIC, 3, *(self.flash[k] for k in range(1, 42))
+        )
+        return zlib.crc32(body) & 0xFFFFFFFF
+
+    def _hello(self, f, h):
+        res = p2.hello_result(h)
+        crc = self._image_crc()
+        if res:
+            self.version_bad = True
+        else:
+            self.version_bad = False
+            if self.session != h.session:
+                self.session = h.session
+                self.shots_arm = 0
+                self.hb_run = 0
+                self.last_hb_ms = None
+                if self.state != p2.SAFE:
+                    self._to(p2.SAFE, p2.R_NEW_SESSION)
+            self.hello_done = True
+        self._send(p2.HelloAck(p2.MAJOR, p2.MINOR, res, 2, 0, 0, self.uid, crc))
+
+    @staticmethod
+    def _cfg_valid(key, v):
+        if key in (p2.CFG_PAN_SPR, p2.CFG_TILT_SPR):
+            return v > 0
+        if key == p2.CFG_DIR_INVERT:
+            return 0 <= v <= 3
+        if key == p2.CFG_HARD_SHOT_CAP:
+            return 0 <= v <= 255
+        if key == p2.CFG_HARD_ARM_TIMEOUT:
+            return 0 <= v <= 65535
+        if key in (p2.CFG_MIN_SHOT_INTERVAL_MS, p2.CFG_SPINUP_MS):
+            return 0 <= v <= 60000
+        if key == p2.CFG_HOMING_SPEED:
+            return 0 < v <= 3000
+        lo, hi = p2.CFG_RANGES.get(key, (None, None))
+        return lo is None or lo <= v <= hi
+
+    def _cfg_set(self, f, m):
+        if self.state not in (p2.SAFE, p2.IDLE):
+            return self._ack(f, p2.BAD_STATE)
+        if not 1 <= m.key < p2.CFG_COUNT:
+            return self._ack(f, p2.BAD_ARG)
+        if m.key in p2.MAINTENANCE_KEYS and self.state != p2.SAFE:
+            return self._ack(f, p2.BAD_STATE)
+        v = m.value
+        if m.key == p2.CFG_WD_MS:
+            v = max(1, min(300, v))
+        if not self._cfg_valid(m.key, v):
+            return self._ack(f, p2.BAD_ARG)
+        if m.key == p2.CFG_MIN_SHOT_INTERVAL_MS:
+            v = max(v, p2.MIN_SHOT_INTERVAL_FLOOR)
+        self.cfg[m.key] = v
+        if m.key in p2.SECTOR_KEYS:
+            self.sector_set.add(m.key)
+        if m.key in (p2.CFG_PAN_SPR, p2.CFG_TILT_SPR):
+            a = self.ax[m.key - p2.CFG_PAN_SPR]
+            a.spr, a.homed = (
+                v,
+                False,
+            )  # the position scale changed: the old home no longer holds
+        if m.key == p2.CFG_DIR_INVERT:
+            for i, a in enumerate(self.ax):
+                a.sign = -1.0 if v >> i & 1 else 1.0
+        self._ack(f, p2.OK)
+
+    def _cfg_get(self, f, m):
+        if not 1 <= m.key < p2.CFG_COUNT:
+            return self._ack(f, p2.BAD_ARG)
+        self._send(p2.CfgVal(m.key, self.cfg[m.key]))
+
+    def _clear_fault(self, f, m):
+        if self.state not in (p2.SAFE, p2.FAULT):
+            return self._ack(f, p2.BAD_STATE)
+        if self.estop_open:
+            return self._ack(f, p2.INTERLOCK)
+        self.fault_bits = self.faults_reported = self.diag_ms = 0
+        self.clear_pending = True  # also clears the jam / no_exit latches in the feeder (it re-homes the gate)
+        if self.state == p2.FAULT:
+            self._to(p2.SAFE, p2.R_DISARM)
+        self._ack(f, p2.OK)
+
+    # ---- FLYWHEEL / FIRE ---------------------------------------------------------------------------------------------------------------
+    def _flywheel_cmd(self, f, m):
+        if m.speed_permille > 1000:
+            return self._ack(f, p2.BAD_ARG)
+        self.diff_ovr = (
+            None
+            if m.diff_pm is None
+            else max(-p2.DIFF_MAX_PM, min(p2.DIFF_MAX_PM, m.diff_pm))
+        )
+        if m.speed_permille == 0:
+            self.fw_req = 0.0
+            if self.state == p2.ENGAGING:
+                self._to(p2.ARMED, p2.R_NONE)
+            return
+        if not self.rail_on:
+            return self._ack(f, p2.INTERLOCK)
+        if not self.armed_state:
+            return self._ack(f, p2.BAD_STATE)
+        self.fw_req, self.fw_refresh_ms = float(m.speed_permille), self.ms
+        if self.state == p2.ARMED:
+            self._to(p2.ENGAGING, p2.R_NONE)
+
+    def _precheck(self, m):
+        """fire_precheck(): the gates owned by the safety FSM, in the firmware's order; the feeder's follow."""
+        if self.state == p2.FIRING or self.fire_pending:
+            return p2.BUSY
+        if self.state != p2.ENGAGING:
+            return p2.BAD_STATE
+        if m.n != 1:
+            return p2.BAD_ARG
+        if self.fault_bits:
+            return p2.JAMMED
+        if not self.rail_on:
+            return p2.INTERLOCK
+        if not self.hb_ok or not self.deadman_ok or self.inhibit:
+            return p2.INHIBIT
+        if not all(a.homed for a in self.ax):
+            return p2.NOT_HOMED
+        if not self.sector_ok:
+            return p2.NO_SECTOR
+        if not self._in_sector():
+            return p2.RANGE
+        if self.shots_arm + 1 > self.shot_cap:
+            return p2.CAP
+        return p2.OK
+
+    def _fire(self, f, m):
+        for fid, res, _ in self.fire_ids:
+            if fid == m.fire_id:  # retransmission: the old answer, nothing shot
+                return self._send(p2.Ack(f.id, f.seq, res, 0))
+        res = self._precheck(m)
+        ent = [
+            m.fire_id,
+            res or p2.BUSY,
+            0,
+        ]  # provisional BUSY until the feeder has decided
+        self.fire_ids.append(ent)
+        if res:
+            return self._ack(f, res)
+        self.fire_pending = (m.fire_id, f.seq, ent)
+
+    # ---- the tick ----------------------------------------------------------------------------------------------------------------------
+    def _tick(self):
+        data = self.link.mcu_read(self.t)
+        if data:
+            self._rx(data)
+        if hasattr(self.plant, "advance"):
+            self.plant.advance(_lite.SUB)
+        self.wi = self.weapon.inputs(self.ms)
+        self._inputs()
+        self._hw_counter_note()
+        self._feeder_stage()
+        self._watchdog()
+        self._timers()
+        self._axes()
+        if self.hello_done and self.ms >= self.next_status_ms:
+            self.next_status_ms += 10
+            if (
+                self.ms >= self.next_status_ms
+            ):  # late (the link was down): no catch-up burst
+                self.next_status_ms = self.ms + 10
+            self._send(self._status())
+        self._outputs()
+
+    def _inputs(self):
+        e_raw, k_raw = bool(self.plant.estop_open), bool(self.plant.key_on)
+        if not self._in_init:  # the first sample is the initial condition, not an edge
+            self._in_init = True
+            self.estop_open, self.key_on = e_raw, k_raw
+            self.est_closed_ms = 0 if e_raw else DEBOUNCE_MS
+            self.key_on_ms = DEBOUNCE_MS if k_raw else 0
+        self.est_closed_ms = 0 if e_raw else min(self.est_closed_ms + 1, DEBOUNCE_MS)
+        self.key_on_ms = 0 if not k_raw else min(self.key_on_ms + 1, DEBOUNCE_MS)
+        e, k = self.est_closed_ms < DEBOUNCE_MS, self.key_on_ms >= DEBOUNCE_MS
+        if e != self.estop_open:
+            self.estop_open = e
+            self._event(p2.EV_ESTOP_EDGE, int(e))
+            if e:
+                self.fw_req = self.fw = 0.0
+                self._to(
+                    p2.SAFE, p2.R_ESTOP
+                ) if self.state != p2.SAFE else self._estop_while_safe()
+        if k != self.key_on:
+            self.key_on = k
+            self._event(p2.EV_KEY_EDGE, int(k))
+            if not k and self.state != p2.SAFE:
+                self._to(p2.SAFE, p2.R_KEY_OFF)
+        if not self.rail_on:
+            self.fw = self.fw_req = 0.0
+            self.pusher_ext = False
+
+    def _hw_counter_note(self):
+        """Per-key-session count of raw muzzle-beam rising edges (the 4017 counts them all); the key resets it."""
+        mz = int(bool(self.wi["beam_muzzle"]))
+        if not self.key_on:
+            self.muz_key = 0
+        elif mz and not self.muz_prev and self.muz_key < 0xFFFF:
+            self.muz_key += 1
+        self.muz_prev = mz
+
+    def _feeder_stage(self):
+        w, c = self.wi, self.cfg
+        fp = self.fire_pending
+        if (
+            fp and self.fault_bits
+        ):  # a fault latched after the precheck, in this tick: refuse here as well
+            self.fire_pending = None
+            fp[2][1] = p2.JAMMED
+            self.refusals.append((self.t, p2.FIRE, p2.JAMMED))
+            self._send(p2.Ack(p2.FIRE, fp[1], p2.JAMMED, 0))
+            fp = None
+        speed = (
+            int(math.floor(self.fw_req + 0.5))
+            if (self.rail_on and self.armed_state)
+            else 0
+        )
+        r = self.fdr.step(
+            _F.FeederIn(
+                t_ms=self.ms, rpm_top=w["rpm_top"], rpm_bot=w["rpm_bot"], beam_breech=w["beam_breech"], beam_muzzle=w["beam_muzzle"], gate_home=w["gate_home"],
+                push_home=w["push_home"], estop_open=self.estop_open, key_on=self.key_on, hb_ok=self.hb_ok, deadman=self.deadman_ok, inhibit=self.inhibit,
+                in_sector=self._in_sector(), cmd="FIRE" if fp else ("CLEAR" if self.clear_pending else None), speed_req_pm=speed,
+                diff_pm=self.diff_ovr if self.diff_ovr is not None else c[p2.CFG_DIFF_PM], cfg=c, fire_id=fp[0] if fp else self.cur_fire_id,
+                muzzle_dt_us=w["muzzle_dt_us"],
+            )
+        )  # fmt: skip
+        self.clear_pending = False
+        self.fo = r
+        sf = r.status_fields
+        fb = sf["fault_bits"]
+        a = self.fdr.age
+        if ((fb & p2.FAULT_TELEMETRY_LOST) and not (self.fault_bits & p2.FAULT_TELEMETRY_LOST) and self.key_on and not self.estop_open
+                and c[p2.CFG_HW_COUNTER_N] > 0 and self.muz_key >= c[p2.CFG_HW_COUNTER_N] and abs(a[0] - a[1]) <= HWC_SKEW_MS):  # fmt: skip
+            self.fault_bits |= (
+                p2.FAULT_HW_COUNTER
+            )  # the counter's clamp, inferred from the power loss (fsm.c feeder_stage)
+            self._event(p2.EV_HW_COUNTER, self.muz_key)
+        self.fault_bits |= fb & p2.FDR_FAULT_MASK
+        self.faults_reported |= fb & p2.FDR_FAULT_MASK
+        if self.shots_arm == 0:
+            self.conf_arm = 0
+        if fp:  # answer the FIRE the feeder just decided
+            res = r.ack if r.ack is not None else p2.BAD_STATE
+            self.fire_pending = None
+            fp[2][1] = res
+            if res:
+                self.refusals.append((self.t, p2.FIRE, res))
+            self._send(p2.Ack(p2.FIRE, fp[1], res, 0))
+            if res == p2.OK:
+                self.last_fire_id = self.cur_fire_id = fp[0]
+                self._to(p2.FIRING, p2.R_NONE)
+        aborted = sector = False
+        for code, arg in r.events:
+            if code == p2.EV_SHOT:
+                self.ball_idx = 0
+                self.shots_arm += 1
+                self.shots_total += 1
+                self.last_ball_t = self.t
+                self.shots.append((self.t, self.cur_fire_id, 0))
+            elif code == p2.EV_MUZZLE:
+                self.conf_arm += 1
+            elif code == p2.EV_FEED_ABORT:
+                aborted = True
+            elif code == p2.EV_SECTOR_ABORT:
+                sector = True
+            self._event(code, arg)
+        if aborted and self.state == p2.FIRING:
+            if sector:
+                self.fw_req = 0.0  # fault row 25: ARMED, no flywheel request
+            self._burst_done()
+            if sector and self.state == p2.ENGAGING:
+                self._to(p2.ARMED, p2.R_NONE)
+        elif self.state == p2.FIRING and not sf["feed_busy"]:
+            self._burst_done()
+        self.fw = sf["throttle_mean_pm"]
+        self.pusher_ext = bool(
+            sf["feed_busy"]
+            and r.push_us == c[p2.CFG_PUSHER_EXT_US]
+            and r.push_us != c[p2.CFG_PUSHER_RET_US]
+        )
+
+    # ---- time in integer milliseconds (lite compares float seconds: on a boundary tick that differs from the firmware's MS_SINCE by one) ----
+    @property
+    def hb_ok(self):
+        return (
+            self.hello_done
+            and self.last_hb_ms is not None
+            and self.ms - self.last_hb_ms <= self.cfg[p2.CFG_WD_MS]
+        )
+
+    def _heartbeat(self, f, m):
+        if (
+            self.last_hb_ms is not None
+            and self.ms - self.last_hb_ms <= self.cfg[p2.CFG_WD_MS]
+        ):
+            if self.hb_run == 0:
+                self.hb_run_ms0 = self.ms
+            self.hb_run = min(self.hb_run + 1, 0xFFFF)
+        else:
+            self.hb_run, self.hb_run_ms0 = 1, self.ms
+        self.last_hb_ms = self.ms
+        self.hb_flags = m.flags
+
+    def _arm(self, f, m):
+        if m.mode == 0:
+            if self.armed_state:
+                self._to(p2.IDLE, p2.R_DISARM)
+            return self._ack(f, p2.OK)
+        if m.mode != 1 or m.shot_cap == 0 or m.timeout_s == 0:
+            return self._ack(f, p2.BAD_ARG)
+        if self.state != p2.IDLE:
+            return self._ack(f, p2.BAD_STATE)
+        if self.estop_open or not self.key_on:
+            return self._ack(f, p2.INTERLOCK)
+        if self.fault_bits:
+            return self._ack(f, p2.BAD_STATE)
+        if not self.hb_ok or not self.deadman_ok:
+            return self._ack(f, p2.INHIBIT)
+        if not all(a.homed for a in self.ax):
+            return self._ack(f, p2.NOT_HOMED)
+        if not self.sector_ok:
+            return self._ack(f, p2.NO_SECTOR)
+        hcap, hto = self.cfg[p2.CFG_HARD_SHOT_CAP], self.cfg[p2.CFG_HARD_ARM_TIMEOUT]
+        self.shot_cap = min(m.shot_cap, max(hcap, 0))
+        self.arm_deadline_ms = self.ms + 1000 * min(m.timeout_s, max(hto, 0))
+        self.shots_arm = 0
+        self.deadman_low_ms = None
+        self._to(p2.ARMED, p2.R_OPERATOR_ARM)
+        self._ack(f, p2.OK, self.shot_cap)
+
+    def _watchdog(self):
+        wd = self.cfg[p2.CFG_WD_MS]
+        if (
+            self.hello_done
+            and self.last_hb_ms is not None
+            and self.ms - self.last_hb_ms > wd
+        ):
+            self.hb_run = 0
+            if self.state == p2.IDLE or self.armed_state:
+                self.wd_tripped = True
+                self._event(p2.EV_WATCHDOG, self.ms - self.last_hb_ms)
+                self._to(p2.SAFE, p2.R_WATCHDOG)
+        if self.armed_state and self.shots_arm > self.shot_cap:
+            self.fault_bits |= p2.FAULT_SHOT_COUNTER  # internal assertion
+        if self.diag_pin and self.steppers_enabled:
+            self.diag_ms = min(self.diag_ms + 1, 255)
+            if self.diag_ms > _lite.DIAG_FAULT_MS:
+                self.fault_bits |= p2.FAULT_DRIVER_DIAG
+        else:
+            self.diag_ms = 0
+        fresh = self.fault_bits & ~self.faults_reported
+        for b in range(6):
+            if fresh >> b & 1:
+                self._event(p2.EV_FAULT, b)
+        self.faults_reported |= fresh
+        if self.fault_bits and self.state != p2.FAULT:
+            self._to(p2.FAULT, p2.R_FAULT)
+        if (
+            self.state == p2.SAFE
+            and self.hello_done
+            and not self.version_bad
+            and not self.fault_bits
+            and not self.estop_open
+            and self.hb_run >= 20
+            and self.ms - self.hb_run_ms0 >= 1000
+        ):
+            self.wd_tripped = False
+            self._to(p2.IDLE, p2.R_LINK_UP)
+
+    def _timers(self):
+        if self.armed_state and self.ms - self.arm_deadline_ms >= 0:
+            self._to(p2.IDLE, p2.R_ARM_TIMEOUT)
+        if (
+            self.state in (p2.ENGAGING, p2.FIRING)
+            and self.fw_req > 0
+            and self.ms - self.fw_refresh_ms > 500
+        ):
+            self.fw_req = 0.0
+            if self.state == p2.ENGAGING:
+                self._to(p2.ARMED, p2.R_NONE)
+        if self.armed_state:
+            if self.deadman_ok:
+                self.deadman_low_ms = None
+            else:
+                if self.deadman_low_ms is None:
+                    self.deadman_low_ms = self.ms
+                if self.ms - self.deadman_low_ms > 1000 and self.fw_req > 0:
+                    self.fw_req = 0.0
+                    if self.state == p2.ENGAGING:
+                        self._to(p2.ARMED, p2.R_NONE)
+
+    def _flywheel(self):  # replaced by _feeder_stage (the launcher drives the ESCs)
+        pass
+
+    def _pusher(self):
+        pass
+
+    def _status(self):
+        s = super()._status()
+        r, sf = self.fo, self.fo.status_fields
+        rt, rb = sf["rpm_top"], sf["rpm_bot"]
+        ready = sf["ready_flags"]
+        if (ready & p2.RDY_READY) and not (
+            self.state == p2.ENGAGING and self.shots_arm < self.shot_cap
+        ):
+            ready &= ~p2.RDY_READY
+        kw = {f.name: getattr(s, f.name) for f in dataclasses.fields(s)}
+        kw.update(fw_duty=int(round(self.fw)), fw_rpm=0xFFFF if 0xFFFF in (rt, rb) else (rt + rb) // 2, rpm_top=rt, rpm_bot=rb, rpm_set=sf["rpm_set"],
+                  beams=sf["beams"], gate_state=sf["gate_state"], ready_flags=ready, last_v_dmps=sf["last_v_dmps"], last_dip_pm=sf["last_dip_pm"],
+                  shots_confirmed=sf["shots_confirmed"] & 0xFFFF, feed_ms=sf["feed_ms"])  # fmt: skip
+        left = 0
+        if self.armed_state and self.arm_deadline_ms - self.ms > 0:
+            left = (self.arm_deadline_ms - self.ms + 999) // 1000
+        kw["arm_left_s"] = min(left, 0xFFFF)
+        return p2.Status2(**kw)
+
+    def _outputs(self):
+        """KICK (I15) and the supervisor's relay model, then the weapon plant gets this tick's outputs."""
+        r, ms = self.fo, self.ms
+        self.kick_ok = int(bool(
+            r.kick and not self.fault_bits and self.state <= p2.FAULT and (not self.armed_state or self.shots_arm <= self.shot_cap)
+            and self.fdr.muz_all <= self.fdr.feeds))  # fmt: skip
+        if self.kick_ok and ms % 5 == 0:
+            self.kick_level ^= 1
+        if self.kick_ok and self.kick_level != self._prev_kick:
+            self.last_toggle = ms
+        self._prev_kick = self.kick_level
+        self.rail_hw = bool(
+            self.plant.key_on
+            and not self.plant.estop_open
+            and ms - self.last_toggle < 150
+        )
+        self.weapon.step(
+            SimpleNamespace(
+                dshot_top=r.dshot_top,
+                dshot_bot=r.dshot_bot,
+                feed_req=r.feed_req,
+                push_us=r.push_us,
+                gate_us=r.gate_us,
+            ),
+            ms,
+            rail=self.rail_hw,
+        )

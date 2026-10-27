@@ -29,17 +29,17 @@ enum { ST_SAFE, ST_IDLE, ST_ARMED, ST_ENGAGING, ST_FIRING, ST_FAULT };
 enum { F1_ESTOP = 1, F1_KEY = 2, F1_PAN_HOMED = 4, F1_TILT_HOMED = 8, F1_PAN_HALL = 16, F1_TILT_HALL = 32, F1_WD_TRIPPED = 64, F1_HB_OK = 128 };
 enum { F2_PAN_MOVING = 1, F2_TILT_MOVING = 2, F2_STEPPERS_EN = 4, F2_PUSHER_EXT = 8, F2_INHIBIT = 16, F2_DEADMAN = 32, F2_PAN_LIMIT = 64, F2_TILT_LIMIT = 128 };
 enum { HB_DEADMAN_OK = 1, HB_FIRE_INHIBIT = 2 };
-/* fault_bits: b0-b5 are v1's, b6-b14 new (spec 6.4), b15 reserved */
+/* fault_bits: b0-b5 are v1's, b6-b14 new (spec 6.4), b15 = hw shot counter label (cuas2) */
 enum { FAULT_HOMING_TIMEOUT = 1, FAULT_DRIVER_DIAG = 2, FAULT_CFG_INVALID = 4, FAULT_SHOT_COUNTER = 8, FAULT_HALL_STUCK = 16, FAULT_USB_OVERFLOW = 32,
        FAULT_TELEMETRY_LOST = 1 << 6, FAULT_OVERSPEED = 1 << 7, FAULT_WHEEL_NOT_READY = 1 << 8, FAULT_BREECH_DOUBLE = 1 << 9, FAULT_NO_EXIT = 1 << 10,
        FAULT_UNEXPECTED_EXIT = 1 << 11, FAULT_PUSHER_STUCK = 1 << 12, FAULT_GATE_STUCK = 1 << 13, FAULT_SHOT_OVERCOUNT = 1 << 14,
-       FAULT_HW_COUNTER = 1 << 15 /* the hardware shot counter tripped (labelled from the E-stop edge, spec 1.3 row 30); not a feeder fault: does not enter FDR_FAULT_MASK */ };
+       FAULT_HW_COUNTER = 1 << 15 /* the hardware shot counter tripped (inferred from weapon power loss + beam pulse count, spec 1.3 row 30); not a feeder fault: does not enter FDR_FAULT_MASK */ };
 #define FDR_FAULT_MASK 0x7FC0u            /* b6-b14: the launcher/feeder faults; each stops KICK (I15) */
 #define FDR_JAM_MASK 0x7E00u              /* b9-b14: the feeder faults shown as gate_state JAM / ready_flags jam latch */
 enum { EV_STATE_CHANGE = 1, EV_SHOT, EV_HOMED, EV_FAULT, EV_WATCHDOG, EV_ESTOP_EDGE, EV_KEY_EDGE, EV_BAD_FRAMES, EV_SECTOR_ABORT /* 9: arg = fire_id << 8 | ball index */,
        EV_MUZZLE /* 10: arg = v_dmps | dip_pm << 16 */, EV_FEED_ABORT /* 11: arg = fire_id << 8 | reason (FA_*) */, EV_EMPTY /* 12 */, EV_JAM /* 13: arg = gate_state */,
        EV_WHEELS_READY /* 14: arg = mean rpm */, EV_WHEELS_LOST /* 15 */,
-       EV_HW_COUNTER /* 16 (cuas2 addition): the E-stop chain opened right after the Nth ball: the hardware shot counter tripped; arg = balls this arm */ };
+       EV_HW_COUNTER /* 16 (cuas2 addition): both ESC telemetry streams dropped with key on, E-stop closed and the per-key-session pulse count at N: the hardware shot counter tripped (inferred); arg = pulses counted */ };
 enum { FA_SECTOR = 1, FA_DEADMAN, FA_INHIBIT, FA_WHEELS, FA_BEAM, FA_RAIL };
 enum { R_NONE, R_BOOT, R_WATCHDOG, R_ESTOP, R_KEY_OFF, R_DISARM, R_ARM_TIMEOUT, R_SHOT_CAP, R_FAULT, R_OPERATOR_ARM, R_LINK_UP, R_NEW_SESSION };
 enum { RES_OK, RES_BAD_STATE, RES_INTERLOCK, RES_INHIBIT, RES_CAP, RES_RANGE, RES_BUSY, RES_UNKNOWN_CMD, RES_BAD_ARG, RES_NOT_HOMED, RES_NOT_SPUN, RES_NO_SECTOR,
@@ -90,27 +90,32 @@ enum { RDY_READY = 1, RDY_EMPTY = 2, RDY_JAM = 4, RDY_HOPPER_LOW = 8 };
 enum { BM_BREECH = 1, BM_MUZZLE = 2, BM_GATE_HOME = 4, BM_PUSH_HOME = 8, BM_WHEELS_READY = 16, BM_FEED_BUSY = 32 };
 #define FDR_DIFF_CFG 0x7FFF               /* fdr_in_t.diff_pm: use cfg 29 */
 #define FDR_MAX_EV 12
-/* timing constants of the feed cycle [est]; bench items B-TIME (spec 10). Milliseconds from the FEED start unless stated. */
-#define FDR_COMMIT_MS 45                  /* the ball is in the nip and leaves regardless (spec 5.4) */
+/* timing constants of the feed cycle [est]; bench items B-TIME (spec 10). Milliseconds from the FEED start unless stated.
+ * Geometry (MECH, docs/cuas2/assembly.md C-NIP / C-CYCLE): pusher stroke 47.2 mm at 0.4 mm/ms = 118 ms out, 118 ms back; the rod reaches the staged ball at about
+ * half stroke (~65 ms), the breech beam (9 mm behind the plug axis, so it clears after only ~2.5 mm of ball travel) clears at ~71 ms, the ball reaches the nip at
+ * ~101 ms and leaves the barrel ~15 ms later; the rod is home again at ~235 ms (limiter power window 254 ms) and the geometric cycle is 466 ms. */
+#define FDR_COMMIT_MS 105                 /* the ball is in the nip and leaves regardless (spec 5.4); breech clear commits earlier */
 #define FDR_PUSH_LEAVE_MS 40              /* push_home must have dropped by now, else pusher_stuck */
-#define FDR_BREECH_EARLY_MS 20           /* the staged ball must not vanish from the breech before this (FEED_ABORT beam) */
-#define FDR_BREECH_EXP_MS 40              /* expected breech clear time; > 1.3x -> breech_double */
-#define FDR_BREECH_CLEAR_MAX_MS 150       /* breech must be clear by now, else no_exit */
-#define FDR_RETRACT_CLEAR_MS 55           /* from the retract command until the rod has cleared the valve shoulder: the gate may then move */
-#define FDR_RETRACT_TIMEOUT_MS 300        /* push_home must be back by now, else pusher_stuck */
+#define FDR_BREECH_EARLY_MS 40            /* the staged ball must not vanish from the breech before this (FEED_ABORT beam) */
+#define FDR_BREECH_EXP_MS 75              /* expected breech clear time; > 1.3x -> breech_double */
+#define FDR_BREECH_CLEAR_MAX_MS 160       /* breech must be clear by now, else no_exit */
+#define FDR_RETRACT_CLEAR_MS 118          /* added to cfg 14 (dwell = extended time, default 120): the gate may only turn after this (full retract stroke); the rod must also read home.
+                                           * dwell + 118 must stay inside the limiter's 254 ms power window, hence cfg 14 <= 130 */
+#define FDR_RETRACT_TIMEOUT_MS 330        /* push_home must be back by now, else pusher_stuck (just short of the limiter's 338 ms lockout) */
 #define FDR_GATE_TRAVEL_MS 100            /* 60 deg of SG92R */
 #define FDR_GATE_HOME_TIMEOUT_MS 400
 #define FDR_HOMING_TIMEOUT_MS 1000
 #define FDR_FEED_PULSE_MS 10              /* FEED_REQ high time (the limiter is edge triggered) */
 #define FDR_WHEEL_AGE_MAX_MS 20           /* telemetry older than this does not count as in window (I12) */
+#define FDR_HWC_SKEW_MS 5                 /* both telemetry streams lost within this of each other = weapon power lost (hw shot counter label) */
 #define FDR_NOT_READY_MS 1500
 #define FDR_OVERSPEED_MS 20
-#define FDR_MIN_INTERVAL_FLOOR 400        /* firmware clamp of cfg 15 */
+#define FDR_MIN_INTERVAL_FLOOR 470        /* firmware clamp of cfg 15: >= the 466 ms geometric cycle (C-CYCLE) and > the limiter's 338 ms lockout */
 #define FDR_MUZ_MIN_GAP_MS 300
 #define FDR_EMPTY_RETRIES 3
 #define FDR_EMPTY_RETRY_MS 1000
 #define FDR_MAX_DIFF_PM 60
-#define FDR_DIP_WINDOW_MS 120
+#define FDR_DIP_WINDOW_MS 150
 
 typedef struct {
     uint32_t t_ms;
@@ -275,7 +280,7 @@ typedef struct {
     fdr_t fdr;
     fdr_out_t fo;                            /* the feeder's outputs of the latest tick */
     int16_t diff_ovr;                        /* FLYWHEEL tail, valid while diff_ovr_valid */
-    uint8_t diff_ovr_valid, estop_prev_hw;
+    uint8_t diff_ovr_valid;
     uint8_t fire_cmd_pending, fire_pending_seq, clear_pending;
     uint16_t fire_pending_id;
     uint8_t kick_level;

@@ -4,8 +4,9 @@
  * GP11 key sense, GP14 pusher servo (PWM7 A), GP17 buzzer, GP20/21 pan TMC UART, GP22 DIAG.
  *
  * No spare GPIO is left (GP0-GP22 and GP26-GP28 are all used; GP23, GP24, GP25 and GP29 are wired inside the Pico board: SMPS mode, VBUS detect, the on-board
- * LED, VSYS/3). The hardware shot counter (CD4017 on the muzzle beam) therefore has NO pin of its own: it opens the key -> E-stop -> counter -> supervisor chain
- * UPSTREAM of the GP10 tap, so the firmware sees the trip as an open E-stop chain with the key on, and labels it with the ball count (fsm.c, hw_counter_note()).
+ * LED, VSYS/3). The hardware shot counter (two 74HCT4017 on the muzzle beam, docs/cuas2/wiring.md 3.4) therefore has NO pin of its own, and it is NOT upstream of the
+ * GP10 tap: its Nth pulse clamps the gate of the supervisor's weapon MOSFET and leaves relay, key and E-stop closed, so GP10 sees nothing. The firmware infers the trip
+ * from weapon power lost (both ESC telemetry streams drop together, key on, E-stop closed) plus the per-key-session beam-pulse count (fsm.c, feeder_stage()).
  * Alternative that costs a safety indicator: give up the buzzer (GP17) and sense the counter output directly.
  */
 #ifndef PINS_H

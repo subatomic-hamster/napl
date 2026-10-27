@@ -80,7 +80,6 @@ M = [
     ("kick_keeps_running_after_fault", "src/feeder.c", "o->kick = (uint8_t)!jam_now;", "o->kick = 1;", "vectors"),
     ("accept_n_other_than_1", "src/fsm.c", "    if (n != 1) return RES_BAD_ARG;  /* one ball per FIRE (I9b) */\n", "", "core_n"),
     ("drop_fire_id_dedupe", "src/fsm.c", "if (f->fire_ids[i].used && f->fire_ids[i].id == id) {", "if (0) {", "core_dup"),
-    ("hw_counter_never_labelled", "src/fsm.c", "n > 0 && seen >= n)", "n > 1000 && seen >= n)", "core_hw"),
     ("v_cap_above_38ms_accepted", "src/fsm.c", "case CFG_V_CAP_DMPS: return v >= 1 && v <= 380;", "case CFG_V_CAP_DMPS: return v >= 1;", "core_vcap"),
     # feeder.c FIRE gates not covered above (spec 1.2 I9b/I11)
     ("drop_too_soon_gate", "src/feeder.c", "    if (d->has_feed && now - d->t_last_feed < min_interval(in->cfg)) return RES_TOO_SOON;\n", "", "vectors"),
@@ -104,6 +103,12 @@ M = [
     # hardware shot counter (row 30) and the tightened config ranges
     ("hw_counter_counts_per_arm", "src/fsm.c", "if (!f->key_on) f->muz_key = 0;", "if (!f->key_on || f->shots_arm == 0) f->muz_key = 0;", "core_hw_session"),
     ("hw_counter_no_fault_bit", "src/fsm.c", "        f->fault_bits |= FAULT_HW_COUNTER;", "        ;", "core_hw"),
+    ("hw_counter_no_event", "src/fsm.c", "        fw_event(f, EV_HW_COUNTER, f->muz_key);", "        ;", "core_hw"),
+    ("hw_counter_never_labelled", "src/fsm.c", "f->muz_key >= f->cfg[CFG_HW_COUNTER_N] && (", "f->muz_key >= 60000 && (", "core_hw"),
+    ("hw_label_ignores_count", "src/fsm.c", "f->muz_key >= f->cfg[CFG_HW_COUNTER_N] && (", "(", "core_hw_branch_b"),
+    ("hw_label_with_n_zero", "src/fsm.c", "&& f->cfg[CFG_HW_COUNTER_N] > 0 &&", "&&", "core_hw_branch_b"),
+    ("hw_label_ignores_stream_skew", "src/fsm.c", "<= FDR_HWC_SKEW_MS)", "<= 100000u)", "core_hw_skew"),
+    ("hw_label_repeats_every_tick", "src/fsm.c", "!(f->fault_bits & FAULT_TELEMETRY_LOST) &&", "", "core_hw"),
     ("rpm_window_up_to_100_permille", "src/fsm.c", "case CFG_RPM_WINDOW_PM: return v >= 1 && v <= 20;", "case CFG_RPM_WINDOW_PM: return v >= 1 && v <= 100;", "core_cfg_window"),
     ("settle_ms_zero_allowed", "src/fsm.c", "case CFG_SETTLE_MS: return v >= 20 && v <= 2000;", "case CFG_SETTLE_MS: return v >= 0 && v <= 2000;", "core_cfg_settle"),
 ]  # fmt: skip
@@ -174,16 +179,33 @@ def core_behaviour_fails(lib, kind):
         r.fire(77)
         r.run(700)
         return len(r.feed_rises) != 1
-    if kind == "core_hw":
+    if (
+        kind == "core_hw"
+    ):  # branch A: three balls, then the weapon power goes: exactly one EVENT 16 and b15
         r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}, lib_file=str(lib)).up().engage()
-        for k in range(3):
-            r.fire(k + 1)
-            r.run(600)
-        r.estop_open = True
-        r.run(50)
-        return not [e for e in r.events if e[1] == p.EV_HW_COUNTER] or not (
-            r.st.fault_bits & p.FAULT_HW_COUNTER
+        TF.shoot(r, 3)
+        TF.trip(r)
+        r.run(200)
+        return len(TF.hwc_events(r)) != 1 or not (
+            r.snap["fault_bits"] & p.FAULT_HW_COUNTER
         )
+    if (
+        kind == "core_hw_branch_b"
+    ):  # one ball short of N, and N = 0: an ordinary telemetry_lost, no label
+        for n, balls in ((3, 2), (0, 3)):
+            r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: n}, lib_file=str(lib)).up().engage()
+            TF.shoot(r, balls)
+            TF.trip(r)
+            r.run(200)
+            if TF.hwc_events(r) or r.snap["fault_bits"] & p.FAULT_HW_COUNTER:
+                return True
+        return False
+    if kind == "core_hw_skew":  # the two streams die 30 ms apart: not one power loss
+        r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}, lib_file=str(lib)).up().engage()
+        TF.shoot(r, 3)
+        r.plant.f["telemetry_dead_t"] = [r.t + 1, r.t + 31]
+        r.run(200)
+        return bool(TF.hwc_events(r))
     if (
         kind == "core_hw_session"
     ):  # 2 balls, disarm + ARM again, 1 ball: the key-session count is 3
@@ -197,8 +219,8 @@ def core_behaviour_fails(lib, kind):
         r.engage(spin_ms=1500)
         r.fire(10)
         r.run(600)
-        r.estop_open = True
-        r.run(50)
+        TF.trip(r)
+        r.run(200)
         return [e[2] for e in r.events if e[1] == p.EV_HW_COUNTER] != [3]
     if kind.startswith("gate:"):
         setup, want = TF.PRECHECK_GATES[kind[5:]]
@@ -230,10 +252,10 @@ def core_behaviour_fails(lib, kind):
         return bool(r.feed_rises) or r.last_ack(p.FIRE).result != p.JAMMED
     if (
         kind == "core_f3"
-    ):  # the dead-man drops 42 ms into the stroke: a counted ball, no abort, no fault
+    ):  # the dead-man drops 78 ms into the stroke (breech cleared at ~71): a counted ball, no abort, no fault
         r = H.CoreRig(lib_file=str(lib)).up().engage()
         r.fire(1)
-        r.run(42)
+        r.run(78)
         r.send(p.Heartbeat(999, 0))
         r.run(400)
         aborted = any(c == p.EV_FEED_ABORT for _, c, _ in r.events)

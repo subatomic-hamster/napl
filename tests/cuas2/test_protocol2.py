@@ -290,7 +290,7 @@ def test_maintenance_keys_only_in_safe():
     assert set_cfg(r, p.CFG_KP, 500) == p.OK  # a tuning key is allowed in IDLE
 
 
-def test_min_shot_interval_is_clamped_to_400():
+def test_min_shot_interval_is_clamped_to_470():
     r = H.CoreRig().up(home=False)
     assert set_cfg(r, p.CFG_MIN_SHOT_INTERVAL_MS, 100) == p.OK
     assert r.L.fwh_cfg(r.h, p.CFG_MIN_SHOT_INTERVAL_MS, 0) == p.MIN_SHOT_INTERVAL_FLOOR

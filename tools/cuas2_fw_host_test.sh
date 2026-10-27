@@ -12,4 +12,4 @@ ctest --test-dir "$B" --output-on-failure
 cd "$ROOT"
 export CUAS2_FW_REQUIRED=1  # a missing library is a failure here, not a skip
 export PYTHONPATH="$ROOT/python${PYTHONPATH:+:$PYTHONPATH}"
-python -m pytest -n "${PYTEST_WORKERS:-8}" -p no:cacheprovider -q tests/cuas2/test_protocol2.py tests/cuas2/test_fsm.py tests/cuas2/test_fw_vectors2.py "$@"
+python -m pytest -n "${PYTEST_WORKERS:-8}" -p no:cacheprovider -q tests/cuas2/test_protocol2.py tests/cuas2/test_fsm.py tests/cuas2/test_fw_vectors2.py tests/cuas2/test_sim2.py tests/cuas2/test_plant.py "$@"

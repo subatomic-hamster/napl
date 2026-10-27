@@ -157,9 +157,11 @@ class CFeeder:
 
 # ---- the board around the feeder ----------------------------------------------------------------------------------------------------------
 class Plant:
-    """Ideal-ish physical model at 1 ms: two flywheels (first order, tau 40 ms, 20,100 rpm at full scale), the hardware limiter (servo power 250 ms after an
-    accepted FEED_REQ edge, further edges ignored for 330 ms), the pusher rod (80 ms stroke), the plug-valve gate (100 ms swing, blocked while the rod is
-    out), the pocket / hopper, the breech and muzzle beams, and fault injection.
+    """Ideal-ish physical model at 1 ms: two flywheels (first order, tau 40 ms, 20,100 rpm at full scale), the hardware limiter (servo power 254 ms after an
+    accepted FEED_REQ edge, further edges ignored for 338 ms: wiring.md), the pusher rod (47.2 mm at 0.4 mm/ms = 118 ms stroke; it meets the staged ball at rod
+    0.55, the breech beam 9 mm behind the plug axis clears at rod 0.6, the ball reaches the nip at rod 0.86 and leaves the barrel 15 ms later), the plug-valve
+    gate (100 ms swing, blocked while the rod is out), the pocket / hopper, the breech and muzzle beams, and fault injection. weapon_lost_t: the hardware shot
+    counter clamps the weapon MOSFET from this tick: wheels, pusher and gate lose power, both rpm replies stop, while key / E-stop / relay stay closed.
 
     faults (kwargs): breech_stuck, muzzle_stuck (None | 0 | 1, from t >= stuck_t); pusher ('ok' | 'dead' | 'stuck_ext' | 'stuck_home'); gate ('ok' |
     'stuck_load' | 'stuck_bore'); esc_dead [bool, bool]; esc_runaway [bool, bool]; telemetry_dead_t (rpm replies stop from this tick); feed_req_stuck
@@ -196,7 +198,16 @@ class Plant:
         st = f.get("stuck_t", 0)
         breech = bool(
             self.gate >= 0.95
-            and ((self.pocket and self.rod < 0.5) or self.breech_hold > 0)
+            and self.pocket
+            and (
+                self.rod < 0.6
+                or (
+                    f.get("breech_delay_ms", 0)
+                    if self.breech_hold is None
+                    else self.breech_hold
+                )
+                > 0
+            )
         )
         if f.get("breech_stuck") is not None and t >= st:
             breech = bool(f["breech_stuck"])
@@ -208,8 +219,11 @@ class Plant:
             push_home = bool(
                 f["push_home_stuck"]
             )  # the sensor reads home / not home whatever the rod does
+        td = f.get("telemetry_dead_t", 10**9)  # one tick for both streams, or a pair
+        td = td if isinstance(td, (list, tuple)) else (td, td)
         rpm = [
-            None if t >= f.get("telemetry_dead_t", 10**9) else int(r) for r in self.rpm
+            None if t >= min(td[i], f.get("weapon_lost_t", 10**9)) else int(r)
+            for i, r in enumerate(self.rpm)
         ]
         dt = (
             self.pulse_dt
@@ -223,6 +237,7 @@ class Plant:
         """Advance one millisecond with the MCU's outputs of tick t."""
         f, c = self.f, self.cfg
         self.t = t
+        rail = rail and t < f.get("weapon_lost_t", 10**9)
         # wheels
         for i, ds in enumerate((out.dshot_top, out.dshot_bot)):
             tgt = (ds - 48) / 1952.0 * 20100.0 if ds > 0 else 0.0
@@ -245,9 +260,9 @@ class Plant:
         self.edge_prev = req
         if rising:
             self.req_edges.append(t)
-            if t - self.last_edge >= 330:
+            if t - self.last_edge >= 338:
                 self.last_edge = t
-                self.powered_until = t + 250
+                self.powered_until = t + 254
                 self.feed_edges.append(t)
         powered = rail and (t < self.powered_until or f.get("limiter_shorted"))
         mode = f.get("pusher", "ok") if t >= st else "ok"
@@ -258,9 +273,9 @@ class Plant:
                 and self.rod >= 0.5
             )
             self.rod = (
-                min(1.0, self.rod + 1 / 80.0)
+                min(1.0, self.rod + 1 / 118.0)
                 if go_out
-                else max(0.0, self.rod - 1 / 80.0)
+                else max(0.0, self.rod - 1 / 118.0)
             )
         # gate (valve cannot turn while the rod is out)
         gm = f.get("gate", "ok") if t >= st else "ok"
@@ -278,15 +293,18 @@ class Plant:
             self.load_ms += 1
             if self.load_ms >= 10:
                 self.pocket, self.hopper, self.load_ms = 1, self.hopper - 1, 0
+                self.breech_hold = None  # a 2-ball pocket (breech_delay_ms): the beam stays blocked this long after the rod passed it
         else:
             self.load_ms = 0
         # the push: the ball leaves the bore at rod 0.5, reaches the nip, and leaves the barrel 15 ms later if the wheels turn
-        if self.pocket and self.gate >= 0.95 and self.rod >= 0.5:
+        if self.pocket and self.gate >= 0.95 and self.rod >= 0.86:
             self.pocket = 0
             self.barrel = 15
-            self.breech_hold = f.get("breech_delay_ms", 0)
-        elif self.breech_hold > 0:
-            self.breech_hold -= 1
+        elif self.pocket and self.rod >= 0.6:
+            if self.breech_hold is None:
+                self.breech_hold = f.get("breech_delay_ms", 0)
+            if self.breech_hold > 0:
+                self.breech_hold -= 1
         self.pulse = max(0, self.pulse - 1)
         if self.barrel is not None:
             mean = (self.rpm[0] + self.rpm[1]) / 2
@@ -535,6 +553,8 @@ class CoreRig:
         self.fw_diff = None
         self.estop_open, self.key_on = False, True
         self.st = None  # latest Status2
+        self.log_status = False
+        self.status_log = []  # (t, Status2), every STATUS frame (when log_status)
         self.events, self.acks = [], []  # (t, code, arg), (t, p.Ack)
         self.feed_rises = []  # ticks at which the MCU raised FEED_REQ
         self.kick_log = []  # (t, kick_ok) changes
@@ -618,6 +638,8 @@ class CoreRig:
                 m = f.msg
                 if isinstance(m, p.Status2):
                     self.st = m
+                    if self.log_status:
+                        self.status_log.append((t, m))
                     self.status_len = len(f.payload)
                 elif isinstance(m, p.Event):
                     self.events.append((t, m.code, m.arg))

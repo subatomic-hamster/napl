@@ -33,12 +33,14 @@ def test_every_spec_vector_a_to_o_exists():
     assert set("abcdefghijklmno") <= names and "l2" in names
 
 
-def test_cycle_time_fire_to_restaged_under_400ms():
+def test_cycle_time_fire_to_restaged_matches_the_466ms_geometric_cycle():
+    """T-CYCLE with MECH's numbers (assembly.md C-CYCLE: 466 ms) and a floor on the interval at or above it."""
     _, outs, plant = G.run_vec("a_nominal_two_shots")
     ch = H.trace_of(outs)["changes"]["gate_state"]
     t_push = next(t for t, v in ch if v == p.GS_PUSH)
     t_back = next(t for t, v in ch if v == p.GS_STAGED and t > t_push)
-    assert t_back - t_push <= 400, (t_push, t_back)
+    assert 460 <= t_back - t_push <= 470, (t_push, t_back)
+    assert p.MIN_SHOT_INTERVAL_FLOOR >= 466
     assert len(plant.exits) == 2  # and the plant agrees two balls left
 
 
@@ -133,33 +135,100 @@ def shoot(r, n, fid0=1):
         r.run(600)
 
 
-def test_hw_counter_trip_opens_the_estop_chain_and_is_reported():
-    """CD4017 on the muzzle beam opens the relay after N balls: modelled as the E-stop chain opening at the N-th exit. The MCU sees the E-stop edge with the key
-    on and N balls counted: SAFE + EVENT 16, wheels off."""
+def trip(r):
+    """The counter's clamp (wiring.md 3.4): weapon power goes, key / E-stop / relay stay closed, GP10 sees nothing."""
+    r.plant.f["weapon_lost_t"] = r.t + 1
+
+
+def hwc_events(r):
+    return [e for e in r.events if e[1] == p.EV_HW_COUNTER]
+
+
+def test_hw_counter_trip_is_seen_as_weapon_power_loss_and_labelled():
+    """Branch A: both ESC telemetry streams die together with the key on, the E-stop closed and the per-key-session pulse count at N -> EVENT 16 + b15 on top of
+    the ordinary telemetry_lost fault; the weapon stops, FIRE is refused, the label needs a key cycle and CLEAR_FAULT."""
     r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
     assert r.L.fwh_cfg(r.h, p.CFG_HW_COUNTER_N, 0) == 3
     shoot(r, 3)
     assert r.st.shots_confirmed == 3 and len(r.plant.exits) == 3
-    assert [
-        e for e in r.events if e[1] == p.EV_HW_COUNTER
-    ] == []  # nothing yet: the relay has not opened
-    r.estop_open = True  # the counter's relay contact
-    r.run(50)
-    ev = [e for e in r.events if e[1] == p.EV_HW_COUNTER]
+    assert hwc_events(r) == [] and not r.snap["fault_bits"]
+    trip(r)
+    assert not r.estop_open and r.key_on  # nothing upstream of GP10 changes
+    r.run(200)
+    ev = hwc_events(r)
     assert len(ev) == 1 and ev[0][2] == 3
-    assert r.st.state == p.FAULT and r.st.fault_bits & p.FAULT_HW_COUNTER
-    assert r.o["dshot_top"] == 0 and not r.rail and r.o["kick_ok"] == 0
+    assert r.snap["fault_bits"] & p.FAULT_HW_COUNTER
+    assert (
+        r.snap["fault_bits"] & p.FAULT_TELEMETRY_LOST
+    )  # the weapon-stop path is the ordinary one
+    assert r.st.state == p.FAULT
+    assert r.o["dshot_top"] == 0 and r.o["dshot_bot"] == 0 and r.o["kick_ok"] == 0
+    assert not r.rail  # KICK stopped: the supervisor relay opened as well
     r.send(p.Fire(9, 1))
     r.run(20)
-    assert r.last_ack(p.FIRE).result != p.OK
-    r.estop_open = False  # key cycle / reset of the counter: the label stays latched until the operator acknowledges it
+    assert r.last_ack(p.FIRE).result in (p.BAD_STATE, p.JAMMED)
+    r.key_on = False  # the key's power cycle resets the counter
     r.run(100)
-    r.send(p.Arm(1, 5, 60))
-    r.run(20)
-    assert r.last_ack(p.ARM).result != p.OK
+    r.key_on = True
+    r.plant.f.pop("weapon_lost_t")
+    r.run(300)
     r.send(p.ClearFault())
-    r.run(50)
+    r.run(100)
     assert r.last_ack(p.CLEAR_FAULT).result == p.OK and not r.snap["fault_bits"]
+
+
+def test_hw_counter_negative_controls_other_causes_are_not_labelled():
+    """Branch B: the same power loss one ball short of N, with N = 0, or a plain E-stop at N is an ordinary fault / SAFE. Every one still stops the weapon."""
+    r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
+    shoot(r, 2)
+    trip(r)
+    r.run(200)
+    assert hwc_events(r) == [] and not r.snap["fault_bits"] & p.FAULT_HW_COUNTER
+    assert (
+        r.snap["fault_bits"] & p.FAULT_TELEMETRY_LOST
+        and r.o["dshot_top"] == 0
+        and r.o["kick_ok"] == 0
+    )
+    r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 0}).up().engage()  # N = 0: no counter fitted
+    shoot(r, 3)
+    trip(r)
+    r.run(200)
+    assert (
+        hwc_events(r) == []
+        and r.snap["fault_bits"] == p.FAULT_TELEMETRY_LOST
+        and r.o["kick_ok"] == 0
+    )
+    r = (
+        H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
+    )  # the operator's E-stop at exactly N
+    shoot(r, 3)
+    r.estop_open = True
+    r.run(200)
+    assert (
+        hwc_events(r) == []
+        and r.st.state == p.SAFE
+        and not r.snap["fault_bits"] & p.FAULT_HW_COUNTER
+    )
+    assert r.o["dshot_top"] == 0 and not r.rail
+    r = (
+        H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
+    )  # key off at N: rail gone, the count resets, no label
+    shoot(r, 3)
+    r.key_on = False
+    r.run(200)
+    assert hwc_events(r) == [] and not r.rail
+    # the two streams die 30 ms apart (one ESC, not the shared weapon rail): telemetry_lost, no label
+    r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
+    shoot(r, 3)
+    r.plant.f["telemetry_dead_t"] = [r.t + 1, r.t + 31]
+    r.run(200)
+    assert hwc_events(r) == [] and r.snap["fault_bits"] == p.FAULT_TELEMETRY_LOST
+    # ... while 4 ms apart is still one power loss
+    r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
+    shoot(r, 3)
+    r.plant.f["telemetry_dead_t"] = [r.t + 1, r.t + 5]
+    r.run(200)
+    assert len(hwc_events(r)) == 1
 
 
 def test_hw_counter_counts_per_key_session_not_per_arm():
@@ -170,33 +239,22 @@ def test_hw_counter_counts_per_key_session_not_per_arm():
     r.fw_pm = None
     r.engage(spin_ms=1500)
     shoot(r, 1, fid0=10)
-    r.estop_open = True
-    r.run(50)
-    assert [e[2] for e in r.events if e[1] == p.EV_HW_COUNTER] == [3]
-    # a key cycle resets it: 2 balls, key off and on, 1 ball, E-stop -> 1 of 3, not labelled
+    trip(r)
+    r.run(200)
+    assert [e[2] for e in hwc_events(r)] == [3]
+    # a key cycle resets it: 2 balls, key off and on, 1 ball, power loss -> 1 of 3, not labelled
     r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
     shoot(r, 2)
     r.key_on = False
     r.run(100)
     r.key_on = True
-    r.run(300)
-    r.estop_open = True
-    r.run(50)
-    assert not [e for e in r.events if e[1] == p.EV_HW_COUNTER]
-
-
-def test_hw_counter_negative_controls_plain_estop_is_not_labelled():
-    r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
-    shoot(r, 2)
-    r.estop_open = True  # an operator E-stop with 2 of 3 balls: no EVENT 16
-    r.run(50)
-    assert not [e for e in r.events if e[1] == p.EV_HW_COUNTER] and r.st.state == p.SAFE
-    assert not r.st.fault_bits & p.FAULT_HW_COUNTER
-    r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 0}).up().engage()  # N = 0: counter disabled
-    shoot(r, 3)
-    r.estop_open = True
-    r.run(50)
-    assert not [e for e in r.events if e[1] == p.EV_HW_COUNTER]
+    r.run(1500)
+    r.fw_pm = None
+    r.engage(spin_ms=1500)
+    shoot(r, 1, fid0=10)
+    trip(r)
+    r.run(200)
+    assert hwc_events(r) == [] and r.snap["fault_bits"] & p.FAULT_TELEMETRY_LOST
 
 
 # ---- safety matrix: each single fault of spec 1.3 that software can see ----
@@ -265,7 +323,14 @@ row(
     4,
     "feed_req_stuck_high",
     eng(),
-    drive_fire_twice(feed_req_stuck="high"),
+    lambda r: (  # one good stroke, then the line sticks high: the limiter sees no new edge once its window has run out
+        r.fire(1),
+        r.run(520),
+        inject(r, feed_req_stuck="high"),
+        r.run(300),
+        r.fire(2),
+        r.run(800),
+    ),
     fault=p.FAULT_PUSHER_STUCK,
     kick_off=True,
     rises=2,
@@ -324,11 +389,11 @@ row(
     11,
     "two_balls_in_pocket",
     eng(),
-    drive_fire(breech_delay_ms=20),
+    drive_fire(breech_delay_ms=30),
     fault=p.FAULT_BREECH_DOUBLE,
     kick_off=True,
     rises=1,
-    exits=1,
+    exits=0,
 )
 row(
     12,
@@ -428,11 +493,11 @@ row(
 row(
     20,
     "limiter_shorted_interval_still_enforced",
-    eng(),
+    eng(cfg={p.CFG_MIN_SHOT_INTERVAL_MS: 700}),
     lambda r: (
         inject(r, limiter_shorted=True),
         r.fire(1),
-        r.run(390),  # the cycle is done (364 ms) but the 450 ms interval is not
+        r.run(600),  # the cycle is done (466 ms) but the 700 ms interval is not
         r.fire(2),
         r.run(600),
     ),
@@ -645,9 +710,10 @@ def test_usb_overflow_in_the_tick_of_a_fire_refuses_the_fire():
 
 # ---- F3 / F4 / F5: commit, retract and wheel-window semantics ----
 def test_no_abort_after_the_ball_left_the_breech_but_abort_before():
-    """F3: the commit point is the earlier of 45 ms and the breech beam clearing, so an abort can never leave a ball in the nip with no commit."""
+    """F3: the commit point is the earlier of 105 ms and the breech beam clearing (~71 ms, 9 mm behind the plug axis), so an abort can never leave a displaced
+    ball with no commit. The rod meets the ball at ~65 ms; after the beam clears the ball is no longer where the plug can turn it back."""
     res = {}
-    for ms in (10, 20, 30, 42, 44):
+    for ms in (10, 40, 62, 66, 78, 100):
         r = H.CoreRig().up().engage()
         r.fire(1)
         r.run(ms)
@@ -670,11 +736,11 @@ def test_no_abort_after_the_ball_left_the_breech_but_abort_before():
             ms,
             res,
         )  # an abort means no ball, no abort means the ball left
-    assert res[10][0] and not res[44][0]
+    assert res[10][0] and not res[100][0]
 
 
 def test_gate_does_not_turn_until_the_pusher_reads_home():
-    """F4: RETRACT -> TO_LOAD requires push_home; otherwise pusher_stuck at 300 ms."""
+    """F4: RETRACT -> TO_LOAD requires push_home; otherwise pusher_stuck at 330 ms."""
     _, outs, _ = G.run_vec("ae_retract_without_push_home", H.CFeeder())
     states = [v for _, v in H.trace_of(outs)["changes"]["gate_state"]]
     assert p.GS_TO_LOAD not in states and states[-1] == p.GS_JAM
@@ -700,9 +766,9 @@ def fuzz_base():
     return _base["r"]
 
 
-def fuzz_case(seed, plant_faults=False):
+def fuzz_case(seed, plant_faults=False, base=None):
     rng = random.Random(seed)
-    r = fuzz_base().fork()
+    r = (base or fuzz_base()).fork()
     if plant_faults and rng.random() < 0.8:
         kind = rng.choice(
             ["pusher", "gate", "breech", "muzzle", "exit", "req", "limiter", "delay"]
@@ -794,7 +860,11 @@ def fuzz_case(seed, plant_faults=False):
 
 def check_invariants(seed, r, plant_faults):
     gaps = [b - a for a, b in zip(r.feed_rises, r.feed_rises[1:])]
-    assert all(g >= 400 for g in gaps), (seed, "two feeds < 400 ms apart", r.feed_rises)
+    assert all(g >= p.MIN_SHOT_INTERVAL_FLOOR for g in gaps), (
+        seed,
+        "two feeds closer than the interval floor",
+        r.feed_rises,
+    )
     assert len(r.feed_rises) == r.accepted_fires, (seed, r.feed_rises, r.accepted_fires)
     assert len(r.plant.exits) <= r.accepted_fires, (
         seed,

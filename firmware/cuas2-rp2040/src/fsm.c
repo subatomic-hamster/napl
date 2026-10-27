@@ -268,7 +268,7 @@ static int cfg_valid(int key, int32_t v) {
     case CFG_HARD_SHOT_CAP: return v >= 0 && v <= 255;
     case CFG_HARD_ARM_TIMEOUT: return v >= 0 && v <= 65535;
     case CFG_PUSHER_EXT_US: case CFG_PUSHER_RET_US: case CFG_GATE_LOAD_US: case CFG_GATE_BORE_US: return v >= 500 && v <= 2500;  /* servo pulse sanity */
-    case CFG_PUSHER_DWELL_MS: return v >= 50 && v <= 300;
+    case CFG_PUSHER_DWELL_MS: return v >= 50 && v <= 130;  /* dwell + the 118 ms retract must fit the limiter's 254 ms power window (wiring.md) */
     case CFG_MIN_SHOT_INTERVAL_MS: case CFG_SPINUP_MS: return v >= 0 && v <= 60000;
     case CFG_HOMING_SPEED: return v > 0 && v <= 3000;  /* <= 300 deg/s */
     case CFG_WHEEL_D_UM: return v >= 10000 && v <= 100000;
@@ -484,20 +484,16 @@ static void timers(fw_t *f) {
 }
 
 /* ---- cuas2: hardware shot counter, launcher + feeder ----------------------------------------------------------------------------------- */
-/* Hardware shot counter (CD4017 on the muzzle beam, DIP-set N, reset only by the key): it opens the key -> E-stop -> counter -> supervisor chain upstream of the
- * GP10 tap, so a trip looks like an open E-stop chain with the key still on. inputs() has already handled it exactly like an E-stop press (SAFE, rail dead);
- * this only LABELS the edge: if the beam pulses counted since the key went on (the hardware's reset) reach cfg 41, EVENT 16 + fault bit b15. The trip itself is NOT
- * sensed (no spare GPIO, include/pins.h). A real E-stop press at exactly the Nth ball is mislabelled; both open the rail. */
+/* Hardware shot counter (two 74HCT4017, DIP-set N, reset only by the key's power cycle): the Nth muzzle-beam pulse trips a clamp on the gate of the supervisor's
+ * weapon MOSFET. Relay coil, key and E-stop stay closed, so GP10 sees NOTHING (docs/cuas2/wiring.md 3.2/3.4): firmware sees weapon power lost with the key on and
+ * the E-stop closed (both ESC telemetry streams drop together). The trip is not sensed, only inferred: when the launcher raises TELEMETRY_LOST with both streams
+ * lost within FDR_HWC_SKEW_MS of each other, key on, E-stop closed, and the per-key-session beam pulse count has reached cfg 41, label it EVENT 16 + fault bit b15
+ * (feeder_stage). Anything else is an ordinary telemetry_lost fault. Both stop the weapon (the launcher drops its target on any feeder fault). This function only
+ * mirrors the count: the key resets it as it resets the hardware (a count per key-on session, not per ARM). */
 static void hw_counter_note(fw_t *f) {
-    const int n = f->cfg[CFG_HW_COUNTER_N];
-    if (!f->key_on) f->muz_key = 0;  /* the key resets the hardware counter: so does this one (a count per key-on session, not per ARM) */
-    else if (f->in.beam_muzzle && !f->muz_prev_hw && f->muz_key < 0xFFFF) f->muz_key++;  /* every beam pulse, as the CD4017 counts them (also unexpected ones) */
+    if (!f->key_on) f->muz_key = 0;
+    else if (f->in.beam_muzzle && !f->muz_prev_hw && f->muz_key < 0xFFFF) f->muz_key++;  /* every beam pulse, as the 4017 counts them (also unexpected ones) */
     f->muz_prev_hw = f->in.beam_muzzle;
-    if (f->estop_open && !f->estop_prev_hw && f->key_on && n > 0 && f->muz_key >= n) {
-        f->fault_bits |= FAULT_HW_COUNTER;  /* latched until CLEAR_FAULT: after the key reset the operator has to acknowledge the trip */
-        fw_event(f, EV_HW_COUNTER, f->muz_key);
-    }
-    f->estop_prev_hw = f->estop_open;
 }
 
 static void finish_burst(fw_t *f) {  /* the cycle is back to STAGED / EMPTY: end FIRING */
@@ -537,6 +533,11 @@ static void feeder_stage(fw_t *f) {
     fdr_step(&f->fdr, &in, &f->fo);
     const fdr_out_t *o = &f->fo;
 
+    if ((o->fault_bits & FAULT_TELEMETRY_LOST) && !(f->fault_bits & FAULT_TELEMETRY_LOST) && f->key_on && !f->estop_open && f->cfg[CFG_HW_COUNTER_N] > 0 &&
+        f->muz_key >= f->cfg[CFG_HW_COUNTER_N] && (f->fdr.age[0] > f->fdr.age[1] ? f->fdr.age[0] - f->fdr.age[1] : f->fdr.age[1] - f->fdr.age[0]) <= FDR_HWC_SKEW_MS) {
+        f->fault_bits |= FAULT_HW_COUNTER;  /* latched until CLEAR_FAULT */
+        fw_event(f, EV_HW_COUNTER, f->muz_key);
+    }
     f->fault_bits |= (uint16_t)(o->fault_bits & FDR_FAULT_MASK);
     f->faults_reported |= (uint16_t)(o->fault_bits & FDR_FAULT_MASK);  /* the feeder reports its own faults (EVENT FAULT / JAM in o->ev) */
     if (f->shots_arm == 0) f->conf_arm = 0;

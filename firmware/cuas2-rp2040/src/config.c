@@ -11,7 +11,7 @@ static uint32_t get32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1]
 void fw_cfg_defaults(int32_t c[CFG_COUNT]) {
     static const int32_t d[CFG_COUNT] = {
         0, 16000, 12800, -170000, 170000, -15000, 70000, 0, 0, 0,   /* 0-9: spr, pan/tilt min/max, home offsets, dir invert */
-        10, 120, 1900, 1100, 80, 450, 100, 0, 300, 200,             /* 10 hard cap, 11 hard timeout, 12 ext us, 13 ret us, 14 dwell ms, 15 min interval, 16 (unused), 17 fire_tilt_min, 18 wd, 19 homing */
+        10, 120, 1900, 1100, 120, 500,100, 0, 300, 200,            /* 10 hard cap, 11 hard timeout, 12 ext us, 13 ret us, 14 dwell ms, 15 min interval, 16 (unused), 17 fire_tilt_min, 18 wd, 19 homing */
         -170000, 170000, 70000,                                     /* 20-22: fire sector */
         40000, 380, 17500, 4500, 10, 100, 15, 7, 40000, 900,        /* 23 wheel_d_um .. 32 throttle_max_pm */
         600, 40, 1150, 1700, 30, 250, 50, 1000,                     /* 33 kp, 34 ki, 35 gate_load_us, 36 gate_bore_us, 37 fill_ms, 38 exit_timeout_ms, 39 telemetry_loss_ms, 40 k_beam */
