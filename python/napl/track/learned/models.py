@@ -225,7 +225,15 @@ def train(
             opt.step(), sched.step()
         net.eval()
         with torch.no_grad():
-            v = float(nll(P_va, torch.arange(len(P_va["y"]), device=dev)))
+            nv = len(P_va["y"])
+            v = (
+                sum(
+                    float(nll(P_va, torch.arange(i, min(i + 8192, nv), device=dev)))
+                    * (min(i + 8192, nv) - i)
+                    for i in range(0, nv, 8192)
+                )
+                / nv
+            )
         if v < best[0]:
             best, best_sd = (
                 (v, ep),
