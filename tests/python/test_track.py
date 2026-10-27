@@ -218,6 +218,33 @@ def test_mht_and_phd_track_single_target():
         assert r["gospa"] < 0.8 and r["lost"] == 0, (v, r)
 
 
+OLD = {  # the options of JPDA / MHT / PHD before the tuning (weak hits count, duplicate deletion, one big label, ...)
+    "imm2-jpda": dict(dedupe=9.0, hit_beta0=0.5),
+    "imm2-mht": dict(kmax=4, nscan=3, decay=1.0, hit_llr=-1e9),
+    "phd-singer": dict(xmerge=0, split_w=0.0, keep=0, merge_d2=4.0),
+}
+
+
+@pytest.mark.parametrize("v", sorted(OLD))
+def test_tuned_variants_beat_their_old_options_on_the_clutter_swarm(v):
+    """Failable: swarm5, seeds 1-3, paired. The tuned options must cut GOSPA by >= 15 % against the pre-tuning ones."""
+    new = np.mean([run("swarm5", v, s)["gospa"] for s in (1, 2, 3)])
+    old = np.mean([run("swarm5", v, s, **OLD[v])["gospa"] for s in (1, 2, 3)])
+    assert new < 0.85 * old, (v, new, old)
+
+
+def test_jpda_hit_rule_needs_real_evidence():
+    """A lone clutter point at the edge of a tentative track's gate must not count as a hit (beta0 ~ 0.4) but a close one must."""
+    pm = PositionModel(0.5)
+    cv = CV(0.5)
+    mk = lambda: EKF(cv, *prior(cv, np.zeros(3), np.eye(3) * 0.25, vsig=1.0))
+    for z, hit in (([0.1, 0.0, 0.0], True), ([2.0, 0.0, 0.0], False)):
+        j = JPDA(lambda p0, P0: mk(), pd=0.9, lam=2e-3, hit_beta0=0.01)
+        j.tracks = [Track(1, mk(), 0.0)]
+        j.step(0.1, np.array([z]), pm)
+        assert j.tracks[0].hits[-1] == hit, (z, list(j.tracks[0].hits))
+
+
 def test_determinism_and_seed_sensitivity():
     a, b = run("swarm5", "imm2-gnn", 4), run("swarm5", "imm2-gnn", 4)
     assert {k: v for k, v in a.items() if k != "cpu_ms"} == {
