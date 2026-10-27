@@ -3,7 +3,7 @@
 One sample = one confirmed IMM2 track matched (GOSPA cut-off, one-to-one) to a truth target at scan k:
   hm (N, 6)   last N track means [p, v] (oldest first; short histories are padded with the oldest entry), hn = valid count
   hs (N, 6)   their per-component std (sqrt diag of the 6x6 covariance)
-  hu (N, 2)   IMM2 mode probabilities per scan
+  hu (N, 2)   IMM2 mode probabilities per scan;  hq (N,) NIS of the update at each scan (nan when none yet)
   cc (21,)    upper triangle of the current 6x6 covariance
   pm2 (H, 3), pc2 (H, 6)   IMM2 extrapolation (position mean, 3x3 covariance as xx yy zz xy xz yz) at horizons HORIZONS
   pm3, pc3    the same from IMM3 (a second tracker on the same detections; sample kept only if it also has a matched track)
@@ -58,6 +58,7 @@ def collect(name, seed, n_hist=NHIST, horizons=HORIZONS):
                 "hm",
                 "hs",
                 "hu",
+                "hq",
                 "hn",
                 "cc",
                 "pm2",
@@ -75,7 +76,7 @@ def collect(name, seed, n_hist=NHIST, horizons=HORIZONS):
         for tr in c2:
             m, P = tr.est.pv()
             b = buf.setdefault(tr.id, [])
-            b.append((m.copy(), np.sqrt(np.diag(P)), tr.est.mu.copy()))
+            b.append((m.copy(), np.sqrt(np.diag(P)), tr.est.mu.copy(), tr.est.last_nis))
             del b[:-n_hist]
         if k + max(steps) >= T:
             continue
@@ -91,6 +92,7 @@ def collect(name, seed, n_hist=NHIST, horizons=HORIZONS):
             out["hm"].append([x[0] for x in pad])
             out["hs"].append([x[1] for x in pad])
             out["hu"].append([x[2] for x in pad])
+            out["hq"].append([x[3] for x in pad])
             out["hn"].append(len(b))
             out["cc"].append(c2[j].cov[IU])
             out["pm2"].append(pm2), out["pc2"].append(pc2)

@@ -19,6 +19,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
 import numpy as np
+from napl.track import calib as C
 from napl.track.learned import data as D
 from napl.track.learned import metrics as M
 from napl.track.learned import models as ML
@@ -280,6 +281,111 @@ def cmd_bench(a):
         print(f"{k}: {v:.1f}" + ("" if "parameters" in k else " us"))
 
 
+CALIB_VARIANTS = {  # columns of napl.track.calib.features used
+    "IMM2 raw": None,
+    "scalar s": [0],
+    "s(h)": [0, 1, 2],
+    "s(h, mode)": [0, 1, 2, 3, 4],
+    "s(h, NIS)": [0, 1, 2, 5, 6],
+    "s(h, mode, NIS)": [0, 1, 2, 3, 4, 5, 6],
+    "s(h, accel)": [0, 1, 2, 7, 8],
+    "s(h, mode, accel)": [0, 1, 2, 3, 4, 7, 8],
+    "s(h, mode, NIS, accel)": list(range(9)),
+}
+
+
+def cmd_calib(a):
+    """Mode / NIS-conditioned covariance calibration of IMM2: fit on val, report on test (in-distribution and leave-one-kind-out)."""
+    ds = D.load(a.data)
+    va, te = ds["val"], ds["test"]
+    pre = {}
+    for nm, d in (("val", va), ("test", te)):
+        m, c = base(d, "2")
+        n = C.nis_feature(d["hq"][:, -a.k :])
+        dt = d["meta"][:, 4]
+        ka = np.minimum(
+            np.round(0.5 / dt).astype(int), d["hm"].shape[1] - 1
+        )  # ~0.5 s of velocity history
+        vp = d["hm"][np.arange(len(dt)), d["hm"].shape[1] - 1 - ka, 3:6]
+        acc = C.accel_feature(d["hm"][:, -1, 3:6], vp, ka * dt)
+        phi = C.features(
+            d["hu"][:, -1, 1][:, None], n[:, None], np.array(HZ)[None], acc[:, None]
+        )  # (S, H, 9)
+        pre[nm] = (m, c, phi, M.mahal2(m, c, d["y"])[0], d["y"])
+    kv, kt = kinds(va), kinds(te)
+    D2 = {"val": pre["val"][3], "test": pre["test"][3]}
+
+    def fitw(cols, vmask):
+        return C.fit(pre["val"][2][vmask][..., cols], D2["val"][vmask])
+
+    def apply(w, cols, tmask):
+        m, c, phi, _, y = pre["test"]
+        s = (
+            np.exp(phi[tmask][..., cols] @ w)
+            if w is not None
+            else np.ones(phi[tmask].shape[:2])
+        )
+        return M.evaluate(m[tmask], c[tmask] * s[..., None, None], y[tmask])
+
+    out = {}  # (scope, model) -> metrics
+    allv = np.ones(len(kv), bool)
+    for scope in ("fit on all val kinds", "leave-one-kind-out (fit excludes the kind)"):
+        for name, cols in CALIB_VARIANTS.items():
+            for i, kn in enumerate(NAMES):
+                tm = kt == i
+                if cols is None:
+                    w = None
+                elif scope.startswith("fit"):
+                    w = fitw(cols, allv)
+                else:
+                    w = fitw(cols, kv != i)
+                out[(scope, name, kn)] = apply(w, cols, tm)
+        if scope.startswith(
+            "fit"
+        ):  # oracle: per-kind s(h) fitted on the kind's val samples (needs the kind)
+            for i, kn in enumerate(NAMES):
+                out[(scope, "oracle s(h) per kind", kn)] = apply(
+                    fitw([0, 1, 2], kv == i), [0, 1, 2], kt == i
+                )
+    names = list(CALIB_VARIANTS) + ["oracle s(h) per kind"]
+    md = []
+    for scope in ("fit on all val kinds", "leave-one-kind-out (fit excludes the kind)"):
+        md += [
+            f"#### {scope}",
+            "",
+            "cover 50 % / cover 90 % (mean over the 5 horizons) / cover 90 % @1.0 s / NLL (mean h); worst = max over kinds of |cover90 - 0.90|",
+            "",
+            "| model | " + " | ".join(NAMES) + " | worst |",
+            "|---|" + "---|" * (len(NAMES) + 1),
+        ]
+        for nm in names:
+            if (scope, nm, NAMES[0]) not in out:
+                continue
+            cells, worst = [], 0.0
+            for kn in NAMES:
+                r = out[(scope, nm, kn)]
+                worst = max(worst, abs(r["c90"].mean() - 0.9))
+                cells.append(
+                    f"{r['c50'].mean():.2f} / {r['c90'].mean():.3f} / {r['c90'][4]:.3f} / {r['nll'].mean():.2f}"
+                )
+            md.append(f"| {nm} | " + " | ".join(cells) + f" | {worst:.3f} |")
+        md.append("")
+    for nm, cols in (
+        ("s(h, mode, NIS, accel)", range(9)),
+        ("s(h, accel)", [0, 1, 2, 7, 8]),
+    ):
+        w = np.zeros(9)
+        w[list(cols)] = fitw(list(cols), allv)
+        md.append(
+            f"Fitted w (all val kinds, {nm}, 9 columns of calib.features): `{np.array2string(w, precision=4, separator=', ')}`"
+        )
+    md.append(f"NIS window k = {a.k}")
+    text = "\n".join(md)
+    print(text)
+    if a.md:
+        Path(a.md).write_text(text + "\n")
+
+
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -306,8 +412,18 @@ def main():
     b = sp.add_parser("bench")
     b.add_argument("--data", required=True)
     b.add_argument("--models", required=True)
+    c = sp.add_parser("calib")
+    c.add_argument("--data", required=True)
+    c.add_argument("--k", type=int, default=C.K_NIS)
+    c.add_argument("--md", default="")
     a = ap.parse_args()
-    {"gen": cmd_gen, "train": cmd_train, "eval": cmd_eval, "bench": cmd_bench}[a.cmd](a)
+    {
+        "gen": cmd_gen,
+        "train": cmd_train,
+        "eval": cmd_eval,
+        "bench": cmd_bench,
+        "calib": cmd_calib,
+    }[a.cmd](a)
 
 
 if __name__ == "__main__":
