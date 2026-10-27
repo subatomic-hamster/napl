@@ -73,7 +73,10 @@ CRC_CHECK = _p.CRC_CHECK
     FAULT_PUSHER_STUCK,
     FAULT_GATE_STUCK,
     FAULT_SHOT_OVERCOUNT,
-) = (1 << i for i in range(6, 15))  # b6-b14; b15 reserved
+) = (1 << i for i in range(6, 15))  # b6-b14
+FAULT_HW_COUNTER = (
+    1 << 15
+)  # the hardware shot counter tripped (labelled from the E-stop edge; not a feeder fault)
 FDR_FAULT_MASK = 0x7FC0  # b6-b14: each stops KICK
 FDR_JAM_MASK = 0x7E00  # b9-b14: shown as gate_state JAM
 (
@@ -145,8 +148,8 @@ MIN_SHOT_INTERVAL_FLOOR = 400  # firmware clamp of cfg 15
 V_CAP_MAX_DMPS = 380  # 38 m/s: the absolute cap
 # inclusive (lo, hi) ranges the firmware enforces at CFG_SET (a value outside answers BAD_ARG)
 CFG_RANGES = {
-    CFG_WHEEL_D_UM: (10000, 100000), CFG_V_CAP_DMPS: (1, 380), CFG_RPM_MAX: (0, 60000), CFG_RPM_IDLE: (0, 60000), CFG_RPM_WINDOW_PM: (1, 100),
-    CFG_SETTLE_MS: (0, 2000), CFG_DIFF_PM: (-100, 100), CFG_POLE_PAIRS: (1, 32), CFG_RAMP_RPM_S: (1000, 400000), CFG_THROTTLE_MAX_PM: (100, 1000),
+    CFG_WHEEL_D_UM: (10000, 100000), CFG_V_CAP_DMPS: (1, 380), CFG_RPM_MAX: (0, 60000), CFG_RPM_IDLE: (0, 60000), CFG_RPM_WINDOW_PM: (1, 20),
+    CFG_SETTLE_MS: (20, 2000), CFG_DIFF_PM: (-100, 100), CFG_POLE_PAIRS: (1, 32), CFG_RAMP_RPM_S: (1000, 400000), CFG_THROTTLE_MAX_PM: (100, 1000),
     CFG_KP: (0, 100000), CFG_KI: (0, 100000), CFG_GATE_LOAD_US: (500, 2500), CFG_GATE_BORE_US: (500, 2500), CFG_FILL_MS: (0, 1000),
     CFG_EXIT_TIMEOUT_MS: (100, 1000), CFG_TELEMETRY_LOSS_MS: (10, 1000), CFG_K_BEAM: (100, 3000), CFG_HW_COUNTER_N: (0, 255),
     CFG_PUSHER_EXT_US: (500, 2500), CFG_PUSHER_RET_US: (500, 2500), CFG_PUSHER_DWELL_MS: (50, 300),

@@ -13,6 +13,9 @@ from napl.cuas2 import protocol as p
 
 from cuas2 import fwharness as H
 from cuas2 import gen_vectors as G
+from cuas2 import (
+    test_fsm as TF,
+)  # the gate table and scenarios the mutants are judged by
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[1]
@@ -65,7 +68,8 @@ M = [
     ("drop_sector_abort", "src/feeder.c", "if (!in->in_sector) reason = FA_SECTOR;", "if (0) reason = FA_SECTOR;", "vectors"),
     ("drop_deadman_abort", "src/feeder.c", "else if (!in->hb_ok || !in->deadman) reason = FA_DEADMAN;", "else if (0) reason = FA_DEADMAN;", "vectors"),
     ("drop_inhibit_abort", "src/feeder.c", "else if (in->inhibit) reason = FA_INHIBIT;", "else if (0) reason = FA_INHIBIT;", "vectors"),
-    ("drop_wheels_abort", "src/feeder.c", "else if (tf < FDR_WHEEL_CHECK_MS && !d->inwin_now) reason = FA_WHEELS;", "else if (0) reason = FA_WHEELS;", "vectors"),
+    ("drop_wheels_abort", "src/feeder.c", "else if (!d->inwin_now) reason = FA_WHEELS;", "else if (0) reason = FA_WHEELS;", "vectors"),
+    ("wheel_recheck_only_first_30ms", "src/feeder.c", "else if (!d->inwin_now) reason = FA_WHEELS;", "else if (tf < 30 && !d->inwin_now) reason = FA_WHEELS;", "vectors"),
     ("drop_breech_early_abort", "src/feeder.c", "else if (tf < FDR_BREECH_EARLY_MS && !in->beam_breech) reason = FA_BEAM;", "else if (0) reason = FA_BEAM;", "vectors"),
     ("drop_pusher_departure_check", "src/feeder.c", "if (!d->left_seen && tf >= FDR_PUSH_LEAVE_MS) fdr_fault(d, o, FAULT_PUSHER_STUCK);", ";", "vectors"),
     ("drop_breech_double_fault", "src/feeder.c", "fdr_fault(d, o, FAULT_BREECH_DOUBLE);", ";", "vectors"),
@@ -78,7 +82,36 @@ M = [
     ("drop_fire_id_dedupe", "src/fsm.c", "if (f->fire_ids[i].used && f->fire_ids[i].id == id) {", "if (0) {", "core_dup"),
     ("hw_counter_never_labelled", "src/fsm.c", "n > 0 && seen >= n)", "n > 1000 && seen >= n)", "core_hw"),
     ("v_cap_above_38ms_accepted", "src/fsm.c", "case CFG_V_CAP_DMPS: return v >= 1 && v <= 380;", "case CFG_V_CAP_DMPS: return v >= 1;", "core_vcap"),
+    # feeder.c FIRE gates not covered above (spec 1.2 I9b/I11)
+    ("drop_too_soon_gate", "src/feeder.c", "    if (d->has_feed && now - d->t_last_feed < min_interval(in->cfg)) return RES_TOO_SOON;\n", "", "vectors"),
+    ("drop_empty_no_ball_gate", "src/feeder.c", "    if (d->gstate == GS_EMPTY) return RES_NO_BALL;\n", "", "vectors"),
+    ("drop_busy_gate", "src/feeder.c", "    if (d->gstate != GS_STAGED) return RES_BUSY;\n", "", "vectors"),
+    ("drop_push_home_jammed_gate", "src/feeder.c", "    if (!in->push_home) return RES_JAMMED;\n", "", "vectors"),
+    # fsm.c fire_precheck gates (fsm.c:208-219), each on its own
+    ("drop_precheck_state_engaging", "src/fsm.c", "    if (f->state != ST_ENGAGING) return RES_BAD_STATE;\n", "", "core_state"),
+    ("drop_precheck_busy_pending", "src/fsm.c", "    if (f->state == ST_FIRING || f->fire_cmd_pending) return RES_BUSY;\n", "", "core_busy"),
+    ("drop_precheck_homed", "src/fsm.c", "    if (!f->ax[0].homed || !f->ax[1].homed) return RES_NOT_HOMED;\n", "", "gate:not_homed"),
+    ("drop_precheck_sector_set", "src/fsm.c", "    if (f->sector_set != SECTOR_ALL) return RES_NO_SECTOR;\n", "", "gate:no_sector"),
+    ("drop_precheck_shot_cap", "src/fsm.c", "    if (f->shots_arm + 1 > f->shot_cap) return RES_CAP;\n", "", "gate:shot_cap"),
+    # gates that exist in BOTH layers (fire_precheck and the feeder): removing one layer alone is an equivalent mutant (the other answers the same), so both go
+    ("drop_rail_gate_both_layers", [("src/fsm.c", "    if (!rail_on(f)) return RES_INTERLOCK;\n", ""), ("src/feeder.c", "    if (!rail) return RES_INTERLOCK;\n", "")], "gate:rail"),
+    ("drop_hb_deadman_inhibit_gate_both_layers", [("src/fsm.c", "    if (!hb_ok(f) || !deadman_ok(f) || inhibit(f)) return RES_INHIBIT;\n", ""), ("src/feeder.c", "    if (!in->hb_ok || !in->deadman || in->inhibit) return RES_INHIBIT;\n", "")], "gate:inhibit"),
+    ("drop_range_gate_both_layers", [("src/fsm.c", "    if (!in_sector(f)) return RES_RANGE;\n", ""), ("src/feeder.c", "    if (!in->in_sector) return RES_RANGE;\n", "")], "gate:out_of_sector"),
+    ("drop_latched_fault_gate_both_layers", [("src/fsm.c", "    if (f->fault_bits) return RES_JAMMED;  /* any latched fault (also one set by fw_rx earlier in this very tick, e.g. USB overflow) */\n", ""), ("src/fsm.c", "if (f->fire_cmd_pending && f->fault_bits) {", "if (0) {")], "core_usb"),
+    # F1-F5 of the cold verification
+    ("abort_still_possible_after_breech_clear", [("src/feeder.c", "if (tf < FDR_COMMIT_MS && !left) {", "if (tf < FDR_COMMIT_MS) {"), ("src/feeder.c", "} else if (tf >= FDR_COMMIT_MS || left) {", "} else if (tf >= FDR_COMMIT_MS) {")], "core_f3"),
+    ("retract_to_load_without_push_home", "src/feeder.c", "else if (tf >= dwell + FDR_RETRACT_CLEAR_MS && in->push_home) {", "else if (tf >= dwell + FDR_RETRACT_CLEAR_MS) {", "vectors"),
+    # hardware shot counter (row 30) and the tightened config ranges
+    ("hw_counter_counts_per_arm", "src/fsm.c", "if (!f->key_on) f->muz_key = 0;", "if (!f->key_on || f->shots_arm == 0) f->muz_key = 0;", "core_hw_session"),
+    ("hw_counter_no_fault_bit", "src/fsm.c", "        f->fault_bits |= FAULT_HW_COUNTER;", "        ;", "core_hw"),
+    ("rpm_window_up_to_100_permille", "src/fsm.c", "case CFG_RPM_WINDOW_PM: return v >= 1 && v <= 20;", "case CFG_RPM_WINDOW_PM: return v >= 1 && v <= 100;", "core_cfg_window"),
+    ("settle_ms_zero_allowed", "src/fsm.c", "case CFG_SETTLE_MS: return v >= 20 && v <= 2000;", "case CFG_SETTLE_MS: return v >= 0 && v <= 2000;", "core_cfg_settle"),
 ]  # fmt: skip
+
+
+def parts(m):
+    """(id, [(file, old, new), ...], detector) of a table row (single edits are 5-tuples, multi-file ones 3-tuples)."""
+    return (m[0], [m[1:4]], m[4]) if len(m) == 5 else m
 
 
 def build_lib(tmp: Path, mutation=None):
@@ -91,8 +124,7 @@ def build_lib(tmp: Path, mutation=None):
     src.parent.mkdir(parents=True)
     (src.parent / "cuas-lite-rp2040").symlink_to(LITE_SRC.parent)
     shutil.copytree(FW, src, ignore=shutil.ignore_patterns("build", "*.o", "pico"))
-    if mutation:
-        _, rel, old, new, _ = mutation
+    for rel, old, new in parts(mutation)[1] if mutation else ():
         text = (src / rel).read_text()
         assert text.count(old) == 1, (
             f"mutation anchor not unique in {rel}: {old!r} x{text.count(old)}"
@@ -149,7 +181,80 @@ def core_behaviour_fails(lib, kind):
             r.run(600)
         r.estop_open = True
         r.run(50)
-        return not [e for e in r.events if e[1] == p.EV_HW_COUNTER]
+        return not [e for e in r.events if e[1] == p.EV_HW_COUNTER] or not (
+            r.st.fault_bits & p.FAULT_HW_COUNTER
+        )
+    if (
+        kind == "core_hw_session"
+    ):  # 2 balls, disarm + ARM again, 1 ball: the key-session count is 3
+        r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}, lib_file=str(lib)).up().engage()
+        for k in range(2):
+            r.fire(k + 1)
+            r.run(600)
+        r.send(p.Arm(0, 0, 0))
+        r.run(50)
+        r.fw_pm = None
+        r.engage(spin_ms=1500)
+        r.fire(10)
+        r.run(600)
+        r.estop_open = True
+        r.run(50)
+        return [e[2] for e in r.events if e[1] == p.EV_HW_COUNTER] != [3]
+    if kind.startswith("gate:"):
+        setup, want = TF.PRECHECK_GATES[kind[5:]]
+        r = H.CoreRig(lib_file=str(lib)).up().engage()
+        setup(r)
+        r.fire(7)
+        r.run(10)
+        return r.last_ack(p.FIRE).result != want or bool(r.feed_rises)
+    if kind == "core_state":
+        r = H.CoreRig(lib_file=str(lib)).up()
+        r.arm()
+        r.fire(7)
+        r.run(10)
+        return r.last_ack(p.FIRE).result != p.BAD_STATE or bool(r.feed_rises)
+    if kind == "core_busy":
+        r = H.CoreRig(lib_file=str(lib)).up().engage()
+        r.fire(1)
+        r.fire(2)
+        r.run(10)
+        return sorted(a.result for _, a in r.acks if a.cmd_id == p.FIRE) != [
+            p.OK,
+            p.BUSY,
+        ]
+    if kind == "core_usb":  # F1
+        r = H.CoreRig(lib_file=str(lib)).up().engage()
+        r.fire(7)
+        r.send_raw(b"\x55" * 20000)
+        r.run(700)
+        return bool(r.feed_rises) or r.last_ack(p.FIRE).result != p.JAMMED
+    if (
+        kind == "core_f3"
+    ):  # the dead-man drops 42 ms into the stroke: a counted ball, no abort, no fault
+        r = H.CoreRig(lib_file=str(lib)).up().engage()
+        r.fire(1)
+        r.run(42)
+        r.send(p.Heartbeat(999, 0))
+        r.run(400)
+        aborted = any(c == p.EV_FEED_ABORT for _, c, _ in r.events)
+        return (
+            aborted
+            or len(r.plant.exits) != 1
+            or r.st.shots_confirmed != 1
+            or bool(r.snap["fault_bits"])
+        )
+    if kind in ("core_cfg_window", "core_cfg_settle"):
+        r = H.CoreRig(lib_file=str(lib))
+        r.send(p.Hello(p.MAJOR, p.MINOR, 7))
+        r.run(20)
+        key, bad = (
+            (p.CFG_RPM_WINDOW_PM, 21)
+            if kind == "core_cfg_window"
+            else (p.CFG_SETTLE_MS, 19)
+        )
+        r.send(p.CfgSet(key, bad))
+        r.run(5)
+        return r.last_ack(p.CFG_SET).result != p.BAD_ARG
     if kind == "core_vcap":
         r = H.CoreRig(lib_file=str(lib))
         r.send(p.Hello(p.MAJOR, p.MINOR, 7))
@@ -163,18 +268,20 @@ def core_behaviour_fails(lib, kind):
 def test_positive_control_unmutated_rebuild_passes_everything(tmp_path):
     lib = build_lib(tmp_path)
     assert vectors_fail(lib) == []
-    for kind in ("core_n", "core_dup", "core_hw", "core_vcap"):
+    kinds = {parts(m)[2] for m in M} - {"vectors"}
+    assert len(kinds) >= 14
+    for kind in sorted(kinds):
         assert not core_behaviour_fails(lib, kind), kind
 
 
 @pytest.mark.parametrize("mutation", M, ids=lambda m: m[0])
 def test_negative_control_mutant_is_caught(tmp_path, mutation):
     lib = build_lib(tmp_path, mutation)
-    if mutation[4] == "vectors":
-        failing = vectors_fail(lib)
-        assert failing, f"{mutation[0]}: no vector noticed the removed gate"
+    name, _, detector = parts(mutation)
+    if detector == "vectors":
+        assert vectors_fail(lib), f"{name}: no vector noticed the removed gate"
     else:
-        assert core_behaviour_fails(lib, mutation[4]), f"{mutation[0]}: not caught"
+        assert core_behaviour_fails(lib, detector), f"{name}: not caught"
 
 
 def test_the_list_of_controls_covers_the_spec_examples():

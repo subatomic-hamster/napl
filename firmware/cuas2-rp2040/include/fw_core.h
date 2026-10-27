@@ -32,7 +32,8 @@ enum { HB_DEADMAN_OK = 1, HB_FIRE_INHIBIT = 2 };
 /* fault_bits: b0-b5 are v1's, b6-b14 new (spec 6.4), b15 reserved */
 enum { FAULT_HOMING_TIMEOUT = 1, FAULT_DRIVER_DIAG = 2, FAULT_CFG_INVALID = 4, FAULT_SHOT_COUNTER = 8, FAULT_HALL_STUCK = 16, FAULT_USB_OVERFLOW = 32,
        FAULT_TELEMETRY_LOST = 1 << 6, FAULT_OVERSPEED = 1 << 7, FAULT_WHEEL_NOT_READY = 1 << 8, FAULT_BREECH_DOUBLE = 1 << 9, FAULT_NO_EXIT = 1 << 10,
-       FAULT_UNEXPECTED_EXIT = 1 << 11, FAULT_PUSHER_STUCK = 1 << 12, FAULT_GATE_STUCK = 1 << 13, FAULT_SHOT_OVERCOUNT = 1 << 14 };
+       FAULT_UNEXPECTED_EXIT = 1 << 11, FAULT_PUSHER_STUCK = 1 << 12, FAULT_GATE_STUCK = 1 << 13, FAULT_SHOT_OVERCOUNT = 1 << 14,
+       FAULT_HW_COUNTER = 1 << 15 /* the hardware shot counter tripped (labelled from the E-stop edge, spec 1.3 row 30); not a feeder fault: does not enter FDR_FAULT_MASK */ };
 #define FDR_FAULT_MASK 0x7FC0u            /* b6-b14: the launcher/feeder faults; each stops KICK (I15) */
 #define FDR_JAM_MASK 0x7E00u              /* b9-b14: the feeder faults shown as gate_state JAM / ready_flags jam latch */
 enum { EV_STATE_CHANGE = 1, EV_SHOT, EV_HOMED, EV_FAULT, EV_WATCHDOG, EV_ESTOP_EDGE, EV_KEY_EDGE, EV_BAD_FRAMES, EV_SECTOR_ABORT /* 9: arg = fire_id << 8 | ball index */,
@@ -92,7 +93,6 @@ enum { BM_BREECH = 1, BM_MUZZLE = 2, BM_GATE_HOME = 4, BM_PUSH_HOME = 8, BM_WHEE
 /* timing constants of the feed cycle [est]; bench items B-TIME (spec 10). Milliseconds from the FEED start unless stated. */
 #define FDR_COMMIT_MS 45                  /* the ball is in the nip and leaves regardless (spec 5.4) */
 #define FDR_PUSH_LEAVE_MS 40              /* push_home must have dropped by now, else pusher_stuck */
-#define FDR_WHEEL_CHECK_MS 30             /* pre-commit: the wheels must still read in window (instantaneous) until this; the ball contact dip comes after */
 #define FDR_BREECH_EARLY_MS 20           /* the staged ball must not vanish from the breech before this (FEED_ABORT beam) */
 #define FDR_BREECH_EXP_MS 40              /* expected breech clear time; > 1.3x -> breech_double */
 #define FDR_BREECH_CLEAR_MAX_MS 150       /* breech must be clear by now, else no_exit */
@@ -279,7 +279,9 @@ typedef struct {
     uint8_t fire_cmd_pending, fire_pending_seq, clear_pending;
     uint16_t fire_pending_id;
     uint8_t kick_level;
-    uint16_t conf_arm;                       /* muzzle-confirmed balls since ARM (for the hardware counter classification) */
+    uint16_t conf_arm;                       /* muzzle-confirmed balls since ARM (diagnostics) */
+    uint16_t muz_key;                        /* muzzle beam pulses since the key went on: mirrors the hardware shot counter (reset by the key) */
+    uint8_t muz_prev_hw;
 } fw_t;
 
 /* flash_img: the stored config image (FW_CFG_IMAGE_SIZE bytes) or NULL for a blank flash; a bad image loads defaults + FAULT_CFG_INVALID. */

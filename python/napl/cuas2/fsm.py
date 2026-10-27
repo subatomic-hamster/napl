@@ -32,7 +32,6 @@ from . import protocol as p
 # timing constants of the feed cycle [est]; bench item B-TIME (spec 10). Same names and values as include/fw_core.h.
 COMMIT_MS = 45
 PUSH_LEAVE_MS = 40
-WHEEL_CHECK_MS = 30
 BREECH_EARLY_MS = 20
 BREECH_EXP_MS = 40
 BREECH_CLEAR_MAX_MS = 150
@@ -440,14 +439,16 @@ class FeederFsm:
                 self._enter(GS_TO_LOAD, now)
         elif g == GS_PUSH:
             reason = 0
-            if tf < COMMIT_MS:
+            # commit = the EARLIER of COMMIT_MS and the breech beam clearing after BREECH_EARLY_MS (the ball has left the breech: no abort may follow)
+            left = self.breech_clr_seen and tf >= BREECH_EARLY_MS
+            if tf < COMMIT_MS and not left:
                 if not inp.in_sector:
                     reason = p.FA_SECTOR
                 elif not inp.hb_ok or not inp.deadman:
                     reason = p.FA_DEADMAN
                 elif inp.inhibit:
                     reason = p.FA_INHIBIT
-                elif tf < WHEEL_CHECK_MS and not self.inwin_now:
+                elif not self.inwin_now:
                     reason = p.FA_WHEELS
                 elif tf < BREECH_EARLY_MS and not inp.beam_breech:
                     reason = p.FA_BEAM
@@ -458,7 +459,7 @@ class FeederFsm:
                 self.aborted = True
                 self.feed_req = False
                 self._enter(GS_RETRACT, now)
-            elif tf >= COMMIT_MS:
+            elif tf >= COMMIT_MS or left:
                 self.committed = True
                 self.feeds = (self.feeds + 1) & 0xFFFF
                 self.exp_exit = True
@@ -474,7 +475,7 @@ class FeederFsm:
                     self._enter(
                         GS_STAGED, now
                     )  # (aborted stays set until the next feed)
-            elif tf >= dwell + RETRACT_CLEAR_MS:
+            elif tf >= dwell + RETRACT_CLEAR_MS and inp.push_home:
                 self._enter(GS_TO_LOAD, now)
 
         if inp.cmd == "FIRE":

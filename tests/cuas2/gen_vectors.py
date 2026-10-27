@@ -128,6 +128,22 @@ vec("y_diff_override", "FLYWHEEL differential +30 permille: the bottom wheel run
 vec("z_pusher_dead", "(row 7) pusher dead: the rod never leaves home -> FAULT pusher_stuck at 40 ms", 1300, sc((800, {FIRE: 1})), plant=dict(pusher="dead"),
     acks=[0], codes=[14, 4, 13], rises=1, faults=0x1000, confirmed=0, kick_low_within=0)  # fmt: skip
 
+# ---- found by the cold verification: one case per remaining feeder gate and the commit / retract rules --------------------------------------------------
+vec("aa_busy_fire", "a second FIRE 50 ms into the stroke -> BUSY (gate_state is not STAGED)", 1300, sc((800, {FIRE: 1}), (850, {FIRE: 2})),
+    acks=[0, 6], codes=[14, 2, 15, 10, 14], rises=1, faults=0, confirmed=1, gate=4)  # fmt: skip
+vec("ab_push_not_home", "the staged ball is there but the pusher does not read home -> FIRE answers JAMMED", 1000, sc((800, {FIRE: 1})),
+    plant=dict(push_home_stuck=0, stuck_t=700),
+    acks=[13], codes=[14], rises=0, faults=0, confirmed=0, gate=4)  # fmt: skip
+vec("ac_commit_on_breech_clear", "(F3) the dead-man drops 3 ms after the breech cleared (42 ms in, before the 45 ms commit): no abort, the ball leaves and is counted", 1400,
+    sc((800, {FIRE: 1}), (842, {"deadman": False}), (900, {"deadman": True})),
+    acks=[0], codes=[14, 2, 15, 10, 14], rises=1, faults=0, confirmed=1, gate=4)  # fmt: skip
+vec("ad_wheels_leave_window_late", "(F2) the speed request drops 30 ms into the stroke, the wheels leave the window before the commit -> abort", 1300,
+    sc((800, {FIRE: 1}), (830, {"speed_req_pm": 0})),
+    acks=[0], codes=[14, 11], rises=1, faults=0, confirmed=0, gate=4)  # fmt: skip
+vec("ae_retract_without_push_home", "(F4) the pusher never reads home after the stroke: the gate must not move -> FAULT pusher_stuck at 300 ms", 1500, sc((800, {FIRE: 1})),
+    plant=dict(push_home_stuck=0, stuck_t=860),
+    acks=[0], codes=[14, 2, 15, 10, 14, 4, 13], rises=1, faults=0x1000, confirmed=1, gate=10, kick_low_within=0)  # fmt: skip
+
 
 def refill_hook(script, plant):
     pass

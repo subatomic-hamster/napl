@@ -172,11 +172,14 @@ void fdr_step(fdr_t *d, const fdr_in_t *in, fdr_out_t *o) {
             break;
         case GS_PUSH: {
             int reason = 0;
-            if (tf < FDR_COMMIT_MS) {  /* until the commit point the stroke can still be undone: the ball is in the bore */
+            /* The commit point is the EARLIER of FDR_COMMIT_MS and the breech beam clearing after FDR_BREECH_EARLY_MS: once the ball has left the breech it is on its way to
+             * the nip and cannot be undone, so no abort may follow (a clear before FDR_BREECH_EARLY_MS is a vanished ball: abort, FA_BEAM). */
+            const int left = d->breech_clr_seen && tf >= FDR_BREECH_EARLY_MS;
+            if (tf < FDR_COMMIT_MS && !left) {  /* until the commit point the stroke can still be undone: the ball is in the bore */
                 if (!in->in_sector) reason = FA_SECTOR;
                 else if (!in->hb_ok || !in->deadman) reason = FA_DEADMAN;
                 else if (in->inhibit) reason = FA_INHIBIT;
-                else if (tf < FDR_WHEEL_CHECK_MS && !d->inwin_now) reason = FA_WHEELS;
+                else if (!d->inwin_now) reason = FA_WHEELS;  /* wheels still in window until the commit (spec 5.4) */
                 else if (tf < FDR_BREECH_EARLY_MS && !in->beam_breech) reason = FA_BEAM;
             }
             if (reason) {
@@ -185,7 +188,7 @@ void fdr_step(fdr_t *d, const fdr_in_t *in, fdr_out_t *o) {
                 d->aborted = 1;
                 d->feed_req = 0;
                 enter(d, GS_RETRACT, now);
-            } else if (tf >= FDR_COMMIT_MS) {
+            } else if (tf >= FDR_COMMIT_MS || left) {
                 d->committed = 1;
                 d->feeds++;
                 d->exp_exit = 1;
@@ -201,7 +204,7 @@ void fdr_step(fdr_t *d, const fdr_in_t *in, fdr_out_t *o) {
         case GS_RETRACT:
             if (d->aborted) {
                 if (in->push_home && te >= 10) enter(d, GS_STAGED, now);  /* (aborted stays set until the next feed: no breech checks for an undone stroke) */
-            } else if (tf >= dwell + FDR_RETRACT_CLEAR_MS) {
+            } else if (tf >= dwell + FDR_RETRACT_CLEAR_MS && in->push_home) {  /* the gate may only turn with the rod home; else pusher_stuck at FDR_RETRACT_TIMEOUT_MS */
                 enter(d, GS_TO_LOAD, now);
             }
             break;

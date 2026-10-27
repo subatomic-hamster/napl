@@ -209,6 +209,7 @@ static uint8_t fire_precheck(const fw_t *f, uint8_t n) {
     if (f->state == ST_FIRING || f->fire_cmd_pending) return RES_BUSY;
     if (f->state != ST_ENGAGING) return RES_BAD_STATE;
     if (n != 1) return RES_BAD_ARG;  /* one ball per FIRE (I9b) */
+    if (f->fault_bits) return RES_JAMMED;  /* any latched fault (also one set by fw_rx earlier in this very tick, e.g. USB overflow) */
     if (!rail_on(f)) return RES_INTERLOCK;
     if (!hb_ok(f) || !deadman_ok(f) || inhibit(f)) return RES_INHIBIT;
     if (!f->ax[0].homed || !f->ax[1].homed) return RES_NOT_HOMED;
@@ -273,8 +274,8 @@ static int cfg_valid(int key, int32_t v) {
     case CFG_WHEEL_D_UM: return v >= 10000 && v <= 100000;
     case CFG_V_CAP_DMPS: return v >= 1 && v <= 380;  /* the 38 m/s cap can only be lowered */
     case CFG_RPM_MAX: case CFG_RPM_IDLE: return v >= 0 && v <= 60000;
-    case CFG_RPM_WINDOW_PM: return v >= 1 && v <= 100;
-    case CFG_SETTLE_MS: return v >= 0 && v <= 2000;
+    case CFG_RPM_WINDOW_PM: return v >= 1 && v <= 20;   /* <= 2 %: a wider window would let a ball go with the wheels far from the setpoint (I12) */
+    case CFG_SETTLE_MS: return v >= 20 && v <= 2000;    /* >= 20 ms: telemetry age is limited to 20 ms, a shorter settle verifies nothing */
     case CFG_DIFF_PM: return v >= -100 && v <= 100;
     case CFG_POLE_PAIRS: return v >= 1 && v <= 32;
     case CFG_RAMP_RPM_S: return v >= 1000 && v <= 400000;
@@ -485,11 +486,17 @@ static void timers(fw_t *f) {
 /* ---- cuas2: hardware shot counter, launcher + feeder ----------------------------------------------------------------------------------- */
 /* Hardware shot counter (CD4017 on the muzzle beam, DIP-set N, reset only by the key): it opens the key -> E-stop -> counter -> supervisor chain upstream of the
  * GP10 tap, so a trip looks like an open E-stop chain with the key still on. inputs() has already handled it exactly like an E-stop press (SAFE, rail dead);
- * this only LABELS the edge: if the balls counted this arm (confirmed exits, plus an exit pulse in this very tick) reach cfg 41, EVENT 16. There is no spare GPIO for
- * a direct sense line (include/pins.h). A real E-stop press at exactly the Nth ball is mislabelled; both open the rail. */
+ * this only LABELS the edge: if the beam pulses counted since the key went on (the hardware's reset) reach cfg 41, EVENT 16 + fault bit b15. The trip itself is NOT
+ * sensed (no spare GPIO, include/pins.h). A real E-stop press at exactly the Nth ball is mislabelled; both open the rail. */
 static void hw_counter_note(fw_t *f) {
-    const int n = f->cfg[CFG_HW_COUNTER_N], seen = f->conf_arm + (f->in.beam_muzzle ? 1 : 0);
-    if (f->estop_open && !f->estop_prev_hw && f->key_on && n > 0 && seen >= n) fw_event(f, EV_HW_COUNTER, seen);
+    const int n = f->cfg[CFG_HW_COUNTER_N];
+    if (!f->key_on) f->muz_key = 0;  /* the key resets the hardware counter: so does this one (a count per key-on session, not per ARM) */
+    else if (f->in.beam_muzzle && !f->muz_prev_hw && f->muz_key < 0xFFFF) f->muz_key++;  /* every beam pulse, as the CD4017 counts them (also unexpected ones) */
+    f->muz_prev_hw = f->in.beam_muzzle;
+    if (f->estop_open && !f->estop_prev_hw && f->key_on && n > 0 && f->muz_key >= n) {
+        f->fault_bits |= FAULT_HW_COUNTER;  /* latched until CLEAR_FAULT: after the key reset the operator has to acknowledge the trip */
+        fw_event(f, EV_HW_COUNTER, f->muz_key);
+    }
     f->estop_prev_hw = f->estop_open;
 }
 
@@ -514,6 +521,12 @@ static void feeder_stage(fw_t *f) {
     in.deadman = (uint8_t)deadman_ok(f);
     in.inhibit = (uint8_t)inhibit(f);
     in.in_sector = (uint8_t)in_sector(f);
+    if (f->fire_cmd_pending && f->fault_bits) {  /* a fault latched after the precheck, before this stage (e.g. in rx_drain / inputs of this tick): refuse here as well */
+        f->fire_cmd_pending = 0;
+        for (int i = 0; i < 8; i++)
+            if (f->fire_ids[i].used && f->fire_ids[i].id == f->fire_pending_id) f->fire_ids[i].res = RES_JAMMED;
+        ack_raw(f, ID_FIRE, f->fire_pending_seq, RES_JAMMED, 0);
+    }
     in.cmd = f->fire_cmd_pending ? FDR_CMD_FIRE : (f->clear_pending ? FDR_CMD_CLEAR : FDR_CMD_NONE);
     in.speed_req_pm = (uint16_t)((rail_on(f) && armed_state(f)) ? lround(f->fw_req) : 0);
     in.diff_pm = (int16_t)(f->diff_ovr_valid ? f->diff_ovr : f->cfg[CFG_DIFF_PM]);

@@ -147,10 +147,42 @@ def test_hw_counter_trip_opens_the_estop_chain_and_is_reported():
     r.run(50)
     ev = [e for e in r.events if e[1] == p.EV_HW_COUNTER]
     assert len(ev) == 1 and ev[0][2] == 3
-    assert r.st.state == p.SAFE and r.o["dshot_top"] == 0 and not r.rail
+    assert r.st.state == p.FAULT and r.st.fault_bits & p.FAULT_HW_COUNTER
+    assert r.o["dshot_top"] == 0 and not r.rail and r.o["kick_ok"] == 0
     r.send(p.Fire(9, 1))
     r.run(20)
     assert r.last_ack(p.FIRE).result != p.OK
+    r.estop_open = False  # key cycle / reset of the counter: the label stays latched until the operator acknowledges it
+    r.run(100)
+    r.send(p.Arm(1, 5, 60))
+    r.run(20)
+    assert r.last_ack(p.ARM).result != p.OK
+    r.send(p.ClearFault())
+    r.run(50)
+    assert r.last_ack(p.CLEAR_FAULT).result == p.OK and not r.snap["fault_bits"]
+
+
+def test_hw_counter_counts_per_key_session_not_per_arm():
+    r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
+    shoot(r, 2)
+    r.send(p.Arm(0, 0, 0))  # disarm and ARM again: the hardware counter keeps counting
+    r.run(50)
+    r.fw_pm = None
+    r.engage(spin_ms=1500)
+    shoot(r, 1, fid0=10)
+    r.estop_open = True
+    r.run(50)
+    assert [e[2] for e in r.events if e[1] == p.EV_HW_COUNTER] == [3]
+    # a key cycle resets it: 2 balls, key off and on, 1 ball, E-stop -> 1 of 3, not labelled
+    r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 3}).up().engage()
+    shoot(r, 2)
+    r.key_on = False
+    r.run(100)
+    r.key_on = True
+    r.run(300)
+    r.estop_open = True
+    r.run(50)
+    assert not [e for e in r.events if e[1] == p.EV_HW_COUNTER]
 
 
 def test_hw_counter_negative_controls_plain_estop_is_not_labelled():
@@ -159,6 +191,7 @@ def test_hw_counter_negative_controls_plain_estop_is_not_labelled():
     r.estop_open = True  # an operator E-stop with 2 of 3 balls: no EVENT 16
     r.run(50)
     assert not [e for e in r.events if e[1] == p.EV_HW_COUNTER] and r.st.state == p.SAFE
+    assert not r.st.fault_bits & p.FAULT_HW_COUNTER
     r = H.CoreRig(cfg={p.CFG_HW_COUNTER_N: 0}).up().engage()  # N = 0: counter disabled
     shoot(r, 3)
     r.estop_open = True
@@ -360,6 +393,28 @@ row(
     wheels_off=True,
 )
 row(
+    8,
+    "gate_servo_stuck_on_at_the_bore_stop",
+    eng(),
+    drive_fire_twice(gate="stuck_bore"),
+    fault=p.FAULT_GATE_STUCK,
+    kick_off=True,
+    rises=1,
+    exits=1,
+)
+row(
+    19,
+    "dshot_frames_ignored_by_both_escs",
+    eng(),
+    lambda r: (inject(r, esc_dead=[True, True]), r.run(300), fire_then(r, (1500,))),
+    ack=p.NOT_SPUN,
+    fault=p.FAULT_WHEEL_NOT_READY,
+    kick_off=True,
+    rises=0,
+    exits=0,
+    wheels_off=True,
+)
+row(
     18,
     "telemetry_lost",
     eng(),
@@ -490,6 +545,7 @@ def test_matrix_covers_the_software_observable_rows():
         5,
         6,
         7,
+        8,
         9,
         10,
         11,
@@ -500,6 +556,7 @@ def test_matrix_covers_the_software_observable_rows():
         16,
         17,
         18,
+        19,
         20,
         23,
         24,
@@ -507,8 +564,9 @@ def test_matrix_covers_the_software_observable_rows():
         26,
         28,
     }
-    # rows 2, 3, 8, 19, 21, 22, 29 are hardware / physical (hang, firmware bug, servo runaway, DShot noise, supervisor, welded relay, tolerances): not software
-    # observable here; row 3 is covered by the fuzz and the mutation controls, row 27 below, row 30 above.
+    # rows 2, 3, 21, 22, 29 are hardware / physical (hang, firmware bug, supervisor, welded relay, tolerances): not software observable here; row 3 is covered by
+    # the fuzz and the mutation controls, row 27 below, row 30 above. Row 8 (servo runaway) is observable only as its end state at a hard stop (the same as row 9:
+    # gate stuck at BORE, tested here as 08); row 19 (DShot line stuck / noisy) is observable as both ESCs ignoring the frames (no spin, no ramp).
 
 
 def test_row_27_corrupt_flash_config_defaults_and_arm_refused():
@@ -523,6 +581,112 @@ def test_row_27_corrupt_flash_config_defaults_and_arm_refused():
     r.send(p.Arm(1, 5, 60))
     r.run(20)
     assert r.last_ack(p.ARM).result != p.OK and r.feed_rises == []
+
+
+# ---- every FIRE gate of fire_precheck() on its own (the pokes force one precondition false while the state machine says ENGAGING) ----
+def fire_ack(setup):
+    r = H.CoreRig().up().engage()
+    setup(r)
+    r.fire(7)
+    r.run(10)
+    return r, r.last_ack(p.FIRE).result
+
+
+PRECHECK_GATES = {
+    "shot_cap": (lambda r: r.poke(1, 5), p.CAP),
+    "not_homed": (lambda r: r.L.fwh_clear_homed(r.h, 0), p.NOT_HOMED),
+    "no_sector": (lambda r: r.poke(0, 0), p.NO_SECTOR),
+    "latched_fault": (lambda r: r.poke(2, p.FAULT_USB_OVERFLOW), p.JAMMED),
+    "rail": (lambda r: r.poke(3, 1), p.INTERLOCK),
+    "inhibit": (lambda r: (setattr(r, "inhibit", True), r.run(60)), p.INHIBIT),
+    "out_of_sector": (lambda r: (r.send(p.Aim(0, -10000)), r.run(1500)), p.RANGE),
+}
+
+
+@pytest.mark.parametrize("gate", sorted(PRECHECK_GATES))
+def test_fire_precheck_gate(gate):
+    setup, want = PRECHECK_GATES[gate]
+    r, res = fire_ack(setup)
+    assert res == want, (gate, res)
+    assert r.feed_rises == [] and r.plant.exits == []
+
+
+def test_fire_in_a_state_other_than_engaging_is_bad_state():
+    r = H.CoreRig().up()
+    r.arm()  # ARMED, no flywheel request
+    r.fire(7)
+    r.run(10)
+    assert r.last_ack(p.FIRE).result == p.BAD_STATE and r.feed_rises == []
+
+
+def test_second_fire_in_the_same_tick_is_busy_and_cap_is_not_exceeded():
+    r = H.CoreRig().up().engage()
+    r.fire(1)
+    r.fire(2)
+    r.run(10)
+    assert sorted(a.result for _, a in r.acks if a.cmd_id == p.FIRE) == [p.OK, p.BUSY]
+    r.run(700)
+    assert len(r.feed_rises) == 1
+
+
+def test_usb_overflow_in_the_tick_of_a_fire_refuses_the_fire():
+    """F1: fw_rx latches the overflow fault while the FIRE frame is still queued; the FIRE must be refused in that same tick."""
+    r = H.CoreRig().up().engage()
+    r.fire(7)
+    r.send_raw(
+        b"\x55" * 20000
+    )  # no frame delimiter: overflows the receive queue behind the FIRE
+    r.run(10)
+    assert r.snap["fault_bits"] & p.FAULT_USB_OVERFLOW
+    assert r.last_ack(p.FIRE).result == p.JAMMED, r.acks[-3:]
+    r.run(700)
+    assert r.feed_rises == [] and r.plant.exits == []
+
+
+# ---- F3 / F4 / F5: commit, retract and wheel-window semantics ----
+def test_no_abort_after_the_ball_left_the_breech_but_abort_before():
+    """F3: the commit point is the earlier of 45 ms and the breech beam clearing, so an abort can never leave a ball in the nip with no commit."""
+    res = {}
+    for ms in (10, 20, 30, 42, 44):
+        r = H.CoreRig().up().engage()
+        r.fire(1)
+        r.run(ms)
+        r.send(p.Heartbeat(999, 0))  # dead-man drops
+        r.run(400)
+        aborted = any(c == p.EV_FEED_ABORT for _, c, _ in r.events)
+        res[ms] = (
+            aborted,
+            len(r.plant.exits),
+            r.st.shots_confirmed,
+            r.snap["fault_bits"],
+        )
+    for ms, (aborted, exits, conf, faults) in res.items():
+        assert faults == 0, (ms, res)
+        assert exits == conf, (
+            ms,
+            res,
+        )  # never a ball out that the firmware did not count
+        assert aborted == (exits == 0), (
+            ms,
+            res,
+        )  # an abort means no ball, no abort means the ball left
+    assert res[10][0] and not res[44][0]
+
+
+def test_gate_does_not_turn_until_the_pusher_reads_home():
+    """F4: RETRACT -> TO_LOAD requires push_home; otherwise pusher_stuck at 300 ms."""
+    _, outs, _ = G.run_vec("ae_retract_without_push_home", H.CFeeder())
+    states = [v for _, v in H.trace_of(outs)["changes"]["gate_state"]]
+    assert p.GS_TO_LOAD not in states and states[-1] == p.GS_JAM
+
+
+def test_wheels_leaving_the_window_late_in_the_stroke_still_abort():
+    """F2: the wheel recheck runs until the commit (spec 5.4), not only the first 30 ms."""
+    _, outs, plant = G.run_vec("ad_wheels_leave_window_late", H.CFeeder())
+    assert [e[1] for e in H.trace_of(outs)["events"]] == [
+        p.EV_WHEELS_READY,
+        p.EV_FEED_ABORT,
+    ] and plant.exits == []
 
 
 # ---- the fuzz: 20k random command sequences on the whole C core ----

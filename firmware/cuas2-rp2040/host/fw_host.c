@@ -111,6 +111,19 @@ void fwh_snap(fwh_t *h, int32_t *i, double *d) {
 void fwh_clear_homed(fwh_t *h, int axis) { h->fw.ax[axis].homed = 0; }
 int fwh_cfg(fwh_t *h, int key, int flash) { return flash ? h->fw.flash_cfg[key] : h->fw.cfg[key]; }
 void fwh_poke_cfg(fwh_t *h, int key, int value) { h->fw.cfg[key] = value; }  /* tests only: bypasses CFG_SET's range checks and state rules */
+/* tests only: force one precondition of a FIRE to be false while the state machine still says ENGAGING, to exercise each fire_precheck() gate on its own.
+ * what: 0 sector_set, 1 shots_arm, 2 fault_bits, 3 estop_open, 4 state */
+void fwh_poke_field(fwh_t *h, int what, int value) {
+    fw_t *f = &h->fw;
+    switch (what) {
+    case 0: f->sector_set = (uint8_t)value; break;
+    case 1: f->shots_arm = (uint8_t)value; break;
+    case 2: f->fault_bits = (uint16_t)value; break;
+    case 3: f->estop_open = (uint8_t)value; break;
+    case 4: f->state = (uint8_t)value; break;
+    default: break;
+    }
+}
 int fwh_flash_valid(fwh_t *h) { return h->flash_valid; }
 void fwh_flash_image(fwh_t *h, uint8_t *out) { memcpy(out, h->flash, FW_CFG_IMAGE_SIZE); }
 void fwh_set_boot_note(fwh_t *h, const char *s) { fw_set_boot_note(&h->fw, s); }

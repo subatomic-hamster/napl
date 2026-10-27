@@ -63,6 +63,8 @@ def lib(path=None):
         L.fwh_cfg.restype = C.c_int
         L.fwh_cfg.argtypes = [C.c_void_p, C.c_int, C.c_int]
         L.fwh_poke_cfg.argtypes = [C.c_void_p, C.c_int, C.c_int]
+        L.fwh_poke_field.argtypes = [C.c_void_p, C.c_int, C.c_int]
+        L.fwh_clear_homed.argtypes = [C.c_void_p, C.c_int]
         L.fwh_trace_count.argtypes = [C.c_void_p]
         L.fwh_trace_get.argtypes = [C.c_void_p, C.c_int, i32p]
         L.fwh_trace_clear.argtypes = [C.c_void_p]
@@ -201,6 +203,11 @@ class Plant:
         muz = bool(self.pulse > 0 or t in f.get("spurious_muzzle", ()))
         if f.get("muzzle_stuck") is not None and t >= st:
             muz = bool(f["muzzle_stuck"])
+        push_home = self.rod <= 0.02
+        if f.get("push_home_stuck") is not None and t >= st:
+            push_home = bool(
+                f["push_home_stuck"]
+            )  # the sensor reads home / not home whatever the rod does
         rpm = [
             None if t >= f.get("telemetry_dead_t", 10**9) else int(r) for r in self.rpm
         ]
@@ -209,7 +216,7 @@ class Plant:
             if self.pulse > 0
             else (800 if t in f.get("spurious_muzzle", ()) else 0)
         )
-        return dict(rpm_top=rpm[0], rpm_bot=rpm[1], beam_breech=breech, beam_muzzle=muz, gate_home=self.gate <= 0.02, push_home=self.rod <= 0.02,
+        return dict(rpm_top=rpm[0], rpm_bot=rpm[1], beam_breech=breech, beam_muzzle=muz, gate_home=self.gate <= 0.02, push_home=push_home,
                     muzzle_dt_us=dt if muz else 0)  # fmt: skip
 
     def step(self, out: FeederOut, t, rail=True):
@@ -565,6 +572,10 @@ class CoreRig:
     @property
     def accepted_fires(self):
         return len(self.accepted_ids)
+
+    def poke(self, what, value):
+        """Force one internal precondition (fwh_poke_field: 0 sector_set, 1 shots_arm, 2 fault_bits, 3 estop_open, 4 state): unit-level access to a single FIRE gate."""
+        self.L.fwh_poke_field(self.h, what, value)
 
     def send_raw(self, b):
         self.rx += b
