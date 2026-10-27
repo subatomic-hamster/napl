@@ -1,0 +1,55 @@
+; Bidirectional DShot300, one state machine per ESC (PIO0 SM0 top / SM1 bottom). UNTESTED on hardware.
+; SPDX-License-Identifier: BSD-3-Clause
+;
+; PIO clock = 12 MHz (300 kbit/s x 40): one TX bit = 40 cycles. Inverted levels (bidirectional mode): a 1 bit is LOW for 30 cycles then HIGH for 10, a 0 bit is LOW
+; for 15 then HIGH for 25. The line idles HIGH. After the 16 bits the pin turns into an input and the ESC answers (~30 us later) with 21 bits at 5/4 of the
+; DShot rate = 32 cycles per bit; the first falling edge starts the reply, every bit is sampled in its middle. The 21 samples are pushed (first sample in
+; bit 20: the layout dshot_gcr_decode() expects). If the ESC does not answer the state machine waits on the edge: the host (dshot_pio.c) restarts it before
+; the next frame.
+.program dshot_bidir
+.wrap_target
+start:
+    pull block                  ; TX word: the 16-bit frame in the upper half (shift left)
+    set pins, 1                 ; idle level before taking the pin
+    set pindirs, 1
+    set x, 15
+    out y, 1                    ; first bit = MSB of the frame (shifting left, the frame sits in bits 31..16)
+tx_bit:
+    jmp !y tx_zero              ; the decision is made while the line is still HIGH
+    set pins, 0 [29]            ; a 1 bit: 30 cycles low
+    set pins, 1 [6]             ; 7 high
+    out y, 1                    ; next bit
+    jmp x-- tx_bit              ; 1 high (total high 10)
+    jmp tx_done
+tx_zero:
+    set pins, 0 [14]            ; 15 low
+    set pins, 1 [21]            ; 22 high
+    out y, 1
+    jmp x-- tx_bit
+tx_done:
+    set pindirs, 0              ; release the line, the ESC drives the reply
+    wait 0 pin 0                ; reply start edge
+    set x, 20 [14]              ; 21 samples; skip to the middle of the first bit
+rx_loop:
+    in pins, 1 [30]
+    jmp x-- rx_loop
+    push noblock
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void dshot_bidir_program_init(PIO pio, uint sm, uint offset, uint pin, float bit_rate_hz) {
+    pio_gpio_init(pio, pin);
+    pio_sm_config c = dshot_bidir_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_jmp_pin(&c, pin);
+    sm_config_set_out_shift(&c, false, false, 32);   /* shift left, no autopull */
+    sm_config_set_in_shift(&c, false, false, 32);    /* shift left, no autopush: the 21 samples end up in bits 20..0 */
+    sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / (bit_rate_hz * 40.0f));
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask(pio, sm, 1u << pin, 1u << pin);   /* idle high */
+    pio_sm_set_pindirs_with_mask(pio, sm, 1u << pin, 1u << pin);
+}
+%}

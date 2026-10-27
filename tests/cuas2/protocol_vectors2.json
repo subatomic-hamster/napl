@@ -1,0 +1,488 @@
+{
+ "spec": "docs/cuas2/spec.md section 6.6 items 1-7 (protocol 1.1)",
+ "crc16_check": {
+  "input_ascii": "123456789",
+  "crc": "0x29B1"
+ },
+ "frames": [
+  {
+   "name": "flywheel_no_tail",
+   "dir": "host_to_mcu",
+   "id": 5,
+   "seq": 0,
+   "fields": {
+    "speed_permille": 800,
+    "diff_pm": null
+   },
+   "payload_hex": "2003",
+   "frame_hex": "0205032003020e00"
+  },
+  {
+   "name": "flywheel_tail",
+   "dir": "host_to_mcu",
+   "id": 5,
+   "seq": 1,
+   "fields": {
+    "speed_permille": 800,
+    "diff_pm": -25
+   },
+   "payload_hex": "2003e7ff",
+   "frame_hex": "0905012003e7ff8b1e00"
+  },
+  {
+   "name": "flywheel_off",
+   "dir": "host_to_mcu",
+   "id": 5,
+   "seq": 2,
+   "fields": {
+    "speed_permille": 0,
+    "diff_pm": null
+   },
+   "payload_hex": "0000",
+   "frame_hex": "0305020103e55600"
+  },
+  {
+   "name": "fire_n1",
+   "dir": "host_to_mcu",
+   "id": 6,
+   "seq": 3,
+   "fields": {
+    "fire_id": 256,
+    "n": 1
+   },
+   "payload_hex": "000101",
+   "frame_hex": "030603050101456400"
+  },
+  {
+   "name": "fire_n0",
+   "dir": "host_to_mcu",
+   "id": 6,
+   "seq": 4,
+   "fields": {
+    "fire_id": 257,
+    "n": 0
+   },
+   "payload_hex": "010100",
+   "frame_hex": "050604010103791200"
+  },
+  {
+   "name": "fire_n2",
+   "dir": "host_to_mcu",
+   "id": 6,
+   "seq": 5,
+   "fields": {
+    "fire_id": 258,
+    "n": 2
+   },
+   "payload_hex": "020102",
+   "frame_hex": "080605020102df1d00"
+  },
+  {
+   "name": "cfg_set_wheel_d",
+   "dir": "host_to_mcu",
+   "id": 8,
+   "seq": 6,
+   "fields": {
+    "key": 23,
+    "value": 25000
+   },
+   "payload_hex": "17a8610000",
+   "frame_hex": "06080617a8610103e24f00"
+  },
+  {
+   "name": "cfg_set_v_cap_381",
+   "dir": "host_to_mcu",
+   "id": 8,
+   "seq": 7,
+   "fields": {
+    "key": 24,
+    "value": 381
+   },
+   "payload_hex": "187d010000",
+   "frame_hex": "060807187d01010396e000"
+  },
+  {
+   "name": "cfg_set_wheel_d_zero",
+   "dir": "host_to_mcu",
+   "id": 8,
+   "seq": 8,
+   "fields": {
+    "key": 23,
+    "value": 0
+   },
+   "payload_hex": "1700000000",
+   "frame_hex": "0408081701010103af0c00"
+  },
+  {
+   "name": "hello_1_1",
+   "dir": "host_to_mcu",
+   "id": 1,
+   "seq": 9,
+   "fields": {
+    "major": 1,
+    "minor": 1,
+    "session": 16909060
+   },
+   "payload_hex": "010104030201",
+   "frame_hex": "0b0109010104030201325700"
+  },
+  {
+   "name": "hello_ack_cuas2",
+   "dir": "mcu_to_host",
+   "id": 129,
+   "seq": 0,
+   "fields": {
+    "major": 1,
+    "minor": 1,
+    "result": 0,
+    "fw_major": 2,
+    "fw_minor": 0,
+    "fw_patch": 0,
+    "uid": "e66050a8d3156f21",
+    "cfg_crc": 3735928559
+   },
+   "payload_hex": "010100020000e66050a8d3156f21efbeadde",
+   "frame_hex": "02810301010202010fe66050a8d3156f21efbeaddece5300"
+  },
+  {
+   "name": "status2",
+   "dir": "mcu_to_host",
+   "id": 130,
+   "seq": 1,
+   "fields": {
+    "t_ms": 123456,
+    "state": 3,
+    "flags1": 175,
+    "flags2": 53,
+    "pan_steps": -4444,
+    "tilt_steps": 3555,
+    "fw_duty": 868,
+    "fw_rpm": 17500,
+    "shots_total": 1234,
+    "shots_arm": 3,
+    "shot_cap": 5,
+    "fault_bits": 2112,
+    "arm_left_s": 57,
+    "last_fire_id": 258,
+    "rpm_top": 17490,
+    "rpm_bot": 17510,
+    "rpm_set": 17500,
+    "beams": 19,
+    "gate_state": 4,
+    "ready_flags": 1,
+    "last_v_dmps": 293,
+    "last_dip_pm": 52,
+    "shots_confirmed": 1001,
+    "feed_ms": 91
+   },
+   "payload_hex": "40e2010003af35a4eeffffe30d000064035c44d2040305400839000201524466445c4413040125013400e9035b",
+   "frame_hex": "06820140e2010a03af35a4eeffffe30d010c64035c44d20403054008390f0201524466445c4413040125013406e9035b8cac00"
+  },
+  {
+   "name": "status2_default_tail",
+   "dir": "mcu_to_host",
+   "id": 130,
+   "seq": 2,
+   "fields": {
+    "t_ms": 0,
+    "state": 0,
+    "flags1": 0,
+    "flags2": 0,
+    "pan_steps": 0,
+    "tilt_steps": 0,
+    "fw_duty": 0,
+    "fw_rpm": 65535,
+    "shots_total": 0,
+    "shots_arm": 0,
+    "shot_cap": 0,
+    "fault_bits": 0,
+    "arm_left_s": 0,
+    "last_fire_id": 0,
+    "rpm_top": 65535,
+    "rpm_bot": 65535,
+    "rpm_set": 0,
+    "beams": 0,
+    "gate_state": 0,
+    "ready_flags": 0,
+    "last_v_dmps": 65535,
+    "last_dip_pm": 0,
+    "shots_confirmed": 0,
+    "feed_ms": 0
+   },
+   "payload_hex": "0000000000000000000000000000000000ffff00000000000000000000ffffffff0000000000ffff0000000000",
+   "frame_hex": "0382020101010101010101010101010101010103ffff01010101010101010105ffffffff0101010103ffff01010101036f9700"
+  },
+  {
+   "name": "event_muzzle",
+   "dir": "mcu_to_host",
+   "id": 133,
+   "seq": 3,
+   "fields": {
+    "code": 10,
+    "arg": 3408165
+   },
+   "payload_hex": "0a25013400",
+   "frame_hex": "0785030a25013403b4de00"
+  },
+  {
+   "name": "event_feed_abort",
+   "dir": "mcu_to_host",
+   "id": 133,
+   "seq": 4,
+   "fields": {
+    "code": 11,
+    "arg": 65537
+   },
+   "payload_hex": "0b01000100",
+   "frame_hex": "0585040b010201034b8c00"
+  },
+  {
+   "name": "event_empty",
+   "dir": "mcu_to_host",
+   "id": 133,
+   "seq": 5,
+   "fields": {
+    "code": 12,
+    "arg": 0
+   },
+   "payload_hex": "0c00000000",
+   "frame_hex": "0485050c01010103baeb00"
+  },
+  {
+   "name": "event_jam",
+   "dir": "mcu_to_host",
+   "id": 133,
+   "seq": 6,
+   "fields": {
+    "code": 13,
+    "arg": 6
+   },
+   "payload_hex": "0d06000000",
+   "frame_hex": "0585060d0601010392a800"
+  },
+  {
+   "name": "event_wheels_ready",
+   "dir": "mcu_to_host",
+   "id": 133,
+   "seq": 7,
+   "fields": {
+    "code": 14,
+    "arg": 17500
+   },
+   "payload_hex": "0e5c440000",
+   "frame_hex": "0685070e5c4401031ddf00"
+  },
+  {
+   "name": "event_wheels_lost",
+   "dir": "mcu_to_host",
+   "id": 133,
+   "seq": 8,
+   "fields": {
+    "code": 15,
+    "arg": 16573
+   },
+   "payload_hex": "0fbd400000",
+   "frame_hex": "0685080fbd400103d19e00"
+  },
+  {
+   "name": "event_hw_counter",
+   "dir": "mcu_to_host",
+   "id": 133,
+   "seq": 9,
+   "fields": {
+    "code": 16,
+    "arg": 10
+   },
+   "payload_hex": "100a000000",
+   "frame_hex": "058509100a010103830700"
+  },
+  {
+   "name": "ack_too_soon",
+   "dir": "mcu_to_host",
+   "id": 131,
+   "seq": 10,
+   "fields": {
+    "cmd_id": 6,
+    "cmd_seq": 5,
+    "result": 15,
+    "info": 0
+   },
+   "payload_hex": "06050f00",
+   "frame_hex": "06830a06050f03298e00"
+  },
+  {
+   "name": "ack_not_clear",
+   "dir": "mcu_to_host",
+   "id": 131,
+   "seq": 11,
+   "fields": {
+    "cmd_id": 6,
+    "cmd_seq": 6,
+    "result": 14,
+    "info": 0
+   },
+   "payload_hex": "06060e00",
+   "frame_hex": "06830b06060e03194e00"
+  }
+ ],
+ "status_v1_payload_hex": "40e2010003af35a4eeffffe30d00002003ffffd2040305110039000201",
+ "status_v1_len": 29,
+ "status2_len": 45,
+ "dshot": {
+  "frame_throttle_1046_regular": "0x82c6",
+  "frame_throttle_1046_inverted_crc": "0x82c9",
+  "gcr_nibble_to_symbol": [
+   "19",
+   "1B",
+   "12",
+   "13",
+   "1D",
+   "15",
+   "16",
+   "17",
+   "1A",
+   "09",
+   "0A",
+   "0B",
+   "1E",
+   "0D",
+   "0E",
+   "0F"
+  ],
+  "worst_case_gcr": "10101010101010101010",
+  "worst_case_line": "011001100110011001100"
+ },
+ "cfg_keys": {
+  "1": 16000,
+  "2": 12800,
+  "3": -170000,
+  "4": 170000,
+  "5": -15000,
+  "6": 70000,
+  "7": 0,
+  "8": 0,
+  "9": 0,
+  "10": 10,
+  "11": 120,
+  "12": 1900,
+  "13": 1100,
+  "14": 80,
+  "15": 450,
+  "16": 100,
+  "17": 0,
+  "18": 300,
+  "19": 200,
+  "20": -170000,
+  "21": 170000,
+  "22": 70000,
+  "23": 40000,
+  "24": 380,
+  "25": 17500,
+  "26": 4500,
+  "27": 10,
+  "28": 100,
+  "29": 15,
+  "30": 7,
+  "31": 40000,
+  "32": 900,
+  "33": 600,
+  "34": 40,
+  "35": 1150,
+  "36": 1700,
+  "37": 30,
+  "38": 250,
+  "39": 50,
+  "40": 1000,
+  "41": 10
+ },
+ "cfg_ranges": {
+  "12": [
+   500,
+   2500
+  ],
+  "13": [
+   500,
+   2500
+  ],
+  "14": [
+   50,
+   300
+  ],
+  "23": [
+   10000,
+   100000
+  ],
+  "24": [
+   1,
+   380
+  ],
+  "25": [
+   0,
+   60000
+  ],
+  "26": [
+   0,
+   60000
+  ],
+  "27": [
+   1,
+   100
+  ],
+  "28": [
+   0,
+   2000
+  ],
+  "29": [
+   -100,
+   100
+  ],
+  "30": [
+   1,
+   32
+  ],
+  "31": [
+   1000,
+   400000
+  ],
+  "32": [
+   100,
+   1000
+  ],
+  "33": [
+   0,
+   100000
+  ],
+  "34": [
+   0,
+   100000
+  ],
+  "35": [
+   500,
+   2500
+  ],
+  "36": [
+   500,
+   2500
+  ],
+  "37": [
+   0,
+   1000
+  ],
+  "38": [
+   100,
+   1000
+  ],
+  "39": [
+   10,
+   1000
+  ],
+  "40": [
+   100,
+   3000
+  ],
+  "41": [
+   0,
+   255
+  ]
+ }
+}
