@@ -185,7 +185,7 @@ v_cap_mps = 38.0
 
 [launcher.wheel]
 J_kgm2 = 4.0e-6
-kv = 1800.0
+kv = 2300.0
 pole_pairs = 7
 pole_pairs_src = "bench"
 tau_motor_s = 0.04

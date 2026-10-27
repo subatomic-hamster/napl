@@ -117,8 +117,8 @@ def test_wheel_dynamics_spin_up_and_telemetry():
     m = LauncherModel(C, np.random.default_rng(7))
     assert dshot_to_u(0) == 0 and dshot_to_u(48) == 0 and dshot_to_u(2047) == 1.0
     for _ in range(1500):
-        m.step_wheels(1500, 1500)  # u = 0.743: steady state kv V u = 16.0k rpm
-    ss = 1800 * 12 * dshot_to_u(1500)
+        m.step_wheels(1200, 1200)  # u = 0.59: steady state kv V u = 16.3k rpm
+    ss = 2300 * 12 * dshot_to_u(1200)
     assert m.rpm[0] == pytest.approx(ss, rel=0.005)
     for _ in range(300):
         m.step_wheels(0, 0)

@@ -83,7 +83,7 @@ class StubFsm:
         kp=8.0,
         ki=40.0,
         ramp_rpm_s=40000.0,
-        kv=1800.0,
+        kv=2300.0,
         v_bus=12.0,
     ):
         self.rpm_max, self.window, self.settle, self.min_interval = (

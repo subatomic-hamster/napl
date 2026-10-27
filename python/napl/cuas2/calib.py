@@ -34,7 +34,7 @@ class Ball:
 @dataclass(frozen=True)
 class Wheel:
     J_kgm2: float = 4.0e-6  # wheel + rotor inertia
-    kv: float = 1800.0
+    kv: float = 2300.0  # 2205 2300KV (parts/cuas2/brushless-2205-2300kv.toml)
     pole_pairs: int = 7
     tau_motor_s: float = 0.04
     p_max_w: float = 100.0
