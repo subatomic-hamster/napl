@@ -184,11 +184,75 @@ PYTHONPATH=python python -m pytest tests/python/test_track_learned.py -q     # 3
 Weights (about 200 KB per model) and the dataset are not committed; they stay on hfbox under `/workspace/wt/napl-c2ml/models`
 (dataset deleted after the run).
 
+## ML-2: mode- and innovation-conditioned IMM2 covariance calibration (negative result)
+
+Goal: fit the covariance factor as a function of the IMM state so every kind gets 90 % cover within +-0.05. Method (`napl/track/calib.py`,
+`ml_predict.py calib`): cov' = exp(w . phi) cov, phi = [1, h, h^2, q, q h, n, n h, a, a h], q = IMM2 manoeuvre (Singer) mode probability,
+n = ln(mean NIS of the last k = 5 updates / 3), a = ln(|velocity change over ~0.5 s| / time + 0.2); w by maximum likelihood (convex Newton),
+fitted on the val split (72 556 samples, seeds 2001-2040), reported on the test split (seeds 3001-3060). The dataset was regenerated with the
+NIS history added (val/test identical to ML-1). Leave-one-kind-out refits without the kind's val samples.
+
+**Result: not achieved.** Worst-kind |cover90 - 0.90| (mean over horizons):
+
+| calibration                           | fit on all val kinds | leave-one-kind-out |
+| ------------------------------------- | -------------------- | ------------------ |
+| IMM2 raw                              | 0.098                | 0.098              |
+| scalar s                              | 0.197                | 0.226              |
+| s(h)                                  | 0.219                | 0.253              |
+| s(h, mode)                            | 0.212                | 0.238              |
+| s(h, NIS)                             | 0.218                | 0.251              |
+| s(h, accel)                           | 0.207                | 0.236              |
+| s(h, mode, NIS, accel)                | 0.212                | 0.237              |
+| oracle s(h) per kind (needs the kind) | 0.040                | n/a                |
+
+Per kind, cover 50 % / cover 90 % (mean over horizons) / cover 90 % @1.0 s / NLL, fit on all val kinds:
+
+| model                  | cv                          | turn                        | ca                          | cross                       | swarm5                      | cam                         |
+| ---------------------- | --------------------------- | --------------------------- | --------------------------- | --------------------------- | --------------------------- | --------------------------- |
+| IMM2 raw               | 0.91 / 0.997 / 0.999 / 2.63 | 0.73 / 0.931 / 0.923 / 3.64 | 0.65 / 0.968 / 0.992 / 3.58 | 0.91 / 0.994 / 0.996 / 2.71 | 0.90 / 0.994 / 0.998 / 2.78 | 0.93 / 0.998 / 1.000 / 1.73 |
+| scalar s               | 0.63 / 0.934 / 0.994 / 2.05 | 0.44 / 0.765 / 0.801 / 3.80 | 0.29 / 0.703 / 0.780 / 3.76 | 0.63 / 0.931 / 0.992 / 2.18 | 0.60 / 0.920 / 0.989 / 2.27 | 0.70 / 0.945 / 0.981 / 1.04 |
+| s(h)                   | 0.61 / 0.958 / 0.981 / 1.95 | 0.43 / 0.774 / 0.728 / 3.89 | 0.28 / 0.681 / 0.589 / 3.80 | 0.61 / 0.955 / 0.979 / 2.10 | 0.58 / 0.943 / 0.967 / 2.18 | 0.71 / 0.952 / 0.947 / 0.97 |
+| s(h, mode)             | 0.58 / 0.954 / 0.981 / 1.88 | 0.52 / 0.866 / 0.856 / 3.71 | 0.34 / 0.688 / 0.593 / 3.97 | 0.57 / 0.949 / 0.977 / 2.05 | 0.54 / 0.940 / 0.969 / 2.10 | 0.67 / 0.935 / 0.922 / 0.90 |
+| s(h, mode, NIS, accel) | 0.57 / 0.954 / 0.981 / 1.88 | 0.52 / 0.867 / 0.858 / 3.71 | 0.34 / 0.688 / 0.592 / 3.97 | 0.56 / 0.949 / 0.978 / 2.05 | 0.54 / 0.940 / 0.968 / 2.10 | 0.67 / 0.935 / 0.922 / 0.90 |
+| oracle s(h) per kind   | 0.50 / 0.919 / 0.923 / 1.89 | 0.62 / 0.879 / 0.866 / 3.56 | 0.49 / 0.902 / 0.906 / 3.50 | 0.56 / 0.940 / 0.958 / 2.08 | 0.49 / 0.907 / 0.913 / 2.17 | 0.57 / 0.893 / 0.891 / 0.87 |
+
+Leave-one-kind-out, same cells, for three of the models (the others are in `calib.md` from the command below; all have a worst kind above 0.2):
+
+| model                  | cv                          | turn                        | ca                          | cross                       | swarm5                      | cam                         |
+| ---------------------- | --------------------------- | --------------------------- | --------------------------- | --------------------------- | --------------------------- | --------------------------- |
+| scalar s               | 0.64 / 0.938 / 0.994 / 2.05 | 0.42 / 0.744 / 0.788 / 3.89 | 0.27 / 0.674 / 0.750 / 3.83 | 0.64 / 0.935 / 0.992 / 2.19 | 0.63 / 0.934 / 0.991 / 2.29 | 0.72 / 0.950 / 0.984 / 1.06 |
+| s(h, mode)             | 0.59 / 0.956 / 0.984 / 1.89 | 0.52 / 0.866 / 0.849 / 3.75 | 0.33 / 0.662 / 0.557 / 4.10 | 0.57 / 0.950 / 0.979 / 2.05 | 0.58 / 0.951 / 0.981 / 2.13 | 0.69 / 0.941 / 0.928 / 0.92 |
+| s(h, mode, NIS, accel) | 0.58 / 0.957 / 0.984 / 1.89 | 0.52 / 0.867 / 0.851 / 3.75 | 0.33 / 0.663 / 0.557 / 4.10 | 0.57 / 0.950 / 0.980 / 2.05 | 0.58 / 0.952 / 0.981 / 2.13 | 0.69 / 0.941 / 0.928 / 0.92 |
+
+Reading (facts from the tables, then inference):
+
+- The raw IMM2 is the safest of everything fitted: its worst kind is 0.098 (always on the pessimistic side, cover90 up to 0.998), while every
+  fitted calibration has a worst kind of 0.20-0.25, and the worst kinds are on the over-confident side (ca 0.66-0.70, turn 0.75-0.87).
+- The mode probability helps turn (cover90 0.77 -> 0.87) and costs nothing elsewhere, but does not help ca (0.68-0.69; at 1.0 s 0.59);
+  NIS of the last 5 updates and the velocity-change (acceleration) feature add essentially nothing (the cells of s(h, mode) and
+  s(h, mode, NIS, accel) agree to 0.01). Inference: for ca the IMM state in these runs does not look different enough from the benign kinds at
+  fit time for a smooth function of (q, n, a, h) to separate them; I did not diagnose further. A fixed 5-scan NIS mean is also a noisy
+  statistic (3-dof chi-square, 5 values).
+- Only the per-kind oracle gets within 0.05 (worst 0.040), so the needed information is the target class, not anything the IMM carries.
+- Because ML (mean d2) is dominated by heavy-tailed benign samples, the fitted factors favour them; a quantile objective or class-conditioned
+  fit (e.g. by discrimination class) were not tried.
+
+The coefficients are not exported: `napl.track.calib` is not imported by `napl.track`, `DEFAULT_W` is the identity, and the Ph should keep the
+raw (pessimistic, hence safe-side) covariance, or a scalar from a class known at runtime, until a better conditioning exists.
+
+Reproduce ML-2 (dataset ~10 min on 2 CPU processes (40 train seeds), then the fit about 3 min; on hfbox the CPU lane may queue for hours behind MC runs):
+
+```
+$PY gen --out $D/data/ml2.npz --train 40 --jobs 2
+$PY calib --data $D/data/ml2.npz --md $D/calib.md
+PYTHONPATH=python python -m pytest tests/python/test_track_calib.py -q     # ML fit recovers a known factor; NaN-safe NIS feature
+```
+
 ## Not done
 
 - No Ph computed: the numbers here are position-error calibration, not the cuas2 Ph (which also has dispersion and target size). The mapping
   from "IMM covariance 2.3x too large in variance" to "Ph 0.46 vs 0.67" is an inference, not a measurement.
-- No mode-conditioned calibration of the IMM (s as a function of the IMM manoeuvre probability), the one remedy that the results point to.
+- Mode/NIS/acceleration-conditioned calibration was tried (ML-2 above) and did not work; class-conditioned and quantile-objective fits were not tried.
 - No randomised-generator training set and no augmentation (yaw, speed), because new threat profiles are pending a user decision; so the
   learned model's in-distribution gain is not shown to be anything beyond learning the scenario priors.
 - No hyper-parameter search, no transformer, no Jetson measurement, no torch-CPU latency, no end-to-end hit-rate effect.
