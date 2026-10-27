@@ -171,6 +171,30 @@ class Lockstep2(_io.Lockstep):
             sector=sector,
             model=LauncherModel(app_calib or Calib()),
         )
+        # exact (sim time) arm sessions and the session of every FIRE sent: the Referee judges a ball against the session of its FIRE
+        self.arm_iv, self.fire_sess = (
+            [],
+            [],
+        )  # [[t_arm, t_disarm or inf]], (t_sent, session)
+        fc, w_ = self.app.fc, self.world
+        arm0, disarm0, sent0 = fc.arm, fc.disarm, fc.fire_sent
+
+        def arm(now):
+            if fc.armed and self.arm_iv:
+                self.arm_iv[-1][1] = min(self.arm_iv[-1][1], w_.t)
+            arm0(now)
+            self.arm_iv.append([w_.t, float("inf")])
+
+        def disarm():
+            if fc.armed and self.arm_iv:
+                self.arm_iv[-1][1] = min(self.arm_iv[-1][1], w_.t)
+            disarm0()
+
+        def fire_sent(now, n=None):
+            sent0(now, n)
+            self.fire_sess.append((w_.t, len(self.arm_iv) - 1))
+
+        fc.arm, fc.disarm, fc.fire_sent = arm, disarm, fire_sent
         self.script, self.hold_deadman, self._next_dm = [], False, 0.0
         self.popped, self.fire_log, self.hits, self.hit_log, self._ev_seen = (
             {},

@@ -24,18 +24,30 @@ lrun = sc.load("cuas_lite_run", "cuas-lite/run.py")
 class Referee2(lrun.Referee):
     """The lite Referee judges a ball fed in control period k against the app's armed flag AFTER period k's step. The app disarms on the
     cap-th shot in that same step (spec: the cap ends the arm), so the cap-th ball read as 'unarmed' (3 of 165 episodes with the Ph gate off).
-    A ball is judged against armed in the previous period OR the current one: a ball fed more than one period after a disarm is still flagged."""
+    Here a ball is 'unarmed' iff its feed time (exact, from the twin) is outside every arm session [Lockstep2.arm_iv, exact sim time of ARM / disarm],
+    or the session it falls in is not the session in which the FIRE that fed it was sent (Lockstep2.fire_sess; the FIRE is the last one sent before
+    the feed: one FIRE is live at a time). So a ball fed after a disarm, or after a quick re-arm from an older session's FIRE, is flagged."""
 
-    _armed_prev = False
+    def _unarmed(self, t):
+        h = self.h
+        j = next((i for i, (a, b) in enumerate(h.arm_iv) if a <= t <= b), None)
+        sent = [s for ts, s in h.fire_sess if ts <= t]
+        return j is None or not sent or sent[-1] != j
 
     def __call__(self, h=None):
         fc = self.h.app.fc
-        real = fc.armed
-        fc.armed = real or self._armed_prev
+        n0, new = self.n_seen, self.h.twin.shots[self.n_seen :]
+        real, fc.armed = (
+            fc.armed,
+            True,
+        )  # the base class's flag check is replaced by _unarmed
         try:
-            return super().__call__(h)
+            r = super().__call__(h)
         finally:
-            fc.armed, self._armed_prev = real, real
+            fc.armed = real
+        self.violations["unarmed"] += sum(self._unarmed(t) for t, _f, _i in new)
+        assert self.n_seen == n0 + len(new)
+        return r
 
 
 def run_episode(

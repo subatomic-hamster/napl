@@ -72,6 +72,15 @@ def test_deterministic_and_replay_matches(runs):
     assert rp == (n1["tick"], n1["state_hash"])
 
 
+def test_kernel_value_is_pinned(runs):
+    """The lite kernel must not move: an additive change (the cuas2 launcher attrs, ...) keeps this run's tick and state hash. Update only on a deliberate kernel change."""
+    n = runs[0][0].finish()
+    assert (n["tick"], n["state_hash"]) == (11015, PINNED_HASH), n
+
+
+PINNED_HASH = "35634cd3ed9cf0f0"
+
+
 def test_person_scenario_fires_nothing(tmp_path):
     # a person capsule is not in the kernel scene: the detector reports one at the far edge of the image from the start
     from napl.lite.io import Det

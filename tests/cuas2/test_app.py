@@ -1,15 +1,29 @@
 """cuas2 fire control (napl.cuas2.app.FireControl2) without the kernel: person block, the Ph gate, shoot-look-shoot spacing, ARM / dead-man / READY. Every
 test that shows a shot is blocked also shows the same scene fires once the single blocking condition is removed (negative control)."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from napl.cuas2 import protocol as p2
-from napl.cuas2.app import T_EXIT, FireCfg2, FireControl2, Tgt, hit_probability, lead2
+from napl.cuas2.app import (
+    SIZE_M,
+    T_EXIT,
+    App2,
+    AppCfg2,
+    FireCfg2,
+    FireControl2,
+    Tgt,
+    hit_probability,
+    lead2,
+)
 from napl.cuas2.calib import Calib
 from napl.cuas2.launcher import LauncherModel
 from napl.lite import aim as aimlib
 from napl.lite import protocol as p
 from napl.lite.fire import Sector, View
+from napl.lite.io import Det
+from napl.lite.sim_io import BRIO
 
 NOW = 20.0
 
@@ -84,11 +98,11 @@ def view(
     )
 
 
-def make_fc(**cfg):
+def make_fc(sector=Sector(-60, 60, 0, 60), **cfg):
     fc = FireControl2(
         FireCfg2(**cfg),
         aimlib.Geometry(),
-        Sector(-60, 60, 0, 60),
+        sector,
         model=LauncherModel(Calib()),
     )
     fc.arm(NOW - 5.0)
@@ -276,3 +290,126 @@ def test_ablation_without_the_ph_gate_still_obeys_the_vetoes():
     )
     d = make_fc(ph_gate=False).step(NOW, v_p)
     assert d.fire == 0 and "person" in d.reasons
+
+
+# ---- App2 level: the whole-frame person latch ------------------------------------------------------------------------------------------------
+class FakeGim:
+    """The part of the gimbal App2._perceive / _view read: the head sits at (pan, tilt), STATUS is fresh and READY."""
+
+    link_ok = True
+
+    def __init__(self, pan=0.0, tilt=20.0):
+        self.pan, self.tilt, self.status, self.status_t = pan, tilt, status(), 0.0
+
+    def status_at(self, t):
+        return (self.pan, self.tilt)
+
+    def deg(self):
+        return (self.pan, self.tilt)
+
+
+def app2_scene(person_box):
+    """An App2 with a balloon 8 m ahead at the centre of the frame (confirmed after a dozen scans) and, if given, a person box in the same frames.
+    -> (app, step(now) that runs one scan at `now` and one fire-control decision)."""
+    cfg = AppCfg2()
+    cfg.fire.ph_tau, cfg.fire.point_gate_deg = (
+        0.0,
+        45.0,
+    )  # only the person logic is under test: Ph and pointing never block
+    gim = FakeGim()
+    app = App2(
+        SimpleNamespace(intrinsics=BRIO),
+        SimpleNamespace(stale_s=0.0),
+        gim,
+        None,
+        cfg,
+        geom=aimlib.Geometry(),
+        sector=Sector(-60, 60, 0, 60),
+        model=LauncherModel(Calib()),
+    )
+    app.fc.arm(NOW - 5.0)
+    half = BRIO.fy * SIZE_M["balloon"] / 8.0 / 2
+    cx, cy = BRIO.w / 2, BRIO.h / 2
+    ball = Det("balloon", 0.9, (cx - half, cy - half, cx + half, cy + half))
+
+    def scan(now, with_person=True):
+        gim.status_t = now
+        app.last_frame_t, app.deadman_t = now, now - 0.1
+        dets = [ball] + (
+            [Det("person", 0.8, person_box)] if person_box and with_person else []
+        )
+        app._perceive(now, SimpleNamespace(t_cap=now), SimpleNamespace(dets=dets))
+        return app.fc.step(now, app._view(now))
+
+    return app, scan
+
+
+def test_app2_whole_frame_person_latch_blocks_a_person_away_from_the_target():
+    """A person box that does NOT overlap the target box must still hold fire for person_hold_s (App2._perceive latches person_t on any person
+    detection). Fails if that latch line is removed: the per-track overlap check alone does not see this person."""
+    far = (
+        20.0,
+        20.0,
+        120.0,
+        400.0,
+    )  # left edge of the frame, the balloon is at its centre
+    app, scan = app2_scene(far)
+    for i in range(14):
+        d = scan(NOW + 0.033 * i)
+    t_last = NOW + 0.033 * 13
+    assert app.tracks and app.tracks[0].confirmed
+    assert (
+        d.fire == 0 and "person" in d.reasons and "person_overlap" not in d.reasons
+    ), d.reasons
+    d = app.fc.step(
+        t_last + 0.5, app._view(t_last + 0.5)
+    )  # inside the hold, the person no longer in a new frame
+    assert d.fire == 0 and "person" in d.reasons
+    # negative controls: the same scene without the person fires; and with it once the hold has run out
+    app0, scan0 = app2_scene(None)
+    for i in range(14):
+        d0 = scan0(NOW + 0.033 * i)
+    assert d0.fire == 1, d0.reasons
+    late = t_last + app.fc.cfg.person_hold_s + 0.2
+    app.last_frame_t, app.deadman_t = late, late - 0.1
+    assert app.fc.step(late, app._view(late)).fire == 1
+
+
+# ---- barrel / solution outside the sector, and the AIM fence through step() ------------------------------------------------------------------
+def test_barrel_outside_sector_check_covers_the_solution_and_the_barrel():
+    t = tgt()
+    d0 = make_fc().step(NOW, view([t]))
+    az, el, _ = aimlib.bearing(t.pos, (0.0, 0.0, aimlib.Geometry().h_t))
+    sol_tilt = d0.solution["tilt"]
+    assert (
+        sol_tilt - el > 0.5
+    )  # the drop compensation lifts the aim above the target's own elevation
+    # (a) the target is inside the sector, the lead SOLUTION is not (el_max between the two); the barrel (0, 0) is inside
+    fc = make_fc(sector=Sector(-60, 60, 0, 0.5 * (el + sol_tilt)))
+    d = fc.step(NOW, view([t]))
+    assert "barrel_outside_sector" in d.reasons and d.fire == 0 and d.inhibit
+    # (b) the solution is inside, the BARREL (head at pan 65) is not
+    d = make_fc().step(NOW, view([t], pan=65.0, tilt=0.0))
+    assert "barrel_outside_sector" in d.reasons and d.fire == 0 and d.inhibit
+    # negative control: neither -> no such reason
+    assert "barrel_outside_sector" not in make_fc().step(NOW, view([t])).reasons
+
+
+def test_aim_is_clamped_to_the_fence_through_step():
+    """The AIM target goes through FireControl.step -> fence(): within fence_margin_deg of the sector edge it is clamped, with no feed-forward."""
+    t = tgt(pos=(7.5, 2.7, 3.0))
+    p0 = make_fc().step(NOW, view([t])).aim[0]  # the unfenced solution pan
+    edge = p0 + 0.2  # solution inside the sector, but inside the 0.5 deg margin
+    fc = make_fc(sector=Sector(-60, edge, 0, 60))
+    d = fc.step(NOW, view([t]))
+    assert (
+        aimlib.bearing(t.pos, (0.0, 0.0, aimlib.Geometry().h_t))[0] < edge
+    )  # target inside
+    assert "barrel_outside_sector" not in d.reasons
+    assert d.aim[0] <= edge - fc.cfg.fence_margin_deg + 1e-9 and d.aim[0] < p0 - 0.1, (
+        d.aim,
+        p0,
+    )
+    assert d.aim[2] == 0.0
+    # negative control: the wide sector leaves the solution alone
+    assert make_fc().step(NOW, view([t])).aim[0] == pytest.approx(p0)
