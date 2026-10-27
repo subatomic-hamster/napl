@@ -129,6 +129,10 @@ def factory(variant, seed):
         return GNN, imm("2")
     if variant == "imm3-gnn":
         return GNN, imm("3")
+    if (
+        variant == "imm2-gnn-s"
+    ):  # imm2-gnn with the strict hit rule the tuned JPDA/MHT use
+        return GNN, imm("2")
     if variant == "imm2-pf-gnn":
         mk = imm("2")
 
@@ -147,12 +151,24 @@ def factory(variant, seed):
     raise ValueError(variant)
 
 
+# Tracker options of the tuned variants (docs/cuas2/tracking-bench.md, "Why JPDA / MHT / PHD underperformed"). Everything not listed
+# keeps the Tracker defaults, so the old behaviour of a variant is its KW entry replaced by the defaults of its class.
+KW = {
+    "imm2-gnn-s": dict(
+        min_llr=3.5
+    ),  # ~ W > 33 x missed-detection weight, the same strictness as the hit rules below
+    "imm2-jpda": dict(dedupe=0, hit_beta0=0.01),
+    "imm2-mht": dict(kmax=8, nscan=1, decay=0.8, hit_llr=3.5),
+    "phd-singer": dict(xmerge=1, split_w=0.7, keep=1, merge_d2=9.0),
+}
+
 VARIANTS = (
     "ab-nn",
     "ekf-cv-gnn",
     "ekf-ca-gnn",
     "ukf-ct-gnn",
     "imm2-gnn",
+    "imm2-gnn-s",
     "imm3-gnn",
     "imm2-pf-gnn",
     "imm2-jpda",
@@ -161,17 +177,18 @@ VARIANTS = (
 )
 
 
-def make_tracker(variant, scn, seed=0):
+def make_tracker(variant, scn, seed=0, **opts):
+    """Tracker of a named variant for scenario scn; opts override the variant's KW entry (e.g. m=4, hit_beta0=0.5)."""
     cls, mk = factory(variant, seed)
-    return cls(mk, pd=scn.pd, lam=scn.lam)
+    return cls(mk, pd=scn.pd, lam=scn.lam, **{**KW.get(variant, {}), **opts})
 
 
-def run(scn_name, variant, seed, scn=None):
-    """One Monte Carlo run -> dict of metrics (see Evaluator.summary) + cpu_ms (mean wall ms per update)."""
+def run(scn_name, variant, seed, scn=None, **opts):
+    """One Monte Carlo run -> dict of metrics (see Evaluator.summary) + cpu_ms (mean wall ms per update). opts: tracker options."""
     scn = scn or build(scn_name, seed)
     if variant == "ab-nn" and scn_name == "cam":
         return None  # baseline works on position measurements only
-    tr = make_tracker(variant, scn, seed)
+    tr = make_tracker(variant, scn, seed, **opts)
     ev, dts = Evaluator(scn.c), []
     for k, (t, meas, zs) in enumerate(scn.frames):
         t0 = time.perf_counter()
