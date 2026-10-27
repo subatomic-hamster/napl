@@ -95,7 +95,7 @@ The key and E-stop carry the coil current only (an estimated 0.15 to 0.25 A for 
 
 Kick period 10 ms (100 Hz) against 149 ms: about 14 missed kicks are tolerated; hardware stops the relay 149 ms after the last kick.
 
-### 3.4 Shot counter (two 74HCT4017, N = 10 balls per arm)
+### 3.4 Shot counter (two 74HCT4017, N = 10 balls per key session)
 
 | Wire                                                   | From                                                    | To                                                 | Note                                            |
 | ------------------------------------------------------ | ------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------- |
