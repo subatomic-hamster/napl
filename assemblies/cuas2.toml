@@ -1,0 +1,2370 @@
+# cuas2: the modular foam-ball turret as a design: 3D-printed frame from cad/cuas2 (meshes of the CAD build, per-part mass from the STL), bought parts from the library, full pin-level wiring.
+#
+# FRAMES (cad/cuas2 manifest.json, mm in the CAD, m here). B = origin on the pan axis at the datum of the base plate, x forward at pan 0, y left, z up: the ROOT (base plate) IS frame B, every static part is
+# placed in it. The pan group (rotor plate, yokes, lazy susan, tilt motor, bearings) is mated to the base plate through `pan_joint` (axis +z, +-170 deg). H = the tilt axis, origin (0, 0, 200 mm) in B, x along the
+# barrel, y left, z up at tilt 0. The tilt group (cradle, cartridge, feeder, sensor bar, flywheels, beams, camera) is mated to yoke_left through `tilt_joint` (axis -y_H: positive tilt raises the muzzle, -15..+70 deg).
+# Every printed mesh is already in its group frame, so a seat port's pose IS the child's part frame in the group root.
+# NOT MODELLED HERE (left to the integration / model steps): the gate-plug hinge and the pusher slider as joints (the plug is shown at BORE, the rod retracted), the foam rounds, the launcher / camera / servo
+# devices, the belts (closed GT2 loops), the buzzer on GP17 and the unused DIAG pin GP22 (no library part, no kernel effect), the 20 A fuse cartridge itself, the optional TF-Luna.
+#
+# ELECTRICAL (docs/cuas2/wiring.md; spec 6.5 pins). XT60 inlet -> 20 A fuse -> 12 V bus (Jetson barrel, two TMC2209 VM, key, relay contact 30). WEAPON RAIL: key (COM-NO) -> E-stop NC -> 40 A relay coil (86) -> relay coil (85)
+# -> IRLB8721 supervisor MOSFET -> GND. The MOSFET gate is driven by the 74HCT123 supervisor (kept alive only by the Pico's 100 Hz KICK on GP28) through 1 k and is held low by a 2N3904 when the
+# 74HCT4017 hardware shot counter has seen N = 10 balls on the muzzle beam. Reset of the counter = key power cycle only. The relay contact (87) feeds both ESCs and the LM2596 buck (5 V for the gate servo and, through the
+# 74HCT123 shot limiter and an IRF9540N high-side switch, for the pusher servo). The 74HCT ICs run from an L7805 on the key-switched 12 V. The Pico reads the key / E-stop nodes through 33k/10k dividers.
+
+[assembly]
+name = "cuas2"
+description = "cuas2 modular pan-tilt foam-ball turret: printed frame (CAD meshes), NEMA 17 belt-driven pan / tilt, dual brushless flywheel launcher with a one-ball plug-valve feeder, Brio camera, Jetson Orin Nano + RP2040, relay weapon rail with hardware limiter, supervisor and shot counter"
+base = "fixed"
+timestep = 0.001
+
+# ================================================================ static frame (root = base plate = frame B) ================================================================
+[[instances]]
+id = "base"
+part = "cuas2-base-plate"
+root = true
+group = "base"
+
+[[instances]]
+id = "leg1"
+part = "cuas2-base-leg"
+group = "base"
+pos = [0.09, 0.09, 0.0002]
+
+[[instances]]
+id = "leg2"
+part = "cuas2-base-leg"
+group = "base"
+pos = [-0.09, 0.09, 0.0]
+
+[[instances]]
+id = "leg3"
+part = "cuas2-base-leg"
+group = "base"
+pos = [0.09, -0.09, 0.0]
+
+[[instances]]
+id = "leg4"
+part = "cuas2-base-leg"
+group = "base"
+pos = [-0.09, -0.09, 0.0002]
+
+[[instances]]
+id = "deck"
+part = "cuas2-lower-deck"
+group = "base"
+pos = [0.0, 0.0, 0.0]
+
+[[instances]]
+id = "box"
+part = "cuas2-power-box"
+group = "base"
+pos = [0.0, 0.0, 0.0]
+
+[[instances]]
+id = "lid"
+part = "cuas2-power-box-lid"
+group = "base"
+pos = [0.0, 0.0, 0.0]
+
+# ---- pan drive: NEMA 17 below the base plate, shaft up through the slot, 20T pulley, belt to the printed pulley on the rotor ---------------------------------------------------------------
+[[instances]]
+id = "nema_pan"
+part = "generic-17hs4401s-nema17-42x40"
+group = "drive"
+pos = [0.060563, 0.0, -0.008]
+
+[[instances]]
+id = "pulley_pan"
+part = "adafruit-1251-gt2-pulley-20t-5mm"
+group = "drive"
+pos = [0.060563, 0.0, 0.001]
+
+[[instances]]
+id = "hall_pan"
+part = "allegro-a3144-hall-switch"
+group = "drive"
+pos = [-0.082, 0.0, 0.0245]
+
+# ---- lower deck: Jetson, fuse, XT60 inlet --------------------------------------------------------------------------------------------------------------------------------------
+[[instances]]
+id = "jetson"
+part = "nvidia-jetson-orin-nano-devkit-8gb"
+group = "electronics"
+pos = [0.062, 0.0, -0.118]
+
+[[instances]]
+id = "fuse"
+part = "generic-inline-atc-fuse-holder-12awg"
+group = "electronics"
+pos = [-0.07, 0.07, -0.1165]
+
+[[instances]]
+id = "xt60"
+part = "cuas-lite-xt60-inlet-pair"
+group = "electronics"
+pos = [-0.09, 0.0, -0.124]
+
+[[instances]]
+id = "psu"
+part = "facmogu-12v-5a-psu"
+group = "bench"
+offboard = true
+
+# ---- power box (z of the lid top = -68 mm; every board on the lid) -------------------------------------------------------------------------------------------------------------
+[[instances]]
+id = "estop"
+part = "generic-estop-22mm-nc"
+group = "panel"
+pos = [-0.035, -0.040, -0.028]
+rpy = [1.5707963267948966, 0.0, 0.0]
+
+[[instances]]
+id = "key"
+part = "e-switch-ko106a102-keylock-spst"
+group = "panel"
+pos = [-0.075, -0.040, -0.028]
+rpy = [1.5707963267948966, 0.0, 0.0]
+
+[[instances]]
+id = "relay"
+part = "relay-40a-automotive-12v"
+group = "electronics"
+pos = [-0.0735, -0.0235, -0.068]
+
+[[instances]]
+id = "pico"
+part = "raspberry-pi-pico-h"
+group = "electronics"
+pos = [-0.0345, -0.026, -0.068]
+
+[[instances]]
+id = "tmc_pan"
+part = "bigtreetech-tmc2209-v1-3"
+group = "electronics"
+pos = [-0.034, 0.006, -0.0664]
+params = { servo_id = { value = 1, unit = "1", fidelity = "estimated", rationale = "Label only (the drivers are not on a servo bus; each has its own UART): satisfies the shared-supply bus check." } }
+
+[[instances]]
+id = "tmc_tilt"
+part = "bigtreetech-tmc2209-v1-3"
+group = "electronics"
+pos = [-0.012, 0.006, -0.0664]
+params = { servo_id = { value = 2, unit = "1", fidelity = "estimated", rationale = "Label only (see tmc_pan)." } }
+
+[[instances]]
+id = "buck"
+part = "lm2596-adjustable-buck-module"
+group = "electronics"
+pos = [-0.072, 0.0195, -0.068]
+
+[[instances]]
+id = "reg"
+part = "l7805-regulator-to220"
+group = "electronics"
+pos = [-0.0865, 0.003, -0.068]
+
+[[instances]]
+id = "q_sup"
+part = "infineon-irlb8721pbf"
+group = "electronics"
+pos = [-0.069, 0.003, -0.068]
+
+[[instances]]
+id = "q_p"
+part = "irf9540n-p-mosfet"
+group = "electronics"
+pos = [-0.0525, 0.003, -0.068]
+
+[[instances]]
+id = "q_clamp"
+part = "2n3904-npn"
+group = "electronics"
+pos = [-0.006, 0.0195, -0.0658]
+
+[[instances]]
+id = "d_fly"
+part = "vishay-1n5822-schottky-3a-40v"
+group = "electronics"
+pos = [-0.09, -0.005, -0.0658]
+
+[[instances]]
+id = "ic_lim"
+part = "74hct123"
+group = "electronics"
+pos = [-0.050, -0.008, -0.068]
+
+[[instances]]
+id = "ic_sup"
+part = "74hct123"
+group = "electronics"
+pos = [-0.030, -0.008, -0.068]
+
+[[instances]]
+id = "cnt_u"
+part = "74hct4017"
+group = "electronics"
+pos = [-0.0095, -0.008, -0.068]
+
+[[instances]]
+id = "cnt_t"
+part = "74hct4017"
+group = "electronics"
+pos = [-0.030, 0.0225, -0.068]
+
+[[instances]]
+id = "c_on"
+part = "generic-capacitor-radial"
+group = "electronics"
+pos = [-0.045, 0.032, -0.068]
+params = { capacitance = { value = 4.7e-6, unit = "F", fidelity = "estimated", rationale = "Limiter pulse MS1: tW = 0.45 x 120 k x 4.7 uF = 254 ms (the pusher stroke out and back is 236 ms, spec C-CYCLE)." } }
+
+[[instances]]
+id = "c_hold"
+part = "generic-capacitor-radial"
+group = "electronics"
+pos = [-0.038, 0.032, -0.068]
+params = { capacitance = { value = 1.0e-5, unit = "F", fidelity = "estimated", rationale = "Limiter lockout MS2: tW = 0.45 x 75 k x 10 uF = 338 ms (spec 5.4: 280-380 ms)." } }
+
+[[instances]]
+id = "c_sup"
+part = "generic-capacitor-radial"
+group = "electronics"
+pos = [-0.031, 0.032, -0.068]
+params = { capacitance = { value = 3.3e-6, unit = "F", fidelity = "estimated", rationale = "Supervisor window: tW = 0.45 x 100 k x 3.3 uF = 149 ms (the KICK toggles every 10 ms, so a stalled MCU opens the relay within 150 ms)." } }
+
+[[instances]]
+id = "c_por"
+part = "generic-capacitor-radial-rail"
+group = "electronics"
+pos = [-0.024, 0.032, -0.068]
+params = { capacitance = { value = 1.0e-6, unit = "F", fidelity = "estimated", rationale = "Power-on reset of both counters: RESET is held high for about 0.1 s (1 uF into 100 k) when the key switches the 5 V regulator on." } }
+
+[[instances]]
+id = "led_status"
+part = "ws2812b-5050"
+group = "electronics"
+pos = [-0.010, 0.032, -0.068]
+
+# ---- resistors: values set per instance. They have no collision geometry. ------------------------------------------------------------------------------------------------------
+[[instances]]
+id = "r_en"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.088, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Pull-up of the shared, active-low EN pin of both drivers (GP4) to 3V3, so they stay disabled while the GPIO floats at reset." } }
+
+[[instances]]
+id = "r_ms_pan"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.086, 0.034, -0.068]
+params = { resistance = { value = 1000.0, unit = "ohm", fidelity = "estimated", rationale = "Strap of MS1 / MS2 (both pins) to VIO of the pan driver: 16 microsteps and UART address 3, as cuas-lite." } }
+
+[[instances]]
+id = "r_ms_tilt"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.084, 0.034, -0.068]
+params = { resistance = { value = 1000.0, unit = "ohm", fidelity = "estimated", rationale = "As r_ms_pan, for the tilt driver." } }
+
+[[instances]]
+id = "r_su_pan"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.082, 0.034, -0.068]
+params = { resistance = { value = 1000.0, unit = "ohm", fidelity = "estimated", rationale = "Series resistor between the Pico UART TX and the driver's single-wire PDN_UART pin (RX joins the driver side), as cuas-lite." } }
+
+[[instances]]
+id = "r_su_tilt"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.080, 0.034, -0.068]
+params = { resistance = { value = 1000.0, unit = "ohm", fidelity = "estimated", rationale = "As r_su_pan, for the tilt driver." } }
+
+[[instances]]
+id = "r_hp"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.078, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Pull-up of the pan hall's open-collector output to the Pico 3V3." } }
+
+[[instances]]
+id = "r_ht"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.076, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "As r_hp, tilt hall." } }
+
+[[instances]]
+id = "r_hg"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.074, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "As r_hp, gate-home hall (GP26)." } }
+
+[[instances]]
+id = "r_hpu"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.072, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "As r_hp, push-home hall (GP27)." } }
+
+[[instances]]
+id = "r_kt"
+part = "generic-resistor-axial-quarter-w-rail"
+group = "electronics"
+pos = [-0.070, 0.034, -0.068]
+params = { resistance = { value = 33000.0, unit = "ohm", fidelity = "derived", derivation = "Top resistor of the key-sense divider 33 k / 10 k: 12 V x 10 / 43 = 2.79 V at the GPIO (below the RP2040 3.3 V input limit)." } }
+
+[[instances]]
+id = "r_kb"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.068, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Bottom resistor of the key-sense divider; also holds the input low when the key is off." } }
+
+[[instances]]
+id = "r_et"
+part = "generic-resistor-axial-quarter-w-rail"
+group = "electronics"
+pos = [-0.066, 0.034, -0.068]
+params = { resistance = { value = 33000.0, unit = "ohm", fidelity = "derived", derivation = "As r_kt: 33 k / 10 k divider of the relay-coil node (12 V when key on and E-stop closed) to 2.79 V." } }
+
+[[instances]]
+id = "r_eb"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.064, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Bottom resistor of the E-stop-sense divider." } }
+
+[[instances]]
+id = "r_led_mz"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.062, 0.034, -0.068]
+params = { resistance = { value = 100.0, unit = "ohm", fidelity = "derived", derivation = "(3.3 V - 1.3 V) / 100 ohm = 20 mA through the muzzle beam LED." } }
+
+[[instances]]
+id = "r_led_br"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.060, 0.034, -0.068]
+params = { resistance = { value = 100.0, unit = "ohm", fidelity = "derived", derivation = "As r_led_mz, breech beam LED." } }
+
+[[instances]]
+id = "r_pt_mz"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.058, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Pull-up of the muzzle phototransistor collector to 3V3; the node feeds GP16 and the counter clock." } }
+
+[[instances]]
+id = "r_pt_br"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.056, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Pull-up of the breech phototransistor collector to 3V3 (GP7)." } }
+
+[[instances]]
+id = "r_fr"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.054, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Spec 6.5: FEED_REQ (GP19) has a 10 k pull-down so the limiter sees no edge while the Pico boots." } }
+
+[[instances]]
+id = "r_on"
+part = "generic-resistor-axial-quarter-w-rail"
+group = "electronics"
+pos = [-0.052, 0.034, -0.068]
+params = { resistance = { value = 120000.0, unit = "ohm", fidelity = "derived", derivation = "Limiter MS1 timing resistor: tW = 0.45 x Rext x Cext = 0.45 x 120 k x 4.7 uF = 254 ms." } }
+
+[[instances]]
+id = "r_hold"
+part = "generic-resistor-axial-quarter-w-rail"
+group = "electronics"
+pos = [-0.050, 0.034, -0.068]
+params = { resistance = { value = 75000.0, unit = "ohm", fidelity = "derived", derivation = "Limiter MS2 timing resistor: tW = 0.45 x 75 k x 10 uF = 338 ms." } }
+
+[[instances]]
+id = "r_clr_lim"
+part = "generic-resistor-axial-quarter-w-rail"
+group = "electronics"
+pos = [-0.048, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Pull-up that ties both CLR pins of the limiter high." } }
+
+[[instances]]
+id = "r_sup"
+part = "generic-resistor-axial-quarter-w-rail"
+group = "electronics"
+pos = [-0.046, 0.034, -0.068]
+params = { resistance = { value = 100000.0, unit = "ohm", fidelity = "derived", derivation = "Supervisor timing resistor: tW = 0.45 x 100 k x 3.3 uF = 149 ms." } }
+
+[[instances]]
+id = "r_sup_up"
+part = "generic-resistor-axial-quarter-w-rail"
+group = "electronics"
+pos = [-0.044, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Pull-up that ties the supervisor's CLR (pin 3) high." } }
+
+[[instances]]
+id = "r_sup_dn"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.042, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Pull-down that ties the supervisor's A input low (B-edge trigger) and the unused second monostable off (A, B low, CLR low)." } }
+
+[[instances]]
+id = "r_gate"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.040, 0.034, -0.068]
+params = { resistance = { value = 1000.0, unit = "ohm", fidelity = "estimated", rationale = "Series resistor from the supervisor output to the MOSFET gate." } }
+
+[[instances]]
+id = "r_gpd"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.038, 0.034, -0.068]
+params = { resistance = { value = 100000.0, unit = "ohm", fidelity = "estimated", rationale = "Gate pull-down of the supervisor MOSFET: the coil is off whenever the supervisor output floats." } }
+
+[[instances]]
+id = "r_cb"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.036, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Base resistor of the 2N3904 clamp (TRIP 5 V -> 0.4 mA base current, saturating against the 1 k / 100 k gate network)." } }
+
+[[instances]]
+id = "r_pg"
+part = "generic-resistor-axial-quarter-w-rail"
+group = "electronics"
+pos = [-0.034, 0.034, -0.068]
+params = { resistance = { value = 100000.0, unit = "ohm", fidelity = "estimated", rationale = "Gate-to-source pull-up of the P-MOSFET (off when the limiter output floats or the logic rail is dead)." } }
+
+[[instances]]
+id = "r_por"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.032, 0.034, -0.068]
+params = { resistance = { value = 100000.0, unit = "ohm", fidelity = "estimated", rationale = "Power-on-reset pull-down: RESET decays from 5 V with RC = 100 k x 1 uF = 0.1 s." } }
+
+[[instances]]
+id = "r_ce"
+part = "generic-resistor-axial-quarter-w"
+group = "electronics"
+pos = [-0.030, 0.034, -0.068]
+params = { resistance = { value = 10000.0, unit = "ohm", fidelity = "estimated", rationale = "Pull-down that ties the units counter's /CE low (always counting)." } }
+
+# ================================================================ pan group (root: rotor plate, frame B) ====================================================================
+[[instances]]
+id = "rotor"
+part = "cuas2-rotor-plate"
+group = "pan"
+
+[[instances]]
+id = "yoke_l"
+part = "cuas2-yoke-left"
+group = "pan"
+
+[[instances]]
+id = "yoke_r"
+part = "cuas2-yoke-right"
+group = "pan"
+
+[[instances]]
+id = "lazy_susan"
+part = "generic-lazy-susan-6in-square"
+group = "pan"
+
+[[instances]]
+id = "mag_pan"
+part = "cuas-lite-magnet-disc-6x2"
+group = "pan"
+
+[[instances]]
+id = "nema_tilt"
+part = "generic-17hs4401s-nema17-42x40"
+group = "pan"
+
+[[instances]]
+id = "pulley_tilt"
+part = "adafruit-1251-gt2-pulley-20t-5mm"
+group = "pan"
+
+[[instances]]
+id = "hall_tilt"
+part = "allegro-a3144-hall-switch"
+group = "pan"
+
+[[instances]]
+id = "brg_l"
+part = "generic-608zz-bearing"
+group = "pan"
+
+[[instances]]
+id = "brg_r"
+part = "generic-608zz-bearing"
+group = "pan"
+
+# ================================================================ tilt group (root: cradle, frame H) ========================================================================
+[[instances]]
+id = "cradle"
+part = "cuas2-cradle"
+group = "tilt"
+
+[[instances]]
+id = "cage"
+part = "cuas2-cartridge-cage"
+group = "tilt"
+
+[[instances]]
+id = "gap_plate"
+part = "cuas2-gap-plate"
+group = "tilt"
+
+[[instances]]
+id = "hub_t"
+part = "cuas2-wheel-hub"
+group = "tilt"
+
+[[instances]]
+id = "hub_b"
+part = "cuas2-wheel-hub"
+group = "tilt"
+
+[[instances]]
+id = "tyre_t"
+part = "cuas2-wheel-tyre"
+group = "tilt"
+
+[[instances]]
+id = "tyre_b"
+part = "cuas2-wheel-tyre"
+group = "tilt"
+
+[[instances]]
+id = "valve"
+part = "cuas2-valve-housing"
+group = "tilt"
+
+[[instances]]
+id = "plug"
+part = "cuas2-valve-plug"
+group = "tilt"
+
+[[instances]]
+id = "rod"
+part = "cuas2-pusher-rod"
+group = "tilt"
+
+[[instances]]
+id = "hopper"
+part = "cuas2-hopper"
+group = "tilt"
+
+[[instances]]
+id = "hopper_lid"
+part = "cuas2-hopper-lid"
+group = "tilt"
+
+[[instances]]
+id = "sensor_bar"
+part = "cuas2-sensor-bar"
+group = "tilt"
+
+[[instances]]
+id = "ballast_cup"
+part = "cuas2-ballast-cup"
+group = "tilt"
+
+[[instances]]
+id = "motor_t"
+part = "brushless-2207-1800kv"
+group = "tilt"
+
+[[instances]]
+id = "motor_b"
+part = "brushless-2207-1800kv"
+group = "tilt"
+
+[[instances]]
+id = "esc_t"
+part = "esc-30a-bluejay-single"
+group = "tilt"
+
+[[instances]]
+id = "esc_b"
+part = "esc-30a-bluejay-single"
+group = "tilt"
+
+[[instances]]
+id = "led_mz"
+part = "ir-led-940nm-5mm"
+group = "tilt"
+
+[[instances]]
+id = "pt_mz"
+part = "ir-phototransistor-940nm-5mm"
+group = "tilt"
+
+[[instances]]
+id = "led_br"
+part = "ir-led-940nm-5mm"
+group = "tilt"
+
+[[instances]]
+id = "pt_br"
+part = "ir-phototransistor-940nm-5mm"
+group = "tilt"
+
+[[instances]]
+id = "servo_gate"
+part = "towerpro-sg92r"
+group = "tilt"
+
+[[instances]]
+id = "servo_push"
+part = "towerpro-sg92r"
+group = "tilt"
+
+[[instances]]
+id = "hall_gate"
+part = "allegro-a3144-hall-switch"
+group = "tilt"
+
+[[instances]]
+id = "mag_gate"
+part = "cuas-lite-magnet-disc-6x2"
+group = "tilt"
+
+[[instances]]
+id = "hall_push"
+part = "allegro-a3144-hall-switch"
+group = "tilt"
+
+[[instances]]
+id = "mag_push"
+part = "cuas-lite-magnet-disc-6x2"
+group = "tilt"
+
+[[instances]]
+id = "mag_tilt"
+part = "cuas-lite-magnet-disc-6x2"
+group = "tilt"
+
+[[instances]]
+id = "brio"
+part = "logitech-brio-4k"
+group = "tilt"
+
+# ================================================================ mechanics ====================================================================================================
+[[mates]]
+name = "pan_joint"
+a = "base.seat_rotor"
+b = "rotor.origin"
+joint = { type = "hinge", range = { value = [-2.9670597283903604, 2.9670597283903604], unit = "rad", fidelity = "derived", derivation = "+-170 deg (spec 3 / lite pan range) x pi / 180." } }
+
+# pan group: printed parts in frame B (identity), bought parts on seat ports
+[[mates]]
+name = "yoke_l--rotor"
+a = "rotor.frame_up"
+b = "yoke_l.origin"
+
+[[mates]]
+name = "yoke_r--rotor"
+a = "rotor.frame_up"
+b = "yoke_r.origin"
+
+[[mates]]
+name = "lazy_susan--rotor"
+a = "rotor.seat_lazy_susan"
+b = "lazy_susan.origin"
+
+[[mates]]
+name = "mag_pan--rotor"
+a = "rotor.seat_magnet_pan"
+b = "mag_pan.origin"
+
+[[mates]]
+name = "nema_tilt--rotor"
+a = "rotor.seat_nema_tilt"
+b = "nema_tilt.origin"
+
+[[mates]]
+name = "pulley_tilt--rotor"
+a = "rotor.seat_pulley_tilt"
+b = "pulley_tilt.origin"
+
+[[mates]]
+name = "hall_tilt--rotor"
+a = "rotor.seat_hall_tilt"
+b = "hall_tilt.origin"
+
+[[mates]]
+name = "brg_l--rotor"
+a = "rotor.seat_brg_left"
+b = "brg_l.origin"
+
+[[mates]]
+name = "brg_r--rotor"
+a = "rotor.seat_brg_right"
+b = "brg_r.origin"
+
+# tilt joint: yoke_left carries the tilt axis, the cradle hinge is the b side; reverse = positive tilt raises the muzzle
+[[mates]]
+name = "tilt_joint"
+a = "yoke_l.tilt_axis"
+b = "cradle.hinge"
+joint = { type = "hinge", reverse = true, range = { value = [-0.2617993877991494, 1.2217304763960306], unit = "rad", fidelity = "derived", derivation = "-15 .. +70 deg (spec 3, C-BAL / C-PATH poses) x pi / 180." } }
+
+# Bolted / trunnion pairs (closure mates: no joint, they only declare that the contact or insert overlap of the pair is intended).
+[[mates]]
+name = "yoke_r--cradle"
+a = "yoke_r.tilt_axis"
+b = "cradle.hinge"
+closure = true
+
+[[mates]]
+name = "cage--gap_plate"
+a = "cage.frame_up"
+b = "gap_plate.origin"
+closure = true
+
+[[mates]]
+name = "cage--valve"
+a = "cage.frame_up"
+b = "valve.origin"
+closure = true
+
+[[mates]]
+name = "hopper--hopper_lid"
+a = "hopper.frame_up"
+b = "hopper_lid.origin"
+closure = true
+
+[[mates]]
+name = "hopper--valve"
+a = "hopper.frame_up"
+b = "valve.origin"
+closure = true
+
+# tilt group: printed parts in frame H (identity)
+[[mates]]
+name = "cage--cradle"
+a = "cradle.frame_up"
+b = "cage.origin"
+
+[[mates]]
+name = "gap_plate--cradle"
+a = "cradle.frame_up"
+b = "gap_plate.origin"
+
+[[mates]]
+name = "valve--cradle"
+a = "cradle.frame_up"
+b = "valve.origin"
+
+[[mates]]
+name = "plug--cradle"
+a = "cradle.frame_up"
+b = "plug.origin"
+
+[[mates]]
+name = "rod--cradle"
+a = "cradle.frame_up"
+b = "rod.origin"
+
+[[mates]]
+name = "hopper--cradle"
+a = "cradle.frame_up"
+b = "hopper.origin"
+
+[[mates]]
+name = "hopper_lid--cradle"
+a = "cradle.frame_up"
+b = "hopper_lid.origin"
+
+[[mates]]
+name = "sensor_bar--cradle"
+a = "cradle.frame_up"
+b = "sensor_bar.origin"
+
+[[mates]]
+name = "ballast_cup--cradle"
+a = "cradle.frame_up"
+b = "ballast_cup.origin"
+
+[[mates]]
+name = "hub_t--cradle"
+a = "cradle.seat_wheel_top"
+b = "hub_t.origin"
+
+[[mates]]
+name = "hub_b--cradle"
+a = "cradle.seat_wheel_bot"
+b = "hub_b.origin"
+
+[[mates]]
+name = "tyre_t--cradle"
+a = "cradle.seat_wheel_top"
+b = "tyre_t.origin"
+
+[[mates]]
+name = "tyre_b--cradle"
+a = "cradle.seat_wheel_bot"
+b = "tyre_b.origin"
+
+# tilt group: bought parts on seat ports
+[[mates]]
+name = "motor_t--cradle"
+a = "cradle.seat_motor_top"
+b = "motor_t.origin"
+
+[[mates]]
+name = "motor_b--cradle"
+a = "cradle.seat_motor_bot"
+b = "motor_b.origin"
+
+[[mates]]
+name = "esc_t--cradle"
+a = "cradle.seat_esc_top"
+b = "esc_t.origin"
+
+[[mates]]
+name = "esc_b--cradle"
+a = "cradle.seat_esc_bot"
+b = "esc_b.origin"
+
+[[mates]]
+name = "led_mz--cradle"
+a = "cradle.seat_muzzle_led"
+b = "led_mz.origin"
+
+[[mates]]
+name = "pt_mz--cradle"
+a = "cradle.seat_muzzle_pt"
+b = "pt_mz.origin"
+
+[[mates]]
+name = "led_br--cradle"
+a = "cradle.seat_breech_led"
+b = "led_br.origin"
+
+[[mates]]
+name = "pt_br--cradle"
+a = "cradle.seat_breech_pt"
+b = "pt_br.origin"
+
+[[mates]]
+name = "servo_gate--cradle"
+a = "cradle.seat_servo_gate"
+b = "servo_gate.origin"
+
+[[mates]]
+name = "servo_push--cradle"
+a = "cradle.seat_servo_push"
+b = "servo_push.origin"
+
+[[mates]]
+name = "hall_gate--cradle"
+a = "cradle.seat_hall_gate"
+b = "hall_gate.origin"
+
+[[mates]]
+name = "mag_gate--cradle"
+a = "cradle.seat_magnet_gate"
+b = "mag_gate.origin"
+
+[[mates]]
+name = "hall_push--cradle"
+a = "cradle.seat_hall_push"
+b = "hall_push.origin"
+
+[[mates]]
+name = "mag_push--cradle"
+a = "cradle.seat_magnet_push"
+b = "mag_push.origin"
+
+[[mates]]
+name = "mag_tilt--cradle"
+a = "cradle.seat_magnet_tilt"
+b = "mag_tilt.origin"
+
+[[mates]]
+name = "brio--cradle"
+a = "cradle.seat_brio"
+b = "brio.origin"
+
+# ================================================================ wiring =========================================================================================================
+# ---- 12 V supply: brick -> XT60 -> 20 A fuse -> bus; returns to the XT60 minus ---------------------------------------------------------------------------------------------------
+[[wires]]
+name = "psu_cord"
+from = "psu.power_out"
+to = "xt60.wire_female"
+from_pins = ["OUT.1", "OUT.2"]
+to_pins = ["WF.1", "WF.2"]
+part = "awg-18-silicone-wire"
+length = "psu.cable_length"
+conductors = 2
+included_in = "psu"
+
+[[wires]]
+name = "xt60_fuse"
+from = "xt60.wire_male"
+to = "fuse.line"
+from_pins = ["WM.1"]
+to_pins = ["F.1"]
+part = "awg-18-silicone-wire"
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Estimated: inlet to the fuse holder on the lower deck." }
+
+[[wires]]
+name = "fuse_jetson"
+from = "fuse.line"
+to = "jetson.power_in"
+from_pins = ["F.2"]
+to_pins = ["J16.1"]
+part = "awg-18-silicone-wire"
+length = { value = 0.25, unit = "m", fidelity = "estimated", rationale = "Estimated: fuse to the Jetson DC jack across the lower deck." }
+
+[[wires]]
+name = "gnd_jetson"
+from = "jetson.power_in"
+to = "xt60.wire_male"
+from_pins = ["J16.2"]
+to_pins = ["WM.2"]
+part = "awg-18-silicone-wire"
+length = { value = 0.25, unit = "m", fidelity = "estimated", rationale = "Estimated: Jetson DC jack back to the inlet minus." }
+
+[[wires]]
+name = "fuse_tmc_pan"
+from = "fuse.line"
+to = "tmc_pan.vmot"
+from_pins = ["F.2"]
+to_pins = ["PWR.1"]
+part = "awg-18-silicone-wire"
+length = { value = 0.60, unit = "m", fidelity = "estimated", rationale = "Estimated: lower deck up the leg into the power box." }
+
+[[wires]]
+name = "gnd_tmc_pan"
+from = "tmc_pan.vmot"
+to = "xt60.wire_male"
+from_pins = ["PWR.2"]
+to_pins = ["WM.2"]
+part = "awg-18-silicone-wire"
+length = { value = 0.60, unit = "m", fidelity = "estimated", rationale = "Estimated: as fuse_tmc_pan." }
+
+[[wires]]
+name = "fuse_tmc_tilt"
+from = "fuse.line"
+to = "tmc_tilt.vmot"
+from_pins = ["F.2"]
+to_pins = ["PWR.1"]
+part = "awg-18-silicone-wire"
+length = { value = 0.62, unit = "m", fidelity = "estimated", rationale = "Estimated: as fuse_tmc_pan." }
+
+[[wires]]
+name = "gnd_tmc_tilt"
+from = "tmc_tilt.vmot"
+to = "xt60.wire_male"
+from_pins = ["PWR.2"]
+to_pins = ["WM.2"]
+part = "awg-18-silicone-wire"
+length = { value = 0.62, unit = "m", fidelity = "estimated", rationale = "Estimated: as fuse_tmc_pan." }
+
+# ---- weapon rail: key + E-stop + relay coil + supervisor MOSFET (hardware, independent of the Pico except for the KICK) ---------------------------------------------------------------
+[[wires]]
+name = "fuse_key"
+from = "fuse.line"
+to = "key.contact"
+from_pins = ["F.2"]
+to_pins = ["K.1"]
+part = "awg-22-silicone-wire"
+length = { value = 0.70, unit = "m", fidelity = "estimated", rationale = "Estimated: lower deck to the key in the power-box wall." }
+
+[[wires]]
+name = "key_estop"
+from = "key.contact"
+to = "estop.contact"
+from_pins = ["K.2"]
+to_pins = ["NC.1"]
+part = "awg-22-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: key to E-stop contact block, 40 mm apart in the wall plus slack." }
+
+[[wires]]
+name = "estop_coil"
+from = "estop.contact"
+to = "relay.coil"
+from_pins = ["NC.2"]
+to_pins = ["COIL.1"]
+part = "awg-22-silicone-wire"
+length = { value = 0.15, unit = "m", fidelity = "estimated", rationale = "Estimated: E-stop block to relay terminal 86." }
+
+[[wires]]
+name = "coil_drain"
+from = "relay.coil"
+to = "q_sup.switch"
+from_pins = ["COIL.2"]
+to_pins = ["Q.2"]
+part = "awg-22-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: relay terminal 85 to the supervisor MOSFET drain on the lid." }
+
+[[wires]]
+name = "q_sup_source"
+from = "q_sup.switch"
+to = "xt60.wire_male"
+from_pins = ["Q.3"]
+to_pins = ["WM.2"]
+part = "awg-22-silicone-wire"
+length = { value = 0.60, unit = "m", fidelity = "estimated", rationale = "Estimated: MOSFET source to the inlet minus (star ground on the lower deck)." }
+
+[[wires]]
+name = "fly_d"
+from = "d_fly.diode"
+to = "relay.coil"
+from_pins = ["D.1", "D.2"]
+to_pins = ["COIL.2", "COIL.1"]
+part = "awg-22-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: flyback diode directly across the relay coil terminals." }
+conductors = 2
+included_in = "d_fly"
+
+[[wires]]
+name = "fuse_relay"
+from = "fuse.line"
+to = "relay.contact"
+from_pins = ["F.2"]
+to_pins = ["SW.1"]
+part = "awg-18-silicone-wire"
+length = { value = 0.70, unit = "m", fidelity = "estimated", rationale = "Estimated: lower deck to relay terminal 30." }
+
+[[wires]]
+name = "relay_esc_top"
+from = "relay.contact"
+to = "esc_t.power_in"
+from_pins = ["SW.2"]
+to_pins = ["BAT.1"]
+part = "awg-18-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: relay terminal 87 up through the pan axis to the head harness and the top ESC, slack for +-170 deg of pan." }
+
+[[wires]]
+name = "relay_esc_bot"
+from = "relay.contact"
+to = "esc_b.power_in"
+from_pins = ["SW.2"]
+to_pins = ["BAT.1"]
+part = "awg-18-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: as relay_esc_top, bottom ESC." }
+
+[[wires]]
+name = "relay_buck"
+from = "relay.contact"
+to = "buck.vin"
+from_pins = ["SW.2"]
+to_pins = ["IO.1"]
+part = "awg-22-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: relay terminal 87 to the buck input, both on the lid." }
+
+[[wires]]
+name = "gnd_esc_top"
+from = "esc_t.power_in"
+to = "xt60.wire_male"
+from_pins = ["BAT.2"]
+to_pins = ["WM.2"]
+part = "awg-18-silicone-wire"
+length = { value = 1.20, unit = "m", fidelity = "estimated", rationale = "Estimated: top ESC minus back to the inlet minus (through the pan axis and the power box)." }
+
+[[wires]]
+name = "gnd_esc_bot"
+from = "esc_b.power_in"
+to = "xt60.wire_male"
+from_pins = ["BAT.2"]
+to_pins = ["WM.2"]
+part = "awg-18-silicone-wire"
+length = { value = 1.20, unit = "m", fidelity = "estimated", rationale = "Estimated: as gnd_esc_top." }
+
+[[wires]]
+name = "gnd_buck"
+from = "buck.vin"
+to = "xt60.wire_male"
+from_pins = ["IO.2"]
+to_pins = ["WM.2"]
+part = "awg-22-silicone-wire"
+length = { value = 0.60, unit = "m", fidelity = "estimated", rationale = "Estimated: buck minus to the inlet minus." }
+
+# ---- 5 V logic rail (L7805 on the key-switched 12 V) -----------------------------------------------------------------------------------------------------------------------------------
+[[wires]]
+name = "key_reg"
+from = "key.contact"
+to = "reg.power_in"
+from_pins = ["K.2"]
+to_pins = ["REG.1"]
+part = "awg-22-silicone-wire"
+length = { value = 0.20, unit = "m", fidelity = "estimated", rationale = "Estimated: key output to the regulator input (before the E-stop, so the counter keeps its count while the E-stop is pressed)." }
+
+[[wires]]
+name = "gnd_reg"
+from = "reg.power_in"
+to = "xt60.wire_male"
+from_pins = ["REG.2"]
+to_pins = ["WM.2"]
+part = "awg-22-silicone-wire"
+length = { value = 0.60, unit = "m", fidelity = "estimated", rationale = "Estimated: regulator ground to the inlet minus." }
+
+[[wires]]
+name = "sense_key_top"
+from = "key.contact"
+to = "r_kt.rail"
+from_pins = ["K.2"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.20, unit = "m", fidelity = "estimated", rationale = "Estimated: key output to the divider on the lid." }
+
+[[wires]]
+name = "sense_key_mid"
+from = "r_kt.node"
+to = "pico.gpio"
+from_pins = ["UP.2"]
+to_pins = ["J.15"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: divider midpoint to GP11 (physical pin 15)." }
+
+[[wires]]
+name = "sense_key_bot"
+from = "r_kt.node"
+to = "r_kb.node_dn"
+from_pins = ["UP.2"]
+to_pins = ["DN.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: divider midpoint to the bottom resistor." }
+
+[[wires]]
+name = "sense_key_gnd"
+from = "r_kb.gnd"
+to = "pico.gpio"
+from_pins = ["DN.2"]
+to_pins = ["J.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: bottom resistor to the Pico ground pin 13." }
+
+[[wires]]
+name = "sense_estop_top"
+from = "estop.contact"
+to = "r_et.rail"
+from_pins = ["NC.2"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.20, unit = "m", fidelity = "estimated", rationale = "Estimated: E-stop output to the divider on the lid." }
+
+[[wires]]
+name = "sense_estop_mid"
+from = "r_et.node"
+to = "pico.gpio"
+from_pins = ["UP.2"]
+to_pins = ["J.14"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: divider midpoint to GP10 (physical pin 14)." }
+
+[[wires]]
+name = "sense_estop_bot"
+from = "r_et.node"
+to = "r_eb.node_dn"
+from_pins = ["UP.2"]
+to_pins = ["DN.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: divider midpoint to the bottom resistor." }
+
+[[wires]]
+name = "sense_estop_gnd"
+from = "r_eb.gnd"
+to = "pico.gpio"
+from_pins = ["DN.2"]
+to_pins = ["J.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: bottom resistor to the Pico ground pin 13." }
+
+# ---- supervisor (74HCT123 #1): KICK (GP28) retriggers a 149 ms pulse that drives the relay MOSFET ------------------------------------------------------------------------------------
+[[wires]]
+name = "reg_power_sup"
+from = "reg.power_out"
+to = "ic_sup.power"
+from_pins = ["REG.3", "REG.2"]
+to_pins = ["U.16", "U.8"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: regulator to the supervisor IC on the lid." }
+conductors = 2
+
+[[wires]]
+name = "reg_power_lim"
+from = "ic_sup.power"
+to = "ic_lim.power"
+from_pins = ["U.16", "U.8"]
+to_pins = ["U.16", "U.8"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: supply daisy chain between neighbouring DIPs." }
+conductors = 2
+
+[[wires]]
+name = "reg_power_cnt_u"
+from = "ic_sup.power"
+to = "cnt_u.power"
+from_pins = ["U.16", "U.8"]
+to_pins = ["U.16", "U.8"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: supply daisy chain between neighbouring DIPs." }
+conductors = 2
+
+[[wires]]
+name = "reg_power_cnt_t"
+from = "cnt_u.power"
+to = "cnt_t.power"
+from_pins = ["U.16", "U.8"]
+to_pins = ["U.16", "U.8"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: supply daisy chain to the counter on the second row." }
+conductors = 2
+
+[[wires]]
+name = "kick_b"
+from = "pico.gpio"
+to = "ic_sup.io"
+from_pins = ["J.34"]
+to_pins = ["U.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: GP28 KICK (physical pin 34) to 1B of the supervisor." }
+
+[[wires]]
+name = "sup_low_1a"
+from = "r_sup_dn.node_dn"
+to = "ic_sup.io"
+from_pins = ["DN.1"]
+to_pins = ["U.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down net to 1A (A low for the B-edge trigger)." }
+
+[[wires]]
+name = "sup_low_2a"
+from = "r_sup_dn.node_dn"
+to = "ic_sup.io"
+from_pins = ["DN.1"]
+to_pins = ["U.9"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down net to 2A (second monostable held off)." }
+
+[[wires]]
+name = "sup_low_2b"
+from = "r_sup_dn.node_dn"
+to = "ic_sup.io"
+from_pins = ["DN.1"]
+to_pins = ["U.10"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down net to 2B." }
+
+[[wires]]
+name = "sup_low_2clr"
+from = "r_sup_dn.node_dn"
+to = "ic_sup.io"
+from_pins = ["DN.1"]
+to_pins = ["U.11"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down net to 2CLR (low = the unused second monostable output is forced low)." }
+
+[[wires]]
+name = "sup_pd_gnd"
+from = "r_sup_dn.gnd"
+to = "pico.gpio"
+from_pins = ["DN.2"]
+to_pins = ["J.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down ground to the Pico ground pin 13." }
+
+[[wires]]
+name = "sup_clr_rail"
+from = "reg.power_out"
+to = "r_sup_up.rail"
+from_pins = ["REG.3"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: 5 V to the CLR pull-up." }
+
+[[wires]]
+name = "sup_clr"
+from = "r_sup_up.node"
+to = "ic_sup.io"
+from_pins = ["UP.2"]
+to_pins = ["U.3"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-up midpoint to 1CLR." }
+
+[[wires]]
+name = "sup_rext"
+from = "reg.power_out"
+to = "r_sup.rail"
+from_pins = ["REG.3"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: 5 V to the supervisor timing resistor." }
+
+[[wires]]
+name = "sup_rext_pin"
+from = "r_sup.node"
+to = "ic_sup.io"
+from_pins = ["UP.2"]
+to_pins = ["U.15"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: Rext to pin 15 (Rext/Cext)." }
+
+[[wires]]
+name = "sup_c_plus"
+from = "c_sup.plus"
+to = "ic_sup.io"
+from_pins = ["C.1"]
+to_pins = ["U.15"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: timing capacitor + to pin 15." }
+
+[[wires]]
+name = "sup_c_minus"
+from = "c_sup.minus"
+to = "ic_sup.io"
+from_pins = ["C.2"]
+to_pins = ["U.14"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: timing capacitor - to pin 14 (Cext)." }
+
+[[wires]]
+name = "sup_out"
+from = "ic_sup.io"
+to = "r_gate.ser_a"
+from_pins = ["U.13"]
+to_pins = ["SS.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: 1Q (pin 13) to the 1 k gate resistor." }
+
+[[wires]]
+name = "sup_gate"
+from = "r_gate.ser_b"
+to = "q_sup.gate"
+from_pins = ["SS.2"]
+to_pins = ["Q.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: gate resistor to the MOSFET gate." }
+
+[[wires]]
+name = "sup_gate_pd"
+from = "r_gpd.node_dn"
+to = "q_sup.gate"
+from_pins = ["DN.1"]
+to_pins = ["Q.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 100 k pull-down on the gate." }
+
+[[wires]]
+name = "sup_gate_pd_gnd"
+from = "r_gpd.gnd"
+to = "pico.gpio"
+from_pins = ["DN.2"]
+to_pins = ["J.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down ground to the Pico ground pin 13." }
+
+# ---- hardware shot counter (2 x 74HCT4017 cascaded; muzzle-beam clock; TRIP at the 10th ball holds the gate low with a 2N3904; reset only by the key power cycle) ---------------------------
+[[wires]]
+name = "cnt_clk"
+from = "r_pt_mz.node_up"
+to = "cnt_u.io"
+from_pins = ["UP.2"]
+to_pins = ["U.14"]
+part = "awg-26-silicone-wire"
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "Estimated: muzzle phototransistor node (shared with GP16) to the units counter clock; the node rises when a ball blocks the beam." }
+
+[[wires]]
+name = "cnt_carry"
+from = "cnt_u.io"
+to = "cnt_t.io"
+from_pins = ["U.12"]
+to_pins = ["U.14"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: units CARRY-OUT (pin 12, rises on the wrap 9 -> 0) to the tens clock." }
+
+[[wires]]
+name = "cnt_trip_ce"
+from = "cnt_t.io"
+to = "cnt_t.io"
+from_pins = ["U.2"]
+to_pins = ["U.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.02, unit = "m", fidelity = "estimated", rationale = "Estimated: tens Q1 (pin 2, high at 10 balls = TRIP) to its own /CE (pin 13): the tens counter freezes, TRIP stays high. Jumper to pin 4 / 7 instead for N = 20 / 30." }
+
+[[wires]]
+name = "cnt_trip_base"
+from = "cnt_t.io"
+to = "r_cb.ser_a"
+from_pins = ["U.2"]
+to_pins = ["SS.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: TRIP to the clamp base resistor." }
+
+[[wires]]
+name = "cnt_clamp_b"
+from = "r_cb.ser_b"
+to = "q_clamp.base"
+from_pins = ["SS.2"]
+to_pins = ["T.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: base resistor to the clamp base." }
+
+[[wires]]
+name = "cnt_clamp_c"
+from = "q_clamp.switch"
+to = "q_sup.gate"
+from_pins = ["T.3"]
+to_pins = ["Q.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: clamp collector to the supervisor MOSFET gate (pulls it to ground when tripped)." }
+
+[[wires]]
+name = "cnt_clamp_e"
+from = "q_clamp.switch"
+to = "pico.gpio"
+from_pins = ["T.1"]
+to_pins = ["J.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: clamp emitter to the Pico ground pin 13." }
+
+[[wires]]
+name = "cnt_ce_pd"
+from = "r_ce.node_dn"
+to = "cnt_u.io"
+from_pins = ["DN.1"]
+to_pins = ["U.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: units /CE (pin 13) held low." }
+
+[[wires]]
+name = "cnt_ce_pd_gnd"
+from = "r_ce.gnd"
+to = "pico.gpio"
+from_pins = ["DN.2"]
+to_pins = ["J.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down ground to the Pico ground pin 13." }
+
+[[wires]]
+name = "por_rail"
+from = "reg.power_out"
+to = "c_por.rail"
+from_pins = ["REG.3"]
+to_pins = ["C.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: 5 V to the power-on-reset capacitor." }
+
+[[wires]]
+name = "por_reset_u"
+from = "c_por.minus"
+to = "cnt_u.io"
+from_pins = ["C.2"]
+to_pins = ["U.15"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: reset capacitor to the units RESET (pin 15)." }
+
+[[wires]]
+name = "por_reset_t"
+from = "c_por.minus"
+to = "cnt_t.io"
+from_pins = ["C.2"]
+to_pins = ["U.15"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: reset capacitor to the tens RESET (pin 15)." }
+
+[[wires]]
+name = "por_pd"
+from = "r_por.node_dn"
+to = "c_por.minus"
+from_pins = ["DN.1"]
+to_pins = ["C.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 100 k pull-down on the reset node." }
+
+[[wires]]
+name = "por_pd_gnd"
+from = "r_por.gnd"
+to = "pico.gpio"
+from_pins = ["DN.2"]
+to_pins = ["J.13"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down ground to the Pico ground pin 13." }
+
+# ---- shot limiter (74HCT123 #2): FEED_REQ (GP19) edge -> 254 ms pusher-servo supply window, 338 ms lockout -------------------------------------------------------------------------
+[[wires]]
+name = "feed_req_b"
+from = "pico.gpio"
+to = "ic_lim.io"
+from_pins = ["J.25"]
+to_pins = ["U.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: GP19 FEED_REQ (physical pin 25) to 1B (pin 2) of the limiter." }
+
+[[wires]]
+name = "feed_req_b2"
+from = "ic_lim.io"
+to = "ic_lim.io"
+from_pins = ["U.2"]
+to_pins = ["U.10"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: jumper from 1B to 2B (pin 10): the same edge triggers both monostables." }
+
+[[wires]]
+name = "feed_req_pd"
+from = "r_fr.node_dn"
+to = "ic_lim.io"
+from_pins = ["DN.1"]
+to_pins = ["U.10"]
+part = "awg-26-silicone-wire"
+length = { value = 0.04, unit = "m", fidelity = "estimated", rationale = "Estimated: the 10 k pull-down on the FEED_REQ net (spec 6.5), at the limiter inputs." }
+
+[[wires]]
+name = "feed_req_pd_gnd"
+from = "r_fr.gnd"
+to = "pico.gpio"
+from_pins = ["DN.2"]
+to_pins = ["J.23"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-down ground to the Pico ground pin 23." }
+
+[[wires]]
+name = "lim_lockout_1a"
+from = "ic_lim.io"
+to = "ic_lim.io"
+from_pins = ["U.5"]
+to_pins = ["U.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 2Q (pin 5, the 338 ms lockout pulse) drives 1A: the limiter MS1 ignores further B edges while it is high (minimum shot interval)." }
+
+[[wires]]
+name = "lim_lockout_2a"
+from = "ic_lim.io"
+to = "ic_lim.io"
+from_pins = ["U.5"]
+to_pins = ["U.9"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 2Q also drives its own 2A: non-retriggerable lockout." }
+
+[[wires]]
+name = "lim_clr_rail"
+from = "reg.power_out"
+to = "r_clr_lim.rail"
+from_pins = ["REG.3"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: 5 V to the CLR pull-up." }
+
+[[wires]]
+name = "lim_clr_1"
+from = "r_clr_lim.node"
+to = "ic_lim.io"
+from_pins = ["UP.2"]
+to_pins = ["U.3"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-up midpoint to 1CLR." }
+
+[[wires]]
+name = "lim_clr_2"
+from = "r_clr_lim.node"
+to = "ic_lim.io"
+from_pins = ["UP.2"]
+to_pins = ["U.11"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-up midpoint to 2CLR." }
+
+[[wires]]
+name = "lim_rext_on_rail"
+from = "reg.power_out"
+to = "r_on.rail"
+from_pins = ["REG.3"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: 5 V to the MS1 timing resistor." }
+
+[[wires]]
+name = "lim_rext_on"
+from = "r_on.node"
+to = "ic_lim.io"
+from_pins = ["UP.2"]
+to_pins = ["U.15"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: MS1 Rext to pin 15." }
+
+[[wires]]
+name = "lim_c_on"
+from = "c_on.plus"
+to = "ic_lim.io"
+from_pins = ["C.1"]
+to_pins = ["U.15"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: MS1 capacitor + to pin 15." }
+
+[[wires]]
+name = "lim_c_on_minus"
+from = "c_on.minus"
+to = "ic_lim.io"
+from_pins = ["C.2"]
+to_pins = ["U.14"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: MS1 capacitor - to pin 14." }
+
+[[wires]]
+name = "lim_rext_hold_rail"
+from = "reg.power_out"
+to = "r_hold.rail"
+from_pins = ["REG.3"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: 5 V to the MS2 timing resistor." }
+
+[[wires]]
+name = "lim_rext_hold"
+from = "r_hold.node"
+to = "ic_lim.io"
+from_pins = ["UP.2"]
+to_pins = ["U.7"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: MS2 Rext to pin 7." }
+
+[[wires]]
+name = "lim_c_hold"
+from = "c_hold.plus"
+to = "ic_lim.io"
+from_pins = ["C.1"]
+to_pins = ["U.7"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: MS2 capacitor + to pin 7." }
+
+[[wires]]
+name = "lim_c_hold_minus"
+from = "c_hold.minus"
+to = "ic_lim.io"
+from_pins = ["C.2"]
+to_pins = ["U.6"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: MS2 capacitor - to pin 6." }
+
+[[wires]]
+name = "lim_out_gate"
+from = "ic_lim.io"
+to = "q_p.gate"
+from_pins = ["U.4"]
+to_pins = ["Q.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: 1Q-bar (pin 4, low during the 254 ms window) to the P-MOSFET gate." }
+
+[[wires]]
+name = "lim_pg_rail"
+from = "buck.vout"
+to = "r_pg.rail"
+from_pins = ["IO.3"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: buck 5 V to the gate pull-up." }
+
+[[wires]]
+name = "lim_pg_gate"
+from = "r_pg.node"
+to = "q_p.gate"
+from_pins = ["UP.2"]
+to_pins = ["Q.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-up midpoint to the P-MOSFET gate." }
+
+[[wires]]
+name = "lim_pfet_source"
+from = "buck.vout"
+to = "q_p.switch"
+from_pins = ["IO.3"]
+to_pins = ["Q.3"]
+part = "awg-22-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: buck 5 V to the P-MOSFET source." }
+
+# ---- servos: gate (continuous 5 V, GP18) and pusher (limiter-switched 5 V, GP14) ------------------------------------------------------------------------------------------------
+[[wires]]
+name = "rail_servo_gate"
+from = "buck.vout"
+to = "servo_gate.power_in"
+from_pins = ["IO.3", "IO.4"]
+to_pins = ["SRV.2", "SRV.1"]
+part = "awg-22-silicone-wire"
+length = { value = 1.00, unit = "m", fidelity = "estimated", rationale = "Estimated: power box up the pan axis to the head harness and the gate servo, slack for +-170 deg of pan." }
+conductors = 2
+
+[[wires]]
+name = "gate_servo_sig"
+from = "pico.gpio"
+to = "servo_gate.signal"
+from_pins = ["J.24"]
+to_pins = ["SRV.3"]
+part = "awg-26-silicone-wire"
+length = { value = 1.00, unit = "m", fidelity = "estimated", rationale = "Estimated: GP18 GATE_SERVO (physical pin 24), same route as the gate servo supply." }
+
+[[wires]]
+name = "push_supply"
+from = "q_p.switch"
+to = "servo_push.power_in"
+from_pins = ["Q.2"]
+to_pins = ["SRV.2"]
+part = "awg-22-silicone-wire"
+length = { value = 1.00, unit = "m", fidelity = "estimated", rationale = "Estimated: P-MOSFET drain to the pusher servo V+ over the same route." }
+
+[[wires]]
+name = "push_gnd"
+from = "buck.vout"
+to = "servo_push.power_in"
+from_pins = ["IO.4"]
+to_pins = ["SRV.1"]
+part = "awg-22-silicone-wire"
+length = { value = 1.00, unit = "m", fidelity = "estimated", rationale = "Estimated: buck minus to the pusher servo ground over the same route." }
+
+[[wires]]
+name = "push_servo_sig"
+from = "pico.gpio"
+to = "servo_push.signal"
+from_pins = ["J.19"]
+to_pins = ["SRV.3"]
+part = "awg-26-silicone-wire"
+length = { value = 1.00, unit = "m", fidelity = "estimated", rationale = "Estimated: GP14 (PWM7A, physical pin 19) pusher servo signal, same route." }
+
+# ---- flywheel ESCs and motors (DShot on GP12 / GP13) --------------------------------------------------------------------------------------------------------------------------------
+[[wires]]
+name = "dshot_top"
+from = "pico.gpio"
+to = "esc_t.signal"
+from_pins = ["J.16", "J.18"]
+to_pins = ["SIG.1", "SIG.2"]
+part = "awg-26-silicone-wire"
+length = { value = 1.00, unit = "m", fidelity = "estimated", rationale = "Estimated: GP12 DSHOT_TOP (physical pin 16) and ground (pin 18) up to the top ESC over the head harness." }
+conductors = 2
+
+[[wires]]
+name = "dshot_bot"
+from = "pico.gpio"
+to = "esc_b.signal"
+from_pins = ["J.17", "J.18"]
+to_pins = ["SIG.1", "SIG.2"]
+part = "awg-26-silicone-wire"
+length = { value = 1.00, unit = "m", fidelity = "estimated", rationale = "Estimated: GP13 DSHOT_BOT (physical pin 17) and ground (pin 18) to the bottom ESC." }
+conductors = 2
+
+[[wires]]
+name = "motor_top_leads"
+from = "esc_t.motor_out"
+to = "motor_t.phase"
+from_pins = ["MOT.1", "MOT.2", "MOT.3"]
+to_pins = ["PH.1", "PH.2", "PH.3"]
+part = "awg-22-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: ESC pads to the motor leads through the 3 mm wall hole, short." }
+conductors = 3
+included_in = "motor_t"
+
+[[wires]]
+name = "motor_bot_leads"
+from = "esc_b.motor_out"
+to = "motor_b.phase"
+from_pins = ["MOT.1", "MOT.2", "MOT.3"]
+to_pins = ["PH.1", "PH.2", "PH.3"]
+part = "awg-22-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: as motor_top_leads." }
+conductors = 3
+included_in = "motor_b"
+
+# ---- optical beams (3V3 from the Pico): muzzle -> GP16 + counter clock, breech -> GP7 -----------------------------------------------------------------------------------------------------
+[[wires]]
+name = "v3_led_mz"
+from = "r_ms_tilt.rail"
+to = "r_led_mz.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain (the Pico 3V3 pin 36 feeds the first resistor only; a 3V3 pin takes one wire)." }
+
+[[wires]]
+name = "v3_led_br"
+from = "r_led_mz.rail"
+to = "r_led_br.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain between neighbouring resistors." }
+
+[[wires]]
+name = "v3_pt_mz"
+from = "r_led_br.rail"
+to = "r_pt_mz.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain." }
+
+[[wires]]
+name = "v3_pt_br"
+from = "r_pt_mz.rail"
+to = "r_pt_br.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain." }
+
+[[wires]]
+name = "led_mz_a"
+from = "r_led_mz.node_up"
+to = "led_mz.led"
+from_pins = ["UP.2"]
+to_pins = ["D.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: power box to the muzzle LED over the head harness." }
+
+[[wires]]
+name = "led_mz_k"
+from = "led_mz.led"
+to = "pico.gpio"
+from_pins = ["D.2"]
+to_pins = ["J.18"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: LED cathode back to the Pico ground pin 18." }
+
+[[wires]]
+name = "led_br_a"
+from = "r_led_br.node_up"
+to = "led_br.led"
+from_pins = ["UP.2"]
+to_pins = ["D.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: power box to the breech LED over the head harness." }
+
+[[wires]]
+name = "led_br_k"
+from = "led_br.led"
+to = "pico.gpio"
+from_pins = ["D.2"]
+to_pins = ["J.18"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: LED cathode back to the Pico ground pin 18." }
+
+[[wires]]
+name = "pt_mz_c"
+from = "pt_mz.out"
+to = "r_pt_mz.node_up"
+from_pins = ["T.1"]
+to_pins = ["UP.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: muzzle phototransistor collector to its pull-up over the head harness." }
+
+[[wires]]
+name = "pt_mz_e"
+from = "pt_mz.out"
+to = "pico.gpio"
+from_pins = ["T.2"]
+to_pins = ["J.18"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: emitter to the Pico ground pin 18." }
+
+[[wires]]
+name = "bm_muz_gp16"
+from = "r_pt_mz.node_up"
+to = "pico.gpio"
+from_pins = ["UP.2"]
+to_pins = ["J.21"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: spec 6.5 GP16 BM_MUZ (physical pin 21), GPIO IRQ with 1 us timestamp." }
+
+[[wires]]
+name = "pt_br_c"
+from = "pt_br.out"
+to = "r_pt_br.node_up"
+from_pins = ["T.1"]
+to_pins = ["UP.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: breech phototransistor collector to its pull-up over the head harness." }
+
+[[wires]]
+name = "pt_br_e"
+from = "pt_br.out"
+to = "pico.gpio"
+from_pins = ["T.2"]
+to_pins = ["J.18"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: emitter to the Pico ground pin 18." }
+
+[[wires]]
+name = "bm_breech_gp7"
+from = "r_pt_br.node_up"
+to = "pico.gpio"
+from_pins = ["UP.2"]
+to_pins = ["J.10"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: spec 6.5 GP7 BM_BREECH (physical pin 10)." }
+
+# ---- status LED (GP15, WS2812B on 3V3) ----------------------------------------------------------------------------------------------------------------------------------------------
+[[wires]]
+name = "led_status_power"
+from = "r_pt_br.rail"
+to = "led_status.power"
+from_pins = ["UP.1"]
+to_pins = ["L.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: end of the 3V3 chain to the status LED." }
+
+[[wires]]
+name = "led_status_gnd"
+from = "led_status.power"
+to = "pico.gpio"
+from_pins = ["L.3"]
+to_pins = ["J.23"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: status LED ground to the Pico ground pin 23." }
+
+[[wires]]
+name = "led_status_din"
+from = "pico.gpio"
+to = "led_status.din"
+from_pins = ["J.20"]
+to_pins = ["L.4"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: spec 6.5 GP15 status RGB LED (physical pin 20, PIO1)." }
+
+# ---- Jetson, USB and hall sensors ---------------------------------------------------------------------------------------------------------------------------------------------------
+[[wires]]
+name = "jetson_5v_pico"
+from = "jetson.header_5v_a"
+to = "pico.vsys_in"
+from_pins = ["J12.2", "J12.6"]
+to_pins = ["J.39", "J.38"]
+part = "awg-26-silicone-wire"
+length = { value = 0.70, unit = "m", fidelity = "estimated", rationale = "Estimated: Jetson 40-pin header (5 V pin 2, ground pin 6) up the leg to the Pico VSYS and ground." }
+conductors = 2
+
+[[wires]]
+name = "usb_pico_jetson"
+from = "pico.usb"
+to = "jetson.usb_j7"
+from_pins = ["USB.1", "USB.2", "USB.3", "USB.5"]
+to_pins = ["J7.1", "J7.2", "J7.3", "J7.4"]
+part = "awg-28-silicone-wire"
+length = { value = 0.70, unit = "m", fidelity = "estimated", rationale = "Estimated: Pico micro-USB to the Jetson USB-A up the leg." }
+conductors = 4
+
+[[wires]]
+name = "usb_brio_jetson"
+from = "brio.usb"
+to = "jetson.usb_j6"
+from_pins = ["USB.1", "USB.2", "USB.3", "USB.4"]
+to_pins = ["J6.1", "J6.2", "J6.3", "J6.4"]
+part = "awg-28-silicone-wire"
+length = { value = 1.20, unit = "m", fidelity = "estimated", rationale = "Estimated: the Brio's own cable (attached), run from the head over the left trunnion and down the pan axis to the Jetson." }
+conductors = 4
+included_in = "brio"
+
+[[wires]]
+name = "jetson_5v_hall_pan"
+from = "jetson.header_5v_b"
+to = "hall_pan.power"
+from_pins = ["J12.4", "J12.9"]
+to_pins = ["H.1", "H.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.40, unit = "m", fidelity = "estimated", rationale = "Estimated: Jetson header 5 V (pin 4) and ground (pin 9) to the pan hall under the base." }
+conductors = 2
+
+[[wires]]
+name = "hall_pan_to_tilt_power"
+from = "hall_pan.power"
+to = "hall_tilt.power"
+from_pins = ["H.1", "H.2"]
+to_pins = ["H.1", "H.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.80, unit = "m", fidelity = "estimated", rationale = "Estimated: pan hall to the tilt hall on the left cheek, with slack for the pan." }
+conductors = 2
+
+[[wires]]
+name = "hall_pan_out"
+from = "hall_pan.out"
+to = "r_hp.node_up"
+from_pins = ["H.3"]
+to_pins = ["UP.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.30, unit = "m", fidelity = "estimated", rationale = "Estimated: pan hall output to the pull-up in the power box." }
+
+[[wires]]
+name = "hall_pan_gp8"
+from = "r_hp.node_up"
+to = "pico.gpio"
+from_pins = ["UP.2"]
+to_pins = ["J.11"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-up node to GP8 (physical pin 11)." }
+
+[[wires]]
+name = "hall_tilt_out"
+from = "hall_tilt.out"
+to = "r_ht.node_up"
+from_pins = ["H.3"]
+to_pins = ["UP.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.80, unit = "m", fidelity = "estimated", rationale = "Estimated: tilt hall output down the pan axis to the pull-up." }
+
+[[wires]]
+name = "hall_tilt_gp9"
+from = "r_ht.node_up"
+to = "pico.gpio"
+from_pins = ["UP.2"]
+to_pins = ["J.12"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: pull-up node to GP9 (physical pin 12)." }
+
+# gate-home and push-home halls on the head (spec 6.5 GP26 / GP27), 5 V from the logic regulator (alive with the key, independent of the relay)
+[[wires]]
+name = "reg_5v_hall_gate"
+from = "reg.power_out"
+to = "hall_gate.power"
+from_pins = ["REG.3", "REG.2"]
+to_pins = ["H.1", "H.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: 5 V logic rail to the gate-home hall over the head harness." }
+conductors = 2
+
+[[wires]]
+name = "hall_gate_to_push_power"
+from = "hall_gate.power"
+to = "hall_push.power"
+from_pins = ["H.1", "H.2"]
+to_pins = ["H.1", "H.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.12, unit = "m", fidelity = "estimated", rationale = "Estimated: gate-home hall to the push-home hall on the head." }
+conductors = 2
+
+[[wires]]
+name = "hall_gate_out"
+from = "hall_gate.out"
+to = "r_hg.node_up"
+from_pins = ["H.3"]
+to_pins = ["UP.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: gate-home hall output to the pull-up in the power box." }
+
+[[wires]]
+name = "hall_gate_gp26"
+from = "r_hg.node_up"
+to = "pico.gpio"
+from_pins = ["UP.2"]
+to_pins = ["J.31"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: spec 6.5 GP26 GATE_HOME (physical pin 31)." }
+
+[[wires]]
+name = "hall_push_out"
+from = "hall_push.out"
+to = "r_hpu.node_up"
+from_pins = ["H.3"]
+to_pins = ["UP.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: push-home hall output to the pull-up in the power box." }
+
+[[wires]]
+name = "hall_push_gp27"
+from = "r_hpu.node_up"
+to = "pico.gpio"
+from_pins = ["UP.2"]
+to_pins = ["J.32"]
+part = "awg-26-silicone-wire"
+length = { value = 0.05, unit = "m", fidelity = "estimated", rationale = "Estimated: spec 6.5 GP27 PUSH_HOME (physical pin 32)." }
+
+# 3V3 chain for the pull-ups and driver straps
+[[wires]]
+name = "v3_hp"
+from = "pico.rail_3v3"
+to = "r_hp.rail"
+from_pins = ["J.36"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: Pico 3V3 to the first pull-up." }
+
+[[wires]]
+name = "v3_ht"
+from = "r_hp.rail"
+to = "r_ht.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain." }
+
+[[wires]]
+name = "v3_hg"
+from = "r_ht.rail"
+to = "r_hg.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain." }
+
+[[wires]]
+name = "v3_hpu"
+from = "r_hg.rail"
+to = "r_hpu.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain." }
+
+[[wires]]
+name = "v3_en"
+from = "r_hpu.rail"
+to = "r_en.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain." }
+
+[[wires]]
+name = "v3_ms_pan"
+from = "r_en.rail"
+to = "r_ms_pan.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain." }
+
+[[wires]]
+name = "v3_ms_tilt"
+from = "r_ms_pan.rail"
+to = "r_ms_tilt.rail"
+from_pins = ["UP.1"]
+to_pins = ["UP.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.03, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 chain." }
+
+[[wires]]
+name = "vio_pan"
+from = "r_ms_pan.rail"
+to = "tmc_pan.vio"
+from_pins = ["UP.1"]
+to_pins = ["PWR.7"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 to the pan driver VIO." }
+
+[[wires]]
+name = "vio_tilt"
+from = "r_ms_tilt.rail"
+to = "tmc_tilt.vio"
+from_pins = ["UP.1"]
+to_pins = ["PWR.7"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: 3V3 to the tilt driver VIO." }
+
+# ---- Pico to TMC2209 x 2 (pan, tilt: STEP / DIR, shared EN, UART, straps, motor leads) -----------------------------------------------------------------------------------------------
+[[wires]]
+name = "pan_step_dir"
+from = "pico.gpio"
+to = "tmc_pan.step_dir"
+from_pins = ["J.4", "J.5", "J.3"]
+to_pins = ["CTL.7", "CTL.8", "PWR.8"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: GP2 STEP, GP3 DIR and ground to the pan driver." }
+conductors = 3
+
+[[wires]]
+name = "en_a"
+from = "pico.gpio"
+to = "r_en.node_up"
+from_pins = ["J.6"]
+to_pins = ["UP.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: GP4 shared EN (spec 6.5: EN shared by pan and tilt) to the pull-up node." }
+
+[[wires]]
+name = "pan_en_b"
+from = "r_en.node_up"
+to = "tmc_pan.step_dir"
+from_pins = ["UP.2"]
+to_pins = ["CTL.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: EN node to the pan driver." }
+
+[[wires]]
+name = "tilt_en_b"
+from = "r_en.node_up"
+to = "tmc_tilt.step_dir"
+from_pins = ["UP.2"]
+to_pins = ["CTL.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: the same EN node to the tilt driver (v1 had a separate EN on GP7)." }
+
+[[wires]]
+name = "pan_ms1"
+from = "r_ms_pan.node_up"
+to = "tmc_pan.strap"
+from_pins = ["UP.2"]
+to_pins = ["CTL.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: strap resistor to MS1." }
+
+[[wires]]
+name = "pan_ms2"
+from = "r_ms_pan.node_up"
+to = "tmc_pan.strap"
+from_pins = ["UP.2"]
+to_pins = ["CTL.3"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: strap resistor to MS2." }
+
+[[wires]]
+name = "pan_uart_tx"
+from = "pico.gpio"
+to = "r_su_pan.ser_a"
+from_pins = ["J.26"]
+to_pins = ["SS.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: GP20 (UART1 TX, physical pin 26) to the series resistor." }
+
+[[wires]]
+name = "pan_uart_line"
+from = "r_su_pan.ser_b"
+to = "tmc_pan.uart"
+from_pins = ["SS.2"]
+to_pins = ["CTL.4"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: series resistor to the driver PDN_UART." }
+
+[[wires]]
+name = "pan_uart_rx"
+from = "pico.gpio"
+to = "r_su_pan.ser_b"
+from_pins = ["J.27"]
+to_pins = ["SS.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: GP21 (UART1 RX, physical pin 27) to the driver side of the resistor." }
+
+[[wires]]
+name = "pan_motor_leads"
+from = "tmc_pan.motor_out"
+to = "nema_pan.phases"
+from_pins = ["PWR.5", "PWR.6", "PWR.4", "PWR.3"]
+to_pins = ["PH.1", "PH.2", "PH.3", "PH.4"]
+part = "awg-24-silicone-wire"
+length = { value = 0.45, unit = "m", fidelity = "estimated", rationale = "Estimated: pan driver on the lid to the pan motor under the base plate, with slack." }
+conductors = 4
+included_in = "nema_pan"
+
+[[wires]]
+name = "tilt_step_dir"
+from = "pico.gpio"
+to = "tmc_tilt.step_dir"
+from_pins = ["J.7", "J.9", "J.8"]
+to_pins = ["CTL.7", "CTL.8", "PWR.8"]
+part = "awg-26-silicone-wire"
+length = { value = 0.10, unit = "m", fidelity = "estimated", rationale = "Estimated: GP5 STEP, GP6 DIR and ground to the tilt driver." }
+conductors = 3
+
+[[wires]]
+name = "tilt_ms1"
+from = "r_ms_tilt.node_up"
+to = "tmc_tilt.strap"
+from_pins = ["UP.2"]
+to_pins = ["CTL.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: strap resistor to MS1." }
+
+[[wires]]
+name = "tilt_ms2"
+from = "r_ms_tilt.node_up"
+to = "tmc_tilt.strap"
+from_pins = ["UP.2"]
+to_pins = ["CTL.3"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: strap resistor to MS2." }
+
+[[wires]]
+name = "tilt_uart_tx"
+from = "pico.gpio"
+to = "r_su_tilt.ser_a"
+from_pins = ["J.1"]
+to_pins = ["SS.1"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: GP0 (UART0 TX, physical pin 1) to the series resistor." }
+
+[[wires]]
+name = "tilt_uart_line"
+from = "r_su_tilt.ser_b"
+to = "tmc_tilt.uart"
+from_pins = ["SS.2"]
+to_pins = ["CTL.4"]
+part = "awg-26-silicone-wire"
+length = { value = 0.06, unit = "m", fidelity = "estimated", rationale = "Estimated: series resistor to the driver PDN_UART." }
+
+[[wires]]
+name = "tilt_uart_rx"
+from = "pico.gpio"
+to = "r_su_tilt.ser_b"
+from_pins = ["J.2"]
+to_pins = ["SS.2"]
+part = "awg-26-silicone-wire"
+length = { value = 0.08, unit = "m", fidelity = "estimated", rationale = "Estimated: GP1 (UART0 RX, physical pin 2) to the driver side of the resistor." }
+
+[[wires]]
+name = "tilt_motor_leads"
+from = "tmc_tilt.motor_out"
+to = "nema_tilt.phases"
+from_pins = ["PWR.5", "PWR.6", "PWR.4", "PWR.3"]
+to_pins = ["PH.1", "PH.2", "PH.3", "PH.4"]
+part = "awg-24-silicone-wire"
+length = { value = 0.90, unit = "m", fidelity = "estimated", rationale = "Estimated: tilt driver in the power box up the pan axis to the tilt motor on the left cheek (it rotates with the pan group), slack for +-170 deg of pan." }
+conductors = 4
+included_in = "nema_tilt"
+
+# ================================================================ device maps ====================================================================================================
+[device_maps.psu]
+voltage = "v_out_nominal"
+r_series = "r_out"
+i_limit = "current_limit"
+
+# ================================================================ devices ========================================================================================================
+[[devices]]
+type = "psu"
+name = "psu"
+instance = "psu"
+port = "power_out"
+map = "psu"
+
+[[instances]]
+id = "ball"
+part = "nerf-rival-accu-round"
+group = "ammo"
+offboard = true
+
+[[instances]]
+id = "launcher"
+part = "cuas2-foam-launcher"
+group = "tilt"
+
+[[mates]]
+name = "launcher--cradle"
+a = "cradle.seat_launcher"
+b = "launcher.origin"
+
+# Launcher device (spec 7.3): the muzzle site = the marker's `muzzle` port (barrel axis +x of the marker, ref up: site x = up, site z = barrel, spin axis = site_x x site_z). Per-shot speed / spin are
+# written by python/napl/cuas2/launcher.py; cl_k and spin_tau switch the Magnus model on.
+[device_maps.foam_launcher]
+muzzle_velocity = "muzzle_velocity"
+v_std = "muzzle_velocity_std"
+spread_std = "spread_std"
+pellet_mass = "pellet:mass"
+diameter = "pellet:caliber"
+cd = "pellet:cd"
+cl_k = "cl_k"
+spin_tau = "spin_tau"
+
+[[devices]]
+type = "launcher"
+name = "gun"
+instance = "launcher"
+site = "launcher"
+site_port = "muzzle"
+pellet = "ball"
+map = "foam_launcher"
