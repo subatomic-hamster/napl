@@ -47,9 +47,9 @@ class Wheel:
 
 @dataclass(frozen=True)
 class Feed:
-    t_push_ms: float = 80.0
-    t_commit_ms: float = 45.0
-    t_exit_ms: float = 8.0
+    t_push_ms: float = 118.0  # full out-stroke, 47.2 mm at 0.4 mm/ms (MECH C-CYCLE)
+    t_commit_ms: float = 101.5  # rod at 0.86 of the stroke: the ball is in the nip (spec 5.4 timeline; the firmware commit point is 105)
+    t_exit_ms: float = 15.0  # nip -> ball leaves the barrel (the muzzle beam sees it ~118 ms after FEED_REQ)
     t_exit_sigma_ms: float = 2.0
 
 
