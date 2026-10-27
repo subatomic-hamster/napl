@@ -34,7 +34,7 @@ stroke; `POCKET_D_BALLS=2.2` makes C-POCKET FAIL (bore 48.84 mm) and the script 
 | --------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------ |
 | M1 base / pan         | base plate, 4 legs, lower deck (Jetson, fuse, XT60), rotor plate                    | B: origin on the pan axis at the stator top face |
 | M2 yokes              | left yoke (tilt motor, hall), right yoke                                            | B, tilt axis H at z = 200 mm                     |
-| M3 launcher cartridge | cartridge cage, gap plate, wheel hubs, TPU tyres, two 2207 motors, two ESCs         | head frame H (identity)                          |
+| M3 launcher cartridge | cartridge cage, gap plate, wheel hubs, TPU tyres, two 2205 motors, two ESCs         | head frame H (identity)                          |
 | M4 feeder             | valve housing, plug, pusher rod, hopper, hopper lid, two SG92R, beams, halls        | H                                                |
 | M5 sensor head        | sensor bar, Brio                                                                    | H                                                |
 | M6 power box          | box and lid under the base, relay, Pico, TMC2209 x2, regulators, safety electronics | B                                                |
