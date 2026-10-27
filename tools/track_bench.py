@@ -64,6 +64,9 @@ def main():
     lines = [
         f"Tracking benchmark: {a.runs} seeded Monte Carlo runs per cell (seeds 1..{a.runs}, paired across variants), "
         f"{len(jobs)} runs in {out['wall_s']} s on {a.jobs} processes (OMP_NUM_THREADS=1).",
+        "imm2-jpda, imm2-mht and phd-singer run with the tuned options of variants.KW (rationale, before/after and the failed experiments:",
+        "tracking-tuning.md); imm2-gnn-s is imm2-gnn with the same strict hit rule. Compare ms/update within one table or as a ratio to",
+        "imm2-gnn: it depends on how many processes shared the box.",
         "",
     ]
     for sc in scs:

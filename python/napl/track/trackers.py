@@ -155,14 +155,19 @@ class Tracker:
 
 
 class GNN(Tracker):
-    """Global nearest neighbour: one optimal one-to-one assignment (likelihood-ratio cost), chi-square gate."""
+    """Global nearest neighbour: one optimal one-to-one assignment (likelihood-ratio cost), chi-square gate.
+    min_llr: smallest log-likelihood ratio (vs. a missed detection) an assignment needs to be made."""
+
+    def __init__(self, *a, min_llr=0.0, **k):
+        super().__init__(*a, **k)
+        self.min_llr = min_llr
 
     def _tick(self, t, zs, meas, th):
         self._predict(t)
         G, L = self._gates(zs, meas, th)
         T, M = G.shape
         llr = np.log(np.maximum(self.pd * L / (self.lam * (1 - self.pd)), 1e-300))
-        cost = np.where(G & (llr > 0), -llr, BIG)
+        cost = np.where(G & (llr > self.min_llr), -llr, BIG)
         got, free = np.full(T, -1), np.ones(M, bool)
         if T and M:
             for i, j in zip(*lsa(cost)):
@@ -180,9 +185,11 @@ class JPDA(Tracker):
     """Joint probabilistic data association: each track is updated with all gated measurements weighted by joint-event
     marginals (clusters of tracks sharing measurements are enumerated exactly up to max_nodes)."""
 
-    def __init__(self, *a, max_nodes=100000, **k):
+    def __init__(self, *a, max_nodes=100000, dedupe=9.0, hit_beta0=0.5, **k):
+        """dedupe: Mahalanobis^2 under which a younger track is deleted as a duplicate (0 = off). hit_beta0: a scan counts as a
+        hit for M-of-N confirmation when P(no measurement from this track) is below this."""
         super().__init__(*a, **k)
-        self.max_nodes = max_nodes
+        self.max_nodes, self.dedupe, self.hit_beta0 = max_nodes, dedupe, hit_beta0
 
     def _marginals(self, W, G):
         T, M = W.shape
@@ -252,11 +259,12 @@ class JPDA(Tracker):
             idx = np.flatnonzero(G[i])
             if len(idx):
                 tr.est.update_beta(zs[idx], beta0[i], beta[i, idx], meas, self.lam)
-            self._mark(tr, len(idx) and beta0[i] < 0.5, t)
+            self._mark(tr, len(idx) and beta0[i] < self.hit_beta0, t)
         free = (beta.sum(0) < 0.2) if T else np.ones(M, bool)
         self._births(t, zs, meas, free, G)
         self._finish(t)
-        self._dedupe()
+        if self.dedupe:
+            self._dedupe(self.dedupe)
 
 
 class _Leaf:
@@ -277,11 +285,25 @@ class _Leaf:
 class MHT(Tracker):
     """Track-oriented MHT. Each tree (= one track id) holds up to kmax leaf hypotheses scored by log-likelihood ratio.
     The global hypothesis is chosen greedily (trees by best score, first leaf whose measurements are unused), then
-    N-scan pruning commits the choice made nscan scans ago. ponytail: greedy global hypothesis, not the exact ILP/Murty."""
+    N-scan pruning commits the choice made nscan scans ago. ponytail: greedy global hypothesis, not the exact ILP/Murty
+    (an exact per-cluster search was tried: fewer misses but more duplicate tracks and ID switches, so it was dropped).
+    decay: leaf scores fade by this factor per scan so that a long-lived tree does not outrank a young one on history alone.
+    hit_llr: an association with a log-likelihood ratio below this is kept as a hypothesis but is not a confirmation hit."""
 
-    def __init__(self, *a, kmax=4, nscan=3, prune_gap=12.0, score_birth=2.0, **k):
+    def __init__(
+        self,
+        *a,
+        kmax=4,
+        nscan=3,
+        prune_gap=12.0,
+        score_birth=2.0,
+        decay=1.0,
+        hit_llr=-1e9,
+        **k,
+    ):
         super().__init__(*a, **k)
         self.kmax, self.nscan, self.gap, self.s0 = kmax, nscan, prune_gap, score_birth
+        self.decay, self.hit_llr = decay, hit_llr
         self.trees, self.k = {}, 0
         self._sel = set()
 
@@ -306,20 +328,23 @@ class MHT(Tracker):
                     for j in np.flatnonzero(d2 < th):
                         e = lf.est.copy()
                         e.update(zs[j], meas)
-                        sc = lf.score + np.log(max(pd * L[j] / lam, 1e-300))
+                        llr = np.log(max(pd * L[j] / lam, 1e-300))
+                        strong = (
+                            llr > self.hit_llr
+                        )  # a weak association does not count as a hit
+                        hh = (lf.hits + (bool(strong),))[-self.n :]
                         kids.append(
                             _Leaf(
                                 e,
-                                sc,
-                                (lf.hits + (True,))[-self.n :],
-                                0,
+                                self.decay * lf.score + llr,
+                                hh,
+                                0 if strong else lf.miss + 1,
                                 (lf.path + ((k, int(j)),))[-(N + 1) :],
                                 lf.age + 1,
-                                lf.conf
-                                or sum((lf.hits + (True,))[-self.n :]) >= self.m,
+                                lf.conf or sum(hh) >= self.m,
                             )
                         )
-                lf.score += lmiss
+                lf.score = self.decay * lf.score + lmiss
                 lf.hits, lf.miss, lf.age = (
                     (lf.hits + (False,))[-self.n :],
                     lf.miss + 1,
@@ -369,10 +394,19 @@ class MHT(Tracker):
             ]
             if ls:
                 best = max(lf.score for lf in ls)
-                ls = sorted(
-                    (lf for lf in ls if lf.score > best - self.gap),
+                pool = sorted(
+                    (
+                        lf
+                        for lf in ls
+                        if lf.score > best - self.gap or lf is sel.get(tid)
+                    ),
                     key=lambda l: -l.score,
-                )[: self.kmax]
+                )
+                ls = pool[: self.kmax]
+                if sel.get(tid) in pool and sel[tid] not in ls:
+                    ls.append(
+                        sel[tid]
+                    )  # never prune the leaf the global hypothesis chose
             if ls:
                 self.trees[tid] = ls
             else:
@@ -417,12 +451,28 @@ class MHT(Tracker):
 
 class PHD(Tracker):
     """Gaussian-mixture PHD filter (constant Pd, Ps) with labels carried by the components (a label = one track): births from
-    unexplained measurements, prune/merge within a label, extraction of labels whose summed weight exceeds 0.5."""
+    unexplained measurements, prune/merge (within a label, or across labels with xmerge), extraction of labels whose summed
+    weight exceeds 0.5. Labels are not exclusive by themselves: two close targets end up in one label unless split_w
+    hands the second mode a fresh label, and a label is dropped (and must re-confirm) after two misses unless keep is set."""
 
     def __init__(
-        self, *a, ps=0.99, w_birth=0.1, w_prune=1e-4, merge_d2=4.0, jmax=80, **k
+        self,
+        *a,
+        ps=0.99,
+        w_birth=0.1,
+        w_prune=1e-4,
+        merge_d2=4.0,
+        jmax=80,
+        xmerge=0,
+        split_w=0.0,
+        keep=0,
+        **k,
     ):
+        """xmerge: merge components across labels too (label of the heaviest). split_w > 0: a label's components that are not
+        mergeable with its heaviest one and weigh >= split_w get a fresh label (one label = one target). keep: tracks persist
+        while their label has components and fewer than max_miss low-weight scans (no re-confirmation after a dip)."""
         super().__init__(*a, **k)
+        self.xmerge, self.split_w, self.keep = xmerge, split_w, keep
         self.ps, self.wb, self.wp, self.mg, self.jmax = (
             ps,
             w_birth,
@@ -477,8 +527,8 @@ class PHD(Tracker):
     def _reduce(self, comps):
         out, by = [], {}
         for c in comps:
-            by.setdefault(c[2], []).append(c)
-        for lab, cs in by.items():
+            by.setdefault(0 if self.xmerge else c[2], []).append(c)
+        for cs in by.values():
             cs = sorted(cs, key=lambda c: -c[0])
             while cs:
                 h = cs.pop(0)
@@ -499,8 +549,17 @@ class PHD(Tracker):
                 )
                 e = h[1].copy()
                 e.x, e.P, e._c = x, 0.5 * (P + P.T), None
-                out.append([W, e, lab])
+                out.append([W, e, h[2]])
         out.sort(key=lambda c: -c[0])
+        if (
+            self.split_w > 0
+        ):  # heaviest component keeps the label, other distinct heavy ones become new targets
+            seen = set()
+            for c in out:
+                if c[2] in seen and c[0] >= self.split_w:
+                    self._id += 1
+                    c[2] = self._id
+                seen.add(c[2])
         return out[: self.jmax]
 
     def _extract(self, t):
@@ -524,7 +583,11 @@ class PHD(Tracker):
             tr.t = t
             self._mark(tr, wl > 0.5, t)
             tr.misses = 0 if wl > 0.2 else tr.misses + 1
-            if wl > 0.05 and (tr.confirmed or self._alive(tr)):
+            if self.keep:
+                ok = self._alive(tr)
+            else:
+                ok = wl > 0.05 and (tr.confirmed or self._alive(tr))
+            if ok:
                 out.append(tr)
         self.tracks = out
         for tr in out:
