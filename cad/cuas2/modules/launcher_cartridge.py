@@ -208,7 +208,7 @@ def bought():
         out.append(
             dict(
                 name=f"motor_{nm}",
-                lib="brushless-2207-1800kv",
+                lib="brushless-2205-2300kv",
                 mass=P.MOT_MASS,
                 shape=_motor(sz),
                 module="M3",

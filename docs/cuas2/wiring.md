@@ -65,7 +65,7 @@ The 3V3 pin takes one wire, so the 3V3 consumers are chained through the rail pi
 | gnd_esc_top, gnd_esc_bot                               | esc BAT.2              | xt60 WM.2                        | 18    |
 | relay_buck, gnd_buck                                   | relay SW.2 / xt60 WM.2 | buck IO.1 / IO.2                 | 22    |
 
-The fuse is 20 A (spec 9): two ESCs at 30 A each are limited by the motors (2207 at 12 V, an estimated 8 A each at full throttle, to be measured on the bench).
+The fuse is 20 A (spec 9): two ESCs at 30 A each are limited by the motors (2205 2300 KV at 12 V, an estimated 8 A each at full throttle, to be measured on the bench).
 
 ### 3.2 Relay coil, key, E-stop (series, hardware only)
 

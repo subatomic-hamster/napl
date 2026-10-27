@@ -581,12 +581,12 @@ group = "tilt"
 
 [[instances]]
 id = "motor_t"
-part = "brushless-2207-1800kv"
+part = "brushless-2205-2300kv"
 group = "tilt"
 
 [[instances]]
 id = "motor_b"
-part = "brushless-2207-1800kv"
+part = "brushless-2205-2300kv"
 group = "tilt"
 
 [[instances]]

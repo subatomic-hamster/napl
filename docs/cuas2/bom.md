@@ -12,7 +12,7 @@ Every line has a link or is marked `[est]` (allowance with no listing).
 | 3   | Raspberry Pi Pico H                                                                                  | 1   | 5.00  | 5.00  | [Adafruit 5525](https://www.adafruit.com/product/5525)                                                                                           | datasheet |
 | 4   | GT2 20T pulley, 5 mm bore, 6 mm belt (pan 100T and tilt 80T are printed)                             | 2   | 0.92  | 1.84  | [Olimex GT2-5T20-6MM](https://olimex.com/Products/Robot-CNC-Parts/GT2/GT2-5T20-6MM), 0.80 EUR                                                    | derived   |
 | 5   | GT2 6 mm closed belt loops (pan, tilt)                                                               | 2   | 3.00  | 6.00  | [est] no loop of these lengths has a fetched price (as v1)                                                                                       | estimated |
-| 6   | 2207 1800 KV brushless motor, 3 mm shaft (flywheels; new)                                            | 2   | 13.12 | 26.24 | [rcdrone XING-E Pro 2207 4-pack, 52.46 / 4](https://rcdrone.top/it/collections/2207-motors)                                                      | derived   |
+| 6   | 2205 2300 KV brushless motor, 5 mm shaft (flywheels; new; was 2207 1800 KV at 13.12)                 | 2   | 9.99  | 19.98 | [GetFPV Racerstar BR2205S 2300KV](https://www.getfpv.com/racerstar-br2205s-2300kv-brushless-motor.html), search snippet 2026-10-27, out of stock | estimated |
 | 7   | 30 A BLHeli_S / Bluejay-capable ESC, DShot (flywheels; new)                                          | 2   | 14.99 | 29.98 | [Tiger Motor F 30A at GetFPV](https://www.getfpv.com/tiger-motor-f-30a-2-4s-esc-blheli-s-w-dshot.html)                                           | datasheet |
 | 8   | TowerPro SG92R servo (gate plug, pusher; v1 had one)                                                 | 2   | 5.95  | 11.90 | [Adafruit 169](https://www.adafruit.com/product/169)                                                                                             | estimated |
 | 9   | A3144 hall switch (pan, tilt, gate home, push home)                                                  | 4   | 0.52  | 2.08  | [Tinytronics](https://www.tinytronics.nl/en/sensors/magnetic-field/3144-hall-effect-switch), 0.45 EUR                                            | derived   |
@@ -47,9 +47,9 @@ Every line has a link or is marked `[est]` (allowance with no listing).
 
 ## Totals (target: hardware + filament <= $190, excludes the Jetson, Brio, rounds and the 12 V brick)
 
-- Hardware, lines 1-36: **$192.05**.
+- Hardware, lines 1-36: **$185.79**.
 - Filament, line 37: **$18.81**.
-- **Hardware + filament = 192.05 + 18.81 = $210.86, which is $20.86 over the $190 target** (explained below; script output: `37 lines, total 210.86`).
+- **Hardware + filament = 185.79 + 18.81 = $204.60, which is $14.60 over the $190 target** (explained below; script output: `37 lines, total 204.6`).
 
 - Rounds (consumable, outside the total): Nerf Rival 100-round pack, $14.99 ([Nerf wiki](https://nerf.fandom.com/wiki/Rival_Round)).
 - Optional 12 V 5 A brick: $24.95 ([Adafruit 352](https://www.adafruit.com/product/352)), not counted.
@@ -58,19 +58,19 @@ The sum is recomputed from the table by the script in "Check" below; the total a
 
 ## Why the total is over $190
 
-Spec section 9 estimated hardware at $167.13 and filament at $19.99 (total about $187.12, all [est]). With fetched prices the hardware is $192.05 (+$24.92) and filament $18.81 (-$1.18). The biggest lines are the new
-ones: two 30 A ESCs $29.98 and two 2207 motors $26.24 ($56.22 together), the 40 A relay with socket $8.96, the second SG92R $5.95, and the added safety electronics (supervisor and limiter ICs, counter ICs, L7805, P-FET,
+Spec section 9 estimated hardware at $167.13 and filament at $19.99 (total about $187.12, all [est]). With fetched prices the hardware was $192.05 (+$24.92; $185.79 after the 2205 motor lever below) and filament $18.81 (-$1.18). The biggest lines are the new
+ones: two 30 A ESCs $29.98 and two 2205 motors $19.98 ($49.96 together; 2207 motors were $26.24), the 40 A relay with socket $8.96, the second SG92R $5.95, and the added safety electronics (supervisor and limiter ICs, counter ICs, L7805, P-FET,
 clamp, beams, resistors and capacitors: lines 19, 21, 22, 24-27, 29, 30 = $7.84, including the hardware shot counter added by the orchestrator, spec 14). Filament is $18.81 for a 941 g build (v1: 1099.7 g).
 
-Levers if the target must be held (none applied, each is a trade, not a fix):
+Levers (looked up 2026-10-27; the first three were proposed to reach $184.55):
 
-- Cheaper ESCs: an $8-class 30 A BLHeli_S ESC saves 2 x 6.99 = **13.98**; fetched prices of that class were not found in stock, so it is not applied.
-- 2205 2300 KV motors instead of 2207 save about 2 x 2.00 = **4.00** (estimate; the spec's wheel and rpm figures assume 2207).
-- Drop the SCC kit and use fasteners from stock: **8.33**.
-- Drop the WS2812: **0.75** (status can use the Pico LED).
-- A 4-in-1 ESC board for the pair (spec 9 lever: $2 to $4 less) changes the two-ESC wiring (not applied).
+- **Applied: 2205 2300 KV motors** (line 6), saving 2 x (13.12 - 9.99) = **6.26**. Launcher check (kv 2300, 12 V, droop 0.10, python/napl/cuas2/launcher.py model): 18144 rpm (the 38 m/s cap) needs u = 0.73 and rpm_max 17500 needs u = 0.70, both under throttle_max 0.90; the 2207 1800 KV needed u = 0.93 for the cap, so the 2205 has more headroom. Price is a search snippet for an out-of-stock listing (fallback: RS2205 4-pack USD 28.59 = 7.15 each, eBay snippet); mount pattern is listed 16 x 19 mm by [thingbits](https://www.thingbits.in/products/rs2205-brushless-motor-cw-ccw) against the CAD's 16 x 16: verify before printing. The model run (hfbox) gives 28.6 m/s mean at 17500 rpm for either KV; 2207 1800 KV needs u = 0.90 for rpm_max, i.e. no throttle headroom under throttle_max 0.90 at droop 0.10, which the spec's 8-14 % claim did not show. No-load runaway is 29.0k rpm (spec section 1 failure table, row 17), still caught by the overspeed fault.
+- **Not applied: $8-class ESC.** No single 30 A ESC at about $8 was found that is in stock, 2-4S/3S capable, DShot600 and with a stated Bluejay target. Found: [RDQ 30A 3-6S BLHeli_S DShot600](https://www.racedayquads.com/products/rdq-esc-30a-blheli_s-dshot600) $13.49 in stock (would save 2 x 1.50 = 3.00) but the page names no Bluejay layout; [HSKRC 30A 2-4S](https://www.banggood.com/HSKRC-Brushless-20A-or-30A-or-35A-or-45A-2-4S-BLHeli-S-ESC-Speed-Controller-Oneshot-DSHOT600-for-FPV-Racing-RC-Drone-reviews-p1824526.html) $12.34 for the 20/30/35/45 A listing (30 A price unclear, Bluejay not stated); [Evelta 30A solder version](https://evelta.com/30a-dshot-brushless-blheli_s-esc-for-fpv-drone-solder-version/) INR 1417.5 (about $16), 2-5S, EFM8BB21, BLHeli_S. The Bluejay README says only that it flashes "BLHeli_S compatible ESCs" (EFM8 BB21/BB51) with bidirectional DShot and RPM telemetry; it publishes no per-product list, so every candidate needs its layout checked at flash time. The Tiger Motor line stays (its GetFPV page was not fetchable, 403; the part file records it as out of stock).
+- **Not applied: drop the M3 kit.** Single-size packs cost about as much as the kit: Zoro M3x10 x100 $6.19, Global Industrial M3x8 x100 $9.80 (search snippets), plus M4 screws and nuts the kit also provides; no cheaper priced listing, and the CAD does not count screws (only inserts). Needed from the kit: roughly 36 M3 screws for the inserts plus 8 for the NEMA mounts and 8 for the motors, 14 M4 screws, and nuts [est, not counted by the CAD].
+- Drop the WS2812: **0.75** (status can use the Pico LED), not applied.
+- A 4-in-1 ESC board for the pair (spec 9 lever: $2 to $4 less) changes the two-ESC wiring (not applied); the DarwinFPV Bluejay 4-in-1 was $35.99 in a search snippet, more than the two singles.
 
-Applying the first three gives 210.86 - 26.31 = $184.55.
+Net: 210.86 - 6.26 = $204.60, still $14.60 over $190.
 
 ## Fasteners
 
