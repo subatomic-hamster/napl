@@ -10,7 +10,8 @@ RUNS=${RUNS:-10}
 PERSON=${PERSON:-15}
 W=${WORKERS:-4}
 SEED0=${SEED0:-0}
-run() { # label fire-cfg-json
+run() { # label fire-cfg-json   (SKIP="imm2 ..." leaves finished labels alone)
+  case " ${SKIP:-} " in *" $1 "*) return ;; esac
   $PY examples/cuas2/mc.py --runs "$RUNS" --person-runs "$PERSON" --workers "$W" --seed0 "$SEED0" --label "$1" --fire-cfg "$2" --out "build/mc/$1" --md "build/mc/$1.md" > "build/mc_$1.out" 2>&1
   echo "$1 exit $?"
 }

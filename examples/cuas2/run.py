@@ -21,6 +21,23 @@ from napl.cuas2.sim_lock import Lockstep2
 lrun = sc.load("cuas_lite_run", "cuas-lite/run.py")
 
 
+class Referee2(lrun.Referee):
+    """The lite Referee judges a ball fed in control period k against the app's armed flag AFTER period k's step. The app disarms on the
+    cap-th shot in that same step (spec: the cap ends the arm), so the cap-th ball read as 'unarmed' (3 of 165 episodes with the Ph gate off).
+    A ball is judged against armed in the previous period OR the current one: a ball fed more than one period after a disarm is still flagged."""
+
+    _armed_prev = False
+
+    def __call__(self, h=None):
+        fc = self.h.app.fc
+        real = fc.armed
+        fc.armed = real or self._armed_prev
+        try:
+            return super().__call__(h)
+        finally:
+            fc.armed, self._armed_prev = real, real
+
+
 def run_episode(
     model, run_dir, sp, seed, early_stop=True, write=True, fire_cfg=None, app_calib=None
 ):
@@ -42,7 +59,8 @@ def run_episode(
                     None if getattr(d, "ph", None) is None else round(float(d.ph), 3)
                 )
 
-    orig = lrun.Lockstep
+    orig, orig_ref = lrun.Lockstep, lrun.Referee
+    lrun.Referee = Referee2
     lrun.Lockstep = lambda *a, **k: Lockstep2(
         *a, app_cfg=cfg, true_calib=sp.true_calib, app_calib=app_calib, **k
     )
@@ -51,7 +69,7 @@ def run_episode(
             model, run_dir, sp, seed, early_stop=early_stop, write=write, hook=hook
         )
     finally:
-        lrun.Lockstep = orig
+        lrun.Lockstep, lrun.Referee = orig, orig_ref
     out["ph_fired"], out["cfg"] = ph, over
     s = last[
         0
