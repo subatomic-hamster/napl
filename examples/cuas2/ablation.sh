@@ -20,6 +20,7 @@ run imm2 '{}'
 run noph '{"ph_gate": false}'
 run ph0 '{"ph_tau": 0.0}'
 run abnn '{"tracker": "ab-nn"}'
+run abnn_noph '{"tracker": "ab-nn", "ph_gate": false}' # ab-nn keeps no covariance (fixed 1 m / 2 m/s), so the Ph gate refuses every shot: its fair arm is the lite pointing gate
 run imm3 '{"tracker": "imm3-gnn"}'
 run imm2r05 '{"range_rel": 0.05, "sigma_px": 1.5}'
-$PY examples/cuas2/mc.py --report imm2=build/mc/imm2 noph=build/mc/noph ph0=build/mc/ph0 abnn=build/mc/abnn imm3=build/mc/imm3 imm2r05=build/mc/imm2r05 --md build/mc/ablation.md
+$PY examples/cuas2/mc.py --report imm2=build/mc/imm2 noph=build/mc/noph ph0=build/mc/ph0 abnn=build/mc/abnn abnn_noph=build/mc/abnn_noph imm3=build/mc/imm3 imm2r05=build/mc/imm2r05 --md build/mc/ablation.md
