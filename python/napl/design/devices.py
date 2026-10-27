@@ -76,6 +76,8 @@ FIELD_UNITS = {
     "pellet_mass": {"kg": 1.0},
     "v_std": {"m/s": 1.0},
     "spread_std": {"rad": 1.0},
+    "cl_k": {"1": 1.0},  # cuas2 Magnus slope
+    "spin_tau": {"s": 1.0},  # cuas2 spin decay
     "max_time": {"s": 1.0},
     "fov_v": {"rad": 1.0},
     "width": {"px": 1.0},

@@ -110,6 +110,8 @@ struct LauncherCfg {
   std::vector<std::string> visual; std::uint64_t seed;
   int sid = -1, body = -1;     // resolved by bind(): muzzle site, its body (excluded from the hit test)
   std::vector<int> mocap;      // mocap index of each visual body
+  double cl_k = 0, spin_tau = 0;  // Magnus slope / spin decay (cuas2); either > 0 gives the launcher a LauncherXState
+  int lx = -1;                 // index into Devices::lx, -1 = none (every cuas-lite launcher: state layout and hashes unchanged)
 };
 struct CameraCfg { Meta meta; std::string site; double fov_v, rate_hz; int width, height; int sid = -1; };
 
@@ -263,6 +265,15 @@ struct LauncherState {
   double hit_pos[3 * kHitRing];
   Rng rng;
 };
+// Launcher per-shot inputs (cuas2), a separate group so launchers without cl_k / spin_tau keep their state layout. muzzle_velocity:
+// m/s of the next shots (0 = the configured v0); spin_rps: signed spin about the lateral axis site_x cross site_z (negative =
+// backspin when site x is up); dir_offset_x / y: rad, deterministic aim error along the site x / y axes. They persist until rewritten.
+// omega0: the spin vector (rad/s, world) each pool pellet was launched with.
+struct LauncherXCfg { int li; };
+struct LauncherXState {
+  double muzzle_velocity, spin_rps, dir_offset_x, dir_offset_y;
+  double omega0[3 * kMaxPellets];
+};
 // Camera pose (start of the last tick): world position, optical axis, image-up.
 struct CameraState { double pos[3], fwd[3], up[3]; };
 
@@ -356,6 +367,7 @@ struct Devices {
   Group<RainCfg, RainState> rain;  // 0 or 1 element; models without rain keep their state layout and hashes
   Group<QddCfg, QddState> qdd;     // SP2 groups come last: models without them keep their state layout and hashes
   Group<FootContactCfg, FootContactState> foot;
+  Group<LauncherXCfg, LauncherXState> lx;  // last: empty unless a launcher has cl_k / spin_tau
   int n_nodes = 0;  // highest node id used
   struct Slot {
     enum Type { battery, psu, wire, load, esc, rotor, env, drag, servo, imu, baro, mag, gnss, launcher, camera, motor, airframe, sea,
