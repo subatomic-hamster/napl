@@ -89,6 +89,7 @@ M = [
     # fsm.c fire_precheck gates (fsm.c:208-219), each on its own
     ("drop_precheck_state_engaging", "src/fsm.c", "    if (f->state != ST_ENGAGING) return RES_BAD_STATE;\n", "", "core_state"),
     ("drop_precheck_busy_pending", "src/fsm.c", "    if (f->state == ST_FIRING || f->fire_cmd_pending) return RES_BUSY;\n", "", "core_busy"),
+    ("precheck_bad_state_before_busy", [("src/fsm.c", "    if (f->state == ST_FIRING || f->fire_cmd_pending) return RES_BUSY;\n    if (f->state != ST_ENGAGING) return RES_BAD_STATE;\n", "    if (f->state != ST_ENGAGING) return RES_BAD_STATE;\n    if (f->state == ST_FIRING || f->fire_cmd_pending) return RES_BUSY;\n")], "prec_busy"),
     ("drop_precheck_homed", "src/fsm.c", "    if (!f->ax[0].homed || !f->ax[1].homed) return RES_NOT_HOMED;\n", "", "gate:not_homed"),
     ("drop_precheck_sector_set", "src/fsm.c", "    if (f->sector_set != SECTOR_ALL) return RES_NO_SECTOR;\n", "", "gate:no_sector"),
     ("drop_precheck_shot_cap", "src/fsm.c", "    if (f->shots_arm + 1 > f->shot_cap) return RES_CAP;\n", "", "gate:shot_cap"),
@@ -255,6 +256,8 @@ def core_behaviour_fails(lib, kind):
             TF.precedence_ack(a, b, str(lib))[1] != TF.PRECHECK_GATES[a][1]
             for a, b in TF.PRECHECK_PAIRS
         )
+    if kind == "prec_busy":  # FIRE while FIRING: BUSY before BAD_STATE
+        return TF.fire_while_firing_ack(str(lib)) != (p.FIRING, p.BUSY)
     if (
         kind == "core_sector"
     ):  # a FIRE while slewing into the shrink band is refused, a parked barrel at the same place may fire

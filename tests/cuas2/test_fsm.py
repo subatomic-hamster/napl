@@ -783,6 +783,26 @@ def test_second_fire_in_the_same_tick_is_busy_and_cap_is_not_exceeded():
     assert len(r.feed_rises) == 1
 
 
+def fire_while_firing_ack(lib_file=None):
+    """Spec 5.5 first pair: a FIRE that arrives while the FSM is in FIRING (not ENGAGING either) -> (state at the FIRE, its ACK)."""
+    r = H.CoreRig(lib_file=lib_file).up().engage()
+    r.fire(1)
+    for _ in range(200):
+        r.run(1)
+        if r.snap["state"] == p.FIRING:
+            break
+    state = r.snap["state"]
+    r.fire(2)
+    r.run(1)
+    return state, r.last_ack(p.FIRE).result
+
+
+def test_fire_while_firing_is_busy_not_bad_state():
+    state, res = fire_while_firing_ack()
+    assert state == p.FIRING, p.STATE_NAMES[state]
+    assert res == p.BUSY
+
+
 def test_usb_overflow_in_the_tick_of_a_fire_refuses_the_fire():
     """F1: fw_rx latches the overflow fault while the FIRE frame is still queued; the FIRE must be refused in that same tick."""
     r = H.CoreRig().up().engage()
