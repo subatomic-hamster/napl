@@ -185,6 +185,15 @@ class Player:
 def player_for(a):
     """--lite: a cuas-lite run (tools/record_cuas_lite.py LitePlayer: same interface, its own HUD); else the counter-UAS Player above."""
     if getattr(a, "lite", False):
+        import os
+
+        if os.environ.get(
+            "NAPL_PLAYER"
+        ):  # "module:Class" next to this file (tools/record_cuas2.py: cuas2 HUD on the lite replay)
+            import importlib
+
+            mod, _, cls = os.environ["NAPL_PLAYER"].partition(":")
+            return getattr(importlib.import_module(mod), cls)
         from record_cuas_lite import LitePlayer
 
         return LitePlayer
