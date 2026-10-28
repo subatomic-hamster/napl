@@ -58,11 +58,12 @@ class CameraLidar(CameraModel):
         d = x[:3] - self.o
         r = np.linalg.norm(d)
         sr = self.range_rel * r
-        if (
-            r <= LIDAR_MAX
-            and np.arccos(np.clip(d @ self.fwd / max(r, 1e-9), -1, 1)) < LIDAR_BEAM
-        ):
-            sr = LIDAR_SIG
+        if r <= LIDAR_MAX:
+            # smooth hand-over (log-linear in the off-axis angle between 0.5 and 1.5 beam widths): partial beam overlap, and it keeps
+            # the EKF's predicted-state noise consistent with the truth-state noise a hard switch would break
+            th = np.arccos(np.clip(d @ self.fwd / max(r, 1e-9), -1, 1)) / LIDAR_BEAM
+            w = float(np.clip(th - 0.5, 0.0, 1.0))
+            sr = float(np.exp((1 - w) * np.log(LIDAR_SIG) + w * np.log(sr)))
         return np.diag([self.sp**2, self.sp**2, sr**2])
 
 
