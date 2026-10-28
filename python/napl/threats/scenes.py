@@ -259,7 +259,6 @@ def assemble(name, objs, T, mrng, o, lidar=False):
         lam = ncl / (1920 * 1080 * 35.0)
         cls = CameraLidar if lidar else CameraModel
         pan = tilt = 0.0
-        prev = None
         for k in range(Tn):
             kp = max(
                 k - 1, 0
