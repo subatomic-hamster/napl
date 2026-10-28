@@ -1,7 +1,7 @@
 """Kernel launcher device with the cuas2 per-shot attrs (spec 7.4, acceptance MODEL 4): additive (attrs at 0 -> identical flight), Magnus lift equal
 to the model, aim offsets in the documented directions, per-shot muzzle velocity, and the plant driving it end to end.
 
-The lite replay hashes are the other half of 'additive' (a launcher without cl_k / spin_tau has no extra state): tests/lite/test_lockstep.py -k hash."""
+The lite replay hashes are the other half of 'additive' (a launcher without cl_k / spin_tau has no extra state): tests/lite/test_lockstep.py::test_kernel_value_is_pinned (tick 11015, state_hash 35634cd3ed9cf0f0)."""
 
 import math
 

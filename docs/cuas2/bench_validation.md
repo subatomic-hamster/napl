@@ -185,7 +185,7 @@ v_cap_mps = 38.0
 
 [launcher.wheel]
 J_kgm2 = 4.0e-6
-kv = 1800.0
+kv = 2300.0
 pole_pairs = 7
 pole_pairs_src = "bench"
 tau_motor_s = 0.04
@@ -194,9 +194,9 @@ eta_transfer = 0.6
 rpm_sigma_pm = 3.0
 
 [launcher.feed]
-t_push_ms = 80.0
-t_commit_ms = 45.0
-t_exit_ms = 8.0
+t_push_ms = 118.0
+t_commit_ms = 101.5
+t_exit_ms = 15.0
 t_exit_sigma_ms = 2.0
 ```
 

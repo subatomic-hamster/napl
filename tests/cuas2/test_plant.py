@@ -41,7 +41,7 @@ def ready_plant(seed=1, **kw):
 def test_one_fire_gives_exactly_one_pellet_and_a_correct_beam_pulse():
     p, rig = ready_plant()
     assert p.tick(speed_req_pm=1000, cmd="FIRE").ack == "OK"
-    for _ in range(100):
+    for _ in range(160):
         p.tick(speed_req_pm=1000)
     assert len(rig.shots) == 1 == p.feeder.fire_calls == len(p.feeder.pulses)
     assert len(p.feeder.feed_edges) == 1
@@ -51,7 +51,9 @@ def test_one_fire_gives_exactly_one_pellet_and_a_correct_beam_pulse():
         0.0222 / v, rel=0.05
     )  # the beam is blocked for 22.2 mm / v
     t_edge, (t_nip, _) = p.feeder.feed_edges[0], p.feeder.shots[0]
-    assert 0.045 <= t_nip - t_edge <= 0.075  # commit stroke (45 ms) + exit (8 +- 2 ms)
+    assert (
+        0.105 <= t_nip - t_edge <= 0.130
+    )  # commit stroke (101.5 ms) + exit (15 +- 2 ms): the beam sees the ball ~118 ms after the edge
     assert t0 > t_nip  # the beam is 55 mm downstream of the nip
     assert [e for o in p.outs for e in o.events if e[0] == "MUZZLE"] == [
         ("MUZZLE", 1)
@@ -105,8 +107,8 @@ def test_second_fire_during_the_cycle_is_refused():
     assert len(rig.shots) <= 2
     first_ok = acks.index(
         "OK"
-    )  # a second shot only after the cycle is READY again (>= 450 ms after the first feed)
-    assert first_ok >= 380, first_ok
+    )  # a second shot only after the cycle is READY again (466 ms geometric cycle, interval clamp 470, default 500)
+    assert first_ok >= 440, first_ok
     assert all(a != "OK" for a in acks[:first_ok]) and set(acks[:first_ok]) <= {
         None,
         "BUSY",
@@ -151,7 +153,7 @@ class Pump:
             dshot_top=1500, dshot_bot=1500, kick=True, gate_us=S.GATE_BORE_US
         )
         o.feed_req = (i.t_ms // 20) % 2 == 1
-        o.push_us = S.PUSH_EXT_US if (i.t_ms // 85) % 2 == 0 else S.PUSH_RET_US
+        o.push_us = S.PUSH_EXT_US if (i.t_ms // 125) % 2 == 0 else S.PUSH_RET_US
         return o
 
 
@@ -162,8 +164,8 @@ def test_limiter_and_pocket_bound_a_runaway_fsm():
     p.run(3000)
     assert len(rig.shots) == 1 and len(p.feeder.feed_edges) > 50
 
-    # (2) the limiter powers the servo for 250 ms per accepted edge and ignores edges for 330 +- 15 %: a pusher commanded to stroke as fast as it can
-    # (85 ms out, 85 ms back) strokes at most twice per window and at most 1/0.28 windows per second; with the limiter removed (hold 0) it does not.
+    # (2) the limiter powers the servo for 254 ms per accepted edge and ignores edges for 338 +- 15 %: a pusher commanded to stroke as fast as it can
+    # (125 ms out, 125 ms back; the real rod needs 118 each way) strokes at most twice per window and at most 1/0.28 windows per second; with the limiter removed (hold 0) it does not.
     def strokes(hold_s=None):
         p = S.Plant2(fsm=Pump(), rig=CountRig(), seed=7)
         if hold_s is not None:

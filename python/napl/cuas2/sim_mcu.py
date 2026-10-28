@@ -8,10 +8,10 @@
 fields, so Plant2 only reads/writes attributes). `StubFsm` is a minimal feeder + wheel controller for the plant tests, NOT the safety FSM: it has none of
 the fault latches, the sector abort timing of 5.4 beyond a commit check, or the config handling of the real one.
 
-Plant model (7.4): wheels = LauncherModel.step_wheels behind the DShot values; the limiter powers the pusher servo 250 ms after a FEED_REQ rising edge and
-ignores edges for 330 +- 15 % (I14); gate = slew-limited servo (60 deg in 100 ms), blocked while the rod is inside the bore; rod = 32 mm stroke at 0.4 mm/ms,
-only moves while powered, cannot extend unless the gate is at BORE (I9); the ball falls into the pocket after 20 ms at LOAD; the breech beam reads the staged
-ball; once the rod passes the commit stroke (t_commit_ms x speed) the ball is in the nip and leaves t_exit_ms (+ N(0, sigma)) later: LauncherModel.sample_shot
+Plant model (7.4): wheels = LauncherModel.step_wheels behind the DShot values; the limiter powers the pusher servo 254 ms after a FEED_REQ rising edge and
+ignores edges for 338 +- 15 % (I14, as built); gate = slew-limited servo (60 deg in 100 ms), blocked while the rod is inside the bore; rod = 47.2 mm stroke at 0.4 mm/ms,
+only moves while powered, cannot extend unless the gate is at BORE (I9); the ball falls into the pocket after 30 ms at LOAD; the breech beam reads the staged
+ball and clears at 0.6 of the stroke; once the rod passes the commit stroke (t_commit_ms x speed) the ball is in the nip and leaves t_exit_ms (+ N(0, sigma)) later: LauncherModel.sample_shot
 (wheels dip), rig.fire(shot), and the muzzle beam pulses for d/v starting when the ball front reaches the beam 55 mm after the nip centre. The beam level the
 FSM sees at each 1 ms tick is latched high if any pulse overlapped that tick (the RP2040 timestamps the edges with a 1 us IRQ).
 """
@@ -68,6 +68,7 @@ class FeederOut:
 
 # ---- the stub FSM ------------------------------------------------------------------------------------------------------------------------
 GATE_LOAD_US, GATE_BORE_US, PUSH_RET_US, PUSH_EXT_US = 1150, 1700, 1000, 2000
+COMMIT_MS = 105  # fw_core.h FDR_COMMIT_MS: the ball is in the nip and leaves regardless (spec 5.4)
 
 
 class StubFsm:
@@ -78,11 +79,11 @@ class StubFsm:
         rpm_max=17500.0,
         window_pm=10,
         settle_ms=100,
-        min_interval_ms=450,
+        min_interval_ms=500,  # firmware cfg 15 default (clamp >= 470, FDR_MIN_INTERVAL_FLOOR)
         kp=8.0,
         ki=40.0,
         ramp_rpm_s=40000.0,
-        kv=1800.0,
+        kv=2300.0,
         v_bus=12.0,
     ):
         self.rpm_max, self.window, self.settle, self.min_interval = (
@@ -188,18 +189,18 @@ class StubFsm:
                     o.push_us, o.feed_req = PUSH_EXT_US, True
                     self.feed_edge_until = t + 5
         elif s == "PUSH":
-            if t - self.t0 < 45 and not (
+            if t - self.t0 < COMMIT_MS and not (
                 i.in_sector and i.deadman and not i.inhibit and ready_w
             ):  # before commit: retract, no ball leaves
                 self.st, self.t0, o.push_us = "RETRACT", t, PUSH_RET_US
                 o.events.append(("FEED_ABORT", self.fire_id))
-            elif t - self.t0 >= 45:
+            elif t - self.t0 >= COMMIT_MS:
                 self.st = "EXIT_WAIT"
         elif s == "EXIT_WAIT":
             if i.beam_muzzle:
                 o.events.append(("MUZZLE", self.fire_id))
                 self.st, self.t0, o.push_us = "RETRACT", t, PUSH_RET_US
-            elif t - self.t0 > 250 + 45:
+            elif t - self.t0 > 250:  # exit_timeout_ms (cfg 38) from the feed start
                 o.events.append(("JAM", self.fire_id))
         elif s == "RETRACT" and i.push_home:
             self.st, self.t0 = "TO_LOAD", t
@@ -218,20 +219,26 @@ class StubFsm:
 # ---- the plant ---------------------------------------------------------------------------------------------------------------------------
 class FeederPlant:
     GATE_RATE = 1.0 / 100.0  # fraction of the swing per ms (60 deg in 100 ms)
+    # Constants follow MECH / firmware (spec 5.4, wiring.md, fw_core.h, tests/cuas2/fwharness.Plant): 47.2 mm stroke at 0.4 mm/ms (118 ms out), the breech beam clears at
+    # 0.6 of the stroke (71 ms), the ball is in the nip at 0.86 (101 ms, calib t_commit_ms), limiter window 254 ms / lockout 338 ms +-15 %, pocket fill 30 ms.
     ROD_RATE, STROKE_MM, CLEAR_MM = (
         0.4,
-        32.0,
-        6.0,
-    )  # mm/ms, stroke, rod tip outside the valve body below this
+        47.2,
+        14.2,
+    )  # mm/ms, stroke, rod tip outside the valve body below this (0.3 of the stroke)
+    BREECH_CLEAR_MM = 28.3  # 0.6 of the stroke: the breech beam (9 mm behind the plug axis) reads clear
+    WINDOW_S, HOLD_S = 0.254, 0.338  # I14 as built
     MUZ_BEAM_M = 0.055  # beam after the nip centre
-    FILL_MS = 20  # the ball falls into the pocket after this long at LOAD
+    FILL_MS = (
+        30  # the ball falls into the pocket after this long at LOAD (spec 5.3 fill_ms)
+    )
 
     def __init__(self, model: LauncherModel, rig=None, rng=None, hopper=24):
         self.model, self.rig = model, rig
         self.rng = rng if rng is not None else np.random.default_rng(2)
         c = model.c
         self.commit_mm = self.ROD_RATE * c.feed.t_commit_ms
-        self.hold_s = 0.33 * (1 + self.rng.uniform(-0.15, 0.15))
+        self.hold_s = self.HOLD_S * (1 + self.rng.uniform(-0.15, 0.15))
         self.g, self.x, self.hopper, self.pocket = 0.0, 0.0, hopper, False
         self.at_load_ms = 0
         self.powered_until, self.hold_until, self.feed_prev = -1.0, -1.0, False
@@ -244,11 +251,11 @@ class FeederPlant:
             self.fire_calls,
         ) = None, False, [], [], [], 0
         self.strokes = 0  # rod strokes past the commit point
-        self.windows = 0  # FEED_REQ edges the limiter accepted (each powers the pusher servo for 250 ms)
+        self.windows = 0  # FEED_REQ edges the limiter accepted (each powers the pusher servo for 254 ms)
 
     @property
     def breech(self):
-        return self.pocket and self.g > 0.95 and self.x < self.commit_mm
+        return self.pocket and self.g > 0.95 and self.x < self.BREECH_CLEAR_MM
 
     def beams(self, t, dt):
         mu = any(a < t + dt and b > t for a, b, _ in self.pulses[-3:])
@@ -268,7 +275,7 @@ class FeederPlant:
             if (
                 t >= self.hold_until
             ):  # I14: one stroke window per edge, further edges ignored while the one-shot holds
-                self.powered_until, self.hold_until = t + 0.25, t + self.hold_s
+                self.powered_until, self.hold_until = t + self.WINDOW_S, t + self.hold_s
                 self.windows += 1
         ms = dt * 1000.0
         g_t = min(
