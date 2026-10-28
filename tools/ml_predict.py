@@ -153,8 +153,10 @@ def cmd_train(a):
         k = NAMES.index(a.exclude)
         tr, va = sub(tr, kinds(tr) != k), sub(va, kinds(va) != k)
     if a.exclude_group:  # threats: drop every sample whose OBJECT came from the generator group (scene-independent)
-        g = D.GROUPS.index(a.exclude_group)
-        tr, va = (sub(x, x["meta"][:, 5] != g) for x in (tr, va))
+        gs = [
+            D.GROUPS.index(g) for g in a.exclude_group.split("+")
+        ]  # "route+swarm" drops both
+        tr, va = (sub(x, ~np.isin(x["meta"][:, 5], gs)) for x in (tr, va))
     if a.aug:  # yaw + world-scale augmentation: a.aug extra randomised copies of the training split
         rng = np.random.default_rng(12345)
         parts = [{k: tr[k] for k in D.AUG_KEYS}] + [
@@ -164,7 +166,7 @@ def cmd_train(a):
         print(f"train samples {len(tr['y'])} (x{1 + a.aug} with augmentation)")
     Path(a.out).mkdir(parents=True, exist_ok=True)
     for kind in a.kinds.split(","):
-        for s in range(a.seeds):
+        for s in range(a.first_seed, a.seeds):
             t = time.time()
             W = ML.train(tr, va, kind, s, epochs=a.epochs, device=a.device)
             ML.save(Path(a.out) / f"{kind}_s{s}.npz", W)
@@ -352,11 +354,12 @@ def cmd_eval_threats(a):
         "",
     ] + hdr
     ci_rows = []
-    for i, g in enumerate(D.GROUPS):
+    # route and swarm overlap by construction (a swarm follows a leader route), so route+swarm is held out together as well
+    for g in D.GROUPS + ("route+swarm",):
         files = sorted((ldir / f"x_{g}").glob("mlp_s*.npz"))
         if not files:
             continue
-        mask = g_of == i
+        mask = np.isin(g_of, [D.GROUPS.index(x) for x in g.split("+")])
         per = {f.stem: ML.predict_np(ML.load(f), te) for f in files}
         res = {n: ev(*v, mask) for n, v in per.items()}
         mean_r, ns = seed_mean(
@@ -599,8 +602,13 @@ def main():
         "--rand-mult", type=int, default=1
     )  # threats: random* families run this many times more seeds
     t = sp.add_parser("train")
-    t.add_argument("--exclude-group", default="", choices=("",) + D.GROUPS)
+    t.add_argument(
+        "--exclude-group", default=""
+    )  # a GROUPS name, or names joined with +
     t.add_argument("--aug", type=int, default=0)
+    t.add_argument(
+        "--first-seed", type=int, default=0
+    )  # resume a killed multi-seed run
     t.add_argument("--suite", default="track")  # informational; the data decide
     t.add_argument("--data", required=True)
     t.add_argument("--out", required=True)
