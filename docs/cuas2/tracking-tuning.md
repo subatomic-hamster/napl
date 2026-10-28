@@ -91,3 +91,96 @@ Swarm5 against the same-strictness GNN (`imm2-gnn-s`, 1.153 GOSPA, 0.70 ID sw, 0
   within sensor noise; this is the information limit of position-only measurements, not a tracker defect.
 - The thresholds (3.5 / 0.01) were tuned on these scenarios only (40 seeds exploring, 100 final); a different clutter density
   or sensor needs them re-derived: the rule of thumb is hit if the association weight exceeds ~30x the missed-detection weight.
+
+# TUNE-2: MHT identity stability on the threat-suite swarms
+
+Scenes: the threat suite (`threat-bench.md`), 50 seeds (1..50) x 17 scenes, `tools/threat_bench.py`. Problem: `imm2-mht` ID switches
+swarm_v 17.8 / swarm_split 23.9 / busy 15.8 against JPDA 4.7 / 4.6 / 8.0 at similar GOSPA. Exploration used 12 to 16 seeds (1..12 / 1..16)
+with a scratch runner (not committed); only the final table below is 50 seeds. Result: MHT 10.3 / 7.7 / 11.7, GOSPA better on every
+swarm scene, unchanged elsewhere. JPDA's level is NOT reached (see the end).
+
+## Root cause (traced, then ablated)
+
+Trace of swarm_v seed 3 (67 switches): the swarm ends in a line with 0.6 to 1 m between neighbours against 0.5 m measurement noise. Two
+trees (ids 7 and 1703) sit on two such neighbours and swap truths for 20 consecutive scans. Per scan the older tree (score 26 to 30, no
+misses) takes whichever of the two nearby measurements fits it best, so its output state hops between the neighbours; the other tree gets the
+leftover, weakly associated measurement (score 6 to 21, 1 to 3 misses, velocity estimate off by 2 m/s). The cause is the greedy global
+hypothesis: trees are ordered by their own best score and each takes its best free leaf, so the order, not the joint likelihood, decides
+which neighbour gets which measurement. GNN solves the same ambiguity with one optimal assignment per scan.
+
+Ablations on swarm_v / swarm_split / busy, 12 seeds, ID switches (GOSPA in brackets for swarm_v), tested one at a time. The two joint
+rows are the first version (total-score assignment, no `drop`/`margin`), whose side effect on one-object scenes is described below:
+
+| change                                                                 | swarm_v      | swarm_split | busy        | reading                                                          |
+| ---------------------------------------------------------------------- | ------------ | ----------- | ----------- | ---------------------------------------------------------------- |
+| as committed (greedy, kmax 8, nscan 1, decay 0.8)                      | 20.8 (1.130) | 15.3        | 14.8        |                                                                  |
+| kmax 1 (no multiple hypotheses)                                        | 19.8         | 17.3        | n/a         | multi-hypothesis tracking is not the cause                       |
+| kmax 16 (more hypotheses)                                              | 20.8         | 15.3        | 14.8        | identical: kmax never binds, the score gap prunes                |
+| nscan 3 / decay 1.0                                                    | 28.4 / 31.8  | 23.7 / 31.0 | 22.8 / 21.1 | worse (the old settings)                                         |
+| keep only strong associations as leaves                                | 16.4 (1.290) | 12.8        | 16.9        | fewer switches but GOSPA 1.13 -> 1.29: rejected                  |
+| hysteresis alone (prefer the leaf continuing last scan's exposed leaf) | 20.3         | 16.6        | 14.5        | no effect: the lineage breaks it removes (0 left) were a symptom |
+| joint assignment alone                                                 | 11.4 (1.109) | 10.4        | 12.4        | halves the switches                                              |
+| joint + hysteresis (stick 5)                                           | 6.3 (1.087)  | 2.9         | 11.3        | best on swarms, but see below                                    |
+
+Lineage breaks (the selected leaf is not a child of the leaf exposed last scan) were 1.3 % of the selections and coincided with 43 % of
+the switches under greedy selection; under joint selection alone they rise to 7.6 % of selections and 80 % of switches, which is why the
+hysteresis only helps together with the joint assignment.
+
+## Fix (python/napl/track/trackers.py, `MHT`, options of `variants.KW["imm2-mht"]`)
+
+- `joint=1`: per scan, one linear assignment of the trees to the current measurements (or coast), cost = regret of the chosen leaf below the
+  tree's own best leaf; a tree without a coasting leaf may be left out at cost `drop` (4). The greedy loop afterwards repairs leaves whose
+  older scans clash. The assignment replaces the greedy choice only if it is better by `margin` (3), see the failure below.
+- `stick=4`: regret bonus (log-likelihood units) for a leaf that continues the leaf the tree exposed last scan.
+- Not changed: scores, pruning, births, hit rule (`hit_llr`), `kmax`/`nscan`/`decay`.
+
+Two first versions failed and were corrected, both seen on the one-object scenes:
+
+1. Maximising the summed total scores (no regret, no drop option) forced every tree to take a leaf: a young duplicate tree with a high
+   score then took the measurement and the old tree coasted (survey seed 16: tree 7, score 19.0 on measurement 3, coasted at 11.8 while
+   duplicate 778, score 10.6, took it). Result (50 seeds): up to 0.2 spurious ID switches per run on the one-object scenes (survey 0.20,
+   weave 0.18) where the committed MHT has 0, and GOSPA +0.006 to +0.012 on every one-object scene. Regret plus the drop option fixes the forcing but a near tie still went to the young tree.
+2. `margin`: the greedy choice (old tree first) stays unless the assignment is better by 3 log-likelihood units. margin 6 loses the swarm
+   gain (swarm_v 14.6), margin 1.5 gives swarm_v 6.8 but hanging false 0.071 -> 0.096, margin 3 leaves every one-object scene at the
+   committed value (16 seeds: survey, weave 0 switches, same GOSPA) with swarm_v 10.9 and swarm_split 5.4 (16 seeds). `stick` above 5
+   makes false tracks (swarm_v false 0.65 at stick 7, a cliff, so 4 is kept with margin).
+
+## Before / after, 50 seeds, all 17 scenes (`imm2-mht`; JPDA and GNN-s are unchanged, shown for reference)
+
+| scene           | GOSPA before -> after | +-95 % (after) | breaks       | ID sw          | false          | JPDA GOSPA / ID sw | GNN-s GOSPA / ID sw |
+| --------------- | --------------------- | -------------- | ------------ | -------------- | -------------- | ------------------ | ------------------- |
+| route_hover     | 0.391 -> 0.391        | 0.008          | 0.00 -> 0.00 | 0.00 -> 0.00   | 0.072 -> 0.072 | 0.399 / 0.00       | 0.436 / 0.12        |
+| route_fast      | 0.414 -> 0.414        | 0.008          | 0.00 -> 0.00 | 0.00 -> 0.00   | 0.078 -> 0.078 | 0.421 / 0.02       | 0.454 / 0.14        |
+| orbit           | 0.409 -> 0.409        | 0.010          | 0.00 -> 0.00 | 0.00 -> 0.00   | 0.078 -> 0.074 | 0.425 / 0.00       | 0.493 / 0.22        |
+| survey          | 0.394 -> 0.394        | 0.007          | 0.00 -> 0.00 | 0.00 -> 0.00   | 0.041 -> 0.041 | 0.411 / 0.00       | 0.486 / 0.30        |
+| weave           | 0.449 -> 0.450        | 0.009          | 0.00 -> 0.00 | 0.00 -> 0.00   | 0.047 -> 0.051 | 0.451 / 0.00       | 0.464 / 0.20        |
+| swarm_v         | 1.117 -> 1.085        | 0.016          | 2.04 -> 0.94 | 17.82 -> 10.30 | 0.220 -> 0.185 | 1.064 / 4.68       | 1.131 / 4.54        |
+| swarm_split     | 1.339 -> 1.250        | 0.025          | 7.72 -> 1.74 | 23.90 -> 7.68  | 0.298 -> 0.217 | 1.249 / 4.64       | 1.281 / 1.66        |
+| balloons        | 0.639 -> 0.638        | 0.006          | 0.00 -> 0.00 | 0.56 -> 0.24   | 0.039 -> 0.039 | 0.639 / 0.00       | 0.648 / 0.14        |
+| hanging         | 0.541 -> 0.546        | 0.026          | 0.48 -> 0.78 | 1.60 -> 0.68   | 0.071 -> 0.068 | 0.554 / 2.12       | 0.663 / 1.30        |
+| birds           | 1.023 -> 1.022        | 0.016          | 1.00 -> 0.90 | 1.40 -> 1.24   | 0.161 -> 0.163 | 1.021 / 1.18       | 1.059 / 3.44        |
+| clutter_mix     | 1.265 -> 1.264        | 0.033          | 4.44 -> 4.44 | 4.64 -> 4.56   | 0.430 -> 0.431 | 1.257 / 4.30       | 1.274 / 5.26        |
+| busy            | 1.708 -> 1.692        | 0.034          | 8.40 -> 7.56 | 15.84 -> 11.66 | 0.535 -> 0.531 | 1.669 / 7.98       | 1.694 / 8.90        |
+| cam_mix         | 2.489 -> 2.491        | 0.110          | 8.00 -> 8.04 | 4.30 -> 4.52   | 0.975 -> 0.979 | 2.488 / 4.50       | 2.487 / 5.12        |
+| close_cam       | 0.415 -> 0.415        | 0.013          | 0.02 -> 0.02 | 0.26 -> 0.26   | 0.004 -> 0.004 | 0.417 / 0.30       | 0.416 / 0.26        |
+| random          | 0.837 -> 0.834        | 0.088          | 1.50 -> 1.42 | 3.60 -> 2.96   | 0.195 -> 0.193 | 0.833 / 1.58       | 0.894 / 2.34        |
+| random_cam      | 2.572 -> 2.573        | 0.345          | 7.48 -> 7.58 | 9.54 -> 9.96   | 0.836 -> 0.839 | 2.560 / 8.88       | 2.617 / 11.54       |
+| close_cam_lidar | 0.410 -> 0.410        | 0.016          | 0.02 -> 0.02 | 0.02 -> 0.02   | 0.004 -> 0.004 | 0.412 / 0.06       | 0.411 / 0.02        |
+
+GOSPA is not worse on any scene beyond noise: the five cells that moved up (weave +0.0005, hanging +0.004, cam_mix +0.001, random_cam
++0.001, route_hover +0.00002) are all under 20 % of their 95 % band. Hanging has more breaks (0.48 -> 0.78) at fewer ID switches (1.60 -> 0.68);
+not explained. Paired seeds (same seeds before and after), 4 processes; ms/update with the joint assignment was +0.1 ms (7.3 -> 7.5 on swarm_v).
+PHD and the other variants are untouched (no code path of theirs changed).
+
+## Not done
+
+- **MHT is still above JPDA/GNN-s on the swarms**: swarm_v 10.3 vs 4.7, busy 11.7 vs 8.0 (swarm_split 7.7 vs 4.6). Closing it needs margin
+  below 3 (swarm_v 6.8 at margin 1.5 on 16 seeds), which costs duplicate tracks on `hanging` and `birds` (not run at 50 seeds). The remaining
+  switches in swarm_v are mostly neighbours within the noise (0.6 to 1 m against 0.5 m), which no position-only tracker separates reliably.
+  In `busy` most remaining switches are young trees taking over a target (birth after a gap), not neighbour swaps.
+- **PHD (24 to 40 switches on the swarms) is unchanged.** One attempt, tried and removed: carry identity by position continuity
+  (match the extracted label states to the previous tracks by linear assignment, gate 1.5 m) instead of the mixture label. 12 seeds:
+  swarm_v switches 26.4 -> 20.4, breaks 15.5 -> 8.1, swarm_split 27.3 -> 19.8, GOSPA unchanged; gate 3 m was worse (30), 5 m much worse (53).
+  A 25 % cut is not the JPDA level, so it was not shipped; the label problem is in the mixture (components shared between labels), not in the output.
+- The margin / stick / drop values were tuned on these scenes (12 to 16 seeds exploring, 50 final); the cliff at stick > 5 means they should be
+  re-checked for other clutter densities or sensors.

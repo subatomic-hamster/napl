@@ -23,8 +23,8 @@ from napl.track.filters import IMM
 from napl.track.metrics import chi2_band
 from napl.track.models import Singer
 from napl.track.scenarios import _path, build
-from napl.track.trackers import GNN, JPDA
-from napl.track.variants import ekf, imm, prior, run
+from napl.track.trackers import GNN, JPDA, MHT, _Leaf
+from napl.track.variants import ekf, imm, make_tracker, prior, run
 
 
 def test_gospa_known_values():
@@ -220,7 +220,7 @@ def test_mht_and_phd_track_single_target():
 
 OLD = {  # the options of JPDA / MHT / PHD before the tuning (weak hits count, duplicate deletion, one big label, ...)
     "imm2-jpda": dict(dedupe=9.0, hit_beta0=0.5),
-    "imm2-mht": dict(kmax=4, nscan=3, decay=1.0, hit_llr=-1e9),
+    "imm2-mht": dict(kmax=4, nscan=3, decay=1.0, hit_llr=-1e9, joint=0, stick=0.0),
     "phd-singer": dict(xmerge=0, split_w=0.0, keep=0, merge_d2=4.0),
 }
 
@@ -231,6 +231,51 @@ def test_tuned_variants_beat_their_old_options_on_the_clutter_swarm(v):
     new = np.mean([run("swarm5", v, s)["gospa"] for s in (1, 2, 3)])
     old = np.mean([run("swarm5", v, s, **OLD[v])["gospa"] for s in (1, 2, 3)])
     assert new < 0.85 * old, (v, new, old)
+
+
+def _mht_with_two_trees(**kw):
+    """Two trees, two measurements (j = 0, 1) of scan 1: tree 1 scores 10 on z0 and 9 on z1, tree 2 scores 9.9 on z0 and 0 on z1."""
+    m = MHT(None, **kw)
+
+    def leaf(s, j, prev):
+        return _Leaf(None, s, (True,), 0, ((0, prev), (1, j)), 3, True)
+
+    m.trees = {
+        1: [leaf(10, 0, 0), leaf(9, 1, 0)],
+        2: [leaf(9.9, 0, 1), leaf(0.0, 1, 1)],
+    }
+    return m
+
+
+def test_mht_joint_selection_is_the_best_assignment_greedy_is_not():
+    """Failable: the greedy rule lets the best-scoring tree take the measurement the other tree needs (total 10), the joint
+    assignment gives tree 1 z1 and tree 2 z0 (total 18.9)."""
+
+    def pick(m):
+        return {i: lf.path[-1][1] for i, lf in m._select(2).items()}
+
+    assert pick(_mht_with_two_trees()) == {1: 0, 2: 1}
+    assert pick(_mht_with_two_trees(joint=1)) == {1: 1, 2: 0}
+
+
+def _switches(scene, seed, **opts):
+    from napl.threats import bench
+
+    scn = bench.build(scene, seed)
+    tr = make_tracker("imm2-mht", scn, seed, **opts)
+    ev, ids = bench.Evaluator(scn.c), np.array(scn.ids)
+    for k, (t, meas, zs) in enumerate(scn.frames):
+        a = scn.alive[k]
+        ev.add(t, list(ids[a]), scn.truth[k][a], tr.step(t, zs, meas))
+    return ev.summary(scn.ids)["switches"]
+
+
+def test_mht_joint_hysteresis_cuts_id_switches_in_the_close_formation():
+    """Failable: swarm_v seeds 2-4 (6 drones 0.6-3 m apart, 0.5 m noise): the greedy MHT hops between neighbours' measurements
+    (82 vs 147 switches in the three runs when written)."""
+    new = np.mean([_switches("swarm_v", s) for s in (2, 3, 4)])
+    old = np.mean([_switches("swarm_v", s, joint=0, stick=0.0) for s in (2, 3, 4)])
+    assert new < 0.75 * old, (new, old)
 
 
 def test_jpda_hit_rule_needs_real_evidence():

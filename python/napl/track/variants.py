@@ -158,7 +158,7 @@ KW = {
         min_llr=3.5
     ),  # ~ W > 33 x missed-detection weight, the same strictness as the hit rules below
     "imm2-jpda": dict(dedupe=0, hit_beta0=0.01),
-    "imm2-mht": dict(kmax=8, nscan=1, decay=0.8, hit_llr=3.5),
+    "imm2-mht": dict(kmax=8, nscan=1, decay=0.8, hit_llr=3.5, joint=1, stick=4.0),
     "phd-singer": dict(xmerge=1, split_w=0.7, keep=1, merge_d2=9.0),
 }
 

@@ -286,9 +286,15 @@ class MHT(Tracker):
     """Track-oriented MHT. Each tree (= one track id) holds up to kmax leaf hypotheses scored by log-likelihood ratio.
     The global hypothesis is chosen greedily (trees by best score, first leaf whose measurements are unused), then
     N-scan pruning commits the choice made nscan scans ago. ponytail: greedy global hypothesis, not the exact ILP/Murty
-    (an exact per-cluster search was tried: fewer misses but more duplicate tracks and ID switches, so it was dropped).
+    (a global score maximum over whole trees was tried: it lets a young duplicate tree outbid the old one, see joint below).
     decay: leaf scores fade by this factor per scan so that a long-lived tree does not outrank a young one on history alone.
-    hit_llr: an association with a log-likelihood ratio below this is kept as a hypothesis but is not a confirmation hit."""
+    hit_llr: an association with a log-likelihood ratio below this is kept as a hypothesis but is not a confirmation hit.
+    joint (docs/cuas2/tracking-tuning.md, TUNE-2): the greedy rule lets the best-scoring tree take whichever measurement fits it
+    best, so two neighbours closer than the noise swap measurements from scan to scan. joint=1 also solves the assignment of the
+    current scan's measurements by linear assignment on each tree's regret (score of the chosen leaf below the tree's best leaf;
+    `drop` = regret of a tree that has no coasting leaf and is left out) and uses it when it beats the greedy choice by `margin`
+    (so a lone target keeps the greedy, old-tree-first behaviour). stick: regret bonus for a leaf that continues the leaf the tree
+    exposed last scan (no jump of the output state between sibling hypotheses)."""
 
     def __init__(
         self,
@@ -299,9 +305,15 @@ class MHT(Tracker):
         score_birth=2.0,
         decay=1.0,
         hit_llr=-1e9,
+        joint=0,
+        stick=0.0,
+        drop=4.0,
+        margin=3.0,
         **k,
     ):
         super().__init__(*a, **k)
+        self.joint, self.stick, self.drop, self.margin = joint, stick, drop, margin
+        self._anchor = {}
         self.kmax, self.nscan, self.gap, self.s0 = kmax, nscan, prune_gap, score_birth
         self.decay, self.hit_llr = decay, hit_llr
         self.trees, self.k = {}, 0
@@ -309,6 +321,71 @@ class MHT(Tracker):
 
     def confirmed(self):
         return [tr for tr in self.tracks if tr.confirmed and tr.id in self._sel]
+
+    def _select(self, M):
+        """Global hypothesis: one leaf per tree, no measurement (of the leaf's whole path) used twice. Greedy: trees by best leaf
+        score, each takes its best free leaf. joint: the linear assignment of the current scan's measurements (or coast) to the
+        trees that minimises the summed regret replaces the greedy choice when it is better by `margin`; the greedy loop then only
+        repairs leaves whose older scans clash."""
+        trees = {}
+        for i, ls in self.trees.items():
+            ok = []
+            for lf in sorted(ls, key=lambda l: -l.score):
+                if not (lf.conf or lf.score > 0):
+                    break
+                ok.append(lf)
+            if ok:
+                trees[i] = ok
+        order = sorted(trees, key=lambda i: -trees[i][0].score)
+
+        def place(want, dropped):
+            used, sel = set(), {}
+            for tid in order:
+                if tid in dropped:
+                    continue
+                for lf in ([want[tid]] if tid in want else []) + trees[tid]:
+                    keys = {p for p in lf.path if p[1] >= 0}
+                    if not keys & used:
+                        used |= keys
+                        sel[tid] = lf
+                        break
+            return sel
+
+        sel = place({}, ())
+        if self.joint and trees:
+            ids = list(trees)
+            T = len(ids)
+            cost, pick = np.full((T, M + 2 * T), BIG), {}
+            for r, i in enumerate(ids):
+                top = max(lf.score for lf in trees[i])
+                for lf in trees[i]:
+                    j = lf.path[-1][1]
+                    c = j if j >= 0 else M + r
+                    s = lf.score + (
+                        self.stick
+                        if len(lf.path) > 1 and lf.path[-2] == self._anchor.get(i)
+                        else 0.0
+                    )
+                    if top - s < cost[r, c]:  # regret against the tree's own best leaf
+                        cost[r, c], pick[r, c] = top - s, lf
+                if (
+                    cost[r, M + r] >= BIG
+                ):  # no coasting leaf: may be left out, at a price
+                    cost[r, M + T + r] = self.drop
+            want, dropped, cj = {}, set(), 0.0
+            for r, c in zip(*lsa(cost)):
+                cj += cost[r, c]
+                if c >= M + T:
+                    dropped.add(ids[r])
+                elif cost[r, c] < BIG / 2:
+                    want[ids[r]] = pick[r, c]
+            cg = 0.0  # regret of the greedy choice, to be beaten by `margin` before the joint one replaces it
+            for r, i in enumerate(ids):
+                j = sel[i].path[-1][1] if i in sel else None
+                cg += self.drop if j is None else cost[r, j if j >= 0 else M + r]
+            if cj + self.margin < cg:
+                sel = place(want, dropped)
+        return sel
 
     def _tick(self, t, zs, meas, th):
         k, M = self.k, len(zs)
@@ -354,19 +431,8 @@ class MHT(Tracker):
                 kids.append(lf)
             tr.t = t
             self.trees[tid] = kids
-        # global hypothesis: greedy by best leaf score
-        order = sorted(self.trees, key=lambda i: -max(lf.score for lf in self.trees[i]))
-        used, sel = set(), {}
-        for tid in order:
-            for lf in sorted(self.trees[tid], key=lambda l: -l.score):
-                if not (lf.conf or lf.score > 0):
-                    break
-                keys = {p for p in lf.path if p[1] >= 0}
-                if keys & used:
-                    continue
-                used |= keys
-                sel[tid] = lf
-                break
+        sel = self._select(M)
+        self._anchor = {i: lf.path[-1] for i, lf in sel.items()}
         # N-scan pruning: commit the ancestor at scan k-N of every selected leaf
         commit = {tid: lf.path[0] for tid, lf in sel.items() if len(lf.path) == N + 1}
         ckeys = {p: tid for tid, p in commit.items() if p[1] >= 0}
