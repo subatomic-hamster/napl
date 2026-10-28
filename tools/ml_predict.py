@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 import numpy as np
 from napl.track import calib as C
 from napl.track.learned import data as D
+from napl.track.learned import hybrid as HY
 from napl.track.learned import metrics as M
 from napl.track.learned import models as ML
 from napl.track.scenarios import NAMES
@@ -279,8 +280,94 @@ def _nll(m, c, y):
     return (0.5 * (d + np.linalg.slogdet(Cm)[1])).mean(1)
 
 
+def cmd_hybrid(a):
+    """ML-4: leave-one-generator-out pass table for learned-mean + safe-covariance hybrids (napl.track.learned.hybrid).
+    (k, g) are fitted on the val split WITHOUT the held-out group, per LOGO model, then applied to the test split."""
+    te, va = D.load(a.data)["test"], D.load(a.val)["val"]
+    va = sub(va, np.arange(len(va["y"])) % a.fit_stride == 0)
+    y, gt, gv = te["y"], te["meta"][:, 5].astype(int), va["meta"][:, 5].astype(int)
+    I2t, I2v = base(te, "2"), base(va, "2")
+    ldir = Path(a.logo)
+    hdr = [
+        "| group | variant | fit | k / g (mean over seeds) | cover 90 % mean h (min-max h) | NLL (mean h) | RMSE m @1.0 s (IMM2) | PASS mean-h | PASS every-h |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    md, js = [], {}
+    inr = lambda c: (PASS_COVER[0] <= c) & (c <= PASS_COVER[1])
+    yn = lambda b: "yes" if b else "no"
+    for g in D.GROUPS + ("route+swarm",):
+        files = sorted((ldir / f"x_{g}").glob("mlp_s*.npz"))
+        if not files:
+            continue
+        ix = [D.GROUPS.index(x) for x in g.split("+")]
+        tm, vm = np.isin(gt, ix), ~np.isin(gv, ix)
+        yt, mt2, Ct2 = y[tm], I2t[0][tm], I2t[1][tm]
+        i2 = M.evaluate(mt2, Ct2, yt)
+        variants = {}  # (name, fit) -> list over seeds of (metrics, k, g)
+        for f in files:
+            W = ML.load(f)
+            ml, Cl = ML.predict_np(W, sub(te, tm))
+            mv, Cv = ML.predict_np(W, sub(va, vm))
+            variants.setdefault(("learned", "-"), []).append(
+                (M.evaluate(ml, Cl, yt), 0, 0)
+            )
+            for mode in HY.MODES:
+                for obj in ("nll", "guard"):
+                    k, gg, _ = HY.fit(
+                        mode, mv, Cv, I2v[0][vm], I2v[1][vm], va["y"][vm], gv[vm], obj
+                    )
+                    m, C = HY.hybrid(mode, ml, Cl, mt2, Ct2, k, gg)
+                    variants.setdefault((mode, obj), []).append(
+                        (M.evaluate(m, C, yt), k, gg)
+                    )
+            print(g, f.stem, "done", flush=True, file=sys.stderr)
+        md += [
+            f"#### {g} held out (n = {int(tm.sum())} test samples, {len(files)} LOGO seeds)",
+            "",
+        ] + hdr
+        cell = lambda r: (
+            f"{r['c90'].mean():.3f} ({r['c90'].min():.2f}-{r['c90'].max():.2f}) | {r['nll'].mean():.2f}"
+        )
+        md.append(
+            f"| {g} | IMM2 | - | - | {cell(i2)} | {i2['rmse'][4]:.3f} | {yn(inr(i2['c90'].mean()))} | {yn(inr(i2['c90']).all())} |"
+        )
+        js[g] = {"imm2": {q: v.tolist() for q, v in i2.items()}}
+        for (name, obj), rs in variants.items():
+            mean_r = {q: np.mean([r[q] for r, _, _ in rs], 0) for q in rs[0][0]}
+            p1 = sum(
+                bool(inr(r["c90"].mean())) and r["rmse"][4] <= i2["rmse"][4]
+                for r, _, _ in rs
+            )
+            p2 = sum(
+                bool(inr(r["c90"]).all()) and r["rmse"][4] <= i2["rmse"][4]
+                for r, _, _ in rs
+            )
+            kk = f"{np.mean([k for _, k, _ in rs]):.2f} / {np.mean([q for _, _, q in rs]):.2f}"
+            md.append(
+                f"| {g} | {name} | {obj} | {kk if name != 'learned' else '-'} | {cell(mean_r)} | {mean_r['rmse'][4]:.3f} ({i2['rmse'][4]:.3f}) | {p1}/{len(rs)} | {p2}/{len(rs)} |"
+            )
+            js[g][f"{name}/{obj}"] = dict(
+                pass_mean_h=p1,
+                pass_every_h=p2,
+                seeds=len(rs),
+                kg=[(k, q) for _, k, q in rs],
+                metrics={q: v.tolist() for q, v in mean_r.items()},
+            )
+        md.append("")
+    text = "\n".join(md)
+    print(text)
+    if a.md:
+        Path(a.md).write_text(text + "\n")
+    if a.json:
+        Path(a.json).write_text(json.dumps(js))
+
+
 def cmd_eval_threats(a):
-    """ML-3: in-distribution and leave-one-generator-out evaluation on the threat-suite test split."""
+    """ML-3: in-distribution and leave-one-generator-out evaluation on the threat-suite test split.
+    --hybrid: the ML-4 hybrid pass table instead (needs --val; --models unused)."""
+    if a.hybrid:
+        return cmd_hybrid(a)
+    assert a.models, "--models is required without --hybrid"
     te = D.load(a.data)["test"]
     y, grp = (
         te["y"],
@@ -638,7 +725,14 @@ def main():
     e.add_argument("--json", default="")
     et = sp.add_parser("eval-threats")
     et.add_argument("--data", required=True)
-    et.add_argument("--models", required=True)
+    et.add_argument("--models", default="")
+    et.add_argument(
+        "--hybrid", action="store_true"
+    )  # ML-4 hybrids (learned mean + IMM2-floored covariance)
+    et.add_argument("--val", default="")  # val data npz (hybrid fit)
+    et.add_argument(
+        "--fit-stride", type=int, default=2
+    )  # hybrid fit uses every n-th val sample
     et.add_argument("--noaug", default="")
     et.add_argument("--logo", required=True)  # dir holding x_<group>/mlp_s*.npz
     et.add_argument("--md", default="")

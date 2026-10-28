@@ -130,3 +130,36 @@ def test_augment_is_a_consistent_rotation_and_scale(thr):
         rtol=1e-2,
         atol=1e-6,
     )
+
+
+def test_hybrid_floor_mix_and_guard_fit():
+    from napl.track.learned import hybrid as HY
+
+    rng = np.random.default_rng(1)
+    S, H = 3000, 2
+    A = rng.normal(size=(S, H, 3, 3)) * 0.3
+    C2 = A @ np.swapaxes(A, -1, -2) + np.eye(3)  # IMM2 covariance
+    Cl = 0.1 * np.broadcast_to(
+        np.diag([4.0, 0.2, 0.2]), C2.shape
+    )  # learned: too tight, other shape
+    mu2 = rng.normal(size=(S, H, 3))
+    mul = mu2 + 0.1
+    # floor: Loewner-above both inputs; mean untouched; g adds the disagreement outer product
+    m, C = HY.hybrid("floor", mul, Cl, mu2, C2, k=1.0, g=0.0)
+    assert m is mul
+    assert np.linalg.eigvalsh(C - Cl).min() > -1e-9
+    assert np.linalg.eigvalsh(C - C2).min() > -1e-9
+    d = mul - mu2
+    _, Cg = HY.hybrid("floor", mul, Cl, mu2, C2, k=1.0, g=2.0)
+    assert np.allclose(Cg - C, 2.0 * d[..., :, None] * d[..., None, :])
+    # mix endpoints and imm2cov
+    assert np.allclose(HY.hybrid("mix", mul, Cl, mu2, C2, k=0.0)[1], Cl)
+    assert np.allclose(HY.hybrid("mix", mul, Cl, mu2, C2, k=1.0)[1], C2)
+    assert np.allclose(HY.hybrid("imm2cov", mul, Cl, mu2, C2, k=2.0)[1], 2 * C2)
+    # truth ~ N(mu_l, C2): the guard fit must pick a covariance near C2 (cover ~0.9), not the over-confident Cl
+    e = np.einsum("shij,shj->shi", np.linalg.cholesky(C2), rng.normal(size=(S, H, 3)))
+    grp = np.arange(S) % 3
+    k, g, info = HY.fit(
+        "floor", mul, Cl, mu2, C2, mul + e, grp, objective="guard", with_g=False
+    )
+    assert 0.85 < info["cover"] < 0.95 and 0.5 <= k <= 1.5
