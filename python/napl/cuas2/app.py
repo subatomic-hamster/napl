@@ -354,7 +354,9 @@ class FireControl2(FireControl):
             self.target_id = self.last_solution = None
             d.aim = (hold[0], hold[1], 0.0, 0.0)
             d.reasons.append("no_target")
-            d.flywheel, d.inhibit = idle, not live
+            # lite's spin-down hold: a one-frame track dropout must not drop the wheels to idle (re-spin to the READY window took ~0.5 s: READY 23 % of the time on quad8)
+            hot = self.fw_on and d.deadman and now - self.last_target_t <= c.spin_down_s
+            d.flywheel, d.inhibit = (c.flywheel_duty if hot else idle), not live
             return d
         self.target_id, self.last_target_t = tgt.id, now
         pan, tilt = v.pan, v.tilt
