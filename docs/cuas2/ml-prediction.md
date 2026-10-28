@@ -445,7 +445,7 @@ none reaches it).
 
 (IMM2 "pass" = cover in range; its RMSE is the reference.) Under the stricter every-horizon rule: `floor/guard` keeps route, pattern, swarm (3/3), loses
 debris (0/3); `imm2cov/guard` passes weave only; `mix/guard` passes route, pattern, swarm, debris 2/3. Full table with k / g, NLL, RMSE, min-max cover over
-horizons and both rules: `tools/ml_predict.py eval-threats --hybrid` output (not committed; on hfbox `/workspace/wt/napl-c2ml3/hybrid.{md,json}`).
+horizons and both rules: `tools/ml_predict.py eval-threats --hybrid` output (not committed; on hfbox `/workspace/wt/napl-c2ml3/hybrid.md`; the `--json` write crashed on numpy ints in that run, fixed afterwards and not re-run).
 
 ### Caveats
 

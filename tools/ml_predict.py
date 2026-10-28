@@ -347,10 +347,10 @@ def cmd_hybrid(a):
                 f"| {g} | {name} | {obj} | {kk if name != 'learned' else '-'} | {cell(mean_r)} | {mean_r['rmse'][4]:.3f} ({i2['rmse'][4]:.3f}) | {p1}/{len(rs)} | {p2}/{len(rs)} |"
             )
             js[g][f"{name}/{obj}"] = dict(
-                pass_mean_h=p1,
-                pass_every_h=p2,
+                pass_mean_h=int(p1),
+                pass_every_h=int(p2),
                 seeds=len(rs),
-                kg=[(k, q) for _, k, q in rs],
+                kg=[(float(k), float(q)) for _, k, q in rs],
                 metrics={q: v.tolist() for q, v in mean_r.items()},
             )
         md.append("")
