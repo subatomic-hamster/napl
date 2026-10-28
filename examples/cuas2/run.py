@@ -21,18 +21,23 @@ from napl.cuas2.sim_lock import Lockstep2
 lrun = sc.load("cuas_lite_run", "cuas-lite/run.py")
 
 
+def ball_unarmed(arm_iv, fire_sess, t, fire_id):
+    """arm_iv: [[t_arm, t_disarm or inf]] per session; fire_sess: fire_id -> session index the FIRE was sent in. A ball fed at `t` by FIRE `fire_id` is
+    unarmed iff `t` is outside every session, or the session it falls in is not the one that FIRE was sent in (or the FIRE was never sent)."""
+    j = next((i for i, (a, b) in enumerate(arm_iv) if a <= t <= b), None)
+    return j is None or fire_sess.get(fire_id) != j
+
+
 class Referee2(lrun.Referee):
     """The lite Referee judges a ball fed in control period k against the app's armed flag AFTER period k's step. The app disarms on the
     cap-th shot in that same step (spec: the cap ends the arm), so the cap-th ball read as 'unarmed' (3 of 165 episodes with the Ph gate off).
     Here a ball is 'unarmed' iff its feed time (exact, from the twin) is outside every arm session [Lockstep2.arm_iv, exact sim time of ARM / disarm],
-    or the session it falls in is not the session in which the FIRE that fed it was sent (Lockstep2.fire_sess; the FIRE is the last one sent before
-    the feed: one FIRE is live at a time). So a ball fed after a disarm, or after a quick re-arm from an older session's FIRE, is flagged."""
+    or the session it falls in is not the session in which ITS OWN FIRE was sent (twin.shots carries (t, fire_id, idx); Lockstep2.fire_sess maps
+    fire_id -> session). So a ball fed after a disarm, or a session-0 FIRE's ball fed after a quick re-arm (even when a session-1 FIRE was already
+    sent), is flagged."""
 
-    def _unarmed(self, t):
-        h = self.h
-        j = next((i for i, (a, b) in enumerate(h.arm_iv) if a <= t <= b), None)
-        sent = [s for ts, s in h.fire_sess if ts <= t]
-        return j is None or not sent or sent[-1] != j
+    def _unarmed(self, t, fire_id):
+        return ball_unarmed(self.h.arm_iv, self.h.fire_sess, t, fire_id)
 
     def __call__(self, h=None):
         fc = self.h.app.fc
@@ -45,7 +50,7 @@ class Referee2(lrun.Referee):
             r = super().__call__(h)
         finally:
             fc.armed = real
-        self.violations["unarmed"] += sum(self._unarmed(t) for t, _f, _i in new)
+        self.violations["unarmed"] += sum(self._unarmed(t, f) for t, f, _i in new)
         assert self.n_seen == n0 + len(new)
         return r
 

@@ -1,6 +1,7 @@
 """cuas2 fire control (napl.cuas2.app.FireControl2) without the kernel: person block, the Ph gate, shoot-look-shoot spacing, ARM / dead-man / READY. Every
 test that shows a shot is blocked also shows the same scene fires once the single blocking condition is removed (negative control)."""
 
+import dataclasses
 from types import SimpleNamespace
 
 import numpy as np
@@ -413,3 +414,181 @@ def test_aim_is_clamped_to_the_fence_through_step():
     assert d.aim[2] == 0.0
     # negative control: the wide sector leaves the solution alone
     assert make_fc().step(NOW, view([t])).aim[0] == pytest.approx(p0)
+
+
+# ---- every FIRE-blocking condition: the hazard vetoes with its own reason, the same scene without it fires --------------------------------------
+# (a cold verify found each of these removable with every test green; tests/cuas2/test_app.py is now the guard)
+def _fires(fc, v):
+    d = fc.step(NOW, v)
+    assert d.fire == 1 and not d.reasons, d.reasons
+    return d
+
+
+def _scene(**cfg):
+    fc = make_fc(**cfg)
+    return fc, aligned(fc, tgt())
+
+
+# hazard: field of the View replaced -> the only reason. Hard vetoes: nothing but the veto is reported, wheels released, FIRE_INHIBIT up.
+VETO_HAZARDS = {
+    "link_down": (dict(link_ok=False), "link"),
+    "no_status": (dict(status=None), "link"),
+    "detector_stale": (dict(det_stale_s=0.5), "detector_stale"),
+    "camera_stale": (dict(cam_stale_s=0.5), "camera_stale"),
+    "calibration": (dict(calib_ok=False), "no_calib"),
+}
+
+
+@pytest.mark.parametrize("name", VETO_HAZARDS)
+def test_hard_veto_blocks_fire_with_its_reason(name):
+    over, reason = VETO_HAZARDS[name]
+    fc, v = _scene()
+    d = fc.step(NOW, dataclasses.replace(v, **over))
+    assert d.fire == 0 and d.reasons == [reason] and d.inhibit and d.flywheel == 0.0
+    _fires(*_scene())  # negative control: the same scene, nothing replaced
+
+
+@pytest.mark.parametrize("state", [p.IDLE, p.SAFE, p.FAULT])
+def test_mcu_state_veto_on_a_fresh_arm(state):
+    """Just armed (< 0.5 s) and the MCU is not in ARMED..FIRING: only hard_veto's state check holds the fire (the app-level disarm needs 0.5 s)."""
+    fc, v = _scene()
+    fc.arm(NOW - 0.2)
+    d = fc.step(NOW, dataclasses.replace(v, status=status(state=state)))
+    assert d.fire == 0 and d.reasons == ["mcu_not_armed"] and d.inhibit
+    assert fc.armed  # inside the 0.5 s window the app does not disarm
+    fc2, v2 = _scene()
+    fc2.arm(NOW - 0.2)
+    _fires(fc2, v2)  # control: the MCU is ENGAGING/READY
+
+
+@pytest.mark.parametrize("state", [p.IDLE, p.SAFE, p.FAULT])
+def test_mcu_leaving_the_armed_states_disarms_the_app(state):
+    fc, v = _scene()
+    d = fc.step(NOW, dataclasses.replace(v, status=status(state=state)))
+    assert d.fire == 0 and "mcu_not_armed" in d.reasons and not fc.armed
+
+
+def test_arm_timeout_disarms_and_blocks():
+    fc, v = _scene()
+    fc.arm(NOW - fc.cfg.arm_timeout_s - 1.0)
+    d = fc.step(NOW, v)
+    assert d.fire == 0 and d.disarm and "timeout" in d.reasons and not fc.armed
+    fc2, v2 = _scene()
+    fc2.arm(NOW - fc2.cfg.arm_timeout_s + 1.0)  # control: one second left
+    _fires(fc2, v2)
+
+
+def test_no_sector_blocks_fire():
+    fc, v = _scene()
+    d = make_fc(sector=None).step(NOW, v)
+    assert d.fire == 0 and d.reasons == ["no_sector"] and d.inhibit
+    _fires(fc, v)  # control: the same view with the sector
+
+
+# hazard: the track, not the system, is wrong -> not engageable, with exactly this reason (FireControl.engageable); the step then has no target
+TRACK_HAZARDS = {
+    "unconfirmed": (lambda t: dataclasses.replace(t, confirmed=False), "unconfirmed"),
+    "coasting": (lambda t: dataclasses.replace(t, misses=2), "coasting"),
+    "range_far": (lambda t: tgt(pos=(25.0, 0.0, 3.2)), "range"),
+    "range_near": (lambda t: tgt(pos=(1.5, 0.0, 1.0)), "range"),
+    "target_outside_sector": (
+        lambda t: tgt(pos=(0.0, 8.0, 3.2)),
+        "target_outside_sector",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", TRACK_HAZARDS)
+def test_track_that_is_not_engageable_gets_no_fire(name):
+    mk, reason = TRACK_HAZARDS[name]
+    fc, v = _scene()
+    bad = mk(tgt())
+    v_bad = dataclasses.replace(v, tracks=[bad])
+    assert fc.engageable(bad, v_bad) == [reason]
+    d = fc.step(NOW, v_bad)
+    assert d.fire == 0 and d.reasons == ["no_target"] and d.target is None
+    fc2, v2 = _scene()  # negative control: the unmodified track is engageable and fires
+    assert fc2.engageable(v2.tracks[0], v2) == []
+    _fires(fc2, v2)
+
+
+def test_a_fire_in_flight_blocks_the_next_fire_until_it_ends():
+    fc, v = _scene()
+    _fires(fc, v)
+    fc.fire_sent(NOW, 1)
+    vv = dataclasses.replace(v, now=NOW + 0.05, deadman_t=NOW - 0.05)
+    d = fc.step(NOW + 0.05, vv)
+    assert d.fire == 0 and d.reasons == ["pending"]
+    # control: no FIRE in flight at the same instant fires; and the first one fires again once its pending window is over
+    fc2, v2 = _scene()
+    fc2.step(NOW, v2)
+    assert fc2.step(NOW + 0.05, vv).fire == 1
+    late = NOW + fc.cfg.pending_timeout_s + 0.1
+    vl = dataclasses.replace(v, now=late, deadman_t=late - 0.1)
+    assert fc.step(late, vl).fire == 1
+
+
+def test_no_solution_blocks_fire():
+    """A target 18 m out and 10 m up is in the sector and in range but not reachable by the 30 m/s ball: lead2 -> None."""
+    fc = make_fc()
+    far = tgt(pos=(15.0, 0.0, 10.0))
+    v = view([far])
+    assert (
+        fc.engageable(far, v) == []
+        and lead2(fc.geom, fc.model, fc.setpoint, far, 0.0, 0.0, 0.0) is None
+    )
+    d = fc.step(NOW, v)
+    assert d.fire == 0 and d.reasons == ["no_solution"] and d.inhibit
+    _fires(*_scene())  # control: a reachable target
+
+
+def test_solution_not_ok_blocks_fire(monkeypatch):
+    """lead2's own residual flag. ok=False (miss at the intercept > 4 x tol) did not occur for any scene probed, so the solver is wrapped to report it."""
+    from napl.cuas2 import app as app_mod
+
+    fc, v = _scene()
+    real = app_mod.lead2
+    monkeypatch.setattr(
+        app_mod, "lead2", lambda *a, **k: {**real(*a, **k), "ok": False}
+    )
+    d = fc.step(NOW, v)
+    assert d.fire == 0 and d.reasons == ["solution_not_ok"]
+    monkeypatch.setattr(app_mod, "lead2", real)
+    _fires(*_scene())  # control: the unwrapped solver
+
+
+def test_pointing_error_blocks_fire_on_the_ph_path():
+    """ph_tau=0 so Ph cannot block: the sanity bound point_gate_deg alone refuses a head 5 deg off the solution."""
+    fc, v = _scene(ph_tau=0.0)
+    d = fc.step(NOW, dataclasses.replace(v, pan=v.pan + 5.0))
+    assert (
+        d.fire == 0 and d.reasons == ["pointing"] and d.err_deg > fc.cfg.point_gate_deg
+    )
+    fc2, v2 = _scene(ph_tau=0.0)
+    d = _fires(fc2, v2)  # control: on the solution
+    assert d.err_deg < 0.5
+
+
+# ---- App2 level: the detector / sector vetoes through the real _view ------------------------------------------------------------------------------
+def test_app2_detector_stale_blocks_fire():
+    app, scan = app2_scene(None)
+    for i in range(14):
+        d = scan(NOW + 0.033 * i)
+    assert d.fire == 1, d.reasons
+    t_last = NOW + 0.033 * 13
+    app.det.stale_s = 0.5  # the detector has not answered for half a second
+    d = app.fc.step(t_last, app._view(t_last))
+    assert d.fire == 0 and d.reasons == ["detector_stale"]
+    app.det.stale_s = 0.0  # control
+    assert app.fc.step(t_last, app._view(t_last)).fire == 1
+
+
+def test_app2_without_a_sector_blocks_fire():
+    app, scan = app2_scene(None)
+    for i in range(14):
+        d = scan(NOW + 0.033 * i)
+    assert d.fire == 1, d.reasons
+    t_last = NOW + 0.033 * 13
+    app.fc.sector = None
+    d = app.fc.step(t_last, app._view(t_last))
+    assert d.fire == 0 and d.reasons == ["no_sector"]
