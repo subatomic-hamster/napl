@@ -63,7 +63,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 0.493 | 0.016 | 0.436 | 0.109  | 0.379 | 0.02   | 0.22  | 1.47      |
 | imm3-gnn   | 0.840 | 0.044 | 0.419 | 0.108  | 0.940 | 0.02   | 0.44  | 2.72      |
 | imm2-jpda  | 0.425 | 0.011 | 0.426 | 0.108  | 0.183 | 0.00   | 0.00  | 1.38      |
-| imm2-mht   | 0.409 | 0.010 | 0.425 | 0.115  | 0.078 | 0.00   | 0.00  | 2.48      |
+| imm2-mht   | 0.409 | 0.010 | 0.425 | 0.115  | 0.074 | 0.00   | 0.00  | 2.48      |
 | phd-singer | 0.412 | 0.005 | 0.436 | 0.136  | 0.016 | 0.10   | 0.10  | 1.60      |
 
 ### survey (pos, 1 drone, lawnmower)
@@ -87,7 +87,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 0.464 | 0.010 | 0.484 | 0.108  | 0.122 | 0.00   | 0.20  | 1.43      |
 | imm3-gnn   | 0.492 | 0.021 | 0.473 | 0.108  | 0.259 | 0.00   | 0.22  | 2.49      |
 | imm2-jpda  | 0.451 | 0.009 | 0.478 | 0.108  | 0.065 | 0.00   | 0.00  | 1.38      |
-| imm2-mht   | 0.449 | 0.009 | 0.477 | 0.109  | 0.047 | 0.00   | 0.00  | 2.41      |
+| imm2-mht   | 0.450 | 0.009 | 0.477 | 0.109  | 0.051 | 0.00   | 0.00  | 2.41      |
 | phd-singer | 0.449 | 0.007 | 0.475 | 0.137  | 0.012 | 0.10   | 0.26  | 1.36      |
 
 ### swarm_v (pos, 6 drones, V to line, clutter 10/scan)
@@ -99,7 +99,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 1.131 | 0.013 | 1.052 | 0.272  | 0.460 | 0.16   | 4.54   | 4.15      |
 | imm3-gnn   | 1.399 | 0.051 | 1.043 | 0.267  | 1.002 | 0.04   | 5.50   | 7.16      |
 | imm2-jpda  | 1.064 | 0.010 | 1.034 | 0.291  | 0.246 | 0.34   | 4.68   | 3.76      |
-| imm2-mht   | 1.117 | 0.029 | 1.089 | 0.322  | 0.220 | 2.04   | 17.82  | 7.39      |
+| imm2-mht   | 1.085 | 0.016 | 1.066 | 0.297  | 0.185 | 0.94   | 10.30  | 7.39      |
 | phd-singer | 1.206 | 0.036 | 1.122 | 0.501  | 0.218 | 13.36  | 24.20  | 4.72      |
 
 ### swarm_split (pos, 8 drones grid, 3 split and rejoin, clutter 10/scan)
@@ -111,7 +111,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 1.281 | 0.017 | 1.200 | 0.351  | 0.460 | 0.74   | 1.66   | 8.41      |
 | imm3-gnn   | 1.511 | 0.031 | 1.186 | 0.341  | 0.994 | 0.88   | 2.68   | 14.58     |
 | imm2-jpda  | 1.249 | 0.024 | 1.190 | 0.430  | 0.257 | 3.90   | 4.64   | 8.42      |
-| imm2-mht   | 1.339 | 0.057 | 1.274 | 0.455  | 0.298 | 7.72   | 23.90  | 15.85     |
+| imm2-mht   | 1.250 | 0.025 | 1.218 | 0.370  | 0.217 | 1.74   | 7.68   | 15.85     |
 | phd-singer | 1.425 | 0.066 | 1.319 | 0.549  | 0.300 | 19.06  | 39.78  | 10.13     |
 
 ### balloons (pos, 3 balloons, gusting wind)
@@ -123,7 +123,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 0.648 | 0.008 | 0.642 | 0.193  | 0.116 | 0.00   | 0.14  | 3.32      |
 | imm3-gnn   | 0.644 | 0.015 | 0.600 | 0.193  | 0.285 | 0.00   | 0.08  | 6.04      |
 | imm2-jpda  | 0.639 | 0.006 | 0.641 | 0.195  | 0.060 | 0.00   | 0.00  | 3.45      |
-| imm2-mht   | 0.639 | 0.006 | 0.644 | 0.190  | 0.039 | 0.00   | 0.56  | 6.23      |
+| imm2-mht   | 0.638 | 0.006 | 0.643 | 0.190  | 0.039 | 0.00   | 0.24  | 6.23      |
 | phd-singer | 0.746 | 0.007 | 0.743 | 0.252  | 0.016 | 0.84   | 0.70  | 3.04      |
 
 ### hanging (pos, 2 swinging loads)
@@ -135,7 +135,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 0.663 | 0.020 | 0.551 | 0.161  | 0.504 | 0.12   | 1.30  | 2.61      |
 | imm3-gnn   | 1.175 | 0.059 | 0.514 | 0.156  | 1.241 | 0.10   | 1.22  | 4.70      |
 | imm2-jpda  | 0.554 | 0.009 | 0.534 | 0.165  | 0.220 | 0.06   | 2.12  | 2.42      |
-| imm2-mht   | 0.541 | 0.016 | 0.537 | 0.196  | 0.071 | 0.48   | 1.60  | 4.67      |
+| imm2-mht   | 0.546 | 0.026 | 0.535 | 0.201  | 0.068 | 0.78   | 0.68  | 4.67      |
 | phd-singer | 0.632 | 0.033 | 0.615 | 0.232  | 0.042 | 2.00   | 0.54  | 2.83      |
 
 ### birds (pos, 3 birds + 1 drone)
@@ -147,7 +147,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 1.059 | 0.018 | 1.039 | 0.267  | 0.308 | 1.80   | 3.44  | 2.65      |
 | imm3-gnn   | 1.054 | 0.016 | 1.024 | 0.251  | 0.367 | 1.22   | 3.02  | 4.73      |
 | imm2-jpda  | 1.021 | 0.015 | 1.024 | 0.259  | 0.157 | 1.36   | 1.18  | 2.67      |
-| imm2-mht   | 1.023 | 0.016 | 1.027 | 0.244  | 0.161 | 1.00   | 1.40  | 5.27      |
+| imm2-mht   | 1.022 | 0.016 | 1.026 | 0.243  | 0.163 | 0.90   | 1.24  | 5.27      |
 | phd-singer | 1.079 | 0.013 | 1.071 | 0.301  | 0.145 | 1.42   | 3.38  | 2.24      |
 
 ### clutter_mix (pos, drone + balloon + bird + leaf + 2 bags; births/deaths, occlusion gaps, Pd 0.85)
@@ -159,7 +159,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 1.274 | 0.034 | 0.926 | 0.913  | 0.424 | 4.88   | 5.26  | 3.75      |
 | imm3-gnn   | 1.271 | 0.036 | 0.895 | 0.908  | 0.498 | 4.54   | 5.04  | 5.28      |
 | imm2-jpda  | 1.257 | 0.034 | 0.916 | 0.913  | 0.383 | 4.58   | 4.30  | 2.89      |
-| imm2-mht   | 1.265 | 0.033 | 0.925 | 0.895  | 0.430 | 4.44   | 4.64  | 5.25      |
+| imm2-mht   | 1.264 | 0.033 | 0.924 | 0.895  | 0.431 | 4.44   | 4.56  | 5.25      |
 | phd-singer | 1.340 | 0.033 | 0.994 | 0.977  | 0.300 | 5.48   | 6.10  | 3.80      |
 
 ### busy (pos, 10 objects, births/deaths, gaps, Pd 0.85, clutter 10/scan)
@@ -171,7 +171,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 1.694 | 0.034 | 1.307 | 1.061  | 0.520 | 7.62   | 8.90  | 7.47      |
 | imm3-gnn   | 1.690 | 0.035 | 1.280 | 1.052  | 0.590 | 7.02   | 8.64  | 13.60     |
 | imm2-jpda  | 1.669 | 0.035 | 1.291 | 1.065  | 0.461 | 7.64   | 7.98  | 7.49      |
-| imm2-mht   | 1.708 | 0.035 | 1.333 | 1.045  | 0.535 | 8.40   | 15.84 | 14.05     |
+| imm2-mht   | 1.692 | 0.034 | 1.316 | 1.038  | 0.531 | 7.56   | 11.66 | 14.05     |
 | phd-singer | 1.772 | 0.036 | 1.362 | 1.166  | 0.416 | 14.02  | 19.68 | 10.21     |
 
 ### cam_mix (camera, drone + bird + balloon, births/deaths, gaps; c = 4 m)
@@ -183,7 +183,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 2.487 | 0.112 | 1.957 | 1.731  | 0.959 | 8.02   | 5.12  | 2.11      |
 | imm3-gnn   | 2.506 | 0.113 | 1.973 | 1.743  | 0.980 | 8.00   | 5.04  | 3.40      |
 | imm2-jpda  | 2.488 | 0.112 | 1.959 | 1.741  | 0.935 | 8.18   | 4.50  | 2.06      |
-| imm2-mht   | 2.489 | 0.110 | 1.959 | 1.720  | 0.975 | 8.00   | 4.30  | 3.51      |
+| imm2-mht   | 2.491 | 0.110 | 1.958 | 1.722  | 0.979 | 8.04   | 4.52  | 3.51      |
 | phd-singer | 2.654 | 0.106 | 2.123 | 1.845  | 0.848 | 11.24  | 5.12  | 1.55      |
 
 ### close_cam (camera, hanging load + slow drone at 3.5-8 m, c = 2 m)
@@ -207,7 +207,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 0.894 | 0.083 | 0.736 | 0.443  | 0.355 | 1.88   | 2.34  | 3.86      |
 | imm3-gnn   | 1.086 | 0.158 | 0.708 | 0.433  | 0.647 | 1.60   | 2.06  | 6.71      |
 | imm2-jpda  | 0.833 | 0.084 | 0.723 | 0.444  | 0.218 | 1.60   | 1.58  | 3.08      |
-| imm2-mht   | 0.837 | 0.089 | 0.728 | 0.452  | 0.195 | 1.50   | 3.60  | 5.72      |
+| imm2-mht   | 0.834 | 0.088 | 0.726 | 0.450  | 0.193 | 1.42   | 2.96  | 5.72      |
 | phd-singer | 0.893 | 0.095 | 0.786 | 0.498  | 0.144 | 2.92   | 4.16  | 4.11      |
 
 ### random_cam (camera, random family)
@@ -219,7 +219,7 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 | imm2-gnn-s | 2.617 | 0.344 | 2.001 | 1.627  | 0.997 | 7.56   | 11.54 | 4.23      |
 | imm3-gnn   | 2.734 | 0.334 | 1.980 | 1.631  | 1.302 | 7.80   | 11.70 | 7.06      |
 | imm2-jpda  | 2.560 | 0.339 | 1.998 | 1.642  | 0.835 | 8.02   | 8.88  | 3.67      |
-| imm2-mht   | 2.572 | 0.346 | 2.010 | 1.619  | 0.836 | 7.48   | 9.54  | 6.55      |
+| imm2-mht   | 2.573 | 0.345 | 2.008 | 1.620  | 0.839 | 7.58   | 9.96  | 6.55      |
 | phd-singer | 2.797 | 0.339 | 2.251 | 1.783  | 0.700 | 12.80  | 9.90  | 5.86      |
 
 (`close_cam_lidar` is reported in the fusion section. Its track-benchmark rows are the same cell as the fusion table below.)
@@ -231,7 +231,9 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
   `ab-nn` is worst everywhere (GOSPA 0.9-1.9, 2-7 breaks): the fixed gate cannot follow turns and hovers. The IMM-3 turn mode (`imm3-gnn`)
   buys nothing on orbit or weave here (0.840 vs 0.848 on orbit, within the 95 % bands).
 - Swarms (spacing 2-5 m, jitter, formation change) are the hard cases: GOSPA 1.06-1.4 against c = 2 m, 4-5 ID switches per run for the
-  GNN/JPDA variants, 18-24 for MHT, 24-40 for PHD, 150-170 for `ab-nn`. Split/merge adds breaks (JPDA 3.9, MHT 7.7, PHD 19).
+  GNN/JPDA variants, 8-10 for MHT (18-24 before TUNE-2, see `tracking-tuning.md`), 24-40 for PHD, 150-170 for `ab-nn`. Split/merge adds
+  breaks (JPDA 3.9, MHT 1.7, PHD 19). The `imm2-mht` rows were re-run after TUNE-2 (50 seeds, same seeds); only their quality columns were
+  replaced, the ms/update column is from the original run (a 4-process re-run measured +0.1 ms for the joint assignment, 7.3 -> 7.5 on `swarm_v`).
 - Slow movers: balloons are easy (0.64); swinging loads cost the loose-hit GNN variants 1.2 GOSPA from duplicate tracks, JPDA/MHT 0.54.
 - Birds (erratic turns, flap/glide speed changes) cost every IMM/PHD variant 1.0-1.1 GOSPA and 1-1.8 breaks (`ab-nn`: 1.4, 8.8): nothing in the library has a motion model
   for a bird, and the tracker has no way to decline them (that is the discrimination job).
