@@ -391,6 +391,84 @@ Kept on hfbox: dataset files `/workspace/wt/napl-c2ml3/data/ml3_{train,val,test}
   (faster, more agile than the suite) was not tested; scale augmentation 0.7-1.4 only partly covers that.
 - Group definitions are mine (route = route + route_fast, pattern = orbit + survey, debris = leaf + bag); other splits (e.g. route_fast alone) were not run.
 
+## ML-4: learned mean + safe covariance hybrids (negative result)
+
+### Conclusion
+
+1. **No hybrid passes all groups.** Best counts of groups passing the ML-3 criterion in 3/3 seeds (held-out 90 % cover, mean over horizons, in [0.80, 0.97]
+   AND RMSE@1.0 s <= IMM2), out of the 8 groups (9 with route+swarm): plain learned 5/8 (route+swarm: 0/3), IMM2 itself 4/8, `mix/guard` 5/8,
+   `floor/guard` 4/8, `imm2cov/guard` 2/8. The hybrids move which groups fail; they do not remove the failures.
+2. **The mean gain is kept** (the hybrids never change the mean: RMSE@1.0 s is the learned model's on every group, -8 % to -46 % vs IMM2, ML-3).
+3. **Covariances that repair the hard groups break the benign ones.** `imm2cov/guard` (IMM2 covariance at the learned mean, scaled k=1 plus the
+   disagreement term) fixes weave (0.684 -> 0.909), swarm (0.788 -> 0.964) and route+swarm (0.675 -> 0.961) but is pessimistic on route 0.975, pattern
+   0.975, balloon 0.999, hanging 0.999, debris 0.989 (all above 0.97). `floor/guard` (learned covariance floored at 0.25 x IMM2 plus 0.5 x disagreement)
+   keeps route / pattern / swarm / debris in range but leaves weave 0.783, bird 0.742, balloon 0.985, hanging 0.988, route+swarm 0.785 (2/3 seeds).
+4. **Bird fails under every variant** (best 0.749 with `mix/guard`; IMM2 itself is 0.687): a random-walk manoeuvrer is beyond both the IMM2 and the learned
+   covariance, so no combination of the two inflates enough, and the fit on the other groups has no way to know.
+5. **Calibration is better in NLL even where cover fails**: held-out NLL (mean h) is below IMM2 for weave (`imm2cov/guard` 4.44 vs IMM2 4.75 vs learned 4.84),
+   swarm (`floor` 3.17 vs 3.44), bird (`floor/guard` 5.35 vs 6.66), route+swarm (`imm2cov/nll` 3.21 vs 3.28). The learned-mean hybrids are strictly better
+   predictors than IMM2 in mean and NLL; they are not reliably calibrated to the [0.80, 0.97] band on an unseen generator.
+6. **Verdict**: still not a fire-control Ph source for an unknown target type. If the mean alone is used for lead and Ph keeps the IMM2-based covariance,
+   `imm2cov` with k fitted on the training groups is the option that was best on the groups where IMM2 is over-confident (weave / swarm / route+swarm);
+   the pessimism on benign classes is IMM2's own (cover 0.99+ on balloon / hanging).
+
+### Method
+
+Code: `napl.track.learned.hybrid` (`hybrid`, `fit`), driver `tools/ml_predict.py eval-threats --hybrid`. Inputs: the 27 ML-3 LOGO MLPs (9 held-out units x 3
+seeds), the ML-3 val / test splits. With mu_l, C_l the learned mean / covariance, mu2, C2 the IMM2 extrapolation, d = mu_l - mu2:
+
+| mode          | covariance (mean is always mu_l)                                                                                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `imm2cov` (a) | k C2 + g d d^T                                                                                                                    |
+| `floor` (b)   | C_l + (k C2 - C_l)_+ + g d d^T; (.)_+ = positive eigen-part, so C is >= both C_l and k C2 in the Loewner order (the matrix "max") |
+| `mix` (b)     | (1-k) C_l + k C2 + g d d^T, k in [0, 1]                                                                                           |
+
+g d d^T is option (c), the disagreement inflation. (k, g) come from a grid (k: 0.25 ... 4 or 0 ... 1 in 0.1 steps; g in {0, 0.5, 1, 2}) fitted **per LOGO model
+on the val split without the held-out group** (every 2nd val sample), never on the held-out group or on test. Two fit objectives: `nll` = minimum pooled val
+NLL; `guard` = minimum val NLL among the grid points whose worst training-group val 90 % cover (mean over horizons) is >= 0.85 (best worst-group cover if
+none reaches it).
+
+### Pass table (test split; seeds passing mean-h rule of 3; cover = 90 % cover, mean over horizons, mean over the 3 seeds)
+
+| held out          | IMM2       | learned (ML-3) | imm2cov/guard | floor/guard | mix/guard | imm2cov/nll | floor/nll |
+| ----------------- | ---------- | -------------- | ------------- | ----------- | --------- | ----------- | --------- |
+| route             | 0.958 pass | 0.838 3/3      | 0.975 0/3     | 0.903 3/3   | 0.874 3/3 | 0.883 3/3   | 0.876 3/3 |
+| pattern           | 0.946 pass | 0.864 3/3      | 0.975 0/3     | 0.901 3/3   | 0.883 3/3 | 0.848 3/3   | 0.887 3/3 |
+| weave             | 0.795 FAIL | 0.684 0/3      | 0.909 3/3     | 0.783 0/3   | 0.785 0/3 | 0.722 0/3   | 0.783 0/3 |
+| swarm             | 0.951 pass | 0.788 0/3      | 0.964 3/3     | 0.831 3/3   | 0.825 3/3 | 0.842 3/3   | 0.831 3/3 |
+| balloon           | 0.997 FAIL | 0.951 3/3      | 0.999 0/3     | 0.985 0/3   | 0.968 3/3 | 0.983 0/3   | 0.976 0/3 |
+| hanging           | 0.994 FAIL | 0.957 3/3      | 0.999 0/3     | 0.988 0/3   | 0.987 0/3 | 0.987 0/3   | 0.982 0/3 |
+| bird              | 0.687 FAIL | 0.676 0/3      | 0.726 0/3     | 0.742 0/3   | 0.749 0/3 | 0.530 0/3   | 0.692 0/3 |
+| debris            | 0.968 pass | 0.863 3/3      | 0.989 0/3     | 0.952 3/3   | 0.918 3/3 | 0.953 3/3   | 0.929 3/3 |
+| route+swarm       | 0.953 pass | 0.675 0/3      | 0.961 3/3     | 0.785 2/3   | 0.751 0/3 | 0.829 3/3   | 0.746 0/3 |
+| groups 3/3 (of 8) | 4          | 5              | 2             | 4           | 5         | 4           | 4         |
+
+(IMM2 "pass" = cover in range; its RMSE is the reference.) Under the stricter every-horizon rule: `floor/guard` keeps route, pattern, swarm (3/3), loses
+debris (0/3); `imm2cov/guard` passes weave only; `mix/guard` passes route, pattern, swarm, debris 2/3. Full table with k / g, NLL, RMSE, min-max cover over
+horizons and both rules: `tools/ml_predict.py eval-threats --hybrid` output (not committed; on hfbox `/workspace/wt/napl-c2ml3/hybrid.md`; the `--json` write crashed on numpy ints in that run, fixed afterwards and not re-run).
+
+### Caveats
+
+- The `floor` fits sit at the lower grid edge (k = 0.25) for the `nll` and `guard` objectives on every group: smaller floors were not tried. for `floor`, `guard` raises g, not k.
+- The fit set is the training groups' val split, which the LOGO models early-stopped on (mildly optimistic for the learned covariance). On those groups the
+  learned model is already near-calibrated, so the fit has no signal about how over-confident it is on an unseen generator; that is the core problem and
+  the reason `nll` fits barely move away from the plain learned covariance. `guard` at 0.85 is a design choice, not tuned.
+- Test splits and models are ML-3's: same suite, same random parameter ranges. Cover is position-error calibration, not Ph.
+
+### Reproduce
+
+```
+export NAPL_REMOTE_DIR=/workspace/wt/napl-c2ml3; D=$NAPL_REMOTE_DIR     # data + 36 ML-3 models live here (outside the rsync --delete of src/)
+tools/remote.sh run --slots 1 "OMP_NUM_THREADS=1 PYTHONPATH=python /opt/venv/bin/python3 tools/ml_predict.py eval-threats --hybrid --data $D/data/ml3_test.npz --val $D/data/ml3_val.npz --logo $D/models --md $D/hybrid.md --json $D/hybrid.json"   # CPU only, ~30 min
+PYTHONPATH=python python -m pytest tests/python/test_track_learned.py -q -k hybrid
+```
+
+### ML-4 not done
+
+- No retraining (e.g. a loss that penalises over-confidence across groups, or group-wise robust training); no floors below k = 0.25; no per-horizon k.
+- Not applied to the GRU or to the main (in-distribution) models; not wired into cuas2 fire control; no Ph or hit-rate evaluation.
+- Bird-like random-walk targets remain uncovered by every option tried.
+
 ## Not done
 
 - No Ph computed: the numbers here are position-error calibration, not the cuas2 Ph (which also has dispersion and target size). The mapping
