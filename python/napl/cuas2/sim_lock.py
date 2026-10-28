@@ -141,9 +141,8 @@ class Lockstep2(_io.Lockstep):
             status_from_joint=True,
             home_off_deg=(-1.0, -1.0),
         )
-        # rpm window 2 % (the CFG_SET maximum) instead of the spec default 1 %: with the plant's 3 permille telemetry noise and the PI wobble the 1 % window is held for
-        # settle_ms in about 1 of 40 samples, so READY blinks (tests/cuas2/test_plant.py uses 20 for the same reason). Bench item: measure the noise, then set the default.
-        for k, v in {p2.CFG_RPM_WINDOW_PM: 20, **(mcu_cfg or {})}.items():
+        # rpm window: the firmware default (1 %). Since the P13 RPMF telemetry filter READY holds at 3 permille plant noise (it needed 2 % before); bench item B-TIME.
+        for k, v in (mcu_cfg or {}).items():
             self.twin.cfg[k] = self.twin.flash[k] = v
         self.geom = _io.measure_geometry(w, self.plant)
         self.twin.step(w.t)

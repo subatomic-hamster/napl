@@ -4,7 +4,6 @@ the real feeder FSM (napl.cuas2.fsm via sim_mcu.RealFsm), the python twin of the
 
 import numpy as np
 import pytest
-from napl.cuas2 import protocol as p2
 from napl.cuas2 import sim_mcu as S
 
 
@@ -12,11 +11,8 @@ from napl.cuas2 import sim_mcu as S
 def fsm_kind(request, monkeypatch):
     """Plant2() without an explicit fsm= gets the stub or the real feeder FSM."""
     if request.param == "real":
-        # rpm_window_pm 20 (the firmware's maximum, 2 %): with the spec default of 10 (1 %) the real controller does not hold the window on this plant's
-        # telemetry noise and trips wheel_not_ready on 3 of 8 seeds (bench item: measure the real noise, then set the default)
-        monkeypatch.setattr(
-            S, "StubFsm", lambda **kw: S.RealFsm(cfg={p2.CFG_RPM_WINDOW_PM: 20})
-        )
+        # the firmware default window (10 permille): holds on this plant's telemetry noise since the P13 RPMF filter (it needed 20 before)
+        monkeypatch.setattr(S, "StubFsm", lambda **kw: S.RealFsm())
     return request.param
 
 

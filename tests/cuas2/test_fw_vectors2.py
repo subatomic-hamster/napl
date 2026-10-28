@@ -131,6 +131,9 @@ M = [
     ("hw_label_repeats_every_tick", "src/fsm.c", "!(f->fault_bits & FAULT_TELEMETRY_LOST) &&", "", "core_hw"),
     ("rpm_window_up_to_100_permille", "src/fsm.c", "case CFG_RPM_WINDOW_PM: return v >= 1 && v <= 20;", "case CFG_RPM_WINDOW_PM: return v >= 1 && v <= 100;", "core_cfg_window"),
     ("settle_ms_zero_allowed", "src/fsm.c", "case CFG_SETTLE_MS: return v >= 20 && v <= 2000;", "case CFG_SETTLE_MS: return v >= 0 && v <= 2000;", "core_cfg_settle"),
+    # P13 RPMF: the wheel-telemetry window filter must not slow the READY drop beyond the stated bound nor outlive its telemetry
+    ("rpm_filter_too_slow", "include/fw_core.h", "#define FDR_RPM_FILT_DIV 8 ", "#define FDR_RPM_FILT_DIV 64 ", "core_rpm_filter"),
+    ("rpm_filter_stale_age_gate_removed", "src/launcher.c", "all_ok && d->age[i] <= FDR_WHEEL_AGE_MAX_MS && set[i] > 0 && absi(fr[i]", "all_ok && set[i] > 0 && absi(fr[i]", "core_rpm_filter"),
 ]  # fmt: skip
 
 
@@ -323,6 +326,38 @@ def core_behaviour_fails(lib, kind):
         r.send(p.CfgSet(p.CFG_V_CAP_DMPS, 381))
         r.run(5)
         return r.last_ack(p.CFG_SET).result != p.BAD_ARG
+    if (
+        kind == "core_rpm_filter"
+    ):  # tests/cuas2/test_rpm_filter.py in miniature, on the mutated library
+        from cuas2.test_rpm_filter import SET, fin
+
+        def settled():
+            c = H.CFeeder(str(lib))
+            return (
+                c,
+                [
+                    c.step(fin(t, SET, SET)).status_fields["wheels_ready"]
+                    for t in range(1, 1501)
+                ],
+                1500,
+            )
+
+        c, rdy, t = settled()
+        assert rdy[-1], "mutant never READY"
+        low, n = (
+            round(SET * 0.98),
+            0,
+        )  # a 2 % slowdown (2 x the 1 % window) must drop READY within 6 ms
+        while n < 40 and c.step(fin(t + 1 + n, low, low)).status_fields["wheels_ready"]:
+            n += 1
+        if n > 5:
+            return True
+        c, rdy, t = settled()  # one wheel's frames stop: not READY after 20 ms
+        ready = [
+            c.step(fin(t + 1 + i, None, SET)).status_fields["wheels_ready"]
+            for i in range(40)
+        ]
+        return any(ready[20:])  # age 21 ms and up must not be READY
     raise AssertionError(kind)
 
 

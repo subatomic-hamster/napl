@@ -67,6 +67,10 @@ void lau_step(fdr_t *d, const fdr_in_t *in, fdr_out_t *o, int32_t *mean_target) 
     for (int i = 0; i < 2; i++) {
         const int32_t r = i ? in->rpm_bot : in->rpm_top;
         if (r >= 0) {
+            /* window filter: first-order IIR, f += (r - f) / FDR_RPM_FILT_DIV, state x16. Re-seeded from the raw sample when the wheel is off or the previous sample is stale,
+             * so a filter state never outlives its telemetry. The PI loop and the overspeed fault keep the raw value. */
+            if (target == 0 || d->age[i] > FDR_WHEEL_AGE_MAX_MS) d->frpm16[i] = r * 16;
+            else d->frpm16[i] += (r * 16 - d->frpm16[i]) / FDR_RPM_FILT_DIV;
             d->last_rpm[i] = r;
             d->age[i] = 0;
         } else if (d->age[i] < 65535u) {
@@ -92,10 +96,11 @@ void lau_step(fdr_t *d, const fdr_in_t *in, fdr_out_t *o, int32_t *mean_target) 
     }
 
     /* window (I12): both wheels within rpm_window_pm of the FINAL setpoint, the ramp finished, fresh telemetry, and the differential within the same band */
+    const int32_t fr[2] = {(d->frpm16[0] + 8) / 16, (d->frpm16[1] + 8) / 16};  /* filtered rpm (frpm16 >= 0) */
     int all_ok = target > 0 && d->ramp_mean == target;
     for (int i = 0; i < 2; i++)
-        all_ok = all_ok && d->age[i] <= FDR_WHEEL_AGE_MAX_MS && set[i] > 0 && absi(d->last_rpm[i] - set[i]) * 1000 <= window * set[i];
-    all_ok = all_ok && absi((d->last_rpm[1] - d->last_rpm[0]) - (set[1] - set[0])) * 1000 <= window * target;
+        all_ok = all_ok && d->age[i] <= FDR_WHEEL_AGE_MAX_MS && set[i] > 0 && absi(fr[i] - set[i]) * 1000 <= window * set[i];
+    all_ok = all_ok && absi((fr[1] - fr[0]) - (set[1] - set[0])) * 1000 <= window * target;
     d->inwin_now = (uint8_t)all_ok;
     if (all_ok) {
         if (d->win_ms < 65535u) d->win_ms++;

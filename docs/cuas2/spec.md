@@ -239,7 +239,7 @@ cl_k              = 0.75       # Magnus C_L = cl_k * S, S = omega r / v, saturat
 spin_tau_s        = 6.0        # spin decay constant [est]
 v_cap_mps         = 38.0       # firmware keys 23/24 are written from these two
 [launcher.wheel]  J_kgm2 = 4.0e-6, kv = 1800, pole_pairs = 7, tau_motor_s = 0.04, p_max_w = 100.0, eta_transfer = 0.6, rpm_sigma_pm = 3     # telemetry/control noise
-[launcher.feed]   t_push_ms = 80, t_commit_ms = 45, t_exit_ms = 8, t_exit_sigma_ms = 2          # timing, section 5.4
+[launcher.feed]   t_push_ms = 118, t_commit_ms = 101.5, t_exit_ms = 15, t_exit_sigma_ms = 2     # timing, section 5.4 (= Calib defaults; firmware commit point 105 ms)
 ```
 
 The firmware keys 23-24 (`wheel_d_um`, `v_cap_dmps`) are the only calib entries the MCU enforces independently; `rpm_max`, `rpm_idle`, `diff_pm` are runtime requests clamped by it.
@@ -249,7 +249,9 @@ The firmware keys 23-24 (`wheel_d_um`, `v_cap_dmps`) are the only calib entries 
 2 kHz per wheel: DShot300 frame (16 bits x 3.33 us = 53 us [est]) with the telemetry bit set, inverted line, ESC replies a 21-bit GRC frame (~56 us at 5/4 x 300 kbit/s) carrying 16 bits:
 3-bit exponent, 9-bit mantissa period in us, 4-bit CRC; `eRPM = 60e6 / period_us`, `rpm = eRPM / pole_pairs` [est, from the bidirectional-DShot community description; **not fetched in this session**, FW worker verifies against the
 Bluejay documentation before coding]. PI on rpm error: `u = u_ff(rpm_set) + Kp e + Ki integral e`, `u` clipped to `[0, throttle_max_pm]` (cfg, default 900 of 1000), setpoint ramp `ramp_rpm_s`. Setpoints: top = `mean*(1 - diff/2)`, bottom = `mean*(1 + diff/2)` with
-`diff = diff_pm/1000`. Window test `|rpm - set| <= rpm_window_pm` for both wheels for `settle_ms`.
+`diff = diff_pm/1000`. Window test `|rpm_f - set| <= rpm_window_pm` for both wheels (and the wheel difference against the commanded difference) for `settle_ms`, on `rpm_f`, a first-order IIR of the raw telemetry rpm
+(`rpm_f += (rpm - rpm_f) / 8` per ms, tau 8 ms, `FDR_RPM_FILT_DIV` [est, bench B-TIME]). Added latency: a real slowdown of k x the window leaves the window after at most 6 ms (k = 2), 4 ms (k = 3), 2 ms (k = 5); a telemetry frame older than 20 ms
+is not in window whatever the filter holds, and the filter is re-seeded from the first raw sample after such a gap. The PI loop, the overspeed fault and the dip measurement keep the raw rpm.
 
 ### 4.5 Licence position on the ESC firmware (state this plainly)
 

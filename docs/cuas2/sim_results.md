@@ -60,15 +60,17 @@ The -0.061 m z figure pooled swinging `hanging` pendulum targets. Closest-approa
 
 ### rpm window (10 / 15 / 20 permille), READY duty
 
-Plant2 plus the firmware state machine, 8 seeds, 5 s after spin-up.
+Plant2 plus the firmware state machine (python twin, byte-exact with the C core), 8 seeds, 5 s after 1.5 s of spin-up, constant request 17,500 rpm. First two columns: raw telemetry (P13 PERF, before the filter; re-run in P13 RPMF with the filter switched off: 0.62 / 84.6 / 99.75 %). Last: P13 RPMF firmware filter (first-order IIR, tau 8 ms, `FDR_RPM_FILT_DIV` 8).
 
-| rpm window                      | wheels_ready duty  | READY losses per 5 s          |
-| ------------------------------- | ------------------ | ----------------------------- |
-| 10 permille (1 %, spec default) | 0.17 %             | n/a (practically never READY) |
-| 15 permille                     | 83.1 % (min 78 %)  | 7.6                           |
-| 20 permille (2 %, harness)      | 99.75 % (min 98 %) | 0.1                           |
+| rpm window                          | duty, raw telemetry (PERF)                                        | losses per 5 s, raw | duty, filtered (RPMF) | losses per 5 s, filtered |
+| ----------------------------------- | ----------------------------------------------------------------- | ------------------- | --------------------- | ------------------------ |
+| 10 permille (1 %, firmware default) | 0.17 % (RPMF re-run 0.62 %, 7 of 8 seeds latched wheel_not_ready) | n/a                 | 100.00 % (min 100 %)  | 0.0                      |
+| 15 permille                         | 83.1 % (min 78 %)                                                 | 7.6                 | 100.00 % (min 100 %)  | 0.0                      |
+| 20 permille (2 %)                   | 99.75 % (min 98 %)                                                | 0.1                 | 100.00 % (min 100 %)  | 0.0                      |
 
-Cause: telemetry sigma 3 permille plus ripple 1.6 permille per wheel; the firmware `_launcher` also checks the wheel difference `|(rb-rt) - (st1-st0)| <= window * target` on the raw, unfiltered telemetry (sigma of the difference about 4.8 permille, so a 10 permille window is 2.1 sigma, about 3.6 % exceedance per ms; the 100 ms settle is never clean). Recommendation: keep 20 (the CFG_SET maximum) in the harness; for a 1 % default the firmware needs an rpm telemetry filter (the stub FSM already uses an 8 ms moving average). Firmware not changed.
+Cause (unchanged): telemetry sigma 3 permille plus ripple 1.6 permille per wheel; the launcher checked the wheel difference `|(rb-rt) - (st1-st0)| <= window * target` on the raw telemetry (sigma of the difference about 4.8 permille, so a 10 permille window is 2.1 sigma, about 3.6 % exceedance per ms). Fix: the window and difference tests now read a per-wheel IIR `rpm_f += (rpm - rpm_f) / 8` (noise sigma x 0.26, so the difference is about 8 sigma inside a 10 permille window). The PI loop, overspeed fault and ball-dip measurement keep the raw rpm. The harness (`sim_lock.py`, `test_plant.py`) is back on the firmware default of 10 permille.
+
+Latency added to the READY drop: a real slowdown of k x the window leaves the window after at most 6 ms (k = 2), 4 ms (k = 3), 2 ms (k = 5, about a ball dip at 1 %); the first-order bound is (7/8)^n <= 1 - 1/k samples at 1 kHz. A slowdown only just past the window (k near 1) takes longer by construction. Missing telemetry: not in window once a frame is older than 20 ms (unchanged), the filter is re-seeded from the first raw sample after such a gap, and 50 ms of silence still raises telemetry_lost. Tested in `tests/cuas2/test_rpm_filter.py` (C and twin identical) and two negative controls in `test_fw_vectors2.py` (filter too slow, age gate removed). Side effects: READY after spin-up arrives about 4 ms later, the WHEELS_LOST event of a shot about 1 ms later (event order SHOT before WHEELS_LOST). Gain and timing are estimates pending bench session B-TIME; the plant's noise model (3 permille white plus 1.6 permille ripple) is not a measurement of the real ESC telemetry.
 
 ## Headline (imm2-gnn tracker, Ph from the IMM mixture, n_ph 500, tau 0.3), seed block 1 (n=10/cell)
 
