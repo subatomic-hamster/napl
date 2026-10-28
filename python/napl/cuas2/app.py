@@ -48,10 +48,8 @@ SIZE_M = aimlib.CLASS_SIZE_M
 class FireCfg2(FireCfg):
     ph_gate: bool = True
     ph_tau: float = 0.3  # FIRE only if Ph >= this (spec 8: sweep 0.1-0.5)
-    n_ph: int = 300  # Monte Carlo samples per decision
-    ph_mixture: bool = (
-        False  # target states from the IMM mixture, not the moment-matched Gaussian
-    )
+    n_ph: int = 500  # Monte Carlo samples per decision (spec 8; 300 before P13 PERF)
+    ph_mixture: bool = True  # target states from the IMM mixture, not the moment-matched Gaussian (P13 PERF: kills/episode 0.50 -> 0.75 at 5-10 m)
     t_obs: float = 0.15  # s after the ball would have arrived before the same target is fired at again
     point_gate_deg: float = (
         3.0  # with the Ph gate: a coarse sanity bound, Ph decides inside it
@@ -249,8 +247,11 @@ def hit_probability(
     the ball to the target (relative motion, within +-0.2 s) is inside `radius`. mixture: draw the target states from the IMM mixture (mode ~ mu, then that
     mode's Gaussian) instead of the moment-matched single Gaussian. -> (Ph, n)."""
     tp = None
-    if mixture:
-        e = tgt.track.est.copy()
+    est = getattr(tgt.track, "est", None) if mixture else None
+    if (
+        est is not None
+    ):  # a track without an estimator (tests' fakes) keeps the Gaussian
+        e = est.copy()
         if t_imp > tgt.track.t:
             e.predict(t_imp - tgt.track.t)
         modes = getattr(e, "modes", None)
