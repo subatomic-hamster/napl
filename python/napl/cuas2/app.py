@@ -49,7 +49,7 @@ class FireCfg2(FireCfg):
     ph_gate: bool = True
     ph_tau: float = 0.3  # FIRE only if Ph >= this (spec 8: sweep 0.1-0.5)
     n_ph: int = 500  # Monte Carlo samples per decision (spec 8; 300 before P13 PERF)
-    ph_mixture: bool = True  # target states from the IMM mixture, not the moment-matched Gaussian (P13 PERF: kills/episode 0.50 -> 0.75 at 5-10 m)
+    ph_mixture: bool = True  # target states from the IMM mixture, not the moment-matched Gaussian (P13 PERF: Ph tracks realised hit/ball; no significant kill change, see sim_results.md)
     t_obs: float = 0.15  # s after the ball would have arrived before the same target is fired at again
     point_gate_deg: float = (
         3.0  # with the Ph gate: a coarse sanity bound, Ph decides inside it
