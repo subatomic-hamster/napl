@@ -48,7 +48,8 @@ SIZE_M = aimlib.CLASS_SIZE_M
 class FireCfg2(FireCfg):
     ph_gate: bool = True
     ph_tau: float = 0.3  # FIRE only if Ph >= this (spec 8: sweep 0.1-0.5)
-    n_ph: int = 300  # Monte Carlo samples per decision
+    n_ph: int = 500  # Monte Carlo samples per decision (spec 8; 300 before P13 PERF)
+    ph_mixture: bool = True  # target states from the IMM mixture, not the moment-matched Gaussian (P13 PERF: Ph tracks realised hit/ball; no significant kill change, see sim_results.md)
     t_obs: float = 0.15  # s after the ball would have arrived before the same target is fired at again
     point_gate_deg: float = (
         3.0  # with the Ph gate: a coarse sanity bound, Ph decides inside it
@@ -239,14 +240,37 @@ def hit_probability(
     n,
     rng,
     wind=(0.0, 0.0, 0.0),
+    mixture=False,
 ):
     """Ph of a ball fired along the unit vector `u` from `muzzle` against the track `tgt` (spec 8): n target states drawn from the track covariance propagated to
     t_imp x n shots from LauncherModel.sample_shots (speed, direction scatter, spin, ball d / m / cd), each flown t_flight; a hit = the closest approach of
-    the ball to the target (relative motion, within +-0.2 s) is inside `radius`. -> (Ph, n)."""
-    m6, P6 = tgt.track.predict_to(t_imp)
-    m6, P6 = np.asarray(m6, float)[:6], np.asarray(P6, float)[:6, :6]
-    P6 = 0.5 * (P6 + P6.T) + 1e-9 * np.eye(6)
-    tp = rng.multivariate_normal(m6, P6, n)
+    the ball to the target (relative motion, within +-0.2 s) is inside `radius`. mixture: draw the target states from the IMM mixture (mode ~ mu, then that
+    mode's Gaussian) instead of the moment-matched single Gaussian. -> (Ph, n)."""
+    tp = None
+    est = getattr(tgt.track, "est", None) if mixture else None
+    if (
+        est is not None
+    ):  # a track without an estimator (tests' fakes) keeps the Gaussian
+        e = est.copy()
+        if t_imp > tgt.track.t:
+            e.predict(t_imp - tgt.track.t)
+        modes = getattr(e, "modes", None)
+        if modes is not None and len(modes) > 1:
+            j = rng.choice(len(modes), n, p=e.mu / e.mu.sum())
+            tp = np.empty((n, 6))
+            for k, md in enumerate(modes):
+                idx = j == k
+                if idx.any():
+                    Pk = np.asarray(md.P, float)[:6, :6]
+                    Pk = 0.5 * (Pk + Pk.T) + 1e-9 * np.eye(6)
+                    tp[idx] = rng.multivariate_normal(
+                        np.asarray(md.x, float)[:6], Pk, int(idx.sum())
+                    )
+    if tp is None:
+        m6, P6 = tgt.track.predict_to(t_imp)
+        m6, P6 = np.asarray(m6, float)[:6], np.asarray(P6, float)[:6, :6]
+        P6 = 0.5 * (P6 + P6.T) + 1e-9 * np.eye(6)
+        tp = rng.multivariate_normal(m6, P6, n)
     sh = model.sample_shots(n, rng, setpoint)
     left = np.cross(bal.UP, u)
     left /= np.linalg.norm(left)
@@ -354,7 +378,9 @@ class FireControl2(FireControl):
             self.target_id = self.last_solution = None
             d.aim = (hold[0], hold[1], 0.0, 0.0)
             d.reasons.append("no_target")
-            d.flywheel, d.inhibit = idle, not live
+            # lite's spin-down hold: a one-frame track dropout must not drop the wheels to idle (re-spin to the READY window took ~0.5 s: READY 23 % of the time on quad8)
+            hot = self.fw_on and d.deadman and now - self.last_target_t <= c.spin_down_s
+            d.flywheel, d.inhibit = (c.flywheel_duty if hot else idle), not live
             return d
         self.target_id, self.last_target_t = tgt.id, now
         pan, tilt = v.pan, v.tilt
@@ -447,6 +473,7 @@ class FireControl2(FireControl):
                 c.n_ph,
                 self.rng,
                 v.wind,
+                mixture=c.ph_mixture,
             )
             self.last_ph = d.ph
             if c.ph_gate and d.ph < c.ph_tau:

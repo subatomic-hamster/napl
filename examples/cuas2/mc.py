@@ -233,11 +233,29 @@ def main(argv=None):
         name, kw, seed = lmc.draw_person(i, a.seed0)
         jobs.append(("person", name, kw, seed, str(out), base, fire_cfg))
     import multiprocessing as mp
+    from concurrent.futures import as_completed
 
-    with ProcessPoolExecutor(
-        max_workers=a.workers, mp_context=mp.get_context("spawn")
-    ) as ex:
-        res = list(ex.map(episode, jobs, chunksize=1))
+    # every finished episode is appended to episodes.jsonl: a killed job is re-run with the same command and only runs the episodes that are missing
+    log = out / "episodes.jsonl"
+    done = {}
+    if log.exists():
+        for ln in log.read_text().splitlines():
+            r = json.loads(ln)
+            done[(r["cell"], r["seed"])] = r
+    todo = [j for j in jobs if (j[0], j[3]) not in done]
+    with (
+        ProcessPoolExecutor(
+            max_workers=a.workers, mp_context=mp.get_context("spawn")
+        ) as ex,
+        log.open("a") as fh,
+    ):
+        futs = [ex.submit(episode, j) for j in todo]
+        for f in as_completed(futs):
+            r = f.result()
+            done[(r["cell"], r["seed"])] = r
+            fh.write(json.dumps(r, default=float) + "\n")
+            fh.flush()
+    res = [done[(j[0], j[3])] for j in jobs]
     (out / "mc.json").write_text(json.dumps(res, indent=1, default=float))
     cells, by_band, by_kind, mc_cells = tables(res, a.kinds, a.bands)
     tot_v = sum(r["n_violations"] for r in res)
