@@ -90,3 +90,43 @@ def test_zero_head_equals_imm2_and_torch_fit(tiny):
         )
         m, c = ML.predict_np(Wt, tiny)
         assert np.isfinite(m).all() and np.linalg.eigvalsh(c).min() > 0
+
+
+@pytest.fixture(scope="module")
+def thr():
+    return D.collect("route_hover", 1001, suite="threats", stride=4)
+
+
+def test_threats_collect_and_group_meta(thr):
+    d = thr
+    n = len(d["y"])
+    assert n > 50 and d["meta"].shape == (n, 7) and d["hm"].shape == (n, D.NHIST, 6)
+    assert set(d["meta"][:, 5]) == {
+        D.GROUPS.index("route")
+    }  # route_hover = route generator only
+    assert (d["meta"][:, 2] % 4 == 0).all() and np.isfinite(d["y"]).all()
+
+
+def test_augment_is_a_consistent_rotation_and_scale(thr):
+    d = thr
+    a = D.augment(d, np.random.default_rng(0))
+    cur, cur_a = d["hm"][:, -1, :3], a["hm"][:, -1, :3]
+    v0 = np.linalg.norm(d["hm"][:, -1, 3:], axis=-1)
+    ok = v0 > 0.1
+    s = np.linalg.norm(a["hm"][:, -1, 3:], axis=-1)[ok] / v0[ok]
+    assert s.min() > 0.69 and s.max() < 1.41
+    # displacement to the truth / to the IMM2 prediction scale by the same s as the speed (rigid yaw + uniform scale)
+    for k in ("y", "pm2"):
+        r0 = np.linalg.norm(d[k] - cur[:, None], axis=-1)[ok]
+        r1 = np.linalg.norm(a[k] - cur_a[:, None], axis=-1)[ok]
+        big = r0 > 0.05
+        assert np.allclose(r1[big], (r0 * s[:, None])[big], rtol=1e-3)
+    # covariances: eigenvalues scale by s^2 (a rotation leaves them unchanged), so they stay positive definite
+    C0 = M.tri_to_cov(d["pc2"].astype(np.float64))[ok]
+    C1 = M.tri_to_cov(a["pc2"].astype(np.float64))[ok]
+    assert np.allclose(
+        np.linalg.eigvalsh(C1),
+        np.linalg.eigvalsh(C0) * (s**2)[:, None, None],
+        rtol=1e-2,
+        atol=1e-6,
+    )

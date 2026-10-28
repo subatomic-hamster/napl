@@ -33,7 +33,7 @@ covariance enough to cure the pessimistic Ph (mean Ph 0.46 vs realised 0.67 on p
    probability on the manoeuvring kinds), not with one scalar; (b) IMM3 is a cheap accuracy win over IMM2 on turn (RMSE@1.0 s 2.34 vs
    2.83 m, 90 % cover 0.96) at about equal cost; (c) revisit a learned residual only with a much wider and randomised training
    distribution (random start states, speeds, headings, accelerations, a yaw/speed augmentation) and a held-out-generator test that it
-   passes; until the user decides on new threat profiles, that data cannot be built.
+   passes; until the user decides on new threat profiles, that data cannot be built. **(c) was run in ML-3 below: the mean generalises, the covariance does not (3 of 8 groups fail the cover criterion).**
 
 Caveats on how to read the tables: scenario kinds are the only ones in `napl.track.scenarios` (no new threat profiles were added);
 the pooled rows weight kinds by sample count (swarm5 38 %, cross 21 %, cam 12 %, cv 10 %, turn 10 %, ca 8 %) so they follow the
@@ -248,12 +248,154 @@ $PY calib --data $D/data/ml2.npz --md $D/calib.md
 PYTHONPATH=python python -m pytest tests/python/test_track_calib.py -q     # ML fit recovers a known factor; NaN-safe NIS feature
 ```
 
+## ML-3: learned predictor on the randomised threat suite, leave-one-generator-out (ML-1 recommendation c)
+
+Question: with a wide randomised training distribution (every `napl.threats` scene, the `random` / `random_cam` families with many seeds, yaw
+and scale augmentation), does a learned residual predictor beat IMM2 extrapolation at 0.2-1.0 s and stay calibrated on a generator it never
+saw? Scope: only the narrowed threat suite (waypoint routes, orbit / survey, weave, swarms, balloons, hanging loads, birds, debris); nothing
+homing / pursuit / dive; nothing wired into cuas2 fire control.
+
+### Conclusion
+
+1. **Accuracy: yes, everywhere.** On every held-out generator the learned model has lower RMSE at 1.0 s than IMM2 (all 3 seeds, 9 of 9 groups,
+   paired CI of the squared error excludes 0 on all 9): -8 % (route+swarm) to -46 % (hanging); pooled in-distribution 3.41 -> 2.45 m (-28 %),
+   NLL 3.56 -> 2.03, with 90 % cover 0.891 (IMM2 0.918, IMM3 0.889). MLP and GRU are equal (2.452 vs 2.465 m); augmentation changes little (below).
+2. **Calibration on a held-out generator: no, not reliably.** The pass criterion (held-out 90 % cover in [0.80, 0.97] AND RMSE@1.0 s not
+   worse than IMM2) holds for **route, pattern, balloon, hanging, debris** (3/3 seeds; hanging 2/3 if all five horizons must be in range) and fails
+   for **weave (cover 0.684), swarm (0.788), bird (0.676)** (0/3 seeds). The failures are over-confidence on random-walk manoeuvrers (the model
+   learned the covariance of the generators it saw); the cover is 0.11-0.22 below the ideal 0.90.
+3. **The route pass is partly leakage.** A swarm follows a leader route, so "route held out" still trains on route-like motion. Holding out
+   route and swarm together fails (cover 0.675, NLL +1.11 [+0.97, +1.30] worse than IMM2 although RMSE is 8 % better). Read the route pass as
+   "interpolation", not as a clean held-out test.
+4. **Verdict: not usable in fire control as a calibrated predictor (fails 3 of 8 groups, 4 of 9 with route+swarm).** The mean is a robust gain; the
+   learned covariance must not drive Ph on an unknown target type. A safe use would be learned mean with a covariance that cannot be smaller
+   than a runtime-known floor (not tested). IMM2 itself is not a clean reference either: its cover is outside [0.80, 0.97] on weave (0.795), bird
+   (0.687), balloon (0.997), hanging (0.994), i.e. it is over-confident on the hard classes and pessimistic on the benign ones.
+5. Difference to ML-1: there the held-out kinds failed catastrophically (RMSE worse than IMM2, cover 0.01-0.24) because the six kinds were fixed
+   paths; with random start states, speeds, parameters and many seeds the held-out RMSE is better than IMM2 on all groups and the cover loss is
+   moderate (0.68-0.96 instead of 0.01-0.24). So recommendation (c) is borne out for the mean, not for the covariance.
+
+### Setup
+
+- **Data** (`napl.track.learned.data.collect(..., suite="threats")`, `tools/ml_predict.py gen --suite threats`): same sample definition as ML-1
+  (last 10 IMM2 track means, IMM2 and IMM3 extrapolations at 0.2 ... 1.0 s, truth at those times), tracker `imm2-gnn` / `imm3-gnn` on the
+  `napl.threats` scene's own sensor (pos or cam). Birth/death is honoured (`alive`: dead objects cannot match, the truth must exist at +1.0 s).
+  Every 3rd scan (0.15 s). Per seed: the 14 named scenes plus `random` and `random_cam` (5 x as many seeds, seed + 10000 j). Splits by seed, disjoint
+  from each other and from the benchmark: train 1001-1060 (+10000 j), val 2001-2015, test 3001-3030; samples train 531 878, val 133 278,
+  test 271 332 (720 test runs). Each sample carries the generator group of its **object** (`meta[:, 5]`) and the class label (`meta[:, 6]`),
+  so mixed scenes are split per object, not per scene.
+- **Groups** (`data.GROUPS`): route (`route`, `route_fast`), pattern (`orbit`, `survey`), weave, swarm, balloon, hanging, bird, debris (`leaf`, `bag`).
+  Test samples: route 27 118, pattern 12 435, weave 11 971, swarm 77 441, balloon 40 116, hanging 34 830, bird 41 170, debris 26 251.
+- **Leave-one-generator-out (LOGO)**: train and val without the group's objects (the tracker still ran on the full scenes), same hyper-parameters, 3
+  seeds per group, tested on the group's test samples. Extra: route+swarm held out together.
+- **Models**: unchanged from ML-1 (MLP 2 x 128 SiLU, GRU 48 units + same head, Gaussian NLL, zero-initialised head, 40 epochs, best-val epoch).
+  Main models: 3 seeds MLP and GRU on train + one augmented copy; ablation: 3 seeds MLP without augmentation.
+- **Augmentation** (`data.augment`): per sample a random yaw about the vertical axis (positions, velocities, 6x6 / 3x3 covariances, truth rotate) and
+  a log-uniform world scale 0.7-1.4 (positions, velocities x s; covariances x s^2: a faster or slower target on a bigger or smaller range at the same
+  sensor rate). Approximations: per-scan x/y stds rotated as if uncorrelated; the scaled IMM covariance is not what the tracker would output on a
+  scaled scene. Test data are not augmented.
+- **Pass criterion**: held-out 90 % cover (3-D ellipsoid, mean over the five horizons) in [0.80, 0.97] AND RMSE@1.0 s <= IMM2. The table also
+  shows the stricter rule (all five horizons in range). Paired bootstrap CIs are over runs (1000 resamples), seed-0 models.
+
+### Results (test split)
+
+In-distribution (main models, seeds averaged; the model saw all groups), RMSE m at 0.2 / 0.6 / 1.0 s, NLL (mean over horizons, includes the constant
+2.757), cover 90 % (mean over horizons):
+
+| scope (n)        | IMM2                                | IMM3                                | MLP (3 seeds)                        | GRU (3 seeds)                        | MLP no aug (3 seeds)                 |
+| ---------------- | ----------------------------------- | ----------------------------------- | ------------------------------------ | ------------------------------------ | ------------------------------------ |
+| pooled (271 332) | 1.04 / 2.03 / 3.41 \| 3.56 \| 0.918 | 1.03 / 2.01 / 3.38 \| 3.40 \| 0.889 | 0.81 / 1.47 / 2.45 \| 2.03 \| 0.891  | 0.81 / 1.48 / 2.47 \| 2.04 \| 0.894  | 0.81 / 1.47 / 2.44 \| 2.08 \| 0.891  |
+| route (27 118)   | 0.95 / 1.65 / 2.59 \| 2.84 \| 0.958 | 0.99 / 1.70 / 2.65 \| 2.72 \| 0.906 | 0.79 / 1.30 / 2.03 \| 1.94 \| 0.867  | 0.79 / 1.30 / 2.04 \| 1.94 \| 0.870  | 0.79 / 1.32 / 2.07 \| 1.98 \| 0.866  |
+| pattern (12 435) | 1.01 / 1.82 / 2.93 \| 3.42 \| 0.946 | 1.00 / 1.78 / 2.84 \| 3.22 \| 0.899 | 0.82 / 1.35 / 2.13 \| 2.46 \| 0.894  | 0.81 / 1.37 / 2.18 \| 2.53 \| 0.888  | 0.81 / 1.35 / 2.14 \| 2.46 \| 0.897  |
+| weave (11 971)   | 1.21 / 2.57 / 4.56 \| 4.75 \| 0.795 | 1.16 / 2.48 / 4.40 \| 4.66 \| 0.761 | 0.99 / 2.00 / 3.47 \| 4.14 \| 0.794  | 1.00 / 2.03 / 3.54 \| 4.17 \| 0.792  | 1.00 / 2.04 / 3.55 \| 4.21 \| 0.788  |
+| swarm (77 441)   | 0.82 / 1.57 / 2.58 \| 3.44 \| 0.951 | 0.84 / 1.59 / 2.60 \| 3.40 \| 0.893 | 0.72 / 1.31 / 2.11 \| 2.92 \| 0.848  | 0.72 / 1.31 / 2.11 \| 2.92 \| 0.851  | 0.72 / 1.32 / 2.14 \| 2.95 \| 0.850  |
+| balloon (40 116) | 0.89 / 1.32 / 1.83 \| 2.40 \| 0.997 | 0.85 / 1.25 / 1.71 \| 1.88 \| 0.996 | 0.71 / 0.91 / 1.18 \| 0.84 \| 0.955  | 0.70 / 0.91 / 1.17 \| 0.86 \| 0.959  | 0.71 / 0.92 / 1.20 \| 0.93 \| 0.955  |
+| hanging (34 830) | 0.79 / 1.25 / 1.79 \| 2.15 \| 0.994 | 0.75 / 1.18 / 1.66 \| 1.64 \| 0.990 | 0.51 / 0.60 / 0.76 \| -0.96 \| 0.965 | 0.48 / 0.58 / 0.73 \| -0.94 \| 0.969 | 0.50 / 0.60 / 0.76 \| -0.85 \| 0.966 |
+| bird (41 170)    | 1.58 / 3.59 / 6.42 \| 6.66 \| 0.687 | 1.58 / 3.58 / 6.40 \| 7.05 \| 0.667 | 1.14 / 2.52 / 4.50 \| 3.43 \| 0.884  | 1.14 / 2.53 / 4.53 \| 3.46 \| 0.887  | 1.14 / 2.48 / 4.38 \| 3.45 \| 0.883  |
+| debris (26 251)  | 1.08 / 1.71 / 2.50 \| 2.95 \| 0.968 | 1.05 / 1.66 / 2.40 \| 2.53 \| 0.961 | 0.86 / 1.16 / 1.56 \| 1.87 \| 0.898  | 0.85 / 1.16 / 1.55 \| 1.93 \| 0.902  | 0.86 / 1.17 / 1.58 \| 1.98 \| 0.899  |
+
+Even in-distribution the learned 90 % cover is 0.85-0.87 on route and swarm and 0.79 on weave: the model is not perfectly calibrated on the
+manoeuvring groups it was trained on. Augmentation is not what makes the result: without it the pooled numbers are the same within 0.02 m / 0.05 NLL
+(NLL is lower with it on 7 of 8 groups, tied on pattern; RMSE@1.0 s is 0.00-0.08 m lower with it on 7 of 8 groups and 0.13 m higher on bird, 0.02 m higher pooled).
+
+Leave-one-generator-out (MLP trained without the group, mean of 3 seeds; "in-dist" = seed-0 main model that saw the group):
+
+| held-out group | RMSE m @1.0 s: IMM2 / IMM3 / LOGO / in-dist | NLL: IMM2 / LOGO / in-dist | cover 90 %: IMM2 / LOGO (min-max over h) / in-dist | cover 50 % LOGO | RMSE@1.0 s <= IMM2 | cover in [0.80, 0.97] | **PASS**          |
+| -------------- | ------------------------------------------- | -------------------------- | -------------------------------------------------- | --------------- | ------------------ | --------------------- | ----------------- |
+| route          | 2.59 / 2.65 / 2.10 / 2.03                   | 2.84 / 2.45 / 1.95         | 0.958 / 0.838 (0.81-0.87) / 0.865                  | 0.546           | 3/3                | 3/3                   | 3/3               |
+| pattern        | 2.93 / 2.84 / 2.23 / 2.15                   | 3.42 / 2.71 / 2.48         | 0.946 / 0.864 (0.85-0.89) / 0.890                  | 0.523           | 3/3                | 3/3                   | 3/3               |
+| weave          | 4.56 / 4.40 / 3.64 / 3.46                   | 4.75 / 4.84 / 4.15         | 0.795 / 0.684 (0.62-0.77) / 0.795                  | 0.324           | 3/3                | 0/3                   | **0/3**           |
+| swarm          | 2.58 / 2.60 / 2.23 / 2.11                   | 3.44 / 3.45 / 2.93         | 0.951 / 0.788 (0.77-0.82) / 0.847                  | 0.445           | 3/3                | 0/3                   | **0/3**           |
+| balloon        | 1.83 / 1.71 / 1.35 / 1.18                   | 2.40 / 1.45 / 0.83         | 0.997 / 0.951 (0.94-0.97) / 0.954                  | 0.729           | 3/3                | 3/3                   | 3/3               |
+| hanging        | 1.79 / 1.66 / 0.97 / 0.76                   | 2.15 / 0.54 / -0.95        | 0.994 / 0.957 (0.94-0.97) / 0.964                  | 0.781           | 3/3                | 3/3                   | 3/3 (2/3 every-h) |
+| bird           | 6.42 / 6.40 / 5.25 / 4.51                   | 6.66 / 5.82 / 3.43         | 0.687 / 0.676 (0.66-0.71) / 0.883                  | 0.373           | 3/3                | 0/3                   | **0/3**           |
+| debris         | 2.50 / 2.40 / 1.73 / 1.56                   | 2.95 / 2.32 / 1.89         | 0.968 / 0.863 (0.85-0.88) / 0.897                  | 0.565           | 3/3                | 3/3                   | 3/3               |
+| route+swarm    | 2.58 / 2.62 / 2.37 / 2.09                   | 3.28 / 4.41 / 2.68         | 0.953 / 0.675 (0.63-0.75) / 0.852                  | 0.350           | 3/3                | 0/3                   | **0/3**           |
+
+Paired differences of the seed-0 LOGO model against the baselines (95 % CI over runs; negative = learned better; full table with the in-distribution
+rows and the per-label scopes are in the `eval-threats` output, `/workspace/wt/napl-c2ml3/eval.md` on hfbox, not committed):
+
+| held-out group | d NLL vs IMM2            | d sq. err m^2 @1.0 s vs IMM2 | d NLL vs IMM3            | d sq. err m^2 @1.0 s vs IMM3 |
+| -------------- | ------------------------ | ---------------------------- | ------------------------ | ---------------------------- |
+| route          | -0.39 [-0.60, -0.19]     | -2.35 [-2.66, -2.06]         | -0.27 [-0.47, -0.07]     | -2.65 [-3.02, -2.29]         |
+| pattern        | -0.72 [-0.81, -0.62]     | -3.53 [-4.52, -2.75]         | -0.51 [-0.62, -0.41]     | -3.01 [-3.86, -2.30]         |
+| weave          | +0.10 [-0.08, +0.27]     | -7.60 [-9.18, -6.12]         | +0.19 [+0.01, +0.38]     | -6.17 [-7.50, -4.93]         |
+| swarm          | +0.00 [-0.11, +0.11]     | -1.70 [-1.91, -1.51]         | +0.03 [-0.05, +0.12]     | -1.82 [-2.06, -1.59]         |
+| balloon        | -0.97 [-1.02, -0.90]     | -1.51 [-1.75, -1.28]         | -0.44 [-0.50, -0.38]     | -1.07 [-1.31, -0.84]         |
+| hanging        | -1.87 [-2.05, -1.58]     | -2.26 [-2.50, -2.05]         | -1.36 [-1.54, -1.07]     | -1.83 [-2.06, -1.60]         |
+| bird           | -0.89 [-1.04, -0.74]     | -13.88 [-14.99, -12.91]      | -1.29 [-1.45, -1.12]     | -13.57 [-14.60, -12.66]      |
+| debris         | -0.65 [-0.83, -0.36]     | -3.28 [-4.10, -2.59]         | -0.23 [-0.41, +0.06]     | -2.81 [-3.64, -2.15]         |
+| route+swarm    | **+1.11 [+0.97, +1.30]** | -1.07 [-1.27, -0.90]         | **+1.17 [+1.03, +1.34]** | -1.23 [-1.47, -1.04]         |
+
+Pooled in-distribution (seed-0 MLP vs IMM2): d NLL -1.53 [-1.60, -1.46], d sq. err @1.0 s -5.62 [-6.10, -5.18] m^2; vs IMM3: -1.37 [-1.45, -1.30] and -5.39 [-5.85, -4.95].
+
+Reading (facts from the tables, then inference):
+
+- RMSE gain over IMM2 holds on all nine hold-outs, so the mean prediction generalises across these generators. The NLL gain does not: weave and swarm
+  are tied with IMM2 (CI contains 0), route+swarm is clearly worse, because the covariance is too small there (d2/3 of the learned model 2.0 / 1.7 / 2.7
+  on weave / swarm / route+swarm against 1.36 / 0.74 / 0.72 for IMM2; 1.0 = calibrated).
+- The cover failures (weave, swarm, bird, route+swarm) are the high-uncertainty generators: random-walk turn rate and speed. A model that has not seen
+  that kind of unpredictability does not scale its covariance up enough. Inference: the predicted covariance is learned mostly as a function of the
+  generator's typical dispersion, so a held-out generator with larger dispersion than any training generator is under-covered; I did not test this directly.
+- On weave and bird IMM2 itself has cover below 0.80 (0.795, 0.687), so those two are hard for any predictor here; on swarm (IMM2 0.951) and
+  route+swarm (0.953) IMM2 is fine and the learned model is the one that loses cover. The criterion tests the learned model, not IMM2.
+
+### Reproduce
+
+```
+export NAPL_REMOTE_DIR=/workspace/wt/napl-c2ml3; D=$NAPL_REMOTE_DIR; PY='OMP_NUM_THREADS=1 PYTHONPATH=python /opt/venv/bin/python3 tools/ml_predict.py'
+G="$PY gen --suite threats --rand-mult 5 --stride 3 --jobs 8"          # CPU lane, 1 slot; one file per split survives a killed job
+tools/remote.sh bg --slots 1 gen "$G --splits test --test 30 --out $D/data/ml3_test.npz; $G --splits val --val 15 --out $D/data/ml3_val.npz; $G --splits train --train 60 --out $D/data/ml3_train.npz"   # 10 + 6 + 24 min under load
+T="NAPL_GPU_FRAC=0.2 $PY train --suite threats --data $D/data/ml3_train.npz,$D/data/ml3_val.npz"                 # --data takes comma-joined files
+tools/remote.sh run --gpu "$T --out $D/models/main --seeds 3 --aug 1; $T --out $D/models/main_noaug --seeds 3 --kinds mlp"   # one GPU job at a time
+for g in route pattern weave swarm balloon hanging bird debris route+swarm; do tools/remote.sh run --gpu "$T --out $D/models/x_$g --seeds 3 --kinds mlp --aug 1 --exclude-group $g"; done
+tools/remote.sh run "$PY eval-threats --data $D/data/ml3_test.npz --models $D/models/main --noaug $D/models/main_noaug --logo $D/models --md $D/eval.md --json $D/eval.json"
+PYTHONPATH=python python -m pytest tests/python/test_track_learned.py -q       # threat collect path + augmentation consistency
+```
+
+`NAPL_GPU_FRAC` (default 0.1) is the CUDA memory cap as a fraction of 16 GB; the augmented set needs 0.2 (3.2 GB, under the 4 GB GTT rule). Training
+takes 50-90 s per MLP and 165 s per GRU on hfbox; several models of one process run out of memory unless the GPU is freed between seeds (fixed in `models.train`).
+Operational notes: a first multi-seed attempt in one process hit the memory cap at the second seed; one run was killed (exit 137) after 2 of 3 `route+swarm`
+seeds and resumed with `--first-seed`; models differ only by the seed, so resuming does not change them.
+
+Kept on hfbox: dataset files `/workspace/wt/napl-c2ml3/data/ml3_{train,val,test}.npz` (about 0.55 GB) and models `/workspace/wt/napl-c2ml3/models` (about 5 MB, 36 models: main
+3 MLP + 3 GRU, no-aug 3 MLP, 27 LOGO MLP); not committed.
+
+### ML-3 not done
+
+- Held-out sensors (train on pos, test on cam) and held-out trackers (JPDA / MHT / PHD tracks as input) were not tried; `random_cam` and the cam scenes are in the training mix.
+- LOGO used one hyper-parameter setting and 3 seeds per group; no search, no model with a covariance floor, no hybrid "learned mean + IMM covariance". Whether
+  such a hybrid passes the cover criterion was not measured.
+- No Ph or hit rate computed, no Jetson latency; the ML-1 inference cost table is the only cost estimate (same architecture: MLP 50 221 parameters).
+- The only held-out unit is the generator. The tests share the random parameter ranges of `gen.*_params` with training, so a target outside those ranges
+  (faster, more agile than the suite) was not tested; scale augmentation 0.7-1.4 only partly covers that.
+- Group definitions are mine (route = route + route_fast, pattern = orbit + survey, debris = leaf + bag); other splits (e.g. route_fast alone) were not run.
+
 ## Not done
 
 - No Ph computed: the numbers here are position-error calibration, not the cuas2 Ph (which also has dispersion and target size). The mapping
   from "IMM covariance 2.3x too large in variance" to "Ph 0.46 vs 0.67" is an inference, not a measurement.
 - Mode/NIS/acceleration-conditioned calibration was tried (ML-2 above) and did not work; class-conditioned and quantile-objective fits were not tried.
-- No randomised-generator training set and no augmentation (yaw, speed), because new threat profiles are pending a user decision; so the
-  learned model's in-distribution gain is not shown to be anything beyond learning the scenario priors.
+- (Done in ML-3 above: randomised-generator training set, yaw / scale augmentation, held-out-generator test. The ML-1 numbers stand as the narrow-distribution case.)
 - No hyper-parameter search, no transformer, no Jetson measurement, no torch-CPU latency, no end-to-end hit-rate effect.
 - Only IMM2 tracker output was used as the learned input; JPDA / MHT / PHD tracks were not used.

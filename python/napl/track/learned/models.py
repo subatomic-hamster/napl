@@ -5,6 +5,8 @@ scaled by exp(d_h) (3) and whose lower triangle gets o_h * mean diag (3). The la
 starts exactly at the IMM2 prediction and cannot be worse than it by construction at step 0. Trained by Gaussian NLL.
 Inference is plain numpy (forward_np); torch is needed only for train()."""
 
+import os
+
 import numpy as np
 
 from .metrics import tri_to_cov
@@ -131,8 +133,8 @@ def train(
     dev = torch.device(device if torch.cuda.is_available() else "cpu")
     if dev.type == "cuda":
         torch.cuda.set_per_process_memory_fraction(
-            0.1
-        )  # of 16 GB: well under the 4 GB GTT rule
+            float(os.environ.get("NAPL_GPU_FRAC", "0.1"))
+        )  # of 16 GB: default well under the 4 GB GTT rule; 0.2 = 3.2 GB for the ML-3 set (1M samples resident)
     H = tr["y"].shape[1]
 
     def prep(d):
@@ -258,6 +260,18 @@ def train(
             b_hh=sd["rnn.bias_hh_l0"],
         )
     W["val_nll"], W["best_epoch"] = best[0], best[1]
+    del (
+        net,
+        opt,
+        sched,
+        P_tr,
+        P_va,
+    )  # closures hold reference cycles: free the GPU before the next seed
+    import gc
+
+    gc.collect()
+    if dev.type == "cuda":
+        torch.cuda.empty_cache()
     return W
 
 
