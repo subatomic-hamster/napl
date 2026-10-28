@@ -43,6 +43,7 @@ GATE_HOME_TIMEOUT_MS = 400
 HOMING_TIMEOUT_MS = 1000
 FEED_PULSE_MS = 10
 WHEEL_AGE_MAX_MS = 20
+RPM_FILT_DIV = 8  # fw_core.h FDR_RPM_FILT_DIV
 NOT_READY_MS = 1500
 OVERSPEED_MS = 20
 MIN_INTERVAL_FLOOR = 470
@@ -116,6 +117,7 @@ class FeederFsm:
         self.integ = [0, 0]
         self.thr = [0, 0]
         self.last_rpm = [0, 0]
+        self.frpm16 = [0, 0]
         self.rpm_cap = 0
         self.age = [0, 0]
         self.win_ms = self.over_ms = self.nr_ms = self.on_ms = 0
@@ -211,6 +213,10 @@ class FeederFsm:
 
         for i, r in enumerate((inp.rpm_top, inp.rpm_bot)):
             if r is not None and r >= 0:
+                if target == 0 or self.age[i] > WHEEL_AGE_MAX_MS:
+                    self.frpm16[i] = r * 16
+                else:
+                    self.frpm16[i] += _td(r * 16 - self.frpm16[i], RPM_FILT_DIV)
                 self.last_rpm[i] = r
                 self.age[i] = 0
             elif self.age[i] < 65535:
@@ -233,18 +239,17 @@ class FeederFsm:
             )
             self.thr[i] = _clamp(u, 0, tmax)
 
+        fr = [(self.frpm16[0] + 8) // 16, (self.frpm16[1] + 8) // 16]
         all_ok = target > 0 and self.ramp_mean == target
         for i in range(2):
             all_ok = (
                 all_ok
                 and self.age[i] <= WHEEL_AGE_MAX_MS
                 and st[i] > 0
-                and abs(self.last_rpm[i] - st[i]) * 1000 <= window * st[i]
+                and abs(fr[i] - st[i]) * 1000 <= window * st[i]
             )
         all_ok = (
-            all_ok
-            and abs((self.last_rpm[1] - self.last_rpm[0]) - (st[1] - st[0])) * 1000
-            <= window * target
+            all_ok and abs((fr[1] - fr[0]) - (st[1] - st[0])) * 1000 <= window * target
         )
         self.inwin_now = all_ok
         if all_ok:

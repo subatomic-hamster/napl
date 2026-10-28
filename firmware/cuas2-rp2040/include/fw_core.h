@@ -109,7 +109,9 @@ enum { BM_BREECH = 1, BM_MUZZLE = 2, BM_GATE_HOME = 4, BM_PUSH_HOME = 8, BM_WHEE
 #define FDR_HOMING_TIMEOUT_MS 1000
 #define FDR_FEED_PULSE_MS 10              /* FEED_REQ high time (the limiter is edge triggered) */
 #define FDR_WHEEL_AGE_MAX_MS 20           /* telemetry older than this does not count as in window (I12) */
-#define FDR_HWC_SKEW_MS 5                 /* both telemetry streams lost within this of each other = weapon power lost (hw shot counter label) */
+#define FDR_RPM_FILT_DIV 8                /* window filter on the telemetry rpm: first-order IIR, tau = 8 ms at 1 kHz [est, B-TIME]. A step of k x the window crosses the window edge in
+                                           * n samples, (7/8)^n <= 1 - 1/k: k = 2 -> 6 ms, k = 3 -> 4 ms, ball dip (5 %, k = 5 at 1 %) -> 2 ms. Noise sigma x 0.26 */
+#define FDR_HWC_SKEW_MS 5                /* both telemetry streams lost within this of each other = weapon power lost (hw shot counter label) */
 #define FDR_NOT_READY_MS 1500
 #define FDR_OVERSPEED_MS 20
 #define FDR_MIN_INTERVAL_FLOOR 470        /* firmware clamp of cfg 15: >= the 466 ms geometric cycle (C-CYCLE) and > the limiter's 338 ms lockout */
@@ -147,7 +149,7 @@ typedef struct {
 
 typedef struct {
     /* launcher */
-    int32_t ramp_mean, integ[2], thr[2], last_rpm[2], rpm_cap;
+    int32_t ramp_mean, integ[2], thr[2], last_rpm[2], rpm_cap, frpm16[2];
     uint32_t age[2], win_ms, over_ms, nr_ms, on_ms;
     int32_t prev_target;
     uint8_t ready_prev, inwin_now;
