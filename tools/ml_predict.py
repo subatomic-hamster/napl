@@ -5,6 +5,10 @@
   python tools/ml_predict.py train --data DATA.npz --out DIR [--seeds 3 --epochs 40] [--exclude KIND]
   python tools/ml_predict.py eval  --data DATA.npz --models DIR [--md OUT.md --json OUT.json] [--heldout DIR2]
   python tools/ml_predict.py bench --data DATA.npz --models DIR
+  ML-3 (randomised threat suite, napl.threats; docs/cuas2/ml-prediction.md):
+  python tools/ml_predict.py gen   --suite threats --out DATA.npz [--rand-mult 6 --stride 2]
+  python tools/ml_predict.py train --data DATA.npz --out DIR --suite threats [--aug 1] [--exclude-group weave]
+  python tools/ml_predict.py eval-threats --data DATA.npz --models DIR --logo DIR2 [--md OUT.md --json OUT.json]
 
 Seeds: train 1001.., val 2001.., test 3001.. (disjoint from the 1..100 of the tracking benchmark and tuning)."""
 
@@ -124,7 +128,20 @@ def cmd_gen(a):
         "val": range(2001, 2001 + a.val),
         "test": range(3001, 3001 + a.test),
     }
-    ds = D.build_dataset(sp, jobs=a.jobs)
+    sp = {k: v for k, v in sp.items() if k in a.splits.split(",")}
+    if a.suite == "threats":
+        from napl.threats import NAMES as TN
+
+        ds = D.build_dataset(
+            sp,
+            TN,
+            jobs=a.jobs,
+            suite="threats",
+            stride=a.stride,
+            extra={"random": a.rand_mult, "random_cam": a.rand_mult},
+        )
+    else:
+        ds = D.build_dataset(sp, jobs=a.jobs)
     D.save(a.out, ds)
     print({s: len(d["y"]) for s, d in ds.items()}, f"{time.time() - t:.0f} s")
 
@@ -135,6 +152,16 @@ def cmd_train(a):
     if a.exclude:
         k = NAMES.index(a.exclude)
         tr, va = sub(tr, kinds(tr) != k), sub(va, kinds(va) != k)
+    if a.exclude_group:  # threats: drop every sample whose OBJECT came from the generator group (scene-independent)
+        g = D.GROUPS.index(a.exclude_group)
+        tr, va = (sub(x, x["meta"][:, 5] != g) for x in (tr, va))
+    if a.aug:  # yaw + world-scale augmentation: a.aug extra randomised copies of the training split
+        rng = np.random.default_rng(12345)
+        parts = [{k: tr[k] for k in D.AUG_KEYS}] + [
+            D.augment(tr, rng) for _ in range(a.aug)
+        ]
+        tr = {k: np.concatenate([p[k] for p in parts]) for k in D.AUG_KEYS}
+        print(f"train samples {len(tr['y'])} (x{1 + a.aug} with augmentation)")
     Path(a.out).mkdir(parents=True, exist_ok=True)
     for kind in a.kinds.split(","):
         for s in range(a.seeds):
@@ -233,6 +260,174 @@ def cmd_eval(a):
         Path(a.md).write_text(text + "\n")
     if a.json:
         Path(a.json).write_text(json.dumps(js))
+
+
+PASS_COVER = (
+    0.80,
+    0.97,
+)  # held-out 90 % cover (mean over the five horizons) for "usable in fire control"
+
+
+def _sqerr(m, y, h):
+    return ((y[:, h] - m[:, h]) ** 2).sum(-1)
+
+
+def _nll(m, c, y):
+    d, Cm = M.mahal2(m, c, y)
+    return (0.5 * (d + np.linalg.slogdet(Cm)[1])).mean(1)
+
+
+def cmd_eval_threats(a):
+    """ML-3: in-distribution and leave-one-generator-out evaluation on the threat-suite test split."""
+    te = D.load(a.data)["test"]
+    y, grp = (
+        te["y"],
+        te["meta"][:, 0].astype(np.int64) * 1_000_000
+        + te["meta"][:, 1].astype(np.int64),
+    )
+    g_of = te["meta"][:, 5].astype(int)
+    lab = te["meta"][:, 6].astype(int)
+    IMM = {"IMM2": base(te, "2"), "IMM3": base(te, "3")}
+    mdir, ldir = Path(a.models), Path(a.logo)
+    main = {
+        f"{k.upper()} s{f.stem.split('_s')[1]}": ML.predict_np(ML.load(f), te)
+        for k in ("mlp", "gru")
+        for f in sorted(mdir.glob(f"{k}_s*.npz"))
+    }
+    cell = lambda r: (
+        f"{r['rmse'][0]:.3f} / {r['rmse'][2]:.3f} / {r['rmse'][4]:.3f} | {r['nll'].mean():.2f} | "
+        f"{r['c50'].mean():.3f} | {r['c90'].mean():.3f} ({r['c90'].min():.2f}-{r['c90'].max():.2f}) | {r['d2'].mean():.2f}"
+    )
+    hdr = [
+        "| group / scope | model | RMSE m @0.2 / 0.6 / 1.0 s | NLL (mean h) | cover 50 % | cover 90 % (min-max over h) | d2/3 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    md, js, passes = [], {}, {}
+
+    def ev(m, c, mask):
+        return M.evaluate(m[mask], c[mask], y[mask])
+
+    def seed_mean(res, kind):
+        ks = [k for k in res if k.startswith(kind + " s")]
+        return {q: np.mean([res[k][q] for k in ks], 0) for q in res[ks[0]]}, len(ks)
+
+    def paired(m, c, mask, ref):
+        m0, c0 = IMM[ref]
+        nm, n0 = _nll(m, c, y), _nll(m0, c0, y)
+        cells = [paired_ci(nm[mask], n0[mask], grp[mask])] + [
+            paired_ci(_sqerr(m, y, h)[mask], _sqerr(m0, y, h)[mask], grp[mask])
+            for h in (2, 4)
+        ]
+        return " | ".join(
+            f"{x[0]:+.3f} [{x[1]:+.3f}, {x[2]:+.3f}]" for x in cells
+        ), cells
+
+    # --- in-distribution (main models saw the group in training)
+    md += ["### In-distribution (main models, test split)", ""] + hdr
+    scopes = [("pooled", np.ones(len(y), bool))] + [
+        (g, g_of == i) for i, g in enumerate(D.GROUPS)
+    ]
+    scopes += [(f"label {n}", lab == i) for i, n in enumerate(_labels())]
+    for sname, mask in scopes:
+        if not mask.any():
+            continue
+        res = {n: ev(*v, mask) for n, v in {**IMM, **main}.items()}
+        rows = {k: res[k] for k in IMM}
+        for kind in ("MLP", "GRU"):
+            if any(k.startswith(kind + " s") for k in res):
+                rows[f"{kind} (mean of {seed_mean(res, kind)[1]} seeds)"] = seed_mean(
+                    res, kind
+                )[0]
+        md += [
+            f"| {sname} (n={int(mask.sum())}) | {n} | {cell(r)} |"
+            for n, r in rows.items()
+        ]
+        js[f"indist/{sname}"] = {
+            n: {k: v.tolist() for k, v in r.items()} for n, r in rows.items()
+        }
+    # --- leave-one-generator-out
+    md += [
+        "",
+        "### Leave-one-generator-out (MLP trained without the group, tested on it; test split)",
+        "",
+    ] + hdr
+    ci_rows = []
+    for i, g in enumerate(D.GROUPS):
+        files = sorted((ldir / f"x_{g}").glob("mlp_s*.npz"))
+        if not files:
+            continue
+        mask = g_of == i
+        per = {f.stem: ML.predict_np(ML.load(f), te) for f in files}
+        res = {n: ev(*v, mask) for n, v in per.items()}
+        mean_r, ns = seed_mean(
+            {k.replace("mlp_", "MLP "): v for k, v in res.items()}, "MLP"
+        )
+        i2, i3 = ev(*IMM["IMM2"], mask), ev(*IMM["IMM3"], mask)
+        ok = []
+        for f_, r in res.items():
+            cover = PASS_COVER[0] <= r["c90"].mean() <= PASS_COVER[1]
+            cover_all = bool(
+                ((r["c90"] >= PASS_COVER[0]) & (r["c90"] <= PASS_COVER[1])).all()
+            )
+            rm = r["rmse"][4] <= i2["rmse"][4]
+            ok.append((cover, cover_all, rm))
+        passes[g] = ok
+        md += [
+            f"| {g} held out (n={int(mask.sum())}) | MLP LOGO (mean of {ns} seed{'s' * (ns > 1)}) | {cell(mean_r)} |"
+        ]
+        md += [
+            f"| {g} held out | IMM2 | {cell(i2)} |",
+            f"| {g} held out | IMM3 | {cell(i3)} |",
+        ]
+        if "MLP s0" in main:
+            md += [
+                f"| {g} held out | MLP main (saw {g}) | {cell(ev(*main['MLP s0'], mask))} |"
+            ]
+        js[f"logo/{g}"] = {
+            "mlp": {k: v.tolist() for k, v in mean_r.items()},
+            "imm2": {k: v.tolist() for k, v in i2.items()},
+            "imm3": {k: v.tolist() for k, v in i3.items()},
+        }
+        m0, c0 = per[files[0].stem]
+        for ref in ("IMM2", "IMM3"):
+            txt, cells = paired(m0, c0, mask, ref)
+            ci_rows.append(f"| {g} | LOGO MLP seed 0 - {ref} | {txt} |")
+        txt, _ = paired(*main["MLP s0"], mask, "IMM2") if "MLP s0" in main else ("", 0)
+        if txt:
+            ci_rows.append(f"| {g} | main MLP s0 (in-dist) - IMM2 | {txt} |")
+    md += [
+        "",
+        "### Paired differences (bootstrap over runs, 95 % CI; negative = learned better)",
+        "",
+        "| group | comparison | d NLL (mean h) | d sq. err m^2 @0.6 s | d sq. err m^2 @1.0 s |",
+        "|---|---|---|---|---|",
+    ] + ci_rows
+    md += [
+        "",
+        f"### Pass criterion (fire-control usable): held-out 90 % cover (mean over horizons) in {list(PASS_COVER)} AND RMSE@1.0 s <= IMM2",
+        "",
+        "| group | seeds | cover in range (mean h) | cover in range at EVERY h | RMSE@1.0 s <= IMM2 | PASS (mean-h rule) | PASS (every-h rule) |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for g, ok in passes.items():
+        n = len(ok)
+        c1, c2, r1 = (sum(o[j] for o in ok) for j in range(3))
+        p1, p2 = sum(o[0] and o[2] for o in ok), sum(o[1] and o[2] for o in ok)
+        md.append(
+            f"| {g} | {n} | {c1}/{n} | {c2}/{n} | {r1}/{n} | {p1}/{n} | {p2}/{n} |"
+        )
+    text = "\n".join(md)
+    print(text)
+    if a.md:
+        Path(a.md).write_text(text + "\n")
+    if a.json:
+        Path(a.json).write_text(json.dumps(js))
+
+
+def _labels():
+    from napl.threats import LABELS
+
+    return LABELS
 
 
 def cmd_bench(a):
@@ -395,7 +590,18 @@ def main():
     g.add_argument("--val", type=int, default=40)
     g.add_argument("--test", type=int, default=60)
     g.add_argument("--jobs", type=int, default=2)
+    g.add_argument("--suite", default="track", choices=("track", "threats"))
+    g.add_argument(
+        "--splits", default="train,val,test"
+    )  # one file per split survives a killed job
+    g.add_argument("--stride", type=int, default=1)  # keep every n-th scan
+    g.add_argument(
+        "--rand-mult", type=int, default=1
+    )  # threats: random* families run this many times more seeds
     t = sp.add_parser("train")
+    t.add_argument("--exclude-group", default="", choices=("",) + D.GROUPS)
+    t.add_argument("--aug", type=int, default=0)
+    t.add_argument("--suite", default="track")  # informational; the data decide
     t.add_argument("--data", required=True)
     t.add_argument("--out", required=True)
     t.add_argument("--seeds", type=int, default=3)
@@ -409,6 +615,12 @@ def main():
     e.add_argument("--heldout", default="")
     e.add_argument("--md", default="")
     e.add_argument("--json", default="")
+    et = sp.add_parser("eval-threats")
+    et.add_argument("--data", required=True)
+    et.add_argument("--models", required=True)
+    et.add_argument("--logo", required=True)  # dir holding x_<group>/mlp_s*.npz
+    et.add_argument("--md", default="")
+    et.add_argument("--json", default="")
     b = sp.add_parser("bench")
     b.add_argument("--data", required=True)
     b.add_argument("--models", required=True)
@@ -421,6 +633,7 @@ def main():
         "gen": cmd_gen,
         "train": cmd_train,
         "eval": cmd_eval,
+        "eval-threats": cmd_eval_threats,
         "bench": cmd_bench,
         "calib": cmd_calib,
     }[a.cmd](a)
