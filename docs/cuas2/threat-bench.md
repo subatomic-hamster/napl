@@ -6,7 +6,7 @@ say how the `napl.track` variants behave on it, not how any real system performs
 ## Reproduce
 
 ```
-# tracker benchmark: 50 seeds (1..50) x 16 scenes x 7 variants (5950 runs, ~28 min on 6 processes)
+# tracker benchmark: 50 seeds (1..50) x 17 scenes (14 suite + random, random_cam, close_cam_lidar) x 7 variants (5950 runs, ~28 min on 6 processes)
 NAPL_REMOTE_DIR=/workspace/wt/napl-c2threat tools/remote.sh bg threat \
   'OMP_NUM_THREADS=1 python tools/threat_bench.py track --runs 50 --jobs 6 > out/threat-track.md'
 # fusion check (camera vs camera + boresight range), 50 seeds
@@ -243,8 +243,73 @@ is dominated by duplicate or clutter tracks (the loose-hit-rule `imm2-gnn`/`imm3
 
 ## Fusion check: camera size-range vs camera + boresight range (TF-Luna-like)
 
-FUSION_PLACEHOLDER
+Scene `close_cam` (hanging load + slow drone at 3.5-8 m, same truth in `close_cam_lidar`; 50 paired seeds, 58 s):
+the camera's range channel is the boresight rangefinder (std 1.5 cm) inside the 2 degree beam within 8 m, size-based (15 %) elsewhere. The two
+objects are in the beam 33 % of the time (seed 1), because the head follows their centroid.
+
+| variant    | camera GOSPA | +-95% | camera+range GOSPA | +-95% | breaks cam | breaks cam+range | ID sw cam | ID sw cam+range |
+| ---------- | ------------ | ----- | ------------------ | ----- | ---------- | ---------------- | --------- | --------------- |
+| imm2-gnn   | 0.417        | 0.013 | 0.412              | 0.016 | 0.02       | 0.02             | 0.26      | 0.02            |
+| imm2-gnn-s | 0.416        | 0.013 | 0.411              | 0.016 | 0.02       | 0.02             | 0.26      | 0.02            |
+| imm2-jpda  | 0.417        | 0.013 | 0.412              | 0.016 | 0.04       | 0.04             | 0.30      | 0.06            |
+
+Result: GOSPA does not change (0.005 difference against a 0.013-0.016 band). ID switches drop from 0.26-0.30 to 0.02-0.06 per run, i.e.
+the range channel resolves the two-object ambiguity (swing crossing the drone's path) but does not improve position accuracy, which is
+already limited by the pixel noise and the 0.5 m GOSPA floor of start-up misses. Two caveats found on the way: (1) a hard in/out-of-beam
+switch of the range noise (first implementation) made the EKF inconsistent when the predicted and the true state straddled the beam edge
+and was worse than camera-only (GOSPA 0.479 vs 0.430 on 8 seeds, 4.75 vs 1.5 ID switches); the smooth log-linear hand-over between 0.5
+and 1.5 beam widths fixes it. (2) This is one configuration; the benefit would be larger with the head locked on a single target
+(more time inside the beam) or a target nearer than 3.5 m. Not tested.
 
 ## Discrimination baseline
 
-DISCRIM_PLACEHOLDER
+Setup: 21 features of a position history (speed mean/std/max, vertical speed std, horizontal 95th percentile, acceleration mean/std,
+turn-rate std/mean, vertical high-pass rms and its spectrum in 0.5-2 / 2-5 / 5-10 Hz bands and peak frequency, horizontal high-pass rms,
+straightness, height mean/std, log apparent size from a noisy size-based diameter estimate, log range, log angular size; `discrim.FEATURES`).
+The history is the object's true track plus Gaussian noise (0.1 m or 0.5 m), oracle-associated, so tracker errors are excluded and this
+measures the classifier and the generator, not the tracking chain. Classifier: multinomial logistic regression in numpy (standardised
+features, L2 0.01, class-balanced weights, Adam, 1500 iterations; no sklearn dependency). Train: every object (alive >= 3 s) of
+`random` seeds 1..400 (1284 objects). Test: seeds 10001..10150, held out (498 objects: drone 129, balloon 92, hanging 94, bird 95, debris 88).
+
+Confusion matrices, rows true, columns predicted (full, with the 0.5 m noise, features "all"):
+
+| 0.1 m noise | drone | balloon | hanging | bird | debris | recall |
+| ----------- | ----- | ------- | ------- | ---- | ------ | ------ |
+| drone       | 129   | 0       | 0       | 0    | 0      | 1.00   |
+| balloon     | 0     | 91      | 1       | 0    | 0      | 0.99   |
+| hanging     | 0     | 0       | 94      | 0    | 0      | 1.00   |
+| bird        | 0     | 0       | 0       | 95   | 0      | 1.00   |
+| debris      | 0     | 2       | 4       | 0    | 82     | 0.93   |
+
+| 0.5 m noise | drone | balloon | hanging | bird | debris | recall |
+| ----------- | ----- | ------- | ------- | ---- | ------ | ------ |
+| drone       | 124   | 2       | 0       | 3    | 0      | 0.96   |
+| balloon     | 0     | 88      | 2       | 0    | 2      | 0.96   |
+| hanging     | 0     | 0       | 94      | 0    | 0      | 1.00   |
+| bird        | 0     | 0       | 0       | 95   | 0      | 1.00   |
+| debris      | 2     | 5       | 6       | 0    | 75     | 0.85   |
+
+**Bird misclassified as drone (the costly error): 0 of 95 in every configuration below**, 0.1 m and 0.5 m noise, all four feature sets.
+Drone misclassified as bird (loses an engagement): 0 / 129 at 0.1 m, 3 / 129 at 0.5 m.
+
+Feature ablations (accuracy; per-class recall drone / balloon / hanging / bird / debris; bird -> drone count):
+
+| noise | features                                                  | accuracy | recall                           | bird -> drone |
+| ----- | --------------------------------------------------------- | -------- | -------------------------------- | ------------- |
+| 0.1 m | all                                                       | 0.986    | 1.00 / 0.99 / 1.00 / 1.00 / 0.93 | 0 / 95        |
+| 0.1 m | no size                                                   | 0.968    | 0.98 / 0.99 / 1.00 / 1.00 / 0.85 | 0 / 95        |
+| 0.1 m | no oscillation spectrum                                   | 0.988    | 1.00 / 0.99 / 1.00 / 1.00 / 0.94 | 0 / 95        |
+| 0.1 m | motion statistics only (no size, spectrum, height, range) | 0.978    | 0.97 / 0.99 / 1.00 / 1.00 / 0.93 | 0 / 95        |
+| 0.5 m | all                                                       | 0.956    | 0.96 / 0.96 / 1.00 / 1.00 / 0.85 | 0 / 95        |
+| 0.5 m | no size                                                   | 0.924    | 0.95 / 0.90 / 1.00 / 1.00 / 0.75 | 0 / 95        |
+| 0.5 m | no oscillation spectrum                                   | 0.964    | 0.98 / 0.95 / 1.00 / 1.00 / 0.88 | 0 / 95        |
+| 0.5 m | motion statistics only                                    | 0.876    | 0.95 / 0.74 / 1.00 / 1.00 / 0.65 | 0 / 95        |
+
+How much to trust this: the numbers are an optimistic upper bound, not a field estimate. The five classes were generated by five very
+different motion models, so they separate by construction; birds are always caught (erratic turn-rate shocks and speed changes) even
+without the wingbeat spectrum, which carries almost nothing at 20 Hz sampling (the spectrum feature does not help: 0.986 with it, 0.988
+without). There is no hard negative in the data: a drone that weaves like a bird, a bird gliding straight, or a balloon-speed drone hover
+is not generated at the rates real scenes would have (a `weave` drone and the `hanging`/`route_hover` cases are the nearest). Debris is
+the weakest class (0.65-0.93) because it overlaps balloons and hanging loads in speed and size. The costly-error result would need
+adversarial scenes (bird-like drones, straight-gliding birds) and real data before any weight is put on it. Not done: gradient-boosted
+model, classification from tracker output (rather than oracle-associated noisy tracks), per-class costs in the loss.
