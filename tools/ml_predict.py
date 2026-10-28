@@ -296,6 +296,13 @@ def cmd_eval_threats(a):
         for k in ("mlp", "gru")
         for f in sorted(mdir.glob(f"{k}_s*.npz"))
     }
+    if a.noaug:  # ablation: MLPs trained without the yaw/scale augmentation
+        main.update(
+            {
+                f"MLPna s{f.stem.split('_s')[1]}": ML.predict_np(ML.load(f), te)
+                for f in sorted(Path(a.noaug).glob("mlp_s*.npz"))
+            }
+        )
     cell = lambda r: (
         f"{r['rmse'][0]:.3f} / {r['rmse'][2]:.3f} / {r['rmse'][4]:.3f} | {r['nll'].mean():.2f} | "
         f"{r['c50'].mean():.3f} | {r['c90'].mean():.3f} ({r['c90'].min():.2f}-{r['c90'].max():.2f}) | {r['d2'].mean():.2f}"
@@ -335,7 +342,7 @@ def cmd_eval_threats(a):
             continue
         res = {n: ev(*v, mask) for n, v in {**IMM, **main}.items()}
         rows = {k: res[k] for k in IMM}
-        for kind in ("MLP", "GRU"):
+        for kind in ("MLP", "GRU", "MLPna"):
             if any(k.startswith(kind + " s") for k in res):
                 rows[f"{kind} (mean of {seed_mean(res, kind)[1]} seeds)"] = seed_mean(
                     res, kind
@@ -395,9 +402,15 @@ def cmd_eval_threats(a):
         for ref in ("IMM2", "IMM3"):
             txt, cells = paired(m0, c0, mask, ref)
             ci_rows.append(f"| {g} | LOGO MLP seed 0 - {ref} | {txt} |")
-        txt, _ = paired(*main["MLP s0"], mask, "IMM2") if "MLP s0" in main else ("", 0)
-        if txt:
-            ci_rows.append(f"| {g} | main MLP s0 (in-dist) - IMM2 | {txt} |")
+        for ref in ("IMM2", "IMM3"):
+            if "MLP s0" in main:
+                txt, _ = paired(*main["MLP s0"], mask, ref)
+                ci_rows.append(f"| {g} | main MLP s0 (in-dist) - {ref} | {txt} |")
+    for ref in ("IMM2", "IMM3"):  # pooled in-distribution
+        for nm in ("MLP s0", "GRU s0"):
+            if nm in main:
+                txt, _ = paired(*main[nm], np.ones(len(y), bool), ref)
+                ci_rows.append(f"| pooled | main {nm} (in-dist) - {ref} | {txt} |")
     md += [
         "",
         "### Paired differences (bootstrap over runs, 95 % CI; negative = learned better)",
@@ -626,6 +639,7 @@ def main():
     et = sp.add_parser("eval-threats")
     et.add_argument("--data", required=True)
     et.add_argument("--models", required=True)
+    et.add_argument("--noaug", default="")
     et.add_argument("--logo", required=True)  # dir holding x_<group>/mlp_s*.npz
     et.add_argument("--md", default="")
     et.add_argument("--json", default="")
