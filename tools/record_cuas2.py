@@ -466,7 +466,7 @@ def _gate_walk(w, root, scn, until, label):
     mcu = ("SAFE", "IDLE", "ARMED", "ENGAGING", "FIRING", "FAULT")
     px = {n: (120 + 208 * i, 140) for i, n in enumerate(mcu)}
     gx = {"HOMING": (110, 290), "LOADING": (330, 290), "TO_BORE": (550, 290), "STAGED": (770, 290), "PUSH": (990, 290), "EXIT_WAIT": (990, 410), "RETRACT": (770, 410),
-          "TO_LOAD": (550, 410), "EMPTY": (330, 410), "JAM": (1170, 350)}  # fmt: skip
+          "TO_LOAD": (550, 410), "EMPTY": (330, 410), "JAM": (1170, 350), "UNKNOWN": (110, 410)}  # fmt: skip
     pos = {
         **{("mcu", k): v for k, v in px.items()},
         **{("gate", k): v for k, v in gx.items()},
