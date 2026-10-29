@@ -46,7 +46,7 @@ tools/remote.sh bg oplog ".venv/bin/python tools/record_cuas2.py oplog $O/oplog.
 tools/remote.sh bg --gpu build ".venv/bin/python tools/record_turret.py build $O/oplog.json $O/build --open assemblies/cuas2.toml --timeout 3000"
 
 # 2. the operator page (CPU, headless Chromium)
-tools/remote.sh run "../webvenv/bin/python tools/record_cuas2.py web $O/runs/s6_person_walk $O/web --fps 10"
+tools/remote.sh run "../webvenv/bin/python tools/record_cuas2.py web $O/runs/s1_balloon_static $O/web --fps 10"
 
 # 3. the sim frames (GPU lane, one viewer per window; windows from the run's own events: dead time fast, real time around balls and the person, 1/4 slow motion around a hit)
 for s in s1_balloon_static s2_balloon_drift s5_mix s6_person_walk s7_fault_estop; do
@@ -60,6 +60,14 @@ tools/remote.sh run --gpu "../webvenv/bin/python tools/record_cuas2.py encode $O
 ```
 
 GPU rules (shared host): every viewer / encode job under `--gpu`, one at a time; check `cat /sys/class/drm/card1/device/mem_info_gtt_used` (limit 4 GB) and `df -h /workspace` after each segment.
+
+## Measured (hfbox, shared lane; draft)
+
+- `run s1_balloon_static`: 477 s wall, hash `edab804ad2532dcc`, 2 balls, 2 hits; the `verify` replay matches.
+- `oplog`: 22 steps. Build capture (`record_turret.py build --open`): 4363 frames in 22 steps, 108 parts, 2.437 kg, DRC 0 errors / 0 warnings, 918 MB of raw `.rgz`. The nanobind "leaked" lines at the end of its log are interpreter-exit noise.
+- `web` (s1, 5-20 s, 10 fps): 150 frames, 13 MB; clicks at frames sector 6, ARM 29, HOLD 36; the server saw the arm and sector posts and 201 dead-man posts.
+- The wiring and program steps are steps 12-22 of the build capture; there is no separate command. After a box kill, rerun a step only if its output (`oplog.json`, `build/timeline.json`, `web/meta_web.json`) is missing; the oplog also caches its card centres in `oplog.cards.json`.
+- Cosmetic: the build stages leave the selection box on the cartridge.
 
 ## After a fix that changes behaviour
 
