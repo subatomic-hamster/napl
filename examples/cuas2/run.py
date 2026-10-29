@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import scene as sc
 from napl.cuas2.app import AppCfg2
+from napl.cuas2.miss import ClosestApproach
 from napl.cuas2.sim_lock import Lockstep2
 
 lrun = sc.load("cuas_lite_run", "cuas-lite/run.py")
@@ -52,7 +53,29 @@ class Referee2(lrun.Referee):
             fc.armed = real
         self.violations["unarmed"] += sum(self._unarmed(t, f) for t, f, _i in new)
         assert self.n_seen == n0 + len(new)
+        self._refine_closest()
         return r
+
+    def _refine_closest(self):
+        """Replace the lite 5 ms-sampled closest approach (it reads low on a climbing ball that hits: napl.cuas2.miss) by the segment / extrapolated one."""
+        h, ca = self.h, self.__dict__.setdefault("_ca", ClosestApproach())
+        cur = h.world.prev_pellets
+        if not cur and not ca.rounds_in_flight():
+            return
+        now = h.world.t
+        tg = (
+            [t for t in h._truth(now)["targets"] if t["cls"] != "person"] if cur else []
+        )
+        for rnd, pos in cur.items():
+            for t in tg:
+                ca.add(rnd, t["id"], now, pos - h.base - t["pos"])
+        for rnd in ca.rounds_in_flight() - set(cur):
+            ca.end(rnd)
+        for rnd, b in ca.best.items():
+            tr = h.targets[b["id"]]
+            tvel = tr.pv(b["t"])[1] if hasattr(tr, "pv") else None
+            self.closest[rnd] = dict(d=round(b["d"], 3), vec=[round(float(x), 3) for x in b["vec"]], id=b["id"], t=round(b["t"], 3),
+                                     tvel=None if tvel is None else [round(float(x), 3) for x in tvel])  # fmt: skip
 
 
 def run_episode(
